@@ -138,7 +138,16 @@ export class ExecutionDO extends DurableObject<Env> {
           cursor: request.request.cursor ?? null,
         });
       }
-      return orderedQuery.collect();
+      const page = await orderedQuery.collect();
+      return {
+        page,
+        isDone: true,
+        continueCursor: String(
+          typeof page.at(-1) === "object" && page.at(-1) !== null
+            ? (page.at(-1) as { _id?: unknown })._id ?? ""
+            : "",
+        ),
+      };
     }
 
     if (session.kind !== "mutation") {

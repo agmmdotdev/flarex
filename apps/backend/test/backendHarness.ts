@@ -1,7 +1,8 @@
 import { Miniflare } from "miniflare";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "vite";
 
 export type BackendHarness = {
@@ -41,13 +42,14 @@ export async function createBackendHarness(): Promise<BackendHarness> {
 }
 
 async function bundleWorker(): Promise<string> {
+  const backendDir = dirname(dirname(fileURLToPath(import.meta.url)));
   const output = await build({
     configFile: false,
     logLevel: "silent",
     build: {
       write: false,
       target: "es2022",
-      lib: { entry: "src/worker.ts", formats: ["es"], fileName: "worker" },
+      lib: { entry: join(backendDir, "src/worker.ts"), formats: ["es"], fileName: "worker" },
       rollupOptions: { external: ["cloudflare:workers"] },
     },
   });

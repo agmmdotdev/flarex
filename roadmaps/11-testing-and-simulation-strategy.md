@@ -19,6 +19,11 @@ Flarex must guarantee transaction serializability, schema invariants, and data s
 - Added Miniflare integration tests for backend execution sessions:
   mutation syscalls stage writes until `/finish`, return validation prevents
   commits, and indexed query syscalls return snapshot reads.
+- Added an example-app generated Worker E2E test with a Miniflare service
+  binding to the backend harness. It verifies generated `/invoke` can execute
+  a mutation and query through backend execution sessions and `PartitionDO`.
+- Made the backend test harness resolve its Worker entry from the harness file
+  path instead of the process cwd, so other packages can reuse it safely.
 
 ## Why This Shape
 
@@ -72,6 +77,7 @@ Inspired by database simulation testing models (such as FoundationDB's simulatio
 corepack pnpm --filter flarex test
 corepack pnpm --filter @flarex/backend test
 corepack pnpm --filter flarex-backend test
+corepack pnpm --filter @flarex/example test
 corepack pnpm typecheck
 corepack pnpm test
 ```

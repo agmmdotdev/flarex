@@ -163,3 +163,48 @@ Verified with:
 corepack pnpm typecheck
 corepack pnpm test
 ```
+
+## Generated Worker E2E Update
+
+Added an end-to-end generated Worker test in the example app. The test runs:
+
+```txt
+generated app Worker /invoke
+  -> FLAREX_BACKEND service binding
+  -> backend /executions/start
+  -> backend /executions/:sessionId/syscall
+  -> backend /executions/:sessionId/finish
+  -> PartitionDO commit
+```
+
+The test deploys schema and generated function metadata to the backend harness,
+invokes `lessons:complete`, then invokes `lessons:list` through the generated
+Worker and verifies the write is read back through the backend index path.
+
+Fixed the query syscall result contract while adding this test. Query syscalls
+now return the SDK runtime envelope:
+
+```ts
+{ page, isDone, continueCursor }
+```
+
+instead of a raw document array. This matches `createQueryInitializer`, whose
+`collect`, `paginate`, `first`, and `unique` helpers expect a paginated result
+shape.
+
+Convex inspiration remains the syscall boundary in:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+- `crates/function_runner/src/lib.rs`
+
+Cloudflare difference: this test uses a Miniflare service binding function to
+connect the generated Worker harness to the backend harness. Production should
+use the real Worker service binding configured in generated Wrangler output.
+
+Verified with:
+
+```sh
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+```

@@ -148,7 +148,7 @@ describe("ExecutionDO sessions", () => {
       partitionKey: "user:u1",
       args: null,
     });
-    const documents = await syscall("execution-query-deployment", start.sessionId, {
+    const queryResult = await syscall("execution-query-deployment", start.sessionId, {
       op: "query",
       request: {
         table: "lessonProgress",
@@ -156,7 +156,8 @@ describe("ExecutionDO sessions", () => {
         range: { expressions: [{ op: "eq", field: "userId", value: "u1" }] },
       },
     });
-    expect(documents).toEqual([
+    expect(queryResult).toMatchObject({ isDone: true });
+    expect((queryResult as { page: unknown[] }).page).toEqual([
       {
         _id: "1:intro",
         userId: "u1",
@@ -165,7 +166,11 @@ describe("ExecutionDO sessions", () => {
       },
     ]);
 
-    const finish = await finishExecution("execution-query-deployment", start.sessionId, documents);
+    const finish = await finishExecution(
+      "execution-query-deployment",
+      start.sessionId,
+      (queryResult as { page: unknown[] }).page,
+    );
     const lower = encodeIndexValues(["u1"]);
     expect(finish.readSet).toEqual({
       indexes: [

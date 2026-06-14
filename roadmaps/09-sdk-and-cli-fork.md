@@ -433,6 +433,17 @@ schema table names for local `v.id("table")` argument and return validation.
 Deployment-owned table IDs from `DeploymentSchema.tables` remain authoritative
 for backend validation and commits.
 
+The example app now has an end-to-end test proving the generated Worker can use
+the generated service-binding path against the backend execution session API.
+This is not the final CLI deploy flow yet, but it verifies the generated
+runtime contract:
+
+- generated function metadata is accepted by the backend
+- local generated validation rejects malformed IDs before `/executions/start`
+- `ctx.db.insert` and `ctx.db.query(...).withIndex(...).collect()` cross the
+  backend syscall API
+- committed documents are read back through the authoritative backend index
+
 Convex reference:
 
 - `npm-packages/convex/src/server/registration.ts`
