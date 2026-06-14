@@ -13,6 +13,10 @@ roadmaps, and lockfile together while ignoring local dependency installs,
 Wrangler output, and generated example artifacts through the local
 `.gitignore`.
 
+Added `custom/cloudflare-executor/` to the parent Convex checkout's
+`.gitignore` so the nested Flarex repository can remain independent until it is
+moved to its own top-level location or remote.
+
 ## Why This Shape
 
 The Flarex work is now a separate Cloudflare-native backend and SDK prototype.
@@ -37,12 +41,12 @@ Convex source tree to remain nearby for reference.
 ## Known Limitations
 
 - No remote origin is configured yet.
-- The parent Convex repository will still see `custom/cloudflare-executor/` as
-  an untracked nested repository unless it is ignored, removed from the parent
-  worktree, or intentionally added as a submodule.
+- The parent Convex repository now ignores `custom/cloudflare-executor/`.
+- No remote origin is configured yet.
 
 ## Verification
 
 ```sh
 git status --short
+git -C C:\Users\Admin\Documents\github\convex-backend status --short -- .gitignore custom/cloudflare-executor
 ```
