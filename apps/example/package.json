@@ -1,0 +1,18 @@
+{
+  "name": "@flarex/example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm generate && vite build",
+    "generate": "tsx scripts/generate.ts",
+    "typecheck": "pnpm generate && tsc -p tsconfig.json",
+    "test": "pnpm generate && vitest run"
+  },
+  "dependencies": {
+    "flarex": "workspace:*"
+  },
+  "devDependencies": {
+    "flarex-backend": "workspace:*",
+    "tsx": "^4.21.0"
+  }
+}

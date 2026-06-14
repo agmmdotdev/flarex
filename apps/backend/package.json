@@ -1,0 +1,15 @@
+{
+  "name": "@flarex/backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "dev": "wrangler dev --local",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260611.0",
+    "wrangler": "^4.100.0"
+  }
+}

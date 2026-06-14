@@ -1,0 +1,45 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarex-backend",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-14",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REGISTRY",
+        "class_name": "RegistryDO"
+      },
+      {
+        "name": "DEPLOYMENTS",
+        "class_name": "DeploymentDO"
+      },
+      {
+        "name": "PARTITIONS",
+        "class_name": "PartitionDO"
+      },
+      {
+        "name": "CONNECTIONS",
+        "class_name": "ConnectionDO"
+      },
+      {
+        "name": "SCHEDULERS",
+        "class_name": "SchedulerDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RegistryDO",
+        "DeploymentDO",
+        "PartitionDO",
+        "ConnectionDO",
+        "SchedulerDO"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
