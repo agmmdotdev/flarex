@@ -25,6 +25,7 @@ export async function createBackendHarness(): Promise<BackendHarness> {
       REGISTRY: { className: "RegistryDO", useSQLite: true },
       DEPLOYMENTS: { className: "DeploymentDO", useSQLite: true },
       PARTITIONS: { className: "PartitionDO", useSQLite: true },
+      EXECUTIONS: { className: "ExecutionDO", useSQLite: true },
       CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
     },

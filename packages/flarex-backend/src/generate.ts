@@ -170,11 +170,11 @@ function workerSource(functions: DiscoveredFunction[]): string {
 import { DurableObject } from "cloudflare:workers";
 import {
   createQueryInitializer,
-  encodeFlarexId,
   parseFlarexId,
   validateFunctionArgs,
   validateValue,
   type DatabaseQueryRequest,
+  type DatabaseQueryResult,
   type DatabaseWriter,
   type RegisteredFunction,
 } from "flarex/server";
@@ -198,7 +198,8 @@ const tableNamesById = new Map(
 
 export interface Env {
   CONNECTIONS: DurableObjectNamespace<ConnectionDO>;
-  PARTITIONS: DurableObjectNamespace<PartitionDO>;
+  FLAREX_BACKEND: Fetcher;
+  FLAREX_DEPLOYMENT_ID?: string;
 }
 
 export class ConnectionDO extends DurableObject<Env> {
@@ -214,144 +215,9 @@ export class ConnectionDO extends DurableObject<Env> {
   }
 }
 
-export class PartitionDO extends DurableObject<Env> {
-  private readonly sql = this.ctx.storage.sql;
-
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    this.sql.exec(\`
-      CREATE TABLE IF NOT EXISTS documents (
-        id TEXT PRIMARY KEY,
-        table_name TEXT NOT NULL,
-        value TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS documents_by_table ON documents(table_name);
-    \`);
-  }
-
-  private database(): DatabaseWriter {
-    const query = async (request: DatabaseQueryRequest) => {
-      const rows = this.sql.exec<{ value: string }>(
-        "SELECT value FROM documents WHERE table_name = ? ORDER BY updated_at, id",
-        request.table,
-      ).toArray();
-      const documents = rows.map(row => JSON.parse(row.value) as Record<string, unknown>);
-      const expressions = request.range?.expressions ?? [];
-      const filtered = documents.filter(document =>
-        expressions.every(expression =>
-          matchesExpression(fieldValue(document, expression.field), expression.op, expression.value),
-        ),
-      );
-      const ordered = filtered.sort((left, right) =>
-        String(left._id).localeCompare(String(right._id)),
-      );
-      if (request.order === "desc") ordered.reverse();
-      const afterCursor =
-        request.cursor === undefined
-          ? ordered
-          : ordered.filter(document =>
-              request.order === "desc"
-                ? String(document._id) < request.cursor!
-                : String(document._id) > request.cursor!,
-            );
-      const limit = request.limit ?? afterCursor.length;
-      const page = afterCursor.slice(0, limit);
-      return {
-        page,
-        isDone: afterCursor.length <= limit,
-        continueCursor: String(page.at(-1)?._id ?? request.cursor ?? ""),
-      };
-    };
-    return {
-      get: async id => {
-        const rows = this.sql.exec<{ value: string }>(
-          "SELECT value FROM documents WHERE id = ?",
-          id,
-        ).toArray();
-        return rows[0] ? JSON.parse(rows[0].value) : null;
-      },
-      query: table => createQueryInitializer(table, query),
-      insert: async (table, value) => {
-        validateTableValue(table, value);
-        const metadata = tableMetadata[table];
-        if (!metadata) throw new Error(\`Unknown table: \${table}\`);
-        const id = encodeFlarexId(metadata.tableId);
-        this.sql.exec(
-          "INSERT INTO documents (id, table_name, value, updated_at) VALUES (?, ?, ?, ?)",
-          id,
-          table,
-          JSON.stringify({ ...(value as object), _id: id }),
-          Date.now(),
-        );
-        return id as never;
-      },
-      patch: async (id, value) => {
-        const current = await this.database().get(id);
-        if (current === null) throw new Error(\`Document not found: \${id}\`);
-        const next = { ...(current as object), ...(value as object) };
-        validateTableValue(tableNameForId(id), withoutSystemFields(next));
-        this.sql.exec(
-          "UPDATE documents SET value = ?, updated_at = ? WHERE id = ?",
-          JSON.stringify({ ...(current as object), ...(value as object), _id: id }),
-          Date.now(),
-          id,
-        );
-      },
-      delete: async id => {
-        this.sql.exec("DELETE FROM documents WHERE id = ?", id);
-      },
-    };
-  }
-
-  private async invoke(path: string, args: unknown): Promise<unknown> {
-    const fn = functions[path];
-    if (!fn) throw new Error(\`Unknown Flarex function: \${path}\`);
-    validateFunctionArgs(fn.args, args, { validateId: validateTableNameId });
-    const execute = async () => {
-      const value = await fn.handler({ db: this.database() } as never, args as never);
-      validateFunctionReturn(fn.returns, value);
-      return value;
-    };
-    if (fn.kind === "query") return execute();
-    if (fn.kind !== "mutation") {
-      throw new Error(\`\${fn.kind} execution is not implemented in the partition runtime\`);
-    }
-
-    return this.ctx.storage.transaction(async () => execute());
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/health") {
-      return Response.json({ service: "flarex-partition", status: "ok" });
-    }
-    if (url.pathname === "/invoke" && request.method === "POST") {
-      try {
-        const body = await request.json<{ path: string; args: unknown }>();
-        return Response.json({ value: await this.invoke(body.path, body.args) });
-      } catch (error) {
-        return Response.json(
-          { error: error instanceof Error ? error.message : String(error) },
-          { status: 400 },
-        );
-      }
-    }
-    return Response.json({ error: "Not implemented." }, { status: 501 });
-  }
-}
-
 function validateFunctionReturn(validator: RegisteredFunction["returns"], value: unknown): void {
   if (validator === null) return;
   validateValue(validator, value, "$return", { validateId: validateTableNameId });
-}
-
-function validateTableValue(table: string, value: unknown): void {
-  const definition = Object.entries(schema.tables).find(([name]) => name === table)?.[1];
-  if (!definition || definition.kind !== "table") throw new Error(\`Unknown table: \${table}\`);
-  validateValue(definition.validator, value, \`$document(\${table})\`, {
-    validateId: validateTableNameId,
-  });
 }
 
 function validateTableNameId(tableName: string, value: string, path: string): void {
@@ -370,42 +236,102 @@ function validateTableNameId(tableName: string, value: string, path: string): vo
   }
 }
 
-function tableNameForId(id: string): string {
-  const parsed = parseFlarexId(id);
-  if (parsed === null) throw new Error(\`Invalid document ID: \${id}\`);
-  const tableName = tableNamesById.get(parsed.tableId);
-  if (tableName === undefined) throw new Error(\`Unknown table id \${parsed.tableId} in document ID: \${id}\`);
-  return tableName;
-}
+type InvokeBody = {
+  path: string;
+  args: unknown;
+  partitionKey?: string;
+  deploymentId?: string;
+  idempotencyKey?: string;
+};
 
-function withoutSystemFields(value: object): object {
-  const { _id: _ignoredId, _creationTime: _ignoredCreationTime, ...document } =
-    value as Record<string, unknown>;
-  return document;
-}
+type ExecutionStartResponse = {
+  sessionId: string;
+  kind: "query" | "mutation";
+};
 
-function fieldValue(value: Record<string, unknown>, field: string): unknown {
-  let cursor: unknown = value;
-  for (const segment of field.split(".")) {
-    if (typeof cursor !== "object" || cursor === null || Array.isArray(cursor)) return undefined;
-    cursor = (cursor as Record<string, unknown>)[segment];
+async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): Promise<unknown> {
+  const fn = functions[body.path];
+  if (!fn) throw new Error(\`Unknown Flarex function: \${body.path}\`);
+  if (fn.kind !== "query" && fn.kind !== "mutation") {
+    throw new Error(\`\${fn.kind} execution is not implemented by /invoke\`);
   }
-  return cursor;
+  validateFunctionArgs(fn.args, body.args, { validateId: validateTableNameId });
+
+  const deploymentId =
+    request.headers.get("x-flarex-deployment") ?? body.deploymentId ?? env.FLAREX_DEPLOYMENT_ID;
+  if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
+  const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
+  if (!partitionKey) throw new Error("A partitionKey or x-flarex-partition header is required.");
+
+  const start = await postBackend<ExecutionStartResponse>(
+    env.FLAREX_BACKEND,
+    \`/deployments/\${deploymentId}/executions/start\`,
+    {
+      path: body.path,
+      args: body.args,
+      kind: fn.kind,
+      partitionKey,
+      ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+    },
+  );
+  try {
+    const db = databaseForSession(env.FLAREX_BACKEND, deploymentId, start.sessionId, start.kind);
+    const value = await fn.handler({ db } as never, body.args as never);
+    validateFunctionReturn(fn.returns, value);
+    return await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/finish\`, {
+      value,
+    });
+  } catch (error) {
+    await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/abort\`, {}).catch(
+      () => undefined,
+    );
+    throw error;
+  }
 }
 
-function matchesExpression(left: unknown, op: string, right: unknown): boolean {
-  if (op === "eq") return left === right;
-  if (
-    (typeof left !== "string" && typeof left !== "number") ||
-    (typeof right !== "string" && typeof right !== "number")
-  ) {
-    return false;
+function databaseForSession(
+  backend: Fetcher,
+  deploymentId: string,
+  sessionId: string,
+  kind: "query" | "mutation",
+): DatabaseWriter {
+  const syscall = (body: unknown) =>
+    postBackend<unknown>(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
+  const query = (request: DatabaseQueryRequest) =>
+    syscall({ op: "query", request }) as Promise<DatabaseQueryResult>;
+  return {
+    get: id => syscall({ op: "get", id }) as never,
+    query: table => createQueryInitializer(table, query),
+    insert: async (table, value) => {
+      if (kind !== "mutation") throw new Error("Cannot insert during a query.");
+      return (await syscall({ op: "insert", table, value })) as never;
+    },
+    patch: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot patch during a query.");
+      await syscall({ op: "patch", id, value });
+    },
+    delete: async id => {
+      if (kind !== "mutation") throw new Error("Cannot delete during a query.");
+      await syscall({ op: "delete", id });
+    },
+  };
+}
+
+async function postBackend<T>(backend: Fetcher, path: string, body: unknown): Promise<T> {
+  const response = await backend.fetch(\`https://flarex-backend.internal\${path}\`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const value = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof value === "object" && value !== null && "error" in value
+        ? String((value as { error: unknown }).error)
+        : \`Backend request failed with status \${response.status}\`;
+    throw new Error(message);
   }
-  if (op === "gt") return (left as any) > right;
-  if (op === "gte") return (left as any) >= right;
-  if (op === "lt") return (left as any) < right;
-  if (op === "lte") return (left as any) <= right;
-  return false;
+  return value as T;
 }
 
 export default {
@@ -416,19 +342,14 @@ export default {
       return env.CONNECTIONS.getByName(session).fetch(request);
     }
     if (url.pathname === "/invoke" && request.method === "POST") {
-      const body = await request.json<{ path: string; args: unknown; partitionKey?: string }>();
-      const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
-      if (!partitionKey) {
+      try {
+        return Response.json(await invokeWithBackend(await request.json<InvokeBody>(), env, request));
+      } catch (error) {
         return Response.json(
-          { error: "A partitionKey or x-flarex-partition header is required." },
+          { error: error instanceof Error ? error.message : String(error) },
           { status: 400 },
         );
       }
-      return env.PARTITIONS.getByName(partitionKey).fetch("https://flarex.internal/invoke", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: body.path, args: body.args }),
-      });
     }
     if (url.pathname === "/health") {
       return Response.json({ service: "flarex", status: "ok" });
@@ -465,10 +386,10 @@ export async function generateFlarex(options: FlarexGenerateOptions): Promise<vo
     durable_objects: {
       bindings: [
         { name: "CONNECTIONS", class_name: "ConnectionDO" },
-        { name: "PARTITIONS", class_name: "PartitionDO" },
       ],
     },
-    migrations: [{ tag: "v1", new_sqlite_classes: ["ConnectionDO", "PartitionDO"] }],
+    services: [{ binding: "FLAREX_BACKEND", service: "flarex-backend" }],
+    migrations: [{ tag: "v1", new_sqlite_classes: ["ConnectionDO"] }],
   };
   await writeFile(
     path.join(options.root, "wrangler.generated.jsonc"),

@@ -1,6 +1,7 @@
 import { ConnectionDO } from "./connectionDO";
 import { DeploymentDO } from "./deploymentDO";
 import { errorResponse, json, readJson, required } from "./http";
+import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
   invokeErrorResponse,
@@ -12,6 +13,7 @@ import { RegistryDO } from "./registryDO";
 import {
   connectionObjectName,
   deploymentObjectName,
+  executionObjectName,
   partitionObjectName,
   schedulerObjectName,
 } from "./routing";
@@ -26,6 +28,7 @@ import type {
 } from "./types";
 
 export { ConnectionDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
+export { ExecutionDO };
 
 const functions: BackendFunctionRegistry = {};
 
@@ -69,6 +72,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "invoke" && request.method === "POST") {
       return routeInvoke(env, deploymentId, await readJson(request));
     }
+    if (parts[2] === "executions") {
+      return routeExecution(request, env, deploymentId, parts.slice(3));
+    }
     if (parts[2] === "partitions") {
       const partitionKey = required(parts[3], "partition key");
       return routePartition(request, env, deploymentId, partitionKey, parts.slice(4), url);
@@ -83,6 +89,39 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   return json({ error: "Not found." }, { status: 404 });
+}
+
+async function routeExecution(
+  request: Request,
+  env: Env,
+  deploymentId: string,
+  parts: string[],
+): Promise<Response> {
+  if (parts[0] === "start" && request.method === "POST") {
+    const sessionId = crypto.randomUUID();
+    const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
+    const body = await readJson<Record<string, unknown>>(request);
+    const response = await execution.fetch("https://flarex.internal/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, deploymentId }),
+    });
+    if (!response.ok) return response;
+    return json({ sessionId, ...((await response.json()) as Record<string, unknown>) });
+  }
+
+  const sessionId = required(parts[0], "execution session id");
+  const action = required(parts[1], "execution action");
+  const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
+  if (["syscall", "finish", "abort"].includes(action) && request.method === "POST") {
+    return execution.fetch(`https://flarex.internal/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(await readJson(request)),
+    });
+  }
+
+  return json({ error: "Execution route not found." }, { status: 404 });
 }
 
 async function routeDeploymentFunctions(

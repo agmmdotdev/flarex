@@ -18,6 +18,10 @@
         "class_name": "PartitionDO"
       },
       {
+        "name": "EXECUTIONS",
+        "class_name": "ExecutionDO"
+      },
+      {
         "name": "CONNECTIONS",
         "class_name": "ConnectionDO"
       },
@@ -34,6 +38,7 @@
         "RegistryDO",
         "DeploymentDO",
         "PartitionDO",
+        "ExecutionDO",
         "ConnectionDO",
         "SchedulerDO"
       ]

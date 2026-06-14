@@ -172,7 +172,7 @@ export function invokeErrorResponse(error: unknown): Response {
   );
 }
 
-function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseReader {
+export function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseReader {
   return {
     get: async id => {
       const document = await tx.get(tableIdFromDocumentId(id, schema), id);
@@ -272,7 +272,7 @@ function backendRangeBuilder(
   };
 }
 
-function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {
+export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {
   return {
     ...readerFor(tx, schema),
     insert: async (table, value, id) => {
@@ -311,7 +311,7 @@ function commitMutation(
   });
 }
 
-async function loadSchema(env: InvokeEnv, deploymentId: string): Promise<DeploymentSchema> {
+export async function loadSchema(env: InvokeEnv, deploymentId: string): Promise<DeploymentSchema> {
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
   const response = await deployment.fetch("https://flarex.internal/schema");
   if (!response.ok) {
@@ -320,7 +320,7 @@ async function loadSchema(env: InvokeEnv, deploymentId: string): Promise<Deploym
   return response.json() as Promise<DeploymentSchema>;
 }
 
-async function loadFunctionMetadata(
+export async function loadFunctionMetadata(
   env: InvokeEnv,
   deploymentId: string,
   path: string,
@@ -339,7 +339,7 @@ async function loadFunctionMetadata(
   return response.json() as Promise<DeploymentFunctionMetadata>;
 }
 
-function isInvokableKind(kind: DeploymentFunctionKind): kind is BackendFunctionKind {
+export function isInvokableKind(kind: DeploymentFunctionKind): kind is BackendFunctionKind {
   return kind === "query" || kind === "mutation";
 }
 
@@ -397,7 +397,7 @@ function validateDocument(table: SchemaTable, value: Json, schema?: DeploymentSc
   }
 }
 
-function validateReturn(
+export function validateReturn(
   validator: ValidatorJson | null | undefined,
   value: Json,
   schema: DeploymentSchema,
@@ -413,7 +413,7 @@ function validateReturn(
   }
 }
 
-function idValidatorForSchema(schema: DeploymentSchema) {
+export function idValidatorForSchema(schema: DeploymentSchema) {
   return (expectedTableName: string, id: string, path: string): void => {
     const parsed = parseFlarexId(id);
     if (parsed === null) {

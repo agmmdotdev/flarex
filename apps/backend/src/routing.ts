@@ -6,6 +6,10 @@ export function partitionObjectName(deploymentId: string, partitionKey: string):
   return `partition:${deploymentId}:${partitionKey}`;
 }
 
+export function executionObjectName(deploymentId: string, sessionId: string): string {
+  return `execution:${deploymentId}:${sessionId}`;
+}
+
 export function connectionObjectName(deploymentId: string, sessionId: string): string {
   return `connection:${deploymentId}:${sessionId}`;
 }

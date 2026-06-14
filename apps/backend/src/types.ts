@@ -19,6 +19,7 @@ export type Env = {
   REGISTRY: DurableObjectNamespace;
   DEPLOYMENTS: DurableObjectNamespace;
   PARTITIONS: DurableObjectNamespace;
+  EXECUTIONS: DurableObjectNamespace;
   CONNECTIONS: DurableObjectNamespace;
   SCHEDULERS: DurableObjectNamespace;
 };
@@ -147,6 +148,43 @@ export type InvokeResponse = {
   readSet?: ReadSet;
   committedTs?: number;
   writes?: CommittedWrite[];
+};
+
+export type ExecutionStartRequest = InvokeRequest & {
+  deploymentId: string;
+};
+
+export type ExecutionStartResponse = {
+  beginTs: number;
+  schemaVersion: number;
+  kind: BackendFunctionKind;
+};
+
+export type ExecutionSyscallRequest =
+  | { op: "get"; id: string }
+  | {
+      op: "query";
+      request: {
+        table: string;
+        index?: string;
+        range?: {
+          expressions: Array<{
+            op: "eq" | "gt" | "gte" | "lt" | "lte";
+            field: string;
+            value: Json;
+          }>;
+        };
+        limit?: number;
+        cursor?: string;
+        order?: "asc" | "desc";
+      };
+    }
+  | { op: "insert"; table: string; value: Json; id?: string }
+  | { op: "patch"; id: string; value: { [key: string]: Json } }
+  | { op: "delete"; id: string };
+
+export type ExecutionFinishRequest = {
+  value: Json;
 };
 
 export type StoredDocument = {

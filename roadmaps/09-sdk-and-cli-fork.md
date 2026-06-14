@@ -411,22 +411,27 @@ The generated Worker and authoritative backend both use this hook with numeric
 table IDs. This keeps the SDK runtime portable while preserving Convex's
 `v.id("table")` semantics.
 
-The generator now also emits Worker code that imports:
+The generator previously emitted standalone Worker storage code. It now emits
+a Worker that calls backend execution sessions through a `FLAREX_BACKEND`
+service binding. Generated Worker code imports:
 
 ```ts
-import { encodeFlarexId, parseFlarexId } from "flarex/server";
+import { createQueryInitializer, parseFlarexId } from "flarex/server";
 ```
 
-Generated inserts use canonical numeric table IDs:
+Generated `ctx.db` operations no longer write to local Worker SQLite state.
+They call:
 
 ```txt
-{tableId}:{documentId}
+/deployments/:deploymentId/executions/start
+/deployments/:deploymentId/executions/:sessionId/syscall
+/deployments/:deploymentId/executions/:sessionId/finish
 ```
 
-For the standalone generated Worker prototype, table IDs are derived
-deterministically from sorted schema table names. This is good enough for local
-single-Worker prototypes, but deployment-owned table IDs from
-`DeploymentSchema.tables` remain the authoritative backend model.
+The generated Worker still derives a deterministic table-id map from sorted
+schema table names for local `v.id("table")` argument and return validation.
+Deployment-owned table IDs from `DeploymentSchema.tables` remain authoritative
+for backend validation and commits.
 
 Convex reference:
 
@@ -438,6 +443,5 @@ Convex reference:
 Cloudflare difference:
 
 - Convex's analyzer and backend own the deployed table mapping. Flarex's
-  generated Worker still runs as a local standalone prototype, so it derives a
-  deterministic table map until the Worker routes all data syscalls through
-  the authoritative backend/OCC path.
+  generated Worker still performs local fast validation, but all data syscalls
+  now route through the authoritative backend/OCC path.

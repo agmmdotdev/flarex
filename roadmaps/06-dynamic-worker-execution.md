@@ -53,6 +53,23 @@ The Worker route currently uses an empty backend function registry. This is
 intentional until the Dynamic Worker bridge or deployed function registry is
 implemented.
 
+`apps/backend/src/executionDO.ts` adds the first backend execution-session
+syscall protocol:
+
+- `POST /deployments/:deploymentId/executions/start`
+- `POST /deployments/:deploymentId/executions/:sessionId/syscall`
+- `POST /deployments/:deploymentId/executions/:sessionId/finish`
+- `POST /deployments/:deploymentId/executions/:sessionId/abort`
+
+`ExecutionDO` owns one active `SingleShardTransaction` session. It validates
+deployed function args at `/start`, services restricted `ctx.db` operations
+through `/syscall`, validates returns at `/finish`, and only then commits
+mutations through `PartitionDO`.
+
+The generated Worker now runs user handlers with a scoped syscall-backed
+`ctx.db` client. It no longer stores documents in its own generated
+`PartitionDO`; it calls the authoritative backend service binding instead.
+
 ## Convex References
 
 - `crates/isolate/src/environment/udf/syscall.rs`
@@ -72,19 +89,15 @@ boundary: user code sees `ctx.db`, not storage.
 
 ## Known Limitations
 
-- No Dynamic Worker execution path is implemented yet.
-- Current generated example Worker directly invokes handlers and is only a
-  prototype.
-- The backend invoke executor exists, but there is no network/service protocol
-  between a Dynamic Worker and backend yet.
+- The Dynamic Worker path is still generated Worker code, not Cloudflare's
+  production Dynamic Worker upload/deployment flow.
+- Execution sessions currently keep transaction state in one `ExecutionDO`
+  instance's memory. If a session DO is evicted mid-execution, the session is
+  lost and must be retried by a future executor layer.
 - The production Worker route has no deployed function registry yet, so it
   reports unknown functions until the Dynamic Worker bridge is connected.
 - There is no executor retry loop around `OCC_CONFLICT` yet.
 - Index reads through the wrapper do not yet overlay staged writes.
-- Backend invoke resolves table names for inserts, but document IDs still use
-  numeric table ID prefixes for now.
-- There is no generated type-level bridge from schema table names to invoke
-  `ctx.db` yet.
 - Cross-shard calls remain intentionally out of scope for normal mutations.
 
 ## Last Update
@@ -116,4 +129,37 @@ Verified with:
 corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend test
 corepack pnpm --filter @flarex/backend build
+```
+
+## Execution Session Update
+
+Added the first backend syscall session bridge. The generated Worker now:
+
+1. Validates local function args with generated metadata.
+2. Calls backend `/executions/start` with deployment, partition, path, kind,
+   args, and idempotency key.
+3. Builds `ctx.db` as a scoped syscall client.
+4. Sends each `ctx.db.get/query/insert/patch/delete` to backend `/syscall`.
+5. Validates the return locally for fast failure.
+6. Calls backend `/finish`; backend validates the return again and commits
+   mutations through `PartitionDO`.
+7. Calls `/abort` if user code or local validation fails.
+
+Convex inspiration:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/udf/src/validation.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare difference: Convex keeps the function runner and transaction
+machinery inside Rust/V8 process boundaries. Flarex uses a Worker service
+binding and a per-session Durable Object to preserve the same separation while
+letting user code run in Cloudflare's runtime.
+
+Verified with:
+
+```sh
+corepack pnpm typecheck
+corepack pnpm test
 ```

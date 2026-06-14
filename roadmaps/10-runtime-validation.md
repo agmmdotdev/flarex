@@ -27,7 +27,10 @@ storage.
 - `PartitionDO.commit` revalidates every non-delete write against its cached
   deployed table validator. This is the authoritative protection for future
   syscall and internal commit callers.
-- The generated standalone Worker validates function arguments and table writes.
+- The generated Worker validates function arguments and returns locally before
+  calling the backend, while the backend validates deployed args at
+  `/executions/start`, return values at `/executions/:sessionId/finish`, and
+  document writes at syscall/commit boundaries.
 - Deployment function metadata is persisted in `DeploymentDO` and `/invoke`
   prefers that metadata for kind and argument validation.
 - Deployment-time validator-shape checks reject malformed table, argument, and
@@ -82,8 +85,8 @@ a patch to leave an invalid final document.
 - Flarex IDs currently use a simple numeric table prefix (`1:document-id`) and
   validate that prefix against table metadata.
 - The authoritative backend resolves table IDs from `DeploymentSchema.tables`.
-  The generated standalone Worker derives a deterministic prototype table-id
-  map from sorted schema table names until generated Workers route through the
+  The generated Worker derives a deterministic table-id map from sorted schema
+  table names for local fast validation, but data writes now route through the
   authoritative syscall and OCC engine.
 - TypeScript checks catch normal handler/return-validator mismatches, but they
   cannot replace runtime validation because user code can still use `any`,
@@ -94,9 +97,8 @@ a patch to leave an invalid final document.
 - Authoritative HTTP JSON transport does not support bigint or bytes yet.
 - Backend and SDK validator implementations are intentionally small duplicates
   for now and must be consolidated into a runtime-neutral shared package.
-- Generated Worker writes are a prototype and do not yet use the authoritative
-  OCC transaction engine, even though they now use the same canonical ID
-  format.
+- Generated Worker writes now use the authoritative single-shard syscall/OCC
+  path, but the execution session itself is not yet restart durable.
 - The handler registry is still local/in-memory for tests and prototypes.
   Deployment metadata owns the contract, but the Dynamic Worker executor is not
   connected yet.
@@ -106,7 +108,8 @@ a patch to leave an invalid final document.
 1. Add Convex-compatible value transport for bigint and bytes.
 2. Move the validator engine into a shared runtime-neutral package used by the
    SDK, backend, generator, and future Dynamic Worker syscall host.
-3. Replace the local handler registry with the Dynamic Worker execution bridge.
+3. Replace generated Worker prototype deployment with the Dynamic Worker upload
+   and routing bridge.
 4. Add return validation for future actions and workflow mutations once those
    execution paths exist.
 5. Move the duplicated SDK/backend ID codec into the future runtime-neutral

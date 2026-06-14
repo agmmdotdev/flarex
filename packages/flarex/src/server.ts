@@ -223,6 +223,7 @@ export type { ParsedFlarexId } from "./ids";
 export type {
   DatabaseQueryExecutor,
   DatabaseQueryRequest,
+  DatabaseQueryResult,
   IndexRange,
   IndexRangeBuilder,
   OrderedQuery,

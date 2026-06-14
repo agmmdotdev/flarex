@@ -94,7 +94,9 @@ write log, indexes, and table metadata.
 - `DeploymentDO` schema metadata is not yet automatically pushed to
   `PartitionDO` schema caches.
 - `ConnectionDO` and `SchedulerDO` are topology stubs.
-- No real user-function execution path is connected yet.
+- A first generated Worker execution path is connected through backend
+  execution sessions and syscalls. Cloudflare Dynamic Worker deployment is not
+  connected yet.
 - No retention or compaction exists for document history or write logs.
 
 ## Last Update
@@ -205,3 +207,23 @@ Verified with:
 corepack pnpm typecheck
 corepack pnpm test
 ```
+
+## Execution Session Data Path
+
+Added `ExecutionDO` as a backend-owned transaction session coordinator. It
+keeps the authoritative data path inside backend Durable Objects:
+
+```txt
+generated Worker user handler
+  -> service binding to backend /executions/:sessionId/syscall
+  -> ExecutionDO
+  -> SingleShardTransaction
+  -> PartitionDO
+```
+
+Document writes remain staged until `/finish`, and only `PartitionDO.commit`
+persists them. This preserves the intended Convex-like rule that user code
+does not receive a raw database connection or Durable Object storage handle.
+
+Known limitation: session state is currently in `ExecutionDO` memory. A future
+executor must add retry semantics for eviction, restart, and `OCC_CONFLICT`.

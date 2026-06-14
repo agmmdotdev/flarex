@@ -16,6 +16,9 @@ Flarex must guarantee transaction serializability, schema invariants, and data s
 - Added SDK ID codec tests and generator assertions so the canonical
   `{tableId}:{documentId}` format does not silently regress back to
   table-name-prefixed IDs.
+- Added Miniflare integration tests for backend execution sessions:
+  mutation syscalls stage writes until `/finish`, return validation prevents
+  commits, and indexed query syscalls return snapshot reads.
 
 ## Why This Shape
 
