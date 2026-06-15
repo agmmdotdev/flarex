@@ -14,8 +14,8 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "miniflare": "4.20260611.0",
-    "vite": "^7.0.0",
-    "vitest": "^4.1.8"
+    "miniflare": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -14,7 +14,7 @@
   "dependencies": {
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
-    "miniflare": "4.20260611.0"
+    "miniflare": "catalog:"
   },
   "peerDependencies": {
     "vite": "^7.0.0"

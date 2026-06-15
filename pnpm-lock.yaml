@@ -4,24 +4,51 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@cloudflare/workers-types':
+      specifier: ^4.20260613.0
+      version: 4.20260613.1
+    '@types/node':
+      specifier: ^24.0.0
+      version: 24.13.2
+    miniflare:
+      specifier: 4.20260611.0
+      version: 4.20260611.0
+    tsx:
+      specifier: ^4.21.0
+      version: 4.22.4
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
+    vite:
+      specifier: ^7.2.2
+      version: 7.3.5
+    vitest:
+      specifier: ^4.1.8
+      version: 4.1.8
+    wrangler:
+      specifier: ^4.100.0
+      version: 4.100.0
+
 importers:
 
   .:
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20260613.0
+        specifier: 'catalog:'
         version: 4.20260613.1
       '@types/node':
-        specifier: ^24.0.0
+        specifier: 'catalog:'
         version: 24.13.2
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       vite:
-        specifier: ^7.2.2
+        specifier: 'catalog:'
         version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)
       vitest:
-        specifier: ^4.1.8
+        specifier: 'catalog:'
         version: 4.1.8(@types/node@24.13.2)(vite@7.3.5(@types/node@24.13.2)(tsx@4.22.4))
 
   apps/backend:
@@ -31,7 +58,7 @@ importers:
         version: link:../../packages/flarex-backend
     devDependencies:
       wrangler:
-        specifier: ^4.100.0
+        specifier: 'catalog:'
         version: 4.100.0(@cloudflare/workers-types@4.20260613.1)
 
   apps/example:
@@ -47,7 +74,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/flarex-test
       tsx:
-        specifier: ^4.21.0
+        specifier: 'catalog:'
         version: 4.22.4
 
   packages/flarex: {}
@@ -55,13 +82,13 @@ importers:
   packages/flarex-backend:
     devDependencies:
       miniflare:
-        specifier: 4.20260611.0
+        specifier: 'catalog:'
         version: 4.20260611.0
       vite:
-        specifier: ^7.0.0
+        specifier: 'catalog:'
         version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)
       vitest:
-        specifier: ^4.1.8
+        specifier: 'catalog:'
         version: 4.1.8(@types/node@24.13.2)(vite@7.3.5(@types/node@24.13.2)(tsx@4.22.4))
 
   packages/flarex-dev:
@@ -73,7 +100,7 @@ importers:
         specifier: workspace:*
         version: link:../flarex-backend
       miniflare:
-        specifier: 4.20260611.0
+        specifier: 'catalog:'
         version: 4.20260611.0
       vite:
         specifier: ^7.0.0

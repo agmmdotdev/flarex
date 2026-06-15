@@ -81,6 +81,10 @@ Added automatic verified checkpoint commits and initially introduced a global
 implementation ledger. The automatic commit rule remains, while this turn
 corrects checkpoint recording to stay domain-specific.
 
+### `fe8ec44` Keep implementation history domain specific
+
+Cleaned up the global chronological implementation log, leaving implementation checkpoint history domain-specific in their respective roadmaps.
+
 ## Verification
 
 ```sh
