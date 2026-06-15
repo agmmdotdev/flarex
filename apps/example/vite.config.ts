@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
-import { flarex } from "flarex-backend/vite";
+import { flarex } from "flarex-dev/vite";
 
 export default defineConfig({
-  plugins: [flarex({ workerName: "flarex-example" })],
+  plugins: [flarex()],
   build: {
     lib: {
       entry: "flarex/_generated/worker.ts",

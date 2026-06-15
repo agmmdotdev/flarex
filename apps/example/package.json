@@ -12,8 +12,8 @@
     "flarex": "workspace:*"
   },
   "devDependencies": {
-    "flarex-backend": "workspace:*",
-    "miniflare": "4.20260611.0",
+    "flarex-dev": "workspace:*",
+    "flarex-test": "workspace:*",
     "tsx": "^4.21.0"
   }
 }

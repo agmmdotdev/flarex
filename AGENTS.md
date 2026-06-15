@@ -7,10 +7,31 @@ differences belong in `roadmaps/`, not in this file.
 ## Core Rule
 
 Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
-copy Convex semantics where they are portable, and explicitly document where
-Cloudflare Durable Objects require a different design.
+copy Convex semantics where they are portable, copy or closely port Convex SDK
+and codegen logic where licensing and runtime boundaries allow it, and
+explicitly document where Cloudflare Durable Objects require a different design.
 
 Do not build a generic CRUD server and call it Convex-like.
+
+## Convex-First System Rule
+
+Flarex must be developed Convex-first across the whole system, not only the
+type system.
+
+For backend storage, OCC, sync/subscriptions, scheduling, deployment metadata,
+function analysis, generated APIs, `_generated/server`, `_generated/dataModel`,
+function references, validators, query builders, mutation/query/action
+registration, client APIs, local dev server, CLI/codegen flow, testing strategy,
+and operational behavior, inspect Convex first and either:
+
+1. port the relevant Convex package logic closely, or
+2. document exactly why Flarex must diverge because of Cloudflare runtime,
+   partitioning, service bindings, licensing, or a deliberately different
+   Flarex API.
+
+Do not invent a new design when Convex already has a portable pattern. Flarex's
+default should be "same developer mental model and same core behavior as
+Convex"; differences should be narrow, named, and recorded in `roadmaps/`.
 
 ## Required Per-Turn Record
 
@@ -52,12 +73,21 @@ one giant document.
   `roadmaps/09-sdk-and-cli-fork.md`
 - Runtime argument and document validation:
   `roadmaps/10-runtime-validation.md`
+- Cross-system Convex-first porting policy:
+  `roadmaps/13-convex-first-system-porting.md`
+- Local dev server and Vite plugin runtime:
+  `roadmaps/14-local-dev-server.md`
+- Test SDK:
+  `roadmaps/15-test-sdk.md`
+- Package boundaries and backend runtime reuse:
+  `roadmaps/16-package-boundaries.md`
 
 ## Backend Rules
 
-1. Keep `apps/backend` backend-only.
-   Do not add client APIs here. Client and generated developer APIs belong in
-   `packages/flarex` and generator packages.
+1. Keep `packages/flarex-backend` backend-only.
+   `apps/backend` is only the deployable Wrangler wrapper. Do not add client
+   APIs to either backend location. Client and generated developer APIs belong
+   in `packages/flarex`, `packages/flarex-dev`, and future test/dev packages.
 
 2. Treat `DeploymentDO` as the authoritative deployment metadata owner.
    Schema, table mapping, index definitions, placement rules, and function
@@ -118,8 +148,10 @@ one giant document.
 When backend code changes, run at least:
 
 ```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
 corepack pnpm --filter @flarex/backend typecheck
-corepack pnpm --filter @flarex/backend test
 corepack pnpm --filter @flarex/backend build
 ```
 
@@ -133,3 +165,8 @@ corepack pnpm build
 
 If `wrangler dev` is started for smoke testing, stop the Wrangler process and
 any `workerd` children before finishing.
+
+Use `corepack pnpm --filter @flarex/backend deploy:dry-run` only when checking
+the deployable Cloudflare wrapper. It may be slower or environment-sensitive
+because it invokes Wrangler; do not make the normal workspace `build` depend on
+it.

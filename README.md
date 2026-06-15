@@ -12,9 +12,12 @@ feature area with Convex references and Cloudflare differences.
 
 - `packages/flarex`: schema validators, Convex-style function authoring
   APIs, and a minimal application client for calling generated references.
-- `packages/flarex-backend`: Vite plugin and code generator.
-- `apps/backend`: backend-only Cloudflare Worker with Wrangler and the
-  Durable Object database model.
+- `packages/flarex-dev`: Vite plugin, local dev runtime, and code generator.
+- `packages/flarex-backend`: backend Worker runtime and Durable Object
+  database model.
+- `packages/flarex-test`: Convex-style test SDK backed by the real local
+  Flarex Worker/Durable Object runtime.
+- `apps/backend`: thin Wrangler deployable wrapper around `flarex-backend`.
 - `apps/example`: an application that defines its schema and functions with
   `flarex`.
 
@@ -24,17 +27,23 @@ The generator discovers application functions and emits:
 - `flarex/_generated/api.ts`
 - `flarex/_generated/dataModel.ts`
 - `flarex/_generated/worker.ts`
-- `wrangler.generated.jsonc`
 
-The generated Worker currently provides `/health`, `/sync`, and `/invoke`.
-`/invoke` routes calls to a named partition Durable Object. That object stores
-documents in SQLite and serializes each mutation inside a SQLite transaction.
+The generated Worker currently provides `/health`, `/sync`, `/invoke`, and an
+internal metadata route for local dev. In app development the Vite plugin owns
+the local Miniflare backend/app Worker runtime and proxies through
+`/__flarex_dev/*`; the application does not need to be a Wrangler app.
+
+Application generation should not own a Wrangler config. The client should
+point at either a hosted Flarex deployment URL or the local dev URL exposed by
+the plugin. The Flarex platform/backend itself remains the Wrangler deployment
+target.
 
 This is intentionally the first vertical slice. Dynamic Worker isolation,
 reactive query invalidation, argument validation, schema migrations,
 projections, and cross-partition workflow mutations are not implemented yet.
 
-`apps/backend` is now the first standalone server target. It defines
+`packages/flarex-backend` is now the first standalone server runtime. It
+defines
 `RegistryDO`, `DeploymentDO`, `PartitionDO`, `ConnectionDO`, and `SchedulerDO`.
 The partition object is the authoritative shard: it owns document history,
 current documents, index entries, write log, idempotency keys, and conservative

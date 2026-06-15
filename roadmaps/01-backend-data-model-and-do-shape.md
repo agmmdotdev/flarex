@@ -2,8 +2,8 @@
 
 ## Current Decision
 
-The backend server lives in `apps/backend` and is the first standalone
-Cloudflare server target.
+The backend server runtime lives in `packages/flarex-backend`. `apps/backend`
+is the thin Wrangler deployable wrapper for that runtime.
 
 Durable Object shape:
 
@@ -30,7 +30,7 @@ scheduler:{deploymentId}
 
 ## Implemented So Far
 
-Created `apps/backend` with:
+Created the backend runtime, now located in `packages/flarex-backend`, with:
 
 - `wrangler.jsonc`
 - `src/worker.ts`

@@ -3,15 +3,19 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./vite": "./src/vite.ts"
+    ".": "./src/worker.ts",
+    "./worker": "./src/worker.ts",
+    "./types": "./src/types.ts",
+    "./test/backendHarness": "./test/backendHarness.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "peerDependencies": {
-    "vite": "^7.0.0"
+  "devDependencies": {
+    "miniflare": "4.20260611.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.8"
   }
 }

@@ -1,0 +1,22 @@
+{
+  "name": "flarex-dev",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./vite": "./src/vite.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "flarex": "workspace:*",
+    "flarex-backend": "workspace:*",
+    "miniflare": "4.20260611.0"
+  },
+  "peerDependencies": {
+    "vite": "^7.0.0"
+  }
+}

@@ -22,6 +22,13 @@ Flarex must guarantee transaction serializability, schema invariants, and data s
 - Added an example-app generated Worker E2E test with a Miniflare service
   binding to the backend harness. It verifies generated `/invoke` can execute
   a mutation and query through backend execution sessions and `PartitionDO`.
+- Added `packages/flarex-test`, a first test SDK layer that reuses
+  `flarex-dev` local runtime and the real `flarex-backend` Worker/DO runtime.
+  The example E2E now uses `flarexTest()` instead of a hand-written Miniflare
+  harness.
+- Added an example-specific `vitest.config.ts` so Vitest does not load the
+  app's Vite dev plugin during tests. This removes the lingering open file
+  handles and close-timeout warning after example tests pass.
 - Made the backend test harness resolve its Worker entry from the harness file
   path instead of the process cwd, so other packages can reuse it safely.
 

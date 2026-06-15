@@ -25,10 +25,11 @@ importers:
         version: 4.1.8(@types/node@24.13.2)(vite@7.3.5(@types/node@24.13.2)(tsx@4.22.4))
 
   apps/backend:
+    dependencies:
+      flarex-backend:
+        specifier: workspace:*
+        version: link:../../packages/flarex-backend
     devDependencies:
-      miniflare:
-        specifier: 4.20260611.0
-        version: 4.20260611.0
       wrangler:
         specifier: ^4.100.0
         version: 4.100.0(@cloudflare/workers-types@4.20260613.1)
@@ -39,12 +40,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/flarex
     devDependencies:
-      flarex-backend:
+      flarex-dev:
         specifier: workspace:*
-        version: link:../../packages/flarex-backend
-      miniflare:
-        specifier: 4.20260611.0
-        version: 4.20260611.0
+        version: link:../../packages/flarex-dev
+      flarex-test:
+        specifier: workspace:*
+        version: link:../../packages/flarex-test
       tsx:
         specifier: ^4.21.0
         version: 4.22.4
@@ -52,10 +53,40 @@ importers:
   packages/flarex: {}
 
   packages/flarex-backend:
-    dependencies:
+    devDependencies:
+      miniflare:
+        specifier: 4.20260611.0
+        version: 4.20260611.0
       vite:
         specifier: ^7.0.0
         version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@types/node@24.13.2)(vite@7.3.5(@types/node@24.13.2)(tsx@4.22.4))
+
+  packages/flarex-dev:
+    dependencies:
+      flarex:
+        specifier: workspace:*
+        version: link:../flarex
+      flarex-backend:
+        specifier: workspace:*
+        version: link:../flarex-backend
+      miniflare:
+        specifier: 4.20260611.0
+        version: 4.20260611.0
+      vite:
+        specifier: ^7.0.0
+        version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)
+
+  packages/flarex-test:
+    dependencies:
+      flarex:
+        specifier: workspace:*
+        version: link:../flarex
+      flarex-dev:
+        specifier: workspace:*
+        version: link:../flarex-dev
 
 packages:
 
