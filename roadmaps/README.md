@@ -12,8 +12,13 @@ Every implementation turn must update the relevant domain file with:
 - known limitations and follow-up work
 - verification commands run
 
+Every repository-changing turn must also update the concise chronological
+[implementation log](./00-implementation-log.md) with the previous completed
+checkpoint, then create and report a verified automatic checkpoint commit.
+
 Start with:
 
+- [00-implementation-log.md](./00-implementation-log.md)
 - [01-backend-data-model-and-do-shape.md](./01-backend-data-model-and-do-shape.md)
 - [02-schema-placement-and-shards.md](./02-schema-placement-and-shards.md)
 - [03-occ-and-transactions.md](./03-occ-and-transactions.md)
@@ -26,3 +31,8 @@ Start with:
 - [10-runtime-validation.md](./10-runtime-validation.md)
 - [11-testing-and-simulation-strategy.md](./11-testing-and-simulation-strategy.md)
 - [12-repository-operations.md](./12-repository-operations.md)
+- [13-convex-first-system-porting.md](./13-convex-first-system-porting.md)
+- [14-local-dev-server.md](./14-local-dev-server.md)
+- [15-test-sdk.md](./15-test-sdk.md)
+- [16-package-boundaries.md](./16-package-boundaries.md)
+- [17-deployment-analysis-and-push.md](./17-deployment-analysis-and-push.md)

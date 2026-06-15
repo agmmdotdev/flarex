@@ -35,8 +35,11 @@ Convex"; differences should be narrow, named, and recorded in `roadmaps/`.
 
 ## Required Per-Turn Record
 
-Every implementation turn must update the relevant domain file under
-`roadmaps/`.
+Every repository-changing turn must update:
+
+1. the relevant domain file under `roadmaps/`, and
+2. the chronological checkpoint ledger in
+   `roadmaps/00-implementation-log.md`.
 
 Record:
 
@@ -51,8 +54,37 @@ If a turn touches multiple domains, update multiple roadmap files. If no
 existing domain file fits, create a new focused roadmap file instead of adding
 one giant document.
 
+The implementation log must contain a concise summary plus the commit ID and
+commit title for every completed checkpoint. A Git commit cannot contain its
+own final ID because changing the log changes the commit ID. Therefore:
+
+- record the previous completed checkpoint in the implementation log during
+  the next repository-changing turn,
+- report the newly created commit ID and title in the final response, and
+- carry that new checkpoint into the implementation log on the following
+  repository-changing turn.
+
+Discussion-only and research-only turns that do not change repository files do
+not require an empty roadmap update or commit.
+
+## Automatic Checkpoint Commits
+
+After a repository-changing turn is implemented, documented, and successfully
+verified, create a Git commit automatically without waiting for an additional
+user request.
+
+- Keep each commit scoped to the completed implementation step.
+- Use an imperative commit title that explains the checkpoint.
+- Do not commit known failing work unless the user explicitly requests it.
+- Do not include unrelated user changes in the commit.
+- Always report the commit ID and title in the final response.
+- If verification fails or the work is incomplete, leave it uncommitted and
+  explain the blocker.
+
 ## Where To Put Records
 
+- Chronological completed-checkpoint ledger:
+  `roadmaps/00-implementation-log.md`
 - Backend database and DO shape:
   `roadmaps/01-backend-data-model-and-do-shape.md`
 - Schema placement and shards:
