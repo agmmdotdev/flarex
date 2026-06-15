@@ -1325,6 +1325,87 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 2 Implementation Update
+
+Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local
+dev.
+
+Added the first execution-artifact adapter boundary and wired local generation
+and local dev reload through it.
+
+New API:
+
+```ts
+interface ExecutionArtifactAdapter {
+  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
+}
+```
+
+`LocalMiniflareExecutionArtifactAdapter` now creates a temporary Miniflare
+Worker module from the immutable source package, imports the bundled execution
+entrypoint and schema entrypoint inside that Worker-shaped isolate, and returns
+the same `DeploymentAnalysis` shape used by final codegen and backend
+`push/start`.
+
+Normal local dev reload is now:
+
+```txt
+initialCodegen()
+  -> bundleFlarexSourcePackage()
+  -> LocalMiniflareExecutionArtifactAdapter.analyze(sourcePackage)
+  -> POST /push/start
+  -> finalCodegen()
+  -> build generated app Worker
+  -> POST /push/:pushId/finish
+```
+
+`generateFlarex()` also uses the adapter. The older
+`analyzeSourcePackageLocally()` path remains exported as a transition/debug
+helper and as a test oracle while the artifact analyzer is still being proven.
+
+Convex references copied in principle:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - analysis executes evaluated runtime exports instead of scanning source.
+- `crates/application/src/deploy_config.rs`
+  - push analysis produces the metadata consumed by final codegen and
+    activation.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - local dev orchestration treats analysis as a deployment step between
+    source bundling and final codegen.
+
+Intentional and temporary differences:
+
+- Convex analyzes in the backend Rust/V8 isolate. This step analyzes in a
+  local Miniflare Worker-shaped artifact so the boundary is Cloudflare-shaped
+  before hosted dispatch exists.
+- The artifact analyzer embeds a small analyzer runtime instead of importing
+  `flarex-dev` internals. This keeps the future hosted artifact self-contained,
+  but the code should be deduplicated once the runtime package boundary is
+  created.
+- The backend still receives client-supplied analysis in `push/start`; it does
+  not yet create the candidate artifact or call analysis itself.
+- Import-phase determinism controls, source positions, logs, module limits,
+  R2 artifact storage, and Workers for Platforms upload remain future work.
+
+Tests prove:
+
+- the Miniflare execution-artifact analyzer returns the same function and
+  schema analysis as the old direct Node analyzer for a source package, and
+- final codegen can consume the artifact analysis.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1432,3 +1513,8 @@ that complete deployment analysis.
 Added backend candidate push routes and `DeploymentDO` push state so analyzed
 source packages can be started, inspected, superseded, failed, and atomically
 activated.
+
+### `7abaa43` Use backend push lifecycle in local dev
+
+Changed local dev reload to start and finish backend candidate pushes instead
+of deploying schema/functions through legacy direct metadata routes.

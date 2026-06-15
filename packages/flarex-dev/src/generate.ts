@@ -1,7 +1,6 @@
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  analyzeSourcePackageLocally,
   listFunctionModules,
   type AnalyzedFunction,
   type AnalyzedModule,
@@ -9,6 +8,7 @@ import {
   type DeploymentAnalysis,
   type FunctionModule,
 } from "./analyze.ts";
+import { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
 import {
   bundleSourcePackage,
   type SourcePackage,
@@ -394,7 +394,7 @@ export default {
 export async function generateFlarex(options: FlarexGenerateOptions): Promise<void> {
   const context = await initialCodegen(options);
   const sourcePackage = await bundleFlarexSourcePackage(context);
-  const analysis = await analyzeSourcePackageLocally(sourcePackage);
+  const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
   await finalCodegen(context, analysis);
 }
 

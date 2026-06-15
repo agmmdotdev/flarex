@@ -242,3 +242,42 @@ entrypoint directly.
 This is not a deployed Dynamic Worker yet. It establishes the immutable input
 that future local Miniflare and hosted Workers for Platforms adapters must
 consume, without giving either adapter access to the developer filesystem.
+
+## Local Execution Artifact Analysis Update
+
+Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local
+dev.
+
+Added `LocalMiniflareExecutionArtifactAdapter` as the first concrete
+execution-artifact boundary. It takes the immutable `SourcePackage`, creates a
+temporary Miniflare module graph, imports the bundled execution and schema
+entrypoints inside that Worker-shaped isolate, and returns
+`DeploymentAnalysis`.
+
+This moves local analysis away from direct Node dynamic import for the normal
+generation and dev paths. The developer still writes ordinary Flarex
+TypeScript modules; the Worker entrypoint is generated internally by Flarex.
+
+Convex inspiration:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - authoritative metadata comes from evaluating runtime module exports.
+- `crates/application/src/deploy_config.rs`
+  - analysis is a deployment step that precedes activation.
+
+Cloudflare difference: this is a local Miniflare execution artifact, not
+production Workers for Platforms dynamic dispatch. Hosted execution artifact
+upload, dispatch, import-phase restrictions, and backend-owned analysis remain
+future work.
+
+Verified with:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```

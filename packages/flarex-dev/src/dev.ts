@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build } from "vite";
-import { analyzeSourcePackageLocally, type DeploymentAnalysis } from "./analyze.ts";
+import type { DeploymentAnalysis } from "./analyze.ts";
+import { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
@@ -55,6 +56,7 @@ export async function createFlarexDevRuntime(
   if (appPersist !== false) await mkdir(appPersist, { recursive: true });
 
   const backend = await createBackendMiniflare(backendPersist);
+  const executionArtifact = new LocalMiniflareExecutionArtifactAdapter();
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
@@ -88,7 +90,7 @@ export async function createFlarexDevRuntime(
   async function reloadNow(): Promise<void> {
     const context = await initialCodegen(options);
     const sourcePackage = await bundleFlarexSourcePackage(context);
-    const analysis = await analyzeSourcePackageLocally(sourcePackage);
+    const analysis = await executionArtifact.analyze(sourcePackage);
     const started = await startPush(backend, deploymentId, sourcePackage, analysis);
     if (started.state !== "analyzed" || started.analysis === undefined) {
       throw new Error(`Flarex push ${started.pushId} is not ready to finish: ${started.state}`);

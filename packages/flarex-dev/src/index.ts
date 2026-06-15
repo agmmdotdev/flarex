@@ -17,6 +17,8 @@ export type {
   AnalyzedSchema,
   DeploymentAnalysis,
 } from "./analyze.ts";
+export { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
+export type { ExecutionArtifactAdapter } from "./executionArtifact.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
 export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";

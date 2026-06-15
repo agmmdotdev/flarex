@@ -182,6 +182,53 @@ corepack pnpm build
 git diff --check
 ```
 
+## Execution Artifact Analysis Update
+
+Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local
+dev.
+
+Local dev reload now analyzes the source package through
+`LocalMiniflareExecutionArtifactAdapter` instead of direct Node import:
+
+```txt
+initialCodegen
+  -> bundleFlarexSourcePackage
+  -> local Miniflare execution artifact analysis
+  -> POST /deployments/:deploymentId/push/start
+  -> finalCodegen
+  -> build generated app Worker
+  -> POST /deployments/:deploymentId/push/:pushId/finish
+```
+
+This keeps the local dev server closer to the hosted target: the analyzer
+receives an immutable source package and runs in a Worker-shaped isolate. The
+app project still does not need Wrangler config for Vite dev; Flarex owns the
+internal Miniflare runtimes.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev performs codegen, push, and backend coordination in a
+    long-running loop.
+- `crates/isolate/src/environment/analyze.rs`
+  - function metadata is derived from evaluated runtime exports.
+
+Cloudflare difference: Convex local dev talks to a local backend binary that
+owns analysis. Flarex now uses a local Miniflare execution artifact as an
+adapter boundary, while backend-owned hosted analysis remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh
