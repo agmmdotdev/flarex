@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertValidatorJson } from "flarex/validator-json";
+import type { ValidatorJSON } from "flarex/values";
 import { build, type Plugin } from "vite";
 
 export type AnalyzedFunction = {
@@ -8,6 +10,8 @@ export type AnalyzedFunction = {
   exportName: string;
   kind: "query" | "mutation" | "workflowMutation" | "action";
   visibility: "public" | "internal";
+  args: ValidatorJSON;
+  returns: ValidatorJSON | null;
 };
 
 export type AnalyzedModule = {
@@ -128,30 +132,133 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
     .map(([moduleName, exports]) => ({
       moduleName,
       functions: Object.entries(exports)
-        .filter((entry): entry is [string, RegisteredFunctionShape] => isRegisteredFunction(entry[1]))
-        .map(([exportName, fn]) => ({
-          moduleName,
-          exportName,
-          kind: fn.kind,
-          visibility: fn.visibility,
-        }))
+        .map(([exportName, value]) => analyzeExport(moduleName, exportName, value))
+        .filter((fn): fn is AnalyzedFunction => fn !== null)
         .sort((left, right) => left.exportName.localeCompare(right.exportName)),
     }))
     .sort((left, right) => left.moduleName.localeCompare(right.moduleName));
 }
 
-type RegisteredFunctionShape = {
-  __flarexFunction: true;
-  kind: AnalyzedFunction["kind"];
-  visibility: AnalyzedFunction["visibility"];
-};
+type RuntimeFunction = Record<string, unknown> | ((...args: never[]) => unknown);
 
-function isRegisteredFunction(value: unknown): value is RegisteredFunctionShape {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<RegisteredFunctionShape>;
-  return (
-    candidate.__flarexFunction === true &&
-    ["query", "mutation", "workflowMutation", "action"].includes(String(candidate.kind)) &&
-    ["public", "internal"].includes(String(candidate.visibility))
-  );
+function analyzeExport(
+  moduleName: string,
+  exportName: string,
+  value: unknown,
+): AnalyzedFunction | null {
+  if (!isRuntimeFunction(value)) return null;
+
+  const kind = functionKind(value);
+  if (kind === null) return null;
+  const visibility = functionVisibility(value);
+  if (visibility === null) return null;
+
+  const identifier = `${moduleName}:${exportName}`;
+  assertHandler(value, identifier);
+  return {
+    moduleName,
+    exportName,
+    kind,
+    visibility,
+    args: parseArgsValidator(value, identifier),
+    returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
+  };
+}
+
+function isRuntimeFunction(value: unknown): value is RuntimeFunction {
+  return (typeof value === "object" && value !== null) || typeof value === "function";
+}
+
+function functionKind(value: RuntimeFunction): AnalyzedFunction["kind"] | null {
+  const kinds = [
+    ["isQuery", "query"],
+    ["isMutation", "mutation"],
+    ["isWorkflowMutation", "workflowMutation"],
+    ["isAction", "action"],
+  ] as const;
+  const marked = kinds.filter(([marker]) => marker in value);
+  return marked.length === 1 ? marked[0]![1] : null;
+}
+
+function functionVisibility(value: RuntimeFunction): AnalyzedFunction["visibility"] | null {
+  const publicFunction = "isPublic" in value;
+  const internalFunction = "isInternal" in value;
+  if (publicFunction === internalFunction) return null;
+  return publicFunction ? "public" : "internal";
+}
+
+function assertHandler(value: RuntimeFunction, identifier: string): void {
+  const handler = "_handler" in value ? value._handler : undefined;
+  if (handler !== undefined) {
+    if (typeof handler !== "function") {
+      throw new Error(`${identifier}.handler is not a function.`);
+    }
+    return;
+  }
+  if (typeof value !== "function") {
+    throw new Error(`${identifier} is not a function.`);
+  }
+}
+
+function parseValidatorExport(
+  value: RuntimeFunction,
+  exporterName: "exportArgs" | "exportReturns",
+  identifier: string,
+  defaultValue: ValidatorJSON | null,
+  allowNull: boolean,
+): ValidatorJSON | null {
+  const candidate = value as Record<string, unknown>;
+  const exporter = exporterName in candidate ? candidate[exporterName] : undefined;
+  if (exporter === undefined) return defaultValue;
+  if (typeof exporter !== "function") {
+    throw new Error(`${identifier}.${exporterName} is not a function or \`undefined\`.`);
+  }
+
+  const serialized = exporter.call(value);
+  if (typeof serialized !== "string") {
+    throw new Error(
+      `Invalid ${exporterName} return value: ${identifier}.${exporterName}() didn't return a string.`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON returned from ${identifier}.${exporterName}(): ${errorMessage(error)}`,
+    );
+  }
+
+  if (parsed === null && allowNull) return null;
+  let validator: ValidatorJSON | null;
+  try {
+    validator = assertValidatorJson(parsed, `${identifier}.${exporterName}()`);
+  } catch (error) {
+    throw new Error(
+      `Invalid validator returned from ${identifier}.${exporterName}(): ${errorMessage(error)}`,
+    );
+  }
+  if (validator === null) {
+    throw new Error(`Invalid validator returned from ${identifier}.${exporterName}(): Validator is required.`);
+  }
+  if (!allowNull && validator.type !== "object" && validator.type !== "any") {
+    throw new Error(
+      `Invalid validator returned from ${identifier}.${exporterName}(): ` +
+        "Argument validator must be an object validator or v.any().",
+    );
+  }
+  return validator;
+}
+
+function parseArgsValidator(value: RuntimeFunction, identifier: string): ValidatorJSON {
+  const validator = parseValidatorExport(value, "exportArgs", identifier, { type: "any" }, false);
+  if (validator === null) {
+    throw new Error(`Invalid validator returned from ${identifier}.exportArgs(): Validator is required.`);
+  }
+  return validator;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

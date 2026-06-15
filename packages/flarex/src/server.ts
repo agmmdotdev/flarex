@@ -366,6 +366,7 @@ export {
   validatorToJson,
   ValidationError,
 } from "./validation";
+export { assertValidatorJson } from "./validatorJson.ts";
 export type {
   DataModelFromSchemaDefinition,
   ProjectionDefinition,

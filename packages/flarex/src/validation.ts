@@ -146,3 +146,5 @@ function expect(condition: boolean, message: string, path: string): asserts cond
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export { assertValidatorJson } from "./validatorJson.ts";

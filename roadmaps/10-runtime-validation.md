@@ -161,9 +161,27 @@ registration contract. Authoritative analysis still needs to enforce Convex's
 backend rule that function argument validation must resolve to an object
 validator or unvalidated `any`.
 
+## Analysis Validator Parsing Update
+
+Added `assertValidatorJson` to the shared Flarex validation layer. Local module
+analysis now parses and structurally validates `exportArgs()` and
+`exportReturns()` output before returning analyzed function metadata.
+
+Argument analysis now enforces Convex's object-validator-or-unvalidated-`any`
+rule. Return analysis accepts any valid validator or `null` for an unvalidated
+return. Malformed nested object, array, record, union, ID, literal, and scalar
+validator shapes fail before deployment metadata can be produced.
+
+This parser lives in the zero-runtime-dependency `flarex/validator-json`
+subpath so Vite config loading and Node development analysis do not import the
+broader SDK graph or Cloudflare-only backend types. The backend still has its
+own equivalent parser; moving it to consume this runtime-neutral parser remains
+follow-up work.
+
 Convex references:
 
 - `npm-packages/convex/src/server/impl/registration_impl.ts`
+- `crates/isolate/src/environment/analyze.rs`
 - `crates/model/src/modules/function_validators.rs`
 
 Verification:

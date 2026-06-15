@@ -810,6 +810,87 @@ Next isolated step: update `packages/flarex-dev/src/analyze.ts` to consume these
 runtime markers and validator exporters and to return validator metadata. Do
 not add backend push state in that step.
 
+### Phase 1 Step 2 Implementation Update
+
+Completed the isolated local-analysis contract step. No backend push state,
+deployment activation, Dynamic Worker analysis adapter, or final-codegen
+metadata source changed.
+
+The `flarex-dev` analyzer now:
+
+- classifies function exports from exactly one of `isQuery`, `isMutation`,
+  `isWorkflowMutation`, or `isAction`,
+- classifies visibility from exactly one of `isPublic` or `isInternal`,
+- ignores the temporary `__flarexFunction`, `kind`, and `visibility`
+  compatibility fields,
+- verifies `_handler` is callable,
+- calls `exportArgs()` and `exportReturns()` with the registered function as
+  `this`,
+- requires exporter results to be strings,
+- parses and structurally validates the serialized validator JSON through the
+  zero-runtime-dependency `flarex/validator-json` subpath,
+- enforces that argument validators are object validators or unvalidated
+  `v.any()`, and
+- returns normalized `args` and `returns` validator metadata in every analyzed
+  function record.
+
+Malformed or ambiguous marker exports are skipped. Invalid handlers, exporter
+types, exporter return values, JSON, validator shapes, and argument validator
+kinds fail analysis with a module/export-qualified error.
+
+Convex references copied closely:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - exclusive kind-marker detection,
+  - visibility-marker detection,
+  - `_handler` validation,
+  - `exportArgs()` and `exportReturns()` invocation,
+  - exporter string and JSON failure behavior.
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed functions own validator metadata produced by analysis.
+
+Intentional and temporary differences:
+
+- Flarex adds `isWorkflowMutation`.
+- Flarex currently requires exactly one visibility marker and skips exports
+  without visibility. Convex can retain an analyzed function with no
+  visibility for compatibility; Flarex avoids accidentally defaulting an
+  unmarked function to public.
+- Flarex local analysis returns normalized validator JSON objects. Convex
+  stores serialized validator JSON strings in `AnalyzedFunction`.
+- Source positions are not included yet.
+- Final generated `functionMetadata.ts` still evaluates the function registry
+  instead of consuming analyzed validator metadata. Moving final codegen to
+  the analysis response remains a later isolated step.
+- Analysis still runs in the trusted local Vite process, not the
+  backend-controlled Dynamic Worker boundary.
+
+Focused tests cover:
+
+- marker-based kind and visibility classification,
+- ignoring tampered compatibility fields,
+- query, mutation, workflow mutation, and internal action analysis,
+- parsed argument and return validators,
+- ambiguous kind and visibility markers,
+- missing visibility,
+- malformed exporter types and results,
+- invalid JSON and validator shapes,
+- invalid argument validator kinds, and
+- invalid handlers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 2: Produce A Real Source Bundle
 
 1. Separate initial codegen, source bundling, and final codegen APIs.
