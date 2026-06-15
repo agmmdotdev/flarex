@@ -681,3 +681,11 @@ exports, ignored helper exports, the shared registry, stale cleanup, and the
 absence of app Wrangler generation. Full workspace typecheck, tests, build, and
 diff checks pass. No app `.flarex` persistence directory or generated Wrangler
 configuration remains after verification.
+
+## Implementation Checkpoints
+
+### `772fce2` Refactor Flarex runtime and add Convex-style codegen
+
+Separated reusable backend runtime, development tooling, test SDK, and
+deployable wrapper packages; added Convex-style generated APIs and local
+development behavior.

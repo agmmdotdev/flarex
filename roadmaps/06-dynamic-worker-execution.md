@@ -219,3 +219,16 @@ corepack pnpm --filter @flarex/example test
 corepack pnpm typecheck
 corepack pnpm test
 ```
+
+## Implementation Checkpoints
+
+### `a973c3a` Add backend execution sessions
+
+Added backend-owned execution sessions and syscall routing so generated user
+code can access scoped `ctx.db` operations without receiving database
+connections or storage bindings.
+
+### `36b021e` Test generated Worker backend invoke path
+
+Added an end-to-end test proving that generated execution code invokes the
+backend session and syscall path.

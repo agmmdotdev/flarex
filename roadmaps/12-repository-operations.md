@@ -20,11 +20,17 @@ moved to its own top-level location or remote.
 Added repository-wide checkpoint discipline:
 
 - every repository-changing turn updates its relevant domain roadmap,
-- `roadmaps/00-implementation-log.md` records concise completed-checkpoint
-  summaries with commit IDs and titles,
+- every domain roadmap owns its concise completed-checkpoint summaries with
+  commit IDs and titles,
 - verified repository-changing turns are committed automatically, and
-- the newest commit is recorded in the ledger on the following
+- the newest commit is recorded in its relevant domain roadmap on the following
   repository-changing turn because a commit cannot contain its own stable ID.
+
+Removed the global implementation ledger introduced by checkpoint
+`64eb2f9 Require documented automatic checkpoints`. A single chronological
+ledger would eventually become a giant project-history document and duplicate
+the focused domain records. The automatic commit rule remains, but checkpoint
+history now stays with the domain it explains.
 
 ## Why This Shape
 
@@ -53,8 +59,27 @@ Convex source tree to remain nearby for reference.
 
 - No remote origin is configured yet.
 - The parent Convex repository now ignores `custom/cloudflare-executor/`.
-- The implementation ledger intentionally trails the newest commit by one
-  repository-changing turn because Git commit IDs are content-derived.
+- A domain roadmap's implementation history intentionally trails its newest
+  commit by one repository-changing turn because Git commit IDs are
+  content-derived.
+
+## Implementation Checkpoints
+
+### `6096ad8` Initial Flarex Cloudflare executor prototype
+
+Created the standalone Flarex prototype repository with its initial backend,
+SDK, tests, example app, and domain roadmaps.
+
+### `ea02381` Document parent ignore rule
+
+Recorded the parent Convex repository ignore rule that keeps the nested Flarex
+repository independent.
+
+### `64eb2f9` Require documented automatic checkpoints
+
+Added automatic verified checkpoint commits and initially introduced a global
+implementation ledger. The automatic commit rule remains, while this turn
+corrects checkpoint recording to stay domain-specific.
 
 ## Verification
 

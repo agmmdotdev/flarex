@@ -905,3 +905,11 @@ Documentation and research only:
 ```sh
 git diff --check
 ```
+
+## Implementation Checkpoints
+
+### `5b61214` Add Convex-style function registration contract
+
+Added Convex-style function registration forms, runtime markers, validator
+exporters, internal actions, strict serialization, tests, and the detailed
+deployment-analysis plan in this roadmap.

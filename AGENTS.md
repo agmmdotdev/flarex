@@ -35,16 +35,14 @@ Convex"; differences should be narrow, named, and recorded in `roadmaps/`.
 
 ## Required Per-Turn Record
 
-Every repository-changing turn must update:
-
-1. the relevant domain file under `roadmaps/`, and
-2. the chronological checkpoint ledger in
-   `roadmaps/00-implementation-log.md`.
+Every repository-changing turn must update the relevant domain file under
+`roadmaps/`.
 
 Record:
 
 - what changed
 - why it changed
+- the previous completed checkpoint's commit ID and title
 - Convex source files inspected or used as inspiration
 - how the Flarex design differs from Convex
 - known limitations or follow-up work
@@ -54,14 +52,18 @@ If a turn touches multiple domains, update multiple roadmap files. If no
 existing domain file fits, create a new focused roadmap file instead of adding
 one giant document.
 
-The implementation log must contain a concise summary plus the commit ID and
-commit title for every completed checkpoint. A Git commit cannot contain its
-own final ID because changing the log changes the commit ID. Therefore:
+Implementation histories must remain domain-specific. Do not create a global
+chronological implementation log or add all project history to one giant
+roadmap file.
 
-- record the previous completed checkpoint in the implementation log during
-  the next repository-changing turn,
+Each domain roadmap must keep its own concise implementation checkpoint
+history. A Git commit cannot contain its own final ID because changing the
+roadmap changes the commit ID. Therefore:
+
+- record the previous completed checkpoint in its relevant domain roadmap
+  during the next repository-changing turn,
 - report the newly created commit ID and title in the final response, and
-- carry that new checkpoint into the implementation log on the following
+- carry that new checkpoint into its relevant domain roadmap on the following
   repository-changing turn.
 
 Discussion-only and research-only turns that do not change repository files do
@@ -83,8 +85,6 @@ user request.
 
 ## Where To Put Records
 
-- Chronological completed-checkpoint ledger:
-  `roadmaps/00-implementation-log.md`
 - Backend database and DO shape:
   `roadmaps/01-backend-data-model-and-do-shape.md`
 - Schema placement and shards:

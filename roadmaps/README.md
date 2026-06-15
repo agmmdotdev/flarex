@@ -12,13 +12,14 @@ Every implementation turn must update the relevant domain file with:
 - known limitations and follow-up work
 - verification commands run
 
-Every repository-changing turn must also update the concise chronological
-[implementation log](./00-implementation-log.md) with the previous completed
-checkpoint, then create and report a verified automatic checkpoint commit.
+Each domain roadmap owns its own concise implementation checkpoint history,
+including the previous completed checkpoint's commit ID and title. Do not
+create a global chronological implementation log or combine all project
+history into one giant file. After verification, create and report an
+automatic checkpoint commit.
 
 Start with:
 
-- [00-implementation-log.md](./00-implementation-log.md)
 - [01-backend-data-model-and-do-shape.md](./01-backend-data-model-and-do-shape.md)
 - [02-schema-placement-and-shards.md](./02-schema-placement-and-shards.md)
 - [03-occ-and-transactions.md](./03-occ-and-transactions.md)
