@@ -711,6 +711,17 @@ The detailed source-package contract, Convex references, determinism rules,
 differences, and tests are recorded in
 `roadmaps/17-deployment-analysis-and-push.md`.
 
+## Complete Deployment Analysis Update
+
+`analyzeSourcePackageLocally()` now returns one complete deployment analysis
+containing analyzed functions and analyzed schema. `finalCodegen()` consumes
+that result rather than reading schema runtime objects from the developer
+filesystem.
+
+Generated runtime deployment schema and Worker table metadata are static
+analysis outputs. Generated `dataModel.ts` still imports the developer schema
+solely for TypeScript type inference.
+
 ## Implementation Checkpoints
 
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen

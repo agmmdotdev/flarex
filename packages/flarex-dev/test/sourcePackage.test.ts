@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -38,14 +38,65 @@ describe("Flarex source packages", () => {
     }
 
     const analysis = await analyzeSourcePackageLocally(first);
-    expect(analysis.map(module => module.moduleName)).toEqual(["lessons", "users"]);
-    expect(analysis[0]?.functions[0]).toMatchObject({
+    expect(analysis.functions.map(module => module.moduleName)).toEqual(["lessons", "users"]);
+    expect(analysis.functions[0]?.functions[0]).toMatchObject({
       exportName: "list",
       kind: "query",
       visibility: "public",
     });
+    expect(analysis.schema).toEqual({
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "users",
+          validator: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          placement: { kind: "partitionBy", field: "name" },
+        },
+      ],
+      indexes: [
+        {
+          indexId: 1,
+          tableId: 1,
+          name: "by_name",
+          fields: ["name"],
+        },
+      ],
+    });
 
     await finalCodegen(firstContext, analysis);
+  });
+
+  it("keeps final schema codegen independent from filesystem changes after analysis", async () => {
+    const root = await createProject();
+    const context = await initialCodegen({ root });
+    const package_ = await bundleFlarexSourcePackage(context);
+    const analysis = await analyzeSourcePackageLocally(package_);
+
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { defineSchema, defineTable } from "flarex/server";
+import { v } from "flarex/values";
+export default defineSchema({ spoofed: defineTable({ value: v.number() }).global() });
+`,
+    );
+    await finalCodegen(context, analysis);
+
+    const generated = await readFile(
+      path.join(root, "flarex/_generated/deploymentSchema.ts"),
+      "utf8",
+    );
+    const worker = await readFile(path.join(root, "flarex/_generated/worker.ts"), "utf8");
+    expect(generated).toContain('"name": "users"');
+    expect(generated).not.toContain("spoofed");
+    expect(generated).not.toContain('from "../schema"');
+    expect(worker).not.toContain('from "../schema"');
+    expect(worker).toContain("deploymentSchema.tables");
   });
 
   it("ignores unrelated generated files but changes hashes when source changes", async () => {
@@ -84,7 +135,9 @@ async function createProject(): Promise<string> {
     path.join(root, "flarex/schema.ts"),
     `import { defineSchema, defineTable } from "flarex/server";
 import { v } from "flarex/values";
-export default defineSchema({ users: defineTable({ name: v.string() }) });
+export default defineSchema({
+  users: defineTable({ name: v.string() }).index("by_name", ["name"]).partitionBy("name"),
+});
 `,
   );
   await writeFile(

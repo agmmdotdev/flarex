@@ -20,6 +20,30 @@ export type AnalyzedModule = {
   functions: AnalyzedFunction[];
 };
 
+export type AnalyzedSchema = {
+  version: number;
+  tables: Array<{
+    tableId: number;
+    name: string;
+    validator: ValidatorJSON;
+    placement:
+      | { kind: "partitionBy"; field: string }
+      | { kind: "colocateWith"; table: string; field: string }
+      | { kind: "global" };
+  }>;
+  indexes: Array<{
+    indexId: number;
+    tableId: number;
+    name: string;
+    fields: string[];
+  }>;
+};
+
+export type DeploymentAnalysis = {
+  functions: AnalyzedModule[];
+  schema: AnalyzedSchema;
+};
+
 export type FunctionModule = {
   moduleName: string;
   absolutePath: string;
@@ -133,12 +157,105 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
 
 export async function analyzeSourcePackageLocally(
   package_: SourcePackage,
-): Promise<AnalyzedModule[]> {
+): Promise<DeploymentAnalysis> {
   const execution = sourceModule(package_, package_.execution);
   const bundled = await import(
     `data:text/javascript;base64,${Buffer.from(execution.source, "utf8").toString("base64")}`
   );
-  return analyzeModuleExports(bundled.default as Record<string, Record<string, unknown>>);
+  return {
+    functions: analyzeModuleExports(bundled.default as Record<string, Record<string, unknown>>),
+    schema: await analyzeSchema(package_),
+  };
+}
+
+async function analyzeSchema(package_: SourcePackage): Promise<AnalyzedSchema> {
+  if (package_.schema === undefined) return { version: 1, tables: [], indexes: [] };
+  const schemaModule = sourceModule(package_, package_.schema);
+  const bundled = await import(
+    `data:text/javascript;base64,${Buffer.from(schemaModule.source, "utf8").toString("base64")}`
+  );
+  const schema = bundled.default as unknown;
+  if (!isRecord(schema) || !isRecord(schema.tables)) {
+    throw new Error("Schema default export must be a Flarex schema definition.");
+  }
+
+  const entries = Object.entries(schema.tables)
+    .filter((entry): entry is [string, Record<string, unknown>] =>
+      isRecord(entry[1]) && entry[1].kind === "table",
+    )
+    .sort(([left], [right]) => left.localeCompare(right));
+  const tableIds = new Map(entries.map(([name], index) => [name, index + 1] as const));
+  let nextIndexId = 1;
+  return {
+    version: 1,
+    tables: entries.map(([name, table]) => ({
+      tableId: tableIds.get(name)!,
+      name,
+      validator: analyzeTableValidator(table.validator, name),
+      placement: analyzePlacement(table.placement, name),
+    })),
+    indexes: entries.flatMap(([tableName, table]) =>
+      analyzeIndexes(table.indexes, tableName).map(index => ({
+        indexId: nextIndexId++,
+        tableId: tableIds.get(tableName)!,
+        name: index.name,
+        fields: index.fields,
+      })),
+    ),
+  };
+}
+
+function analyzeTableValidator(value: unknown, tableName: string): ValidatorJSON {
+  if (!isRecord(value) || value.isFlarexValidator !== true || !("json" in value)) {
+    throw new Error(`Schema table "${tableName}" has an invalid document validator.`);
+  }
+  const validator = assertValidatorJson(value.json, `schema.tables.${tableName}.validator`);
+  if (validator === null || validator.type !== "object") {
+    throw new Error(`Schema table "${tableName}" document validator must be an object validator.`);
+  }
+  return validator;
+}
+
+function analyzePlacement(
+  value: unknown,
+  tableName: string,
+): AnalyzedSchema["tables"][number]["placement"] {
+  if (value === undefined) return { kind: "partitionBy", field: "_id" };
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error(`Schema table "${tableName}" has an invalid placement.`);
+  }
+  if (value.kind === "global") return { kind: "global" };
+  if (value.kind === "partitionBy" && typeof value.field === "string") {
+    return { kind: "partitionBy", field: value.field };
+  }
+  if (
+    value.kind === "colocateWith" &&
+    typeof value.table === "string" &&
+    typeof value.field === "string"
+  ) {
+    return { kind: "colocateWith", table: value.table, field: value.field };
+  }
+  throw new Error(`Schema table "${tableName}" has an invalid placement.`);
+}
+
+function analyzeIndexes(
+  value: unknown,
+  tableName: string,
+): Array<{ name: string; fields: string[] }> {
+  if (!Array.isArray(value)) {
+    throw new Error(`Schema table "${tableName}" has invalid indexes.`);
+  }
+  return value.map((index, position) => {
+    if (
+      !isRecord(index) ||
+      typeof index.name !== "string" ||
+      !Array.isArray(index.fields) ||
+      !index.fields.every(field => typeof field === "string")
+    ) {
+      throw new Error(`Schema table "${tableName}" has an invalid index at position ${position}.`);
+    }
+    return { name: index.name, fields: [...index.fields] };
+  });
 }
 
 function analyzeModuleExports(
@@ -277,4 +394,8 @@ function parseArgsValidator(value: RuntimeFunction, identifier: string): Validat
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

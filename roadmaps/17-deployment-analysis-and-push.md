@@ -1066,6 +1066,85 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 2 Step 2 Implementation Update
+
+Completed complete local deployment analysis from the immutable source package.
+No backend candidate state, push routes, Miniflare adapter, or hosted Dynamic
+Worker analysis was added.
+
+`analyzeSourcePackageLocally()` now returns:
+
+```ts
+type DeploymentAnalysis = {
+  functions: AnalyzedModule[];
+  schema: AnalyzedSchema;
+};
+```
+
+The schema bundle referenced by `SourcePackage.schema` is evaluated directly
+from its immutable bundled source. Analysis normalizes:
+
+- stable table IDs assigned by sorted table name,
+- table names,
+- structurally validated document validators,
+- default and explicit placement rules,
+- index names and field lists, and
+- stable index IDs.
+
+`finalCodegen()` now consumes the complete `DeploymentAnalysis`. Generated
+`deploymentSchema.ts` is static analyzed data and does not import
+`../schema`. The generated Worker derives table-name and table-ID metadata from
+that static deployment schema and also no longer imports `../schema`.
+
+The developer schema remains imported only by generated `dataModel.ts` for
+compile-time TypeScript inference. Runtime deployment metadata and invocation
+behavior no longer evaluate it after analysis.
+
+Convex references copied in principle:
+
+- `crates/application/src/lib.rs`
+  - evaluates the separately bundled schema module before deployment.
+- `npm-packages/convex/src/cli/lib/deployApi/componentDefinition.ts`
+  - deployment analysis returns both analyzed functions and analyzed schema.
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - final codegen consumes analyzed schema returned by deployment analysis.
+
+Intentional and temporary differences:
+
+- Flarex currently normalizes directly into the existing Durable Object
+  `DeploymentSchema` shape. Convex's analyzed database schema contains richer
+  schema-validation and index lifecycle metadata.
+- Projections remain excluded from authoritative storage schema, matching the
+  current backend capability. Projection analysis needs its own later domain
+  step.
+- Schema version remains prototype constant `1`; push-state activation will
+  own real schema version progression.
+- Schema import-phase restrictions are not enforced until analysis moves into
+  a controlled execution artifact.
+
+Tests prove:
+
+- schema validators, indexes, and placement survive source package bundling and
+  analysis,
+- final codegen consumes the analyzed schema,
+- modifying the developer schema file after analysis cannot change generated
+  deployment metadata, and
+- generated Worker runtime code no longer imports the developer schema.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 3: Add Backend Push State
 
 1. Define `StartPushRequest`, `StartPushResponse`, `PushStatus`, and
@@ -1173,3 +1252,9 @@ and return metadata.
 Changed final codegen and generated Worker validation to consume static
 analyzed metadata while limiting the runtime registry to executable `_handler`
 lookup.
+
+### `9eaf596` Bundle deterministic Flarex source packages
+
+Split generation into explicit phases and added deterministic, source-mapped,
+hashed function, schema, and internal execution bundles that local analysis can
+consume without developer filesystem access.

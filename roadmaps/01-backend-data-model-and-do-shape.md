@@ -1,5 +1,35 @@
 # Backend Data Model And Durable Object Shape
 
+## Source-Package Schema Analysis Update
+
+Local deployment analysis now evaluates the separately bundled immutable schema
+module and normalizes it into the existing backend `DeploymentSchema` contract:
+tables, document validators, placement, indexes, stable table IDs, and stable
+index IDs.
+
+Final codegen and the generated Worker consume this analyzed schema as static
+data. They no longer re-evaluate the developer schema for runtime metadata.
+
+This remains a prototype schema model. Backend push state must later own schema
+version progression, schema diff validation, index lifecycle, and activation.
+Projections are not yet part of authoritative storage schema analysis.
+
+Convex references:
+
+- `crates/application/src/lib.rs` schema evaluation path
+- `npm-packages/convex/src/cli/lib/deployApi/componentDefinition.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+```
+
 ## Current Decision
 
 The backend server runtime lives in `packages/flarex-backend`. `apps/backend`
