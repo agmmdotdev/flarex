@@ -23,8 +23,10 @@ import type {
   DeploymentFunctions,
   DeploymentSchema,
   Env,
+  FinishPushRequest,
   InvokeRequest,
   Json,
+  StartPushRequest,
 } from "./types";
 
 export { ConnectionDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
@@ -69,6 +71,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "functions") {
       return routeDeploymentFunctions(request, env, deploymentId);
     }
+    if (parts[2] === "push") {
+      return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
+    }
     if (parts[2] === "invoke" && request.method === "POST") {
       return routeInvoke(env, deploymentId, await readJson(request));
     }
@@ -89,6 +94,36 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   return json({ error: "Not found." }, { status: 404 });
+}
+
+async function routeDeploymentPush(
+  request: Request,
+  env: Env,
+  deploymentId: string,
+  parts: string[],
+): Promise<Response> {
+  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
+  if (parts[0] === "start" && request.method === "POST") {
+    const body = await readJson<StartPushRequest>(request);
+    return deployment.fetch("https://flarex.internal/push/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+  const pushId = required(parts[0], "push id");
+  if (parts.length === 1 && request.method === "GET") {
+    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}`);
+  }
+  if (parts[1] === "finish" && request.method === "POST") {
+    const body = await readJson<FinishPushRequest>(request);
+    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/finish`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+  return json({ error: "Push route not found." }, { status: 404 });
 }
 
 async function routeExecution(

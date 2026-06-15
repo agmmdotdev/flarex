@@ -14,6 +14,21 @@ This remains a prototype schema model. Backend push state must later own schema
 version progression, schema diff validation, index lifecycle, and activation.
 Projections are not yet part of authoritative storage schema analysis.
 
+## Candidate Push State Update
+
+`DeploymentDO` now owns candidate push state in addition to active schema and
+function metadata.
+
+It stores source package metadata, analyzed schema, analyzed functions, state,
+failure errors, and timestamps. `finish` activates a candidate by applying its
+schema/functions in one Durable Object storage transaction through the same
+validation path as the legacy direct replacement routes.
+
+This is the first step toward a Convex-style deployment activation boundary.
+The current prototype still stores source package contents inline and does not
+yet persist an active execution-artifact pointer, push race token, schema diff,
+or index backfill status.
+
 Convex references:
 
 - `crates/application/src/lib.rs` schema evaluation path
@@ -25,6 +40,8 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
 corepack pnpm typecheck
 corepack pnpm test
 corepack pnpm build

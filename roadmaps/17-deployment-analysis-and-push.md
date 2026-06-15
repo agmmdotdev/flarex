@@ -1154,6 +1154,110 @@ git diff --check
 4. Keep existing direct schema/functions PUT routes only as temporary test
    helpers, then remove them from normal dev/deploy flow.
 
+### Phase 3 Step 1 Implementation Update
+
+Added the first backend candidate push lifecycle. No Dynamic Worker analysis,
+Miniflare analysis adapter, hosted artifact upload, schema diff validation, or
+local-dev push orchestration was added.
+
+New backend API types:
+
+- `StartPushRequest`
+- `StartPushResponse`
+- `FinishPushRequest`
+- `PushStatus`
+- `PushSourcePackage`
+- `DeploymentAnalysis`
+
+New routes:
+
+```txt
+POST /deployments/:deploymentId/push/start
+GET  /deployments/:deploymentId/push/:pushId
+POST /deployments/:deploymentId/push/:pushId/finish
+```
+
+For this step, the dev/client side supplies both the source package metadata
+and the already-produced deployment analysis. `DeploymentDO` validates and
+stores the candidate, but it does not run analysis itself yet.
+
+Candidate push state is stored in `DeploymentDO` with:
+
+- push ID,
+- state,
+- source package metadata and hashes,
+- analyzed schema,
+- analyzed functions,
+- failure error,
+- created/updated timestamps.
+
+Supported states:
+
+```txt
+pending
+analyzed
+failed
+activated
+superseded
+```
+
+Current state behavior:
+
+- A start request with valid analysis stores an `analyzed` candidate.
+- A start request without analysis but with an error stores a `failed`
+  candidate.
+- Starting a new analyzed/failed candidate supersedes previous `pending` or
+  `analyzed` candidates.
+- Active schema/functions remain unchanged until `finish`.
+- `finish` atomically applies candidate schema and function metadata through
+  the same validation path used by the legacy direct `PUT /schema` and
+  `PUT /functions` routes.
+- Failed, superseded, and unknown pushes cannot activate.
+
+Convex references copied in principle:
+
+- `crates/application/src/deploy_config.rs`
+  - `start_push` / `finish_push` lifecycle and candidate deployment state.
+- `crates/application/src/lib.rs`
+  - analyzed modules and schema flow into activation only after validation.
+- `crates/model/src/source_packages/types.rs`
+  - source package metadata and hashes are part of deployment state.
+
+Intentional and temporary differences:
+
+- Convex backend performs analysis during push. Flarex accepts analysis from
+  dev tooling for this step.
+- Flarex stores source package contents inline in Durable Object SQLite for the
+  prototype. Hosted production should store large immutable artifacts outside
+  `DeploymentDO` and keep hashes/references there.
+- Direct schema/functions PUT routes remain for existing tests and dev runtime.
+  They are now legacy helpers, not the target deploy path.
+- Local dev runtime still calls direct PUT after reading generated Worker
+  metadata. Moving it to `push/start` and `push/finish` is the next local-dev
+  orchestration step.
+- No push race token, schema diff, wait-for-schema, index backfill, or
+  execution-artifact pointer is enforced yet.
+
+Tests prove:
+
+- start stores an analyzed candidate,
+- active deployment is unchanged before finish,
+- finish activates schema/functions,
+- failed and unknown pushes cannot activate,
+- a second push supersedes the previous analyzed candidate, and
+- superseded pushes cannot activate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 4: Local Authoritative Push
 
 1. Add an execution-artifact adapter interface.
@@ -1258,3 +1362,9 @@ lookup.
 Split generation into explicit phases and added deterministic, source-mapped,
 hashed function, schema, and internal execution bundles that local analysis can
 consume without developer filesystem access.
+
+### `054a81e` Analyze schema from Flarex source packages
+
+Changed local source-package analysis to return both analyzed functions and
+analyzed schema, then made final codegen and generated Worker runtime consume
+that complete deployment analysis.

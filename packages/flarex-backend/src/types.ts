@@ -135,6 +135,55 @@ export type DeploymentFunctions = {
   functions: DeploymentFunctionMetadata[];
 };
 
+export type PushSourceModule = {
+  path: string;
+  environment: "isolate";
+  sha256: string;
+  source?: string;
+  sourceMap?: string;
+};
+
+export type PushSourcePackage = {
+  modules: PushSourceModule[];
+  functions: string[];
+  schema?: string;
+  execution: string;
+};
+
+export type DeploymentAnalysis = {
+  schema: DeploymentSchema;
+  functions: DeploymentFunctions;
+};
+
+export type PushState =
+  | "pending"
+  | "analyzed"
+  | "failed"
+  | "activated"
+  | "superseded";
+
+export type StartPushRequest = {
+  sourcePackage: PushSourcePackage;
+  analysis?: DeploymentAnalysis;
+  error?: string;
+};
+
+export type PushStatus = {
+  pushId: string;
+  state: PushState;
+  sourcePackage: PushSourcePackage;
+  analysis?: DeploymentAnalysis;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StartPushResponse = PushStatus;
+
+export type FinishPushRequest = {
+  activate?: boolean;
+};
+
 export type InvokeRequest = {
   path: string;
   args: Json;

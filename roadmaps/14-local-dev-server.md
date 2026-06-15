@@ -107,6 +107,26 @@ must be shared.
 
 See `roadmaps/17-deployment-analysis-and-push.md`.
 
+## Push Lifecycle Gap
+
+The backend now exposes candidate push routes, but local dev still deploys by
+reading generated Worker metadata and calling legacy direct schema/functions
+PUT routes. This is intentionally left as a separate step.
+
+The next local-dev change should use:
+
+```txt
+initialCodegen
+  -> bundleFlarexSourcePackage
+  -> analyzeSourcePackageLocally
+  -> POST /push/start
+  -> finalCodegen from push response
+  -> POST /push/:pushId/finish
+```
+
+That change should keep the generated Worker behavior the same while making
+the dev server exercise the same backend push lifecycle as hosted deploy.
+
 ## Verification
 
 ```sh

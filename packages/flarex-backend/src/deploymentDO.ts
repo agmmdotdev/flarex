@@ -1,15 +1,20 @@
 import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
+  DeploymentAnalysis,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
+  FinishPushRequest,
   FunctionVisibility,
   Json,
+  PushSourcePackage,
+  PushStatus,
   SchemaIndex,
   SchemaTable,
+  StartPushRequest,
   ValidatorJson,
 } from "./types";
 import { assertValidatorJson, BackendValidationError } from "./validation";
@@ -46,6 +51,16 @@ export class DeploymentDO extends DurableObject<Env> {
         args_json TEXT,
         returns_json TEXT
       );
+      CREATE TABLE IF NOT EXISTS pushes (
+        push_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        source_package_json TEXT NOT NULL,
+        schema_json TEXT,
+        functions_json TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
     this.setMetaIfMissing("schema_version", "0");
   }
@@ -75,95 +90,185 @@ export class DeploymentDO extends DurableObject<Env> {
         if (!metadata) throw new HttpError(404, `Unknown Flarex function metadata: ${path}`);
         return json(metadata);
       }
+      if (url.pathname === "/push/start" && request.method === "POST") {
+        return json(await this.startPush(await readJson<StartPushRequest>(request)));
+      }
+      const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
+      if (pushMatch) {
+        const pushId = decodeURIComponent(pushMatch[1]!);
+        const action = pushMatch[2];
+        if (action === undefined && request.method === "GET") {
+          const status = this.getPush(pushId);
+          if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
+          return json(status);
+        }
+        if (action === "finish" && request.method === "POST") {
+          return json(await this.finishPush(pushId, await readJson<FinishPushRequest>(request)));
+        }
+      }
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       return errorResponse(error);
     }
   }
 
+  private async startPush(request: StartPushRequest): Promise<PushStatus> {
+    const sourcePackage = validateSourcePackage(request.sourcePackage);
+    const now = Date.now();
+    const pushId = crypto.randomUUID();
+    const error = request.error;
+    const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
+    const state = analysis === undefined ? "failed" : "analyzed";
+    if (analysis === undefined && (typeof error !== "string" || error.length === 0)) {
+      throw new HttpError(400, "A push without analysis must include an error message.");
+    }
+
+    return this.ctx.storage.transaction(async () => {
+      this.sql.exec(
+        "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
+        now,
+      );
+      this.sql.exec(
+        `
+        INSERT INTO pushes (
+          push_id,
+          state,
+          source_package_json,
+          schema_json,
+          functions_json,
+          error,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        pushId,
+        state,
+        JSON.stringify(sourcePackage),
+        analysis === undefined ? null : JSON.stringify(analysis.schema),
+        analysis === undefined ? null : JSON.stringify(analysis.functions),
+        error ?? null,
+        now,
+        now,
+      );
+      const status = this.getPush(pushId);
+      if (!status) throw new Error(`Push ${pushId} was not stored.`);
+      return status;
+    });
+  }
+
+  private async finishPush(pushId: string, _request: FinishPushRequest): Promise<PushStatus> {
+    return this.ctx.storage.transaction(async () => {
+      const status = this.getPush(pushId);
+      if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
+      if (status.state !== "analyzed") {
+        throw new HttpError(409, `Cannot finish push ${pushId} in state ${status.state}.`);
+      }
+      if (status.analysis === undefined) {
+        throw new HttpError(409, `Push ${pushId} has no analysis to activate.`);
+      }
+      this.applySchema(status.analysis.schema);
+      this.applyFunctions(status.analysis.functions);
+      const now = Date.now();
+      this.sql.exec(
+        "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
+        now,
+        pushId,
+      );
+      const activated = this.getPush(pushId);
+      if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
+      return activated;
+    });
+  }
+
+  private getPush(pushId: string): PushStatus | null {
+    const row = this.sql
+      .exec<{
+        push_id: string;
+        state: string;
+        source_package_json: string;
+        schema_json: string | null;
+        functions_json: string | null;
+        error: string | null;
+        created_at: number;
+        updated_at: number;
+      }>(
+        `
+        SELECT push_id, state, source_package_json, schema_json, functions_json, error, created_at, updated_at
+        FROM pushes
+        WHERE push_id = ?
+        `,
+        pushId,
+      )
+      .toArray()[0];
+    if (!row) return null;
+    return pushStatusFromRow(row);
+  }
+
   private async putSchema(schema: DeploymentSchema): Promise<DeploymentSchema> {
     return this.ctx.storage.transaction(async () => {
-      const tableIds = new Set<number>();
-      const indexIds = new Set<number>();
-      for (const table of schema.tables) {
-        if (tableIds.has(table.tableId)) throw new Error(`Duplicate table id ${table.tableId}.`);
-        tableIds.add(table.tableId);
-      }
-      for (const index of schema.indexes) {
-        if (!tableIds.has(index.tableId)) {
-          throw new Error(`Index ${index.name} references unknown table id ${index.tableId}.`);
-        }
-        if (indexIds.has(index.indexId)) throw new Error(`Duplicate index id ${index.indexId}.`);
-        indexIds.add(index.indexId);
-      }
-
-      this.sql.exec("DELETE FROM indexes");
-      this.sql.exec("DELETE FROM tables");
-      for (const table of schema.tables) {
-        const validator = safeValidator(table.validator ?? null, `$schema.tables.${table.name}.validator`);
-        this.sql.exec(
-          `
-          INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
-          VALUES (?, ?, ?, ?, ?)
-          `,
-          table.tableId,
-          table.name,
-          table.state ?? "active",
-          JSON.stringify(validator),
-          JSON.stringify(table.placement),
-        );
-      }
-      for (const index of schema.indexes) {
-        this.sql.exec(
-          `
-          INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
-          VALUES (?, ?, ?, ?, ?)
-          `,
-          index.indexId,
-          index.tableId,
-          index.name,
-          JSON.stringify(index.fields),
-          index.state ?? "enabled",
-        );
-      }
-      this.setMeta("schema_version", String(schema.version));
-      return schema;
+      return this.applySchema(schema);
     });
   }
 
   private async putFunctions(functions: DeploymentFunctions): Promise<DeploymentFunctions> {
     return this.ctx.storage.transaction(async () => {
-      const seen = new Set<string>();
-      const normalized = functions.functions.map((metadata, index) => {
-        const path = metadata.path;
-        if (typeof path !== "string" || path.length === 0) {
-          throw new HttpError(400, `Function metadata at index ${index} has an invalid path.`);
-        }
-        if (seen.has(path)) throw new HttpError(400, `Duplicate function metadata path: ${path}.`);
-        seen.add(path);
-        const kind = parseFunctionKind(metadata.kind, `$functions.${path}.kind`);
-        const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
-        const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
-        const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
-        return { path, kind, visibility, args, returns };
-      });
-
-      this.sql.exec("DELETE FROM functions");
-      for (const metadata of normalized) {
-        this.sql.exec(
-          `
-          INSERT INTO functions (function_path, kind, visibility, args_json, returns_json)
-          VALUES (?, ?, ?, ?, ?)
-          `,
-          metadata.path,
-          metadata.kind,
-          metadata.visibility,
-          JSON.stringify(metadata.args),
-          JSON.stringify(metadata.returns),
-        );
-      }
-      return { functions: normalized };
+      return this.applyFunctions(functions);
     });
+  }
+
+  private applySchema(schema: DeploymentSchema): DeploymentSchema {
+    const normalized = validateSchema(schema);
+    this.sql.exec("DELETE FROM indexes");
+    this.sql.exec("DELETE FROM tables");
+    for (const table of normalized.tables) {
+      const validator = safeValidator(table.validator ?? null, `$schema.tables.${table.name}.validator`);
+      this.sql.exec(
+        `
+        INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        table.tableId,
+        table.name,
+        table.state ?? "active",
+        JSON.stringify(validator),
+        JSON.stringify(table.placement),
+      );
+    }
+    for (const index of normalized.indexes) {
+      this.sql.exec(
+        `
+        INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        index.indexId,
+        index.tableId,
+        index.name,
+        JSON.stringify(index.fields),
+        index.state ?? "enabled",
+      );
+    }
+    this.setMeta("schema_version", String(normalized.version));
+    return normalized;
+  }
+
+  private applyFunctions(functions: DeploymentFunctions): DeploymentFunctions {
+    const normalized = validateFunctions(functions);
+    this.sql.exec("DELETE FROM functions");
+    for (const metadata of normalized.functions) {
+      this.sql.exec(
+        `
+        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        metadata.path,
+        metadata.kind,
+        metadata.visibility,
+        JSON.stringify(metadata.args),
+        JSON.stringify(metadata.returns),
+      );
+    }
+    return normalized;
   }
 
   private getFunctions(): DeploymentFunctions {
@@ -291,6 +396,193 @@ function functionMetadataFromRow(row: {
     args: JSON.parse(row.args_json ?? "null") as ValidatorJson | null,
     returns: JSON.parse(row.returns_json ?? "null") as ValidatorJson | null,
   };
+}
+
+function pushStatusFromRow(row: {
+  push_id: string;
+  state: string;
+  source_package_json: string;
+  schema_json: string | null;
+  functions_json: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+}): PushStatus {
+  const schema = row.schema_json === null ? undefined : JSON.parse(row.schema_json) as DeploymentSchema;
+  const functions = row.functions_json === null
+    ? undefined
+    : JSON.parse(row.functions_json) as DeploymentFunctions;
+  return {
+    pushId: row.push_id,
+    state: parsePushState(row.state),
+    sourcePackage: JSON.parse(row.source_package_json) as PushSourcePackage,
+    ...(schema !== undefined && functions !== undefined ? { analysis: { schema, functions } } : {}),
+    ...(row.error === null ? {} : { error: row.error }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function parsePushState(value: string): PushStatus["state"] {
+  if (
+    value === "pending" ||
+    value === "analyzed" ||
+    value === "failed" ||
+    value === "activated" ||
+    value === "superseded"
+  ) {
+    return value;
+  }
+  throw new Error(`Unknown stored push state ${value}.`);
+}
+
+function validateAnalysis(analysis: DeploymentAnalysis): DeploymentAnalysis {
+  return {
+    schema: validateSchema(analysis.schema),
+    functions: validateFunctions(analysis.functions),
+  };
+}
+
+function validateSchema(schema: DeploymentSchema): DeploymentSchema {
+  if (typeof schema.version !== "number" || !Number.isInteger(schema.version) || schema.version < 0) {
+    throw new HttpError(400, "Schema version must be a non-negative integer.");
+  }
+  if (!Array.isArray(schema.tables)) throw new HttpError(400, "Schema tables must be an array.");
+  if (!Array.isArray(schema.indexes)) throw new HttpError(400, "Schema indexes must be an array.");
+
+  const tableIds = new Set<number>();
+  const normalizedTables = schema.tables.map(table => {
+    if (typeof table.tableId !== "number" || !Number.isInteger(table.tableId) || table.tableId <= 0) {
+      throw new HttpError(400, `Invalid table id for ${table.name}.`);
+    }
+    if (tableIds.has(table.tableId)) throw new HttpError(400, `Duplicate table id ${table.tableId}.`);
+    tableIds.add(table.tableId);
+    if (typeof table.name !== "string" || table.name.length === 0) {
+      throw new HttpError(400, `Table ${table.tableId} has an invalid name.`);
+    }
+    return {
+      ...table,
+      state: table.state ?? "active",
+      validator: safeValidator(table.validator ?? null, `$schema.tables.${table.name}.validator`),
+      placement: validatePlacement(table.placement, `$schema.tables.${table.name}.placement`),
+    };
+  });
+
+  const indexIds = new Set<number>();
+  const normalizedIndexes = schema.indexes.map(index => {
+    if (typeof index.indexId !== "number" || !Number.isInteger(index.indexId) || index.indexId <= 0) {
+      throw new HttpError(400, `Invalid index id for ${index.name}.`);
+    }
+    if (indexIds.has(index.indexId)) throw new HttpError(400, `Duplicate index id ${index.indexId}.`);
+    indexIds.add(index.indexId);
+    if (!tableIds.has(index.tableId)) {
+      throw new HttpError(400, `Index ${index.name} references unknown table id ${index.tableId}.`);
+    }
+    if (typeof index.name !== "string" || index.name.length === 0) {
+      throw new HttpError(400, `Index ${index.indexId} has an invalid name.`);
+    }
+    if (!Array.isArray(index.fields) || !index.fields.every(field => typeof field === "string")) {
+      throw new HttpError(400, `Index ${index.name} has invalid fields.`);
+    }
+    return {
+      ...index,
+      fields: [...index.fields],
+      state: index.state ?? "enabled",
+    };
+  });
+
+  return { version: schema.version, tables: normalizedTables, indexes: normalizedIndexes };
+}
+
+function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions {
+  if (!Array.isArray(functions.functions)) {
+    throw new HttpError(400, "Function metadata must include a functions array.");
+  }
+  const seen = new Set<string>();
+  const normalized = functions.functions.map((metadata, index) => {
+    const path = metadata.path;
+    if (typeof path !== "string" || path.length === 0) {
+      throw new HttpError(400, `Function metadata at index ${index} has an invalid path.`);
+    }
+    if (seen.has(path)) throw new HttpError(400, `Duplicate function metadata path: ${path}.`);
+    seen.add(path);
+    const kind = parseFunctionKind(metadata.kind, `$functions.${path}.kind`);
+    const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
+    const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
+    const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
+    return { path, kind, visibility, args, returns };
+  });
+  return { functions: normalized };
+}
+
+function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
+  if (!Array.isArray(sourcePackage.modules)) {
+    throw new HttpError(400, "Source package modules must be an array.");
+  }
+  if (!Array.isArray(sourcePackage.functions)) {
+    throw new HttpError(400, "Source package functions must be an array.");
+  }
+  if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
+    throw new HttpError(400, "Source package execution module is required.");
+  }
+  const seen = new Set<string>();
+  const modules = sourcePackage.modules.map(module => {
+    if (typeof module.path !== "string" || module.path.length === 0) {
+      throw new HttpError(400, "Source package module has an invalid path.");
+    }
+    if (seen.has(module.path)) throw new HttpError(400, `Duplicate source module path: ${module.path}.`);
+    seen.add(module.path);
+    if (module.environment !== "isolate") {
+      throw new HttpError(400, `Source module ${module.path} has unsupported environment ${module.environment}.`);
+    }
+    if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
+      throw new HttpError(400, `Source module ${module.path} has an invalid sha256.`);
+    }
+    if (module.source !== undefined && typeof module.source !== "string") {
+      throw new HttpError(400, `Source module ${module.path} source must be a string.`);
+    }
+    if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
+      throw new HttpError(400, `Source module ${module.path} sourceMap must be a string.`);
+    }
+    return { ...module };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  if (!seen.has(sourcePackage.execution)) {
+    throw new HttpError(400, `Source package execution module ${sourcePackage.execution} is missing.`);
+  }
+  if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
+    throw new HttpError(400, `Source package schema module ${sourcePackage.schema} is missing.`);
+  }
+  const functions = [...sourcePackage.functions].sort();
+  for (const fn of functions) {
+    if (typeof fn !== "string" || !seen.has(fn)) {
+      throw new HttpError(400, `Source package function module ${String(fn)} is missing.`);
+    }
+  }
+  return {
+    modules,
+    functions,
+    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+    execution: sourcePackage.execution,
+  };
+}
+
+function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("kind" in value)) {
+    throw new HttpError(400, `${path}: Invalid placement.`);
+  }
+  const placement = value as Partial<SchemaTable["placement"]>;
+  if (placement.kind === "global") return { kind: "global" };
+  if (placement.kind === "partitionBy" && typeof placement.field === "string") {
+    return { kind: "partitionBy", field: placement.field };
+  }
+  if (
+    placement.kind === "colocateWith" &&
+    typeof placement.table === "string" &&
+    typeof placement.field === "string"
+  ) {
+    return { kind: "colocateWith", table: placement.table, field: placement.field };
+  }
+  throw new HttpError(400, `${path}: Invalid placement.`);
 }
 
 function parseFunctionKind(value: string, path: string): DeploymentFunctionKind {
