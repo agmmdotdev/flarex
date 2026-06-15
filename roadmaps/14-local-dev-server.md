@@ -82,6 +82,31 @@ target, not to every app using Flarex.
 - The dev runtime persists state under `.flarex/dev` by default and removes it
   on dispose unless a custom `persistDir` is provided.
 
+## Target Push Lifecycle
+
+Local dev must stop deploying metadata through a special shortcut. It should
+exercise the same Convex-shaped lifecycle as hosted Flarex:
+
+```txt
+file change
+  -> initial codegen
+  -> source bundle
+  -> local start_push
+  -> candidate Miniflare execution artifact
+  -> authoritative candidate analysis
+  -> final codegen from analysis response
+  -> typecheck
+  -> local finish_push
+  -> active candidate serves invoke requests
+```
+
+Miniflare is the local implementation of the execution-artifact adapter.
+Workers for Platforms dynamic dispatch is the hosted implementation. The push
+state machine, analysis contract, final codegen input, and activation semantics
+must be shared.
+
+See `roadmaps/17-deployment-analysis-and-push.md`.
+
 ## Verification
 
 ```sh

@@ -652,6 +652,18 @@ using Vite, then generates the Cloudflare Worker registry from those results.
   Convex's `PRESERVED_GENERATED_ENTRIES`.
 - Final codegen does not yet consume an authoritative backend analysis response.
 
+### Authoritative Push Direction
+
+The next codegen change must not make developers write or deploy Worker code.
+Developers continue writing ordinary modules under `flarex/`. Flarex tooling
+will bundle those modules and send the source bundle to the Flarex backend.
+The platform will create the internal Cloudflare execution artifact, analyze it
+inside a backend-controlled dynamic execution isolate, and return authoritative
+analysis for final codegen.
+
+The detailed Convex analysis, validation, `start_push`, and `finish_push` porting
+plan is recorded in `roadmaps/17-deployment-analysis-and-push.md`.
+
 ### Verification
 
 ```sh

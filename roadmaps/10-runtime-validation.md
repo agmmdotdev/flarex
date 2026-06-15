@@ -108,12 +108,72 @@ a patch to leave an invalid final document.
 1. Add Convex-compatible value transport for bigint and bytes.
 2. Move the validator engine into a shared runtime-neutral package used by the
    SDK, backend, generator, and future Dynamic Worker syscall host.
-3. Replace generated Worker prototype deployment with the Dynamic Worker upload
-   and routing bridge.
+3. Port Convex-style runtime marker and validator-export analysis so deployed
+   argument and return validators come from authoritative backend analysis.
 4. Add return validation for future actions and workflow mutations once those
    execution paths exist.
 5. Move the duplicated SDK/backend ID codec into the future runtime-neutral
    shared package.
+
+## Authoritative Analysis Direction
+
+Convex function registration exports validators through runtime functions.
+During deployment analysis, the backend isolate calls those exporter functions,
+parses the validator JSON, and persists it as part of `AnalyzedFunction`.
+Invocation resolves the analyzed function and validates visibility, function
+kind, argument shape, argument size, and return values from that authoritative
+metadata.
+
+Flarex should copy this model:
+
+```txt
+SDK registration
+  -> strict validator exporters
+  -> backend-controlled dynamic execution isolate analysis
+  -> persisted analyzed function metadata
+  -> invocation and return validation
+```
+
+The generated execution artifact may validate locally for faster failure, but
+the backend must validate from active authoritative analyzed metadata before
+execution and commit.
+
+Convex references:
+
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+- `crates/isolate/src/environment/analyze.rs`
+- `crates/model/src/modules/function_validators.rs`
+- `crates/udf/src/validation.rs`
+
+Detailed push and analysis design:
+`roadmaps/17-deployment-analysis-and-push.md`.
+
+## Registration Exporter Update
+
+The public SDK now exposes Convex-style `exportArgs()` and `exportReturns()`
+runtime functions on every registered Flarex function. Missing argument
+validation exports `v.any()` JSON, missing return validation exports `null`,
+and undefined validators fail during strict serialization.
+
+Validation helpers now also accept a root argument validator so the existing
+generated Worker and metadata generator remain compatible with the wider
+registration contract. Authoritative analysis still needs to enforce Convex's
+backend rule that function argument validation must resolve to an object
+validator or unvalidated `any`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+- `crates/model/src/modules/function_validators.rs`
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+```
 
 ## Verification
 

@@ -65,6 +65,24 @@ Created the backend runtime, now located in `packages/flarex-backend`, with:
 - `indexes`
 - `functions`
 
+The next deployment-model change is versioned push state. Directly replacing
+the current schema and functions is not sufficient for Convex-style
+`start_push` analysis and atomic `finish_push` activation. `DeploymentDO`
+should eventually own:
+
+- active push/execution-artifact pointer,
+- candidate push state,
+- authoritative analyzed modules and functions per candidate,
+- candidate schema and schema-change state,
+- push race/superseded detection,
+- atomic activation after schema validation.
+
+Large source bundles and source maps should live outside Durable Object SQLite;
+`DeploymentDO` should store references, hashes, authoritative metadata, and
+state transitions.
+
+Detailed design: `roadmaps/17-deployment-analysis-and-push.md`.
+
 ## Convex References
 
 - `crates/postgres/src/sql.rs`

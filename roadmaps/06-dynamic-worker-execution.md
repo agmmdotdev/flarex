@@ -2,9 +2,11 @@
 
 ## Current Decision
 
-User code should run in Dynamic Workers and receive only restricted syscall
-APIs. User code must not receive raw Durable Object stubs, SQLite handles, or
-environment bindings.
+Developer modules should run in Flarex-managed dynamic execution isolates and
+receive only restricted syscall APIs. Developers write ordinary TypeScript
+functions, not Worker entrypoints. Flarex converts the uploaded source bundle
+into an internal Cloudflare execution artifact. Developer code must not receive
+raw Durable Object stubs, SQLite handles, or environment bindings.
 
 ## Intended Flow
 
@@ -12,7 +14,8 @@ environment bindings.
 Worker router
   -> resolve deployment and partition
   -> begin transaction in PartitionDO
-  -> run user function in Dynamic Worker
+  -> dispatch active Flarex-managed execution artifact
+  -> run developer function in dynamic execution isolate
   -> syscalls collect reads and staged writes
   -> commit through PartitionDO
 ```
@@ -81,11 +84,19 @@ The generated Worker now runs user handlers with a scoped syscall-backed
 - `crates/application/src/application_function_runner/mod.rs`
   Application-level function execution and transaction merge.
 
-## Cloudflare Difference
+## Terminology And Cloudflare Difference
 
 Convex isolates user code with its own Rust/V8 infrastructure. Flarex should
 use Cloudflare runtime isolation, but must still enforce the same architectural
 boundary: user code sees `ctx.db`, not storage.
+
+Cloudflare calls dynamically dispatched scripts "User Workers." In Flarex,
+those scripts are internal execution artifacts generated and managed by Flarex.
+The developer does not write Worker code, a `fetch` handler, Wrangler
+configuration, or bindings.
+
+See `roadmaps/17-deployment-analysis-and-push.md` for the source-bundle,
+analysis, candidate push, and activation lifecycle.
 
 ## Known Limitations
 

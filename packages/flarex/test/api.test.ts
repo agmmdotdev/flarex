@@ -22,10 +22,10 @@ const objectShorthandReturn = mutation({
   handler: () => ({ ok: true }),
 });
 
-// @ts-expect-error Handler return must match the declared returns validator.
 mutation({
   args: {},
   returns: v.object({ ok: v.boolean() }),
+  // @ts-expect-error Handler return must match the declared returns validator.
   handler: () => ({ ok: "yes" }),
 });
 

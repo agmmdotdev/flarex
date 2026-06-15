@@ -19,35 +19,44 @@ export type ValidationOptions = {
 };
 
 export function validateValue(
-  validator: GenericValidator | ValidatorJSON,
+  validator: GenericValidator | PropertyValidators | ValidatorJSON,
   value: unknown,
   path = "$",
   options: ValidationOptions = {},
 ): void {
-  validateJson("json" in validator ? validator.json : validator, value, path, options);
+  validateJson(validatorToJson(validator), value, path, options);
 }
 
 export function validateFunctionArgs(
-  args: PropertyValidators,
+  args: GenericValidator | PropertyValidators,
   value: unknown,
   options: ValidationOptions = {},
 ): void {
-  validateJson(functionArgsToValidatorJson(args), value, "$args", options);
+  validateJson(validatorToJson(args), value, "$args", options);
 }
 
-export function validatorToJson(validator: GenericValidator | PropertyValidators): ValidatorJSON {
-  return "json" in validator ? validator.json : functionArgsToValidatorJson(validator);
+export function validatorToJson(
+  validator: GenericValidator | PropertyValidators | ValidatorJSON,
+): ValidatorJSON {
+  if ("isFlarexValidator" in validator) return validator.json;
+  if (typeof (validator as { type?: unknown }).type === "string") {
+    return validator as ValidatorJSON;
+  }
+  return functionArgsToValidatorJson(validator as PropertyValidators);
 }
 
-export function functionArgsToValidatorJson(args: PropertyValidators): ValidatorJSON {
+export function functionArgsToValidatorJson(
+  args: GenericValidator | PropertyValidators,
+): ValidatorJSON {
+  if ("isFlarexValidator" in args) return args.json;
   return {
     type: "object",
     value: Object.fromEntries(
       Object.entries(args).map(([name, validator]) => [
         name,
         {
-          fieldType: validator.json,
-          optional: validator.isOptional === "optional",
+          fieldType: validator?.json,
+          optional: validator?.isOptional === "optional",
         },
       ]),
     ),

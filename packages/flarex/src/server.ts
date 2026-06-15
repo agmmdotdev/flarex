@@ -1,4 +1,4 @@
-import { asObjectValidator } from "./values";
+import { isValidator, v } from "./values";
 import type {
   GenericValidator,
   Id,
@@ -23,8 +23,12 @@ import type {
   FunctionVisibility,
 } from "./api";
 
-export type FunctionValidators = Record<string, Validator<unknown>>;
+export type FunctionValidators = PropertyValidators;
+export type FunctionArgsValidator =
+  | Validator<any, "required", any>
+  | FunctionValidators;
 export type FunctionKind = FunctionType;
+export type DefaultFunctionArgs = Record<string, unknown>;
 
 type TableFromId<Identifier> = Identifier extends Id<infer Table> ? Table : never;
 
@@ -64,82 +68,181 @@ export type ActionCtx<DataModel extends GenericDataModel = AnyDataModel> = {
 export type RegisteredFunction<
   Kind extends FunctionKind = FunctionKind,
   Visibility extends FunctionVisibility = FunctionVisibility,
-  Args extends Record<string, unknown> = Record<string, unknown>,
+  Args extends DefaultFunctionArgs = DefaultFunctionArgs,
   ReturnType = unknown,
 > = {
   readonly __flarexFunction: true;
+  readonly isFlarexFunction: true;
   readonly kind: Kind;
   readonly visibility: Visibility;
-  readonly args: FunctionValidators;
-  readonly returns: GenericValidator | null;
+  readonly args: FunctionArgsValidator;
+  readonly returns: DefinedReturnValidator | null;
   readonly handler: (ctx: never, args: never) => ReturnType;
+  readonly exportArgs: () => string;
+  readonly exportReturns: () => string;
+  readonly _handler: (ctx: never, args: never) => ReturnType;
   readonly __args?: Args;
-};
+} & KindProperties<Kind> & VisibilityProperties<Visibility>;
 
-type ValidatedArgs<Args extends FunctionValidators> = { [K in keyof Args]: Infer<Args[K]> };
-type DefinedReturnValidator = GenericValidator | PropertyValidators;
-type MaybePromise<Value> = Value | Promise<Value>;
-type ReturnValueForValidator<Returns extends DefinedReturnValidator> =
-  Returns extends GenericValidator ? Infer<Returns> :
-  Returns extends PropertyValidators ? ObjectType<Returns> :
+type KindProperties<Kind extends FunctionKind> =
+  Kind extends "query" ? { readonly isQuery: true } :
+  Kind extends "mutation" ? { readonly isMutation: true } :
+  Kind extends "workflowMutation" ? { readonly isWorkflowMutation: true } :
+  Kind extends "action" ? { readonly isAction: true } :
   never;
 
-type FunctionConfigWithoutReturns<Ctx, Args extends FunctionValidators, HandlerReturn> = {
-  args: Args;
-  returns?: undefined;
-  handler: (ctx: Ctx, args: ValidatedArgs<Args>) => HandlerReturn;
-};
+type VisibilityProperties<Visibility extends FunctionVisibility> =
+  Visibility extends "public"
+    ? { readonly isPublic: true }
+    : { readonly isInternal: true };
 
-type FunctionConfigWithReturns<
-  Ctx,
-  Args extends FunctionValidators,
-  Returns extends DefinedReturnValidator,
-  HandlerReturn extends MaybePromise<ReturnValueForValidator<Returns>>,
-> = {
-  args: Args;
-  returns: Returns;
-  handler: (ctx: Ctx, args: ValidatedArgs<Args>) => HandlerReturn;
+type DefinedReturnValidator =
+  | Validator<any, "required", any>
+  | PropertyValidators;
+type MaybePromise<Value> = Value | Promise<Value>;
+type OneArgArray<Args extends DefaultFunctionArgs = DefaultFunctionArgs> = [Args];
+type NoArgsArray = [];
+type ArgsArray = OneArgArray | NoArgsArray;
+type EmptyObject = Record<string, never>;
+type Expand<ObjectType extends DefaultFunctionArgs> = {
+  [Key in keyof ObjectType]: ObjectType[Key];
 };
+type ArgsArrayToObject<Args extends ArgsArray> =
+  Args extends OneArgArray<infer ArgsObject> ? Expand<ArgsObject> : EmptyObject;
+type ReturnValueForOptionalValidator<
+  Returns extends DefinedReturnValidator | void,
+> = [Returns] extends [GenericValidator] ? Infer<Extract<Returns, GenericValidator>> :
+  [Returns] extends [PropertyValidators] ? ObjectType<Extract<Returns, PropertyValidators>> :
+  unknown;
+type ArgsArrayForOptionalValidator<
+  Args extends FunctionArgsValidator | void,
+> = [Args] extends [GenericValidator] ? OneArgArray<Infer<Extract<Args, GenericValidator>>> :
+  [Args] extends [PropertyValidators] ? OneArgArray<ObjectType<Extract<Args, PropertyValidators>>> :
+  ArgsArray;
+type DefaultArgsForOptionalValidator<
+  Args extends FunctionArgsValidator | void,
+> = [Args] extends [GenericValidator] ? OneArgArray<Infer<Extract<Args, GenericValidator>>> :
+  [Args] extends [PropertyValidators] ? OneArgArray<ObjectType<Extract<Args, PropertyValidators>>> :
+  OneArgArray;
+type FunctionDefinition<Ctx> =
+  | ((ctx: Ctx, args: DefaultFunctionArgs) => unknown)
+  | {
+      args?: FunctionArgsValidator;
+      returns?: DefinedReturnValidator;
+      handler: (ctx: Ctx, args: DefaultFunctionArgs) => unknown;
+    };
 
-type AnyFunctionConfig<Ctx, Args extends FunctionValidators> =
-  | FunctionConfigWithoutReturns<Ctx, Args, unknown>
-  | FunctionConfigWithReturns<Ctx, Args, DefinedReturnValidator, MaybePromise<unknown>>;
+function strictReplacer(key: string, value: unknown): unknown {
+  if (value === undefined) {
+    throw new Error(
+      `A validator is undefined for field "${key}". ` +
+        "This is often caused by circular imports.",
+    );
+  }
+  return value;
+}
+
+function exportArgs(functionDefinition: FunctionDefinition<unknown>): () => string {
+  return () => {
+    const args =
+      typeof functionDefinition === "object" && functionDefinition.args !== undefined
+        ? validatorJson(functionDefinition.args)
+        : v.any().json;
+    return JSON.stringify(args, strictReplacer);
+  };
+}
+
+function exportReturns(functionDefinition: FunctionDefinition<unknown>): () => string {
+  return () => {
+    const returns =
+      typeof functionDefinition === "object" && functionDefinition.returns !== undefined
+        ? validatorJson(functionDefinition.returns)
+        : null;
+    return JSON.stringify(returns, strictReplacer);
+  };
+}
+
+function validatorJson(validator: FunctionArgsValidator | DefinedReturnValidator): unknown {
+  if (isValidator(validator)) return validator.json;
+  return {
+    type: "object",
+    value: Object.fromEntries(
+      Object.entries(validator).map(([name, field]) => [
+        name,
+        {
+          fieldType: field?.json,
+          optional: field?.isOptional === "optional",
+        },
+      ]),
+    ),
+  };
+}
 
 function register<
   Kind extends FunctionKind,
   Visibility extends FunctionVisibility,
   Ctx,
-  Args extends FunctionValidators,
 >(
   kind: Kind,
   visibility: Visibility,
-  config: AnyFunctionConfig<Ctx, Args>,
-): RegisteredFunction<Kind, Visibility, ValidatedArgs<Args>, unknown> {
-  const returns = config.returns === undefined ? null : asObjectValidator(config.returns);
-  return {
+  functionDefinition: FunctionDefinition<Ctx>,
+): RegisteredFunction<Kind, Visibility, DefaultFunctionArgs, unknown> {
+  const handler =
+    typeof functionDefinition === "function"
+      ? functionDefinition
+      : functionDefinition.handler;
+  const args =
+    typeof functionDefinition === "object" && functionDefinition.args !== undefined
+      ? functionDefinition.args
+      : v.any();
+  const returns =
+    typeof functionDefinition === "object" && functionDefinition.returns !== undefined
+      ? functionDefinition.returns
+      : null;
+  const registered = {
     __flarexFunction: true,
+    isFlarexFunction: true,
     kind,
     visibility,
-    args: config.args,
+    args,
     returns,
-    handler: config.handler as RegisteredFunction<Kind, Visibility, ValidatedArgs<Args>, unknown>["handler"],
+    handler,
+    _handler: handler,
+    exportArgs: exportArgs(functionDefinition as FunctionDefinition<unknown>),
+    exportReturns: exportReturns(functionDefinition as FunctionDefinition<unknown>),
+    ...(kind === "query" ? { isQuery: true } : {}),
+    ...(kind === "mutation" ? { isMutation: true } : {}),
+    ...(kind === "workflowMutation" ? { isWorkflowMutation: true } : {}),
+    ...(kind === "action" ? { isAction: true } : {}),
+    ...(visibility === "public" ? { isPublic: true } : { isInternal: true }),
   };
+  return registered as unknown as RegisteredFunction<
+    Kind,
+    Visibility,
+    DefaultFunctionArgs,
+    unknown
+  >;
 }
 
 export type QueryBuilder<
   DataModel extends GenericDataModel,
   Visibility extends FunctionVisibility,
 > = {
-  <Args extends FunctionValidators, HandlerReturn>(
-    config: FunctionConfigWithoutReturns<QueryCtx<DataModel>, Args, HandlerReturn>,
-  ): RegisteredFunction<"query", Visibility, ValidatedArgs<Args>, HandlerReturn>;
   <
-    Args extends FunctionValidators,
-    Returns extends DefinedReturnValidator,
-    HandlerReturn extends MaybePromise<ReturnValueForValidator<Returns>>,
+    ArgsValidator extends FunctionArgsValidator | void,
+    ReturnsValidator extends DefinedReturnValidator | void,
+    ReturnValue extends MaybePromise<ReturnValueForOptionalValidator<ReturnsValidator>> = any,
+    OneOrZeroArgs extends ArgsArrayForOptionalValidator<ArgsValidator> =
+      DefaultArgsForOptionalValidator<ArgsValidator>,
   >(
-    config: FunctionConfigWithReturns<QueryCtx<DataModel>, Args, Returns, HandlerReturn>,
-  ): RegisteredFunction<"query", Visibility, ValidatedArgs<Args>, HandlerReturn>;
+    query:
+      | {
+          args?: ArgsValidator;
+          returns?: ReturnsValidator;
+          handler: (ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
+        }
+      | ((ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
+  ): RegisteredFunction<"query", Visibility, ArgsArrayToObject<OneOrZeroArgs>, ReturnValue>;
 };
 
 export type MutationBuilder<
@@ -147,57 +250,69 @@ export type MutationBuilder<
   Visibility extends FunctionVisibility,
   Kind extends "mutation" | "workflowMutation" = "mutation",
 > = {
-  <Args extends FunctionValidators, HandlerReturn>(
-    config: FunctionConfigWithoutReturns<MutationCtx<DataModel>, Args, HandlerReturn>,
-  ): RegisteredFunction<Kind, Visibility, ValidatedArgs<Args>, HandlerReturn>;
   <
-    Args extends FunctionValidators,
-    Returns extends DefinedReturnValidator,
-    HandlerReturn extends MaybePromise<ReturnValueForValidator<Returns>>,
+    ArgsValidator extends FunctionArgsValidator | void,
+    ReturnsValidator extends DefinedReturnValidator | void,
+    ReturnValue extends MaybePromise<ReturnValueForOptionalValidator<ReturnsValidator>> = any,
+    OneOrZeroArgs extends ArgsArrayForOptionalValidator<ArgsValidator> =
+      DefaultArgsForOptionalValidator<ArgsValidator>,
   >(
-    config: FunctionConfigWithReturns<MutationCtx<DataModel>, Args, Returns, HandlerReturn>,
-  ): RegisteredFunction<Kind, Visibility, ValidatedArgs<Args>, HandlerReturn>;
+    mutation:
+      | {
+          args?: ArgsValidator;
+          returns?: ReturnsValidator;
+          handler: (ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
+        }
+      | ((ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
+  ): RegisteredFunction<Kind, Visibility, ArgsArrayToObject<OneOrZeroArgs>, ReturnValue>;
 };
 
 export type ActionBuilder<
   DataModel extends GenericDataModel,
   Visibility extends FunctionVisibility,
 > = {
-  <Args extends FunctionValidators, HandlerReturn>(
-    config: FunctionConfigWithoutReturns<ActionCtx<DataModel>, Args, HandlerReturn>,
-  ): RegisteredFunction<"action", Visibility, ValidatedArgs<Args>, HandlerReturn>;
   <
-    Args extends FunctionValidators,
-    Returns extends DefinedReturnValidator,
-    HandlerReturn extends MaybePromise<ReturnValueForValidator<Returns>>,
+    ArgsValidator extends FunctionArgsValidator | void,
+    ReturnsValidator extends DefinedReturnValidator | void,
+    ReturnValue extends MaybePromise<ReturnValueForOptionalValidator<ReturnsValidator>> = any,
+    OneOrZeroArgs extends ArgsArrayForOptionalValidator<ArgsValidator> =
+      DefaultArgsForOptionalValidator<ArgsValidator>,
   >(
-    config: FunctionConfigWithReturns<ActionCtx<DataModel>, Args, Returns, HandlerReturn>,
-  ): RegisteredFunction<"action", Visibility, ValidatedArgs<Args>, HandlerReturn>;
+    action:
+      | {
+          args?: ArgsValidator;
+          returns?: ReturnsValidator;
+          handler: (ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
+        }
+      | ((ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
+  ): RegisteredFunction<"action", Visibility, ArgsArrayToObject<OneOrZeroArgs>, ReturnValue>;
 };
 
-export const queryGeneric = ((config: AnyFunctionConfig<QueryCtx<AnyDataModel>, FunctionValidators>) =>
-  register("query", "public", config)) as QueryBuilder<AnyDataModel, "public">;
+export const queryGeneric = ((definition: FunctionDefinition<QueryCtx<AnyDataModel>>) =>
+  register("query", "public", definition)) as QueryBuilder<AnyDataModel, "public">;
 export const internalQueryGeneric = ((
-  config: AnyFunctionConfig<QueryCtx<AnyDataModel>, FunctionValidators>,
-) => register("query", "internal", config)) as QueryBuilder<AnyDataModel, "internal">;
+  definition: FunctionDefinition<QueryCtx<AnyDataModel>>,
+) => register("query", "internal", definition)) as QueryBuilder<AnyDataModel, "internal">;
 export const mutationGeneric = ((
-  config: AnyFunctionConfig<MutationCtx<AnyDataModel>, FunctionValidators>,
-) => register("mutation", "public", config)) as MutationBuilder<AnyDataModel, "public">;
+  definition: FunctionDefinition<MutationCtx<AnyDataModel>>,
+) => register("mutation", "public", definition)) as MutationBuilder<AnyDataModel, "public">;
 export const internalMutationGeneric = ((
-  config: AnyFunctionConfig<MutationCtx<AnyDataModel>, FunctionValidators>,
-) => register("mutation", "internal", config)) as MutationBuilder<AnyDataModel, "internal">;
+  definition: FunctionDefinition<MutationCtx<AnyDataModel>>,
+) => register("mutation", "internal", definition)) as MutationBuilder<AnyDataModel, "internal">;
 export const workflowMutationGeneric: MutationBuilder<
   AnyDataModel,
   "public",
   "workflowMutation"
-> = ((config: AnyFunctionConfig<MutationCtx<AnyDataModel>, FunctionValidators>) =>
-  register("workflowMutation", "public", config)) as MutationBuilder<
+> = ((definition: FunctionDefinition<MutationCtx<AnyDataModel>>) =>
+  register("workflowMutation", "public", definition)) as MutationBuilder<
   AnyDataModel,
   "public",
   "workflowMutation"
 >;
-export const actionGeneric = ((config: AnyFunctionConfig<ActionCtx<AnyDataModel>, FunctionValidators>) =>
-  register("action", "public", config)) as ActionBuilder<AnyDataModel, "public">;
+export const actionGeneric = ((definition: FunctionDefinition<ActionCtx<AnyDataModel>>) =>
+  register("action", "public", definition)) as ActionBuilder<AnyDataModel, "public">;
+export const internalActionGeneric = ((definition: FunctionDefinition<ActionCtx<AnyDataModel>>) =>
+  register("action", "internal", definition)) as ActionBuilder<AnyDataModel, "internal">;
 
 export const query = queryGeneric;
 export const internalQuery = internalQueryGeneric;
@@ -205,6 +320,7 @@ export const mutation = mutationGeneric;
 export const internalMutation = internalMutationGeneric;
 export const workflowMutation = workflowMutationGeneric;
 export const action = actionGeneric;
+export const internalAction = internalActionGeneric;
 
 export {
   anyApi,

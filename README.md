@@ -38,9 +38,12 @@ point at either a hosted Flarex deployment URL or the local dev URL exposed by
 the plugin. The Flarex platform/backend itself remains the Wrangler deployment
 target.
 
-This is intentionally the first vertical slice. Dynamic Worker isolation,
-reactive query invalidation, argument validation, schema migrations,
-projections, and cross-partition workflow mutations are not implemented yet.
+This is intentionally the first vertical slice. Developers write ordinary
+TypeScript modules under `flarex/`; they do not write Worker entrypoints or
+Wrangler configuration. The hosted platform will bundle those modules into an
+internal Flarex-managed execution artifact for dynamic execution. Authoritative
+backend analysis, reactive query invalidation, schema migrations, projections,
+and cross-partition workflow mutations are not implemented yet.
 
 `packages/flarex-backend` is now the first standalone server runtime. It
 defines
@@ -92,13 +95,19 @@ Detailed domain docs live under [docs/](./docs/).
 
 ### Next Work
 
-1. Finalize the partition model in
+1. Port Convex-style function registration metadata, validator exporters,
+   source bundling, authoritative analysis, and the `start_push` /
+   `finish_push` lifecycle from
+   [roadmaps/17-deployment-analysis-and-push.md](./roadmaps/17-deployment-analysis-and-push.md).
+2. Replace the local direct metadata deployment shortcut with the shared
+   candidate push and activation state machine.
+3. Move active function execution behind the Flarex-managed dynamic execution
+   artifact and restricted syscall boundary.
+4. Finalize the partition model in
    [09-partitioned-data-model.md](./docs/09-partitioned-data-model.md).
-2. Finalize generated APIs and safety rules in
+5. Finalize generated APIs and safety rules in
    [10-developer-api-and-type-safety.md](./docs/10-developer-api-and-type-safety.md).
-3. Move generated function execution behind a restricted Dynamic Worker
-   syscall boundary.
-4. Add projections from
+6. Add projections from
    [11-projections-and-consistency.md](./docs/11-projections-and-consistency.md).
-5. Add cross-partition orchestration from
+7. Add cross-partition orchestration from
    [12-cross-partition-workflow-mutations.md](./docs/12-cross-partition-workflow-mutations.md).

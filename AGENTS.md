@@ -81,6 +81,8 @@ one giant document.
   `roadmaps/15-test-sdk.md`
 - Package boundaries and backend runtime reuse:
   `roadmaps/16-package-boundaries.md`
+- Deployment push, authoritative module analysis, and activation:
+  `roadmaps/17-deployment-analysis-and-push.md`
 
 ## Backend Rules
 
@@ -142,6 +144,20 @@ one giant document.
     If a feature cannot provide Convex-like semantics on Cloudflare, expose the
     limitation in API design and generated errors instead of pretending it is
     transparent.
+
+13. Keep Cloudflare execution artifacts invisible to developers.
+    Developers write ordinary TypeScript modules under `flarex/`; they do not
+    write Worker entrypoints, `fetch` handlers, Wrangler configuration, or
+    Dynamic Worker code. Flarex tooling bundles developer modules and the
+    Flarex platform creates and manages the internal Cloudflare execution
+    artifact.
+
+14. Treat backend analysis as authoritative.
+    Local analysis may provide fast feedback, but deployed function paths,
+    kinds, visibility, validators, schema, and source positions must come from
+    analysis performed by the backend-controlled dynamic execution isolate.
+    Final codegen and runtime validation must consume that authoritative
+    analysis.
 
 ## Verification Rules
 
