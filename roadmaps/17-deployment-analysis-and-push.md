@@ -1267,6 +1267,64 @@ git diff --check
 4. Change local dev and `flarex-test` to use `start_push` and `finish_push`.
 5. Generate final API types from `StartPushResponse`.
 
+### Phase 4 Step 1 Implementation Update
+
+Local dev now uses the backend candidate push lifecycle for reload and
+activation. It still uses local Node/Vite analysis; no execution-artifact
+adapter was introduced yet.
+
+New reload order:
+
+```txt
+initialCodegen()
+  -> bundleFlarexSourcePackage()
+  -> analyzeSourcePackageLocally()
+  -> POST /push/start
+  -> finalCodegen()
+  -> build app Worker
+  -> POST /push/:pushId/finish
+```
+
+The push request sends:
+
+- source package metadata and hashes,
+- analyzed schema,
+- flattened analyzed function metadata.
+
+Final codegen still uses the grouped local analysis result so the generated
+function registry can import executable exports by module/export. Backend
+activation uses the flattened metadata shape already stored by
+`DeploymentDO`.
+
+Intentional and temporary differences:
+
+- Convex backend analysis is authoritative during push. Flarex local dev still
+  supplies analysis to the backend.
+- Final codegen is not yet driven directly from `StartPushResponse` because the
+  backend stores flattened function metadata. Reconstructing or returning a
+  codegen-ready analysis tree belongs with the execution-artifact analyzer
+  step.
+- The generated Worker metadata endpoint remains for compatibility, but local
+  dev no longer uses it for deployment.
+
+Tests prove:
+
+- local dev records an activated backend push,
+- activated push metadata contains analyzed schema and functions,
+- invoke still works through the generated Worker after push activation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1368,3 +1426,9 @@ consume without developer filesystem access.
 Changed local source-package analysis to return both analyzed functions and
 analyzed schema, then made final codegen and generated Worker runtime consume
 that complete deployment analysis.
+
+### `e2f28b8` Add backend deployment push lifecycle
+
+Added backend candidate push routes and `DeploymentDO` push state so analyzed
+source packages can be started, inspected, superseded, failed, and atomically
+activated.

@@ -127,6 +127,61 @@ initialCodegen
 That change should keep the generated Worker behavior the same while making
 the dev server exercise the same backend push lifecycle as hosted deploy.
 
+## Push Lifecycle Implementation Update
+
+Local dev reload now follows the backend push lifecycle:
+
+```txt
+initialCodegen
+  -> bundleFlarexSourcePackage
+  -> analyzeSourcePackageLocally
+  -> POST /deployments/:deploymentId/push/start
+  -> finalCodegen
+  -> build generated app Worker
+  -> POST /deployments/:deploymentId/push/:pushId/finish
+```
+
+The dev runtime no longer reads generated Worker metadata to deploy schema or
+function metadata, and it no longer calls legacy direct schema/functions PUT
+routes during reload. The generated app Worker still serves `/invoke`, `/sync`,
+`/health`, and `/__flarex_internal/metadata` for compatibility, but local dev
+deployment no longer depends on that metadata endpoint.
+
+Activation is ordered conservatively: if final codegen or app Worker build
+fails, the push is not finished and the previous app runtime remains active.
+
+The dev health/push debug routes now expose the latest backend push state so
+tests and future Vite middleware can verify which candidate is active:
+
+```txt
+GET /__flarex_dev/health
+GET /__flarex_dev/push
+```
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev orchestration performs codegen, push, and backend coordination.
+- `crates/application/src/deploy_config.rs`
+  - push activation happens through `start_push` / `finish_push`.
+
+Cloudflare difference: Flarex still analyzes locally in the Node dev process
+and starts an app Miniflare Worker from generated code. The next step is to
+move analysis into an execution-artifact adapter so local Miniflare and hosted
+Workers for Platforms share the same analyzer boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh

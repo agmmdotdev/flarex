@@ -35,6 +35,28 @@ describe("Flarex dev runtime", () => {
     });
   });
 
+  it("deploys local metadata through the backend push lifecycle", async () => {
+    const response = await runtime.fetch(new Request("http://localhost/__flarex_dev/push"));
+    expect(response.ok).toBe(true);
+    const push = await response.json() as {
+      pushId: string;
+      state: string;
+      analysis: {
+        schema: { tables: Array<{ name: string }> };
+        functions: { functions: Array<{ path: string; kind: string }> };
+      };
+    };
+    expect(push.pushId).toEqual(expect.any(String));
+    expect(push.state).toBe("activated");
+    expect(push.analysis.schema.tables.map(table => table.name)).toContain("lessonProgress");
+    expect(push.analysis.functions.functions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "lessons:complete", kind: "mutation" }),
+        expect.objectContaining({ path: "lessons:list", kind: "query" }),
+      ]),
+    );
+  });
+
   it("proxies invoke through the generated Worker path", async () => {
     const response = await runtime.fetch(
       new Request("http://localhost/__flarex_dev/invoke", {

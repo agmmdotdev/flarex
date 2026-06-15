@@ -3,7 +3,14 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build } from "vite";
-import { generateFlarex, type FlarexGenerateOptions } from "./generate.ts";
+import { analyzeSourcePackageLocally, type DeploymentAnalysis } from "./analyze.ts";
+import {
+  bundleFlarexSourcePackage,
+  finalCodegen,
+  initialCodegen,
+  type FlarexGenerateOptions,
+} from "./generate.ts";
+import type { SourcePackage } from "./sourcePackage.ts";
 
 export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   deploymentId?: string;
@@ -17,12 +24,17 @@ export type FlarexDevRuntime = {
   dispose: () => Promise<void>;
 };
 
-type MetadataResponse = {
-  schema: unknown;
-  functions: unknown[];
-};
-
 const compatibilityDate = "2026-06-14";
+
+type DevPushStatus = {
+  pushId: string;
+  state: "pending" | "analyzed" | "failed" | "activated" | "superseded";
+  analysis?: {
+    schema: unknown;
+    functions: { functions: unknown[] };
+  };
+  error?: string;
+};
 
 type ResponseLike = {
   arrayBuffer: () => Promise<ArrayBuffer>;
@@ -44,6 +56,7 @@ export async function createFlarexDevRuntime(
 
   const backend = await createBackendMiniflare(backendPersist);
   let app: Miniflare | undefined;
+  let lastPush: DevPushStatus | undefined;
 
   async function createApp(): Promise<Miniflare> {
     return new Miniflare({
@@ -71,30 +84,31 @@ export async function createFlarexDevRuntime(
     });
   }
 
-  async function deployMetadata(appRuntime: Miniflare): Promise<void> {
-    const metadataResponse = await appRuntime.dispatchFetch(
-      "http://flarex.local/__flarex_internal/metadata",
-    );
-    if (!metadataResponse.ok) {
-      throw new Error(
-        `Generated Worker metadata failed with status ${metadataResponse.status}`,
-      );
-    }
-    const metadata = (await metadataResponse.json()) as MetadataResponse;
-    await putBackend(backend, `/deployments/${deploymentId}/schema`, metadata.schema);
-    await putBackend(backend, `/deployments/${deploymentId}/functions`, {
-      functions: metadata.functions,
-    });
-  }
-
   let reloadChain = Promise.resolve();
   async function reloadNow(): Promise<void> {
-    await generateFlarex(options);
+    const context = await initialCodegen(options);
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+    const analysis = await analyzeSourcePackageLocally(sourcePackage);
+    const started = await startPush(backend, deploymentId, sourcePackage, analysis);
+    if (started.state !== "analyzed" || started.analysis === undefined) {
+      throw new Error(`Flarex push ${started.pushId} is not ready to finish: ${started.state}`);
+    }
+    lastPush = started;
+    await finalCodegen(context, analysis);
     const nextApp = await createApp();
-    await deployMetadata(nextApp);
-    const previousApp = app;
-    app = nextApp;
-    await previousApp?.dispose();
+    try {
+      const finished = await finishPush(backend, deploymentId, started.pushId);
+      if (finished.state !== "activated") {
+        throw new Error(`Flarex push ${started.pushId} did not activate: ${finished.state}`);
+      }
+      lastPush = finished;
+      const previousApp = app;
+      app = nextApp;
+      await previousApp?.dispose();
+    } catch (error) {
+      await nextApp.dispose();
+      throw error;
+    }
   }
 
   function reload(): Promise<void> {
@@ -122,9 +136,12 @@ export async function createFlarexDevRuntime(
           service: "flarex-dev",
           status: backendHealth.ok && appHealth.ok ? "ok" : "degraded",
           deploymentId,
-          backend: await backendHealth.json().catch(() => null),
-          app: await appHealth.json().catch(() => null),
+          backend: await responseJson(backendHealth),
+          app: await responseJson(appHealth),
         });
+      }
+      if (url.pathname === "/__flarex_dev/push") {
+        return Response.json(lastPush ?? null);
       }
 
       const forwardedPath = url.pathname.replace(/^\/__flarex_dev/, "") || "/";
@@ -171,16 +188,50 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
   });
 }
 
-async function putBackend(backend: Miniflare, path: string, body: unknown): Promise<void> {
+async function startPush(
+  backend: Miniflare,
+  deploymentId: string,
+  sourcePackage: SourcePackage,
+  analysis: DeploymentAnalysis,
+): Promise<DevPushStatus> {
+  return postBackend<DevPushStatus>(backend, `/deployments/${deploymentId}/push/start`, {
+    sourcePackage,
+    analysis: {
+      schema: analysis.schema,
+      functions: {
+        functions: analysis.functions.flatMap(module =>
+          module.functions.map(fn => ({
+            path: fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`,
+            kind: fn.kind,
+            visibility: fn.visibility,
+            args: fn.args,
+            returns: fn.returns,
+          })),
+        ),
+      },
+    },
+  });
+}
+
+async function finishPush(
+  backend: Miniflare,
+  deploymentId: string,
+  pushId: string,
+): Promise<DevPushStatus> {
+  return postBackend<DevPushStatus>(backend, `/deployments/${deploymentId}/push/${pushId}/finish`, {});
+}
+
+async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {
   const response = await backend.dispatchFetch(`http://flarex.backend${path}`, {
-    method: "PUT",
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Backend deploy ${path} failed with status ${response.status}: ${text}`);
+    throw new Error(`Backend request ${path} failed with status ${response.status}: ${text}`);
   }
+  return response.json() as Promise<T>;
 }
 
 async function bundleWorker(entry: string): Promise<string> {
@@ -225,4 +276,8 @@ async function toWebResponse(response: ResponseLike): Promise<Response> {
     statusText: response.statusText,
     headers,
   });
+}
+
+async function responseJson(response: ResponseLike): Promise<unknown> {
+  return JSON.parse(new TextDecoder().decode(await response.arrayBuffer()));
 }
