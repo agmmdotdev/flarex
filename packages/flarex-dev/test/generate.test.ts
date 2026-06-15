@@ -10,7 +10,18 @@ describe("generateFlarex", () => {
     await writeFile(
       path.join(root, "flarex/functions/messages.ts"),
       `import { internalQuery, mutation, query } from "../_generated/server";
-const listImpl = query({ args: {}, handler: async () => [] });
+import { v } from "flarex/values";
+const listImpl = query({
+  args: { topic: v.string() },
+  returns: v.array(v.string()),
+  handler: async () => [],
+});
+Object.assign(listImpl, {
+  kind: "mutation",
+  visibility: "internal",
+  args: { spoofed: v.number() },
+  returns: v.number(),
+});
 export { listImpl as list };
 export const send = mutation({ args: {}, handler: async () => null });
 export const hidden = internalQuery({ args: {}, handler: async () => null });
@@ -55,9 +66,19 @@ export const helper = "not a function";
     expect(api).not.toContain("messages.test");
     expect(api).not.toContain("_generated/ignored");
     expect(api).not.toContain("empty");
-    expect(functionMetadata).toContain('import { functions } from "./functionRegistry"');
+    expect(functionMetadata).not.toContain("functionRegistry");
+    expect(functionMetadata).toContain('"path": "messages:list"');
+    expect(functionMetadata).toContain('"kind": "query"');
+    expect(functionMetadata).toContain('"visibility": "public"');
+    expect(functionMetadata).toContain('"topic"');
+    expect(functionMetadata).toContain('"type": "array"');
+    expect(functionMetadata).not.toContain("spoofed");
     expect(deploymentSchema).toContain("export const deploymentSchema");
     expect(worker).toContain('import { functions } from "./functionRegistry"');
+    expect(worker).toContain("functionMetadataByPath");
+    expect(worker).toContain("fn._handler");
+    expect(worker).not.toContain("fn.handler");
+    expect(worker).not.toContain("validateFunctionArgs(fn.args");
     expect(worker).toContain('url.pathname === "/invoke"');
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });

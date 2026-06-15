@@ -682,6 +682,20 @@ absence of app Wrangler generation. Full workspace typecheck, tests, build, and
 diff checks pass. No app `.flarex` persistence directory or generated Wrangler
 configuration remains after verification.
 
+## Static Final Metadata Codegen Update
+
+Final codegen now emits `functionMetadata.ts` as static data derived directly
+from analyzed modules. It no longer imports `functionRegistry.ts` or reads
+runtime compatibility fields from registered function objects.
+
+The generated Worker uses this analyzed metadata for validation and backend
+execution-session requests. The function registry is limited to executable
+handler resolution through `_handler`.
+
+This follows Convex's split between initial codegen and analysis-informed final
+codegen. Flarex still emits runtime metadata into the generated execution
+artifact, while Convex persists authoritative analyzed metadata in its backend.
+
 ## Implementation Checkpoints
 
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen

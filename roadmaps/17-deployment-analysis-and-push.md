@@ -891,6 +891,66 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 1 Step 3 Implementation Update
+
+Completed the isolated final-codegen authority step. Backend push state,
+deployment activation, source bundling, and Dynamic Worker analysis remain
+unchanged.
+
+Final codegen now serializes `functionMetadata.ts` directly from
+`AnalyzedModule[]`. The generated metadata module is static data and no longer
+imports or evaluates `functionRegistry.ts`.
+
+The generated Worker now uses analyzed metadata for:
+
+- function kind checks,
+- argument validation,
+- backend execution-session start requests, and
+- return validation.
+
+`functionRegistry.ts` is now used only to resolve the executable registered
+function and call its Convex-style `_handler`. Temporary compatibility fields
+such as `kind`, `visibility`, `args`, `returns`, and `handler` can no longer
+change generated deployment metadata or invocation validation after analysis.
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/codegen_templates/component_api.ts`
+  - final static codegen derives function references and types from analyzed
+    modules rather than re-evaluating developer exports.
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata is the durable description of function kind,
+    visibility, and validators.
+
+Intentional and temporary differences:
+
+- Flarex emits a generated static runtime metadata module because the current
+  generated Worker exposes `/__flarex_internal/metadata`. Convex persists
+  analyzed metadata in its backend.
+- The executable registry still imports developer modules because Flarex has
+  not produced or uploaded a separate execution artifact yet.
+- Analysis remains local and trusted. The static metadata is authoritative
+  only for this local generation run until backend-controlled analysis and
+  push state exist.
+
+Tests prove that mutating legacy runtime compatibility fields after
+registration cannot alter generated function kind, visibility, args, returns,
+or Worker invocation validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 2: Produce A Real Source Bundle
 
 1. Separate initial codegen, source bundling, and final codegen APIs.
@@ -994,3 +1054,9 @@ git diff --check
 Added Convex-style function registration forms, runtime markers, validator
 exporters, internal actions, strict serialization, tests, and the detailed
 deployment-analysis plan in this roadmap.
+
+### `101eb89` Analyze Convex-style function metadata
+
+Changed local analysis to classify functions from Convex-style runtime markers,
+call validator exporters, validate their JSON, and return normalized argument
+and return metadata.
