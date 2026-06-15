@@ -1,16 +1,29 @@
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  analyzeFunctionModules,
+  analyzeSourcePackageLocally,
   listFunctionModules,
   type AnalyzedFunction,
   type AnalyzedModule,
+  type FunctionModule,
 } from "./analyze.ts";
+import {
+  bundleSourcePackage,
+  type SourcePackage,
+} from "./sourcePackage.ts";
 
 export type FlarexGenerateOptions = {
   root: string;
   appDir?: string;
   generatedDir?: string;
+};
+
+export type FlarexGenerationContext = {
+  options: FlarexGenerateOptions;
+  appDir: string;
+  generatedDir: string;
+  functionsDir: string;
+  functionModules: FunctionModule[];
 };
 
 function typedApi(modules: string[]): string {
@@ -391,23 +404,42 @@ export default {
 }
 
 export async function generateFlarex(options: FlarexGenerateOptions): Promise<void> {
+  const context = await initialCodegen(options);
+  const sourcePackage = await bundleFlarexSourcePackage(context);
+  const analysis = await analyzeSourcePackageLocally(sourcePackage);
+  await finalCodegen(context, analysis);
+}
+
+export async function initialCodegen(
+  options: FlarexGenerateOptions,
+): Promise<FlarexGenerationContext> {
   const appDir = path.resolve(options.root, options.appDir ?? "flarex");
   const generatedDir = path.resolve(appDir, options.generatedDir ?? "_generated");
   const functionsDir = path.join(appDir, "functions");
-  const modules = await listFunctionModules(functionsDir);
-  const moduleNames = modules.map(module => module.moduleName);
+  const functionModules = await listFunctionModules(functionsDir);
+  const moduleNames = functionModules.map(module => module.moduleName);
   await mkdir(generatedDir, { recursive: true });
 
-  // Convex-style initial codegen: write enough generated files in dependency
-  // order for developer modules to bundle and execute during analysis.
   await writeFile(path.join(generatedDir, "dataModel.ts"), dataModelSource());
   await writeFile(path.join(generatedDir, "server.ts"), serverSource());
   await writeFile(path.join(generatedDir, "api.ts"), typedApi(moduleNames));
+  return { options, appDir, generatedDir, functionsDir, functionModules };
+}
 
-  const analysis = await analyzeFunctionModules(modules);
+export function bundleFlarexSourcePackage(
+  context: FlarexGenerationContext,
+): Promise<SourcePackage> {
+  return bundleSourcePackage({
+    appDir: context.appDir,
+    functionModules: context.functionModules,
+  });
+}
 
-  // Convex-style final codegen: analysis determines the runtime registry and
-  // deployment metadata. Continue writing in dependency order.
+export async function finalCodegen(
+  context: FlarexGenerationContext,
+  analysis: AnalyzedModule[],
+): Promise<void> {
+  const { generatedDir } = context;
   await writeFile(path.join(generatedDir, "dataModel.ts"), dataModelSource());
   await writeFile(path.join(generatedDir, "server.ts"), serverSource());
   await writeFile(path.join(generatedDir, "api.ts"), typedApi(analysis.map(module => module.moduleName)));

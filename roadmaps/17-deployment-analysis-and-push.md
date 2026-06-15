@@ -959,6 +959,113 @@ git diff --check
 4. Add changed-module and unchanged-hash support after the full-bundle path is
    correct.
 
+### Phase 2 Step 1 Implementation Update
+
+Completed the first immutable source-package step. No backend push API,
+candidate deployment state, Miniflare analysis adapter, or hosted Dynamic
+Worker upload was added.
+
+The generation pipeline is now explicit:
+
+```txt
+initialCodegen()
+  -> bundleFlarexSourcePackage()
+  -> analyzeSourcePackageLocally()
+  -> finalCodegen()
+```
+
+`generateFlarex()` remains the convenience orchestration API and calls those
+four phases in order.
+
+The serializable source-package contract is:
+
+```ts
+type SourceModule = {
+  path: string;
+  source: string;
+  sourceMap?: string;
+  environment: "isolate";
+  sha256: string;
+};
+
+type SourcePackage = {
+  modules: SourceModule[];
+  functions: string[];
+  schema?: string;
+  execution: string;
+};
+```
+
+The package contains:
+
+- one self-contained isolate bundle per developer function entrypoint,
+- a separately bundled schema module when `flarex/schema.ts` or
+  `flarex/schema.js` exists, and
+- a self-contained internal execution entrypoint that exports the function
+  module namespaces and is consumed by local analysis.
+
+Modules are sorted by logical path. Source maps are normalized to remove
+machine-specific project and SDK paths. Each `sha256` covers:
+
+```txt
+source + NUL + normalized source map
+```
+
+Local analysis now executes the source package's internal execution entrypoint,
+not a transient analyzer-only Vite bundle. This establishes the artifact
+contract that a future Miniflare adapter and hosted Dynamic Worker adapter can
+both consume.
+
+Convex references copied closely:
+
+- `npm-packages/convex/src/cli/lib/components/definition/bundle.ts`
+  - bundles schema separately,
+  - bundles isolate function entrypoints with source maps,
+  - returns module path, source, source map, and environment.
+- `npm-packages/convex/src/cli/lib/deployApi/modules.ts`
+  - `ModuleConfig` and `ModuleHashConfig` transport shapes.
+- `crates/model/src/config/types.rs`
+  - module hash identity covers source plus source map.
+
+Intentional and temporary differences:
+
+- Convex uses esbuild and its backend source-package storage. Flarex currently
+  uses Vite/Rollup and returns an in-memory serializable package.
+- Flarex adds a duplicated self-contained internal execution entrypoint so a
+  Cloudflare execution artifact can load all registered functions from one
+  module. Individual function bundles remain available for Convex-style module
+  identity and future changed-module pushes.
+- Source maps are preserved and normalized, but analyzed source positions are
+  not extracted yet.
+- Schema is bundled separately but not yet evaluated from the source package.
+- Full packages are always produced; changed-module and unchanged-hash push
+  optimization remains follow-up work.
+
+Tests prove:
+
+- identical projects under different machine paths produce identical source
+  packages and hashes,
+- module ordering is deterministic,
+- schema, function, and execution bundles are separate,
+- unrelated generated files do not affect package identity,
+- changing one function changes its bundle and the execution entrypoint but
+  not unrelated function or schema hashes, and
+- the execution entrypoint can be analyzed and passed to final codegen.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 3: Add Backend Push State
 
 1. Define `StartPushRequest`, `StartPushResponse`, `PushStatus`, and
@@ -1060,3 +1167,9 @@ deployment-analysis plan in this roadmap.
 Changed local analysis to classify functions from Convex-style runtime markers,
 call validator exporters, validate their JSON, and return normalized argument
 and return metadata.
+
+### `0ff9e46` Generate metadata from analyzed functions
+
+Changed final codegen and generated Worker validation to consume static
+analyzed metadata while limiting the runtime registry to executable `_handler`
+lookup.

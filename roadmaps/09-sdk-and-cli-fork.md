@@ -696,6 +696,21 @@ This follows Convex's split between initial codegen and analysis-informed final
 codegen. Flarex still emits runtime metadata into the generated execution
 artifact, while Convex persists authoritative analyzed metadata in its backend.
 
+## Phased Generation And Source Package Update
+
+Exposed explicit `initialCodegen`, `bundleFlarexSourcePackage`,
+`analyzeSourcePackageLocally`, and `finalCodegen` APIs. `generateFlarex`
+orchestrates them for compatibility.
+
+This makes the current local development flow follow Convex's initial-codegen,
+bundle, analyze, final-codegen ordering and gives future backend push logic a
+serializable immutable artifact instead of requiring access to the developer's
+filesystem.
+
+The detailed source-package contract, Convex references, determinism rules,
+differences, and tests are recorded in
+`roadmaps/17-deployment-analysis-and-push.md`.
+
 ## Implementation Checkpoints
 
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen

@@ -232,3 +232,13 @@ connections or storage bindings.
 
 Added an end-to-end test proving that generated execution code invokes the
 backend session and syscall path.
+
+## Immutable Execution Artifact Input Update
+
+Flarex development tooling now produces a self-contained internal execution
+entrypoint inside a deterministic source package. Local analysis executes that
+entrypoint directly.
+
+This is not a deployed Dynamic Worker yet. It establishes the immutable input
+that future local Miniflare and hosted Workers for Platforms adapters must
+consume, without giving either adapter access to the developer filesystem.

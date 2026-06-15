@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import { build, type Plugin } from "vite";
+import { sourceModule, type SourcePackage } from "./sourcePackage.ts";
 
 export type AnalyzedFunction = {
   moduleName: string;
@@ -127,7 +128,22 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
   const bundled = await import(
     `data:text/javascript;base64,${Buffer.from(chunk.code, "utf8").toString("base64")}`
   );
-  const analyzedExports = bundled.default as Record<string, Record<string, unknown>>;
+  return analyzeModuleExports(bundled.default as Record<string, Record<string, unknown>>);
+}
+
+export async function analyzeSourcePackageLocally(
+  package_: SourcePackage,
+): Promise<AnalyzedModule[]> {
+  const execution = sourceModule(package_, package_.execution);
+  const bundled = await import(
+    `data:text/javascript;base64,${Buffer.from(execution.source, "utf8").toString("base64")}`
+  );
+  return analyzeModuleExports(bundled.default as Record<string, Record<string, unknown>>);
+}
+
+function analyzeModuleExports(
+  analyzedExports: Record<string, Record<string, unknown>>,
+): AnalyzedModule[] {
   return Object.entries(analyzedExports)
     .map(([moduleName, exports]) => ({
       moduleName,
