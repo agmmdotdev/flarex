@@ -155,6 +155,25 @@ export type DeploymentAnalysis = {
   functions: DeploymentFunctions;
 };
 
+export type DeploymentCodegenFunction = {
+  moduleName: string;
+  exportName: string;
+  kind: DeploymentFunctionKind;
+  visibility: FunctionVisibility;
+  args: ValidatorJson;
+  returns: ValidatorJson | null;
+};
+
+export type DeploymentCodegenModule = {
+  moduleName: string;
+  functions: DeploymentCodegenFunction[];
+};
+
+export type DeploymentCodegenAnalysis = {
+  schema: DeploymentSchema;
+  functions: DeploymentCodegenModule[];
+};
+
 export type PushState =
   | "pending"
   | "analyzed"
@@ -173,6 +192,7 @@ export type PushStatus = {
   state: PushState;
   sourcePackage: PushSourcePackage;
   analysis?: DeploymentAnalysis;
+  codegenAnalysis?: DeploymentCodegenAnalysis;
   error?: string;
   createdAt: number;
   updatedAt: number;

@@ -45,6 +45,13 @@ describe("Flarex dev runtime", () => {
         schema: { tables: Array<{ name: string }> };
         functions: { functions: Array<{ path: string; kind: string }> };
       };
+      codegenAnalysis: {
+        schema: { tables: Array<{ name: string }> };
+        functions: Array<{
+          moduleName: string;
+          functions: Array<{ exportName: string; kind: string }>;
+        }>;
+      };
     };
     expect(push.pushId).toEqual(expect.any(String));
     expect(push.state).toBe("activated");
@@ -53,6 +60,18 @@ describe("Flarex dev runtime", () => {
       expect.arrayContaining([
         expect.objectContaining({ path: "lessons:complete", kind: "mutation" }),
         expect.objectContaining({ path: "lessons:list", kind: "query" }),
+      ]),
+    );
+    expect(push.codegenAnalysis.schema.tables.map(table => table.name)).toContain("lessonProgress");
+    expect(push.codegenAnalysis.functions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          moduleName: "lessons",
+          functions: expect.arrayContaining([
+            expect.objectContaining({ exportName: "complete", kind: "mutation" }),
+            expect.objectContaining({ exportName: "list", kind: "query" }),
+          ]),
+        }),
       ]),
     );
   });

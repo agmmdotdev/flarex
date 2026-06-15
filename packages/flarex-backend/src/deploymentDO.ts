@@ -2,6 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
   DeploymentAnalysis,
+  DeploymentCodegenAnalysis,
+  DeploymentCodegenModule,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
   DeploymentFunctions,
@@ -416,10 +418,54 @@ function pushStatusFromRow(row: {
     pushId: row.push_id,
     state: parsePushState(row.state),
     sourcePackage: JSON.parse(row.source_package_json) as PushSourcePackage,
-    ...(schema !== undefined && functions !== undefined ? { analysis: { schema, functions } } : {}),
+    ...(schema !== undefined && functions !== undefined
+      ? {
+          analysis: { schema, functions },
+          codegenAnalysis: codegenAnalysisFromDeploymentAnalysis({ schema, functions }),
+        }
+      : {}),
     ...(row.error === null ? {} : { error: row.error }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function codegenAnalysisFromDeploymentAnalysis(
+  analysis: DeploymentAnalysis,
+): DeploymentCodegenAnalysis {
+  const modules = new Map<string, DeploymentCodegenModule>();
+  for (const metadata of analysis.functions.functions) {
+    const { moduleName, exportName } = parseFunctionPath(metadata.path);
+    const module = modules.get(moduleName) ?? { moduleName, functions: [] };
+    module.functions.push({
+      moduleName,
+      exportName,
+      kind: metadata.kind,
+      visibility: metadata.visibility ?? "public",
+      args: metadata.args ?? { type: "any" },
+      returns: metadata.returns ?? null,
+    });
+    modules.set(moduleName, module);
+  }
+  return {
+    schema: analysis.schema,
+    functions: [...modules.values()]
+      .map(module => ({
+        ...module,
+        functions: module.functions.sort((left, right) =>
+          left.exportName.localeCompare(right.exportName),
+        ),
+      }))
+      .sort((left, right) => left.moduleName.localeCompare(right.moduleName)),
+  };
+}
+
+function parseFunctionPath(path: string): { moduleName: string; exportName: string } {
+  const separator = path.indexOf(":");
+  if (separator === -1) return { moduleName: path, exportName: "default" };
+  return {
+    moduleName: path.slice(0, separator),
+    exportName: path.slice(separator + 1),
   };
 }
 

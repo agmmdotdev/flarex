@@ -229,6 +229,51 @@ corepack pnpm build
 git diff --check
 ```
 
+## Backend Codegen Analysis Update
+
+Previous completed checkpoint: `27bb9f5` Analyze source packages in execution
+artifact.
+
+Local dev now runs final codegen from the backend `push/start` response:
+
+```txt
+local Miniflare execution artifact analysis
+  -> POST /deployments/:deploymentId/push/start
+  -> backend returns codegenAnalysis
+  -> finalCodegen(context, started.codegenAnalysis)
+```
+
+The locally produced analysis is still needed temporarily because hosted
+backend-owned analysis has not been implemented. The important boundary change
+is that final generated files now consume the backend's validated and
+normalized response, matching Convex's push/codegen order more closely.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - final codegen happens after push returns analyzed deployment metadata.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - push responses carry the analyzed metadata needed for generation.
+
+Cloudflare difference: Flarex's local backend reconstructs grouped codegen
+modules from flattened function paths. Hosted Flarex should replace the
+client-supplied analysis request with backend-created execution-artifact
+analysis.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh

@@ -34,6 +34,7 @@ type DevPushStatus = {
     schema: unknown;
     functions: { functions: unknown[] };
   };
+  codegenAnalysis?: DeploymentAnalysis;
   error?: string;
 };
 
@@ -95,8 +96,11 @@ export async function createFlarexDevRuntime(
     if (started.state !== "analyzed" || started.analysis === undefined) {
       throw new Error(`Flarex push ${started.pushId} is not ready to finish: ${started.state}`);
     }
+    if (started.codegenAnalysis === undefined) {
+      throw new Error(`Flarex push ${started.pushId} did not return codegen analysis.`);
+    }
     lastPush = started;
-    await finalCodegen(context, analysis);
+    await finalCodegen(context, started.codegenAnalysis);
     const nextApp = await createApp();
     try {
       const finished = await finishPush(backend, deploymentId, started.pushId);

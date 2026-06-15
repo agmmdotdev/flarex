@@ -1406,6 +1406,88 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 3 Implementation Update
+
+Previous completed checkpoint: `27bb9f5` Analyze source packages in execution
+artifact.
+
+Backend push status now returns a codegen-ready grouped analysis response in
+addition to the flattened activation metadata:
+
+```ts
+type DeploymentCodegenAnalysis = {
+  schema: DeploymentSchema;
+  functions: Array<{
+    moduleName: string;
+    functions: Array<{
+      moduleName: string;
+      exportName: string;
+      kind: DeploymentFunctionKind;
+      visibility: FunctionVisibility;
+      args: ValidatorJson;
+      returns: ValidatorJson | null;
+    }>;
+  }>;
+};
+```
+
+`DeploymentDO` still stores the existing flattened `DeploymentFunctions`
+shape because that is the active runtime validation and invocation metadata.
+When returning `push/start`, `push/:id`, or `push/:id/finish`, it reconstructs
+the grouped codegen modules from function paths:
+
+```txt
+lessons:list -> moduleName "lessons", exportName "list"
+lessons      -> moduleName "lessons", exportName "default"
+```
+
+Local dev now requires `started.codegenAnalysis` from the backend before
+running `finalCodegen()`. The locally produced artifact analysis is still sent
+to `push/start` because the backend does not own analysis yet, but final codegen
+is now driven by the backend response instead of the pre-push local variable.
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - final codegen consumes the deployment analysis returned from push.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - `startPush` returns analyzed modules and schema information needed by the
+    client-side codegen/typecheck phase.
+- `crates/model/src/modules/module_versions.rs`
+  - active runtime metadata remains the durable backend function contract.
+
+Intentional and temporary differences:
+
+- Convex's backend produces the analysis itself. Flarex still receives local
+  artifact analysis in the request and validates/stores it before returning a
+  backend-shaped codegen response.
+- Flarex reconstructs grouped modules from flattened paths. This is sufficient
+  for current generated API output but source positions and richer analyzed
+  module records still require backend-owned artifact analysis.
+- `codegenAnalysis` is duplicated in the push response and not stored as a
+  separate database column. It is deterministic from stored schema/functions.
+
+Tests prove:
+
+- `push/start`, `push/:id`, and `push/:id/finish` return grouped
+  `codegenAnalysis`, and
+- local dev exposes the backend-returned grouped analysis and can still invoke
+  generated functions after activation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1518,3 +1600,9 @@ activated.
 
 Changed local dev reload to start and finish backend candidate pushes instead
 of deploying schema/functions through legacy direct metadata routes.
+
+### `27bb9f5` Analyze source packages in execution artifact
+
+Added the local Miniflare execution-artifact analyzer and wired local
+generation/dev reload to analyze immutable source packages through that
+Cloudflare-shaped boundary.

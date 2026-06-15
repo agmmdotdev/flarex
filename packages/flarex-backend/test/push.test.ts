@@ -28,6 +28,7 @@ describe("deployment push lifecycle", () => {
     expect(start.state).toBe("analyzed");
     expect(start.analysis?.schema).toEqual(normalizedCandidateSchema());
     expect(start.analysis?.functions).toEqual(candidateFunctions());
+    expect(start.codegenAnalysis).toEqual(candidateCodegenAnalysis());
 
     await expect(getSchema("push-activation")).resolves.toEqual(normalizedActiveSchema());
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedActiveFunctions());
@@ -38,9 +39,11 @@ describe("deployment push lifecycle", () => {
       state: "analyzed",
       sourcePackage: sourcePackage(),
     });
+    expect(status.codegenAnalysis).toEqual(candidateCodegenAnalysis());
 
     const finish = await finishPush("push-activation", start.pushId);
     expect(finish.state).toBe("activated");
+    expect(finish.codegenAnalysis).toEqual(candidateCodegenAnalysis());
     await expect(getSchema("push-activation")).resolves.toEqual(normalizedCandidateSchema());
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedCandidateFunctions());
   });
@@ -216,6 +219,27 @@ function candidateFunctions(): DeploymentFunctions {
 
 function normalizedCandidateFunctions(): DeploymentFunctions {
   return candidateFunctions();
+}
+
+function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
+  return {
+    schema: normalizedCandidateSchema(),
+    functions: [
+      {
+        moduleName: "lessons",
+        functions: [
+          {
+            moduleName: "lessons",
+            exportName: "list",
+            kind: "query",
+            visibility: "internal",
+            args: { type: "object", value: {} },
+            returns: { type: "array", value: { type: "string" } },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 async function startPush(deploymentId: string, body: StartPushRequest): Promise<PushStatus> {
