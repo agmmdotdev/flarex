@@ -17,6 +17,8 @@ export type {
   AnalyzedSchema,
   DeploymentAnalysis,
 } from "./analyze.ts";
+export { LocalBackendPushCoordinator } from "./backendPush.ts";
+export type { BackendPushCoordinator, DevPushStatus } from "./backendPush.ts";
 export { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
 export type { ExecutionArtifactAdapter } from "./executionArtifact.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";

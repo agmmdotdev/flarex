@@ -182,3 +182,47 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter @flarex/example generate
 ```
+
+## Local Backend Push Coordinator Update
+
+Previous completed checkpoint: `3cbd471` Return codegen analysis from push
+start.
+
+Added `LocalBackendPushCoordinator` to `packages/flarex-dev`. This keeps local
+dev orchestration separate from both:
+
+- the backend Durable Object runtime in `packages/flarex-backend`, and
+- the execution-artifact analyzer adapter in `packages/flarex-dev`.
+
+The coordinator is the local stand-in for a hosted backend artifact service:
+it accepts a `SourcePackage`, runs the local execution-artifact analyzer, sends
+validated analysis to backend `push/start`, and returns the backend push
+status used by final codegen.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - CLI orchestration coordinates source bundling, push, final codegen, and
+    activation without making application code own backend runtime details.
+
+Cloudflare difference: local Flarex needs a Node-side coordinator because a
+Miniflare backend Worker cannot spawn another Miniflare runtime for candidate
+artifact analysis. Hosted Flarex should replace this local coordinator with a
+backend service that uploads and dispatches Workers for Platforms execution
+artifacts.
+
+The package also gained its own Vitest config so `flarex-dev` test files run
+serially. This matches `flarex-backend` and keeps package-local Vite/esbuild/
+Miniflare tests stable during `pnpm -r test`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```

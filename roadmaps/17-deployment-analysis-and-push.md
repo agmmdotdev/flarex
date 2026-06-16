@@ -1488,6 +1488,77 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 4 Implementation Update
+
+Previous completed checkpoint: `3cbd471` Return codegen analysis from push
+start.
+
+Added a local backend push coordinator boundary in `flarex-dev`.
+
+The local dev reload loop now hands only the immutable source package to the
+push coordinator:
+
+```txt
+initialCodegen()
+  -> bundleFlarexSourcePackage()
+  -> LocalBackendPushCoordinator.start(sourcePackage)
+      -> local execution-artifact analysis
+      -> POST /deployments/:deploymentId/push/start with analyzed metadata
+  -> finalCodegen(context, started.codegenAnalysis)
+  -> build generated app Worker
+  -> LocalBackendPushCoordinator.finish(pushId)
+```
+
+This removes execution-artifact analysis from the visible local dev reload
+path. The coordinator owns the local Miniflare artifact analyzer and the
+translation from grouped codegen analysis to flattened backend activation
+metadata.
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - the dev/deploy orchestration calls a backend push boundary rather than
+    treating analysis as a separate application-level step.
+- `crates/application/src/deploy_config.rs`
+  - `start_push` owns evaluation/analysis before returning the deployment
+    metadata needed by final codegen.
+
+Intentional and temporary differences:
+
+- Hosted Convex analysis happens inside the backend process. Flarex local dev
+  cannot literally run Miniflare from inside the backend Worker/Durable Object,
+  so the local backend coordinator is a Node-side stand-in for the hosted
+  artifact service.
+- The backend HTTP/DO API still accepts `analysis` in `StartPushRequest`.
+  Removing that field requires a hosted or service-bound analyzer available to
+  the backend runtime.
+- The coordinator uses the local Miniflare adapter. Production should replace
+  this with Workers for Platforms artifact upload and dispatch.
+
+Tests prove:
+
+- callers pass only `SourcePackage` to `LocalBackendPushCoordinator.start()`,
+  and
+- the coordinator owns artifact analysis and sends normalized analyzed metadata
+  to backend `push/start`.
+
+`flarex-dev` now has a package-level Vitest config with serial file execution,
+matching the backend package. The dev tests create Vite/esbuild/Miniflare
+runtimes; serial execution avoids Windows workspace-test resource exhaustion
+while preserving the same assertions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1606,3 +1677,8 @@ of deploying schema/functions through legacy direct metadata routes.
 Added the local Miniflare execution-artifact analyzer and wired local
 generation/dev reload to analyze immutable source packages through that
 Cloudflare-shaped boundary.
+
+### `3cbd471` Return codegen analysis from push start
+
+Added `codegenAnalysis` to backend push status and changed local dev final
+codegen to consume the backend push response.

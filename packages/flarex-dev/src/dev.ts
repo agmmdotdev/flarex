@@ -3,15 +3,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build } from "vite";
-import type { DeploymentAnalysis } from "./analyze.ts";
-import { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
+import { LocalBackendPushCoordinator, type DevPushStatus } from "./backendPush.ts";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
   initialCodegen,
   type FlarexGenerateOptions,
 } from "./generate.ts";
-import type { SourcePackage } from "./sourcePackage.ts";
 
 export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   deploymentId?: string;
@@ -26,17 +24,6 @@ export type FlarexDevRuntime = {
 };
 
 const compatibilityDate = "2026-06-14";
-
-type DevPushStatus = {
-  pushId: string;
-  state: "pending" | "analyzed" | "failed" | "activated" | "superseded";
-  analysis?: {
-    schema: unknown;
-    functions: { functions: unknown[] };
-  };
-  codegenAnalysis?: DeploymentAnalysis;
-  error?: string;
-};
 
 type ResponseLike = {
   arrayBuffer: () => Promise<ArrayBuffer>;
@@ -57,7 +44,7 @@ export async function createFlarexDevRuntime(
   if (appPersist !== false) await mkdir(appPersist, { recursive: true });
 
   const backend = await createBackendMiniflare(backendPersist);
-  const executionArtifact = new LocalMiniflareExecutionArtifactAdapter();
+  const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
@@ -91,8 +78,7 @@ export async function createFlarexDevRuntime(
   async function reloadNow(): Promise<void> {
     const context = await initialCodegen(options);
     const sourcePackage = await bundleFlarexSourcePackage(context);
-    const analysis = await executionArtifact.analyze(sourcePackage);
-    const started = await startPush(backend, deploymentId, sourcePackage, analysis);
+    const started = await pushCoordinator.start(sourcePackage);
     if (started.state !== "analyzed" || started.analysis === undefined) {
       throw new Error(`Flarex push ${started.pushId} is not ready to finish: ${started.state}`);
     }
@@ -103,7 +89,7 @@ export async function createFlarexDevRuntime(
     await finalCodegen(context, started.codegenAnalysis);
     const nextApp = await createApp();
     try {
-      const finished = await finishPush(backend, deploymentId, started.pushId);
+      const finished = await pushCoordinator.finish(started.pushId);
       if (finished.state !== "activated") {
         throw new Error(`Flarex push ${started.pushId} did not activate: ${finished.state}`);
       }
@@ -192,52 +178,6 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
     },
   });
-}
-
-async function startPush(
-  backend: Miniflare,
-  deploymentId: string,
-  sourcePackage: SourcePackage,
-  analysis: DeploymentAnalysis,
-): Promise<DevPushStatus> {
-  return postBackend<DevPushStatus>(backend, `/deployments/${deploymentId}/push/start`, {
-    sourcePackage,
-    analysis: {
-      schema: analysis.schema,
-      functions: {
-        functions: analysis.functions.flatMap(module =>
-          module.functions.map(fn => ({
-            path: fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`,
-            kind: fn.kind,
-            visibility: fn.visibility,
-            args: fn.args,
-            returns: fn.returns,
-          })),
-        ),
-      },
-    },
-  });
-}
-
-async function finishPush(
-  backend: Miniflare,
-  deploymentId: string,
-  pushId: string,
-): Promise<DevPushStatus> {
-  return postBackend<DevPushStatus>(backend, `/deployments/${deploymentId}/push/${pushId}/finish`, {});
-}
-
-async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {
-  const response = await backend.dispatchFetch(`http://flarex.backend${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Backend request ${path} failed with status ${response.status}: ${text}`);
-  }
-  return response.json() as Promise<T>;
 }
 
 async function bundleWorker(entry: string): Promise<string> {

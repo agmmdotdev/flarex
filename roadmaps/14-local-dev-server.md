@@ -274,6 +274,58 @@ corepack pnpm build
 git diff --check
 ```
 
+## Local Backend Push Coordinator Update
+
+Previous completed checkpoint: `3cbd471` Return codegen analysis from push
+start.
+
+Local dev now calls a backend push coordinator with only the bundled source
+package:
+
+```txt
+reload
+  -> initialCodegen
+  -> bundleFlarexSourcePackage
+  -> pushCoordinator.start(sourcePackage)
+  -> finalCodegen from backend push response
+  -> build app Worker
+  -> pushCoordinator.finish(pushId)
+```
+
+`LocalBackendPushCoordinator` owns the local execution-artifact analyzer and
+the conversion from grouped codegen metadata to flattened backend activation
+metadata. This keeps the reload loop closer to Convex's mental model: source
+is pushed to a backend boundary, and analyzed deployment metadata comes back.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - the dev loop pushes bundled source to a backend-controlled deployment
+    boundary.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - final codegen consumes metadata returned from the push process.
+
+Cloudflare difference: this coordinator is Node-side local dev scaffolding
+because the local backend Worker cannot spawn nested Miniflare analysis. The
+hosted replacement should be a backend-owned execution-artifact service using
+Workers for Platforms dispatch.
+
+`flarex-dev` now runs Vitest files serially, like `flarex-backend`, because
+these tests start Vite/esbuild/Miniflare runtimes and can exhaust Windows
+workspace-test resources under file-level parallelism.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh
