@@ -1879,6 +1879,63 @@ Verification:
 git diff --check
 ```
 
+### Phase 5 Step 2 Implementation Update
+
+Previous completed checkpoint: `d1b83a9` Clarify Dynamic Worker source package
+architecture.
+
+Added a cold-isolate consistency gate to the local backend analyzer boundary.
+
+`LocalExecutionArtifactBackendAnalyzer` now analyzes the same source package
+twice through the execution-artifact adapter. The two runs are separate
+Miniflare execution artifacts when using the default local adapter. The
+analyzer compares the returned deployment analysis JSON and rejects the push
+candidate if the metadata differs:
+
+```txt
+Flarex analysis is nondeterministic across cold isolates.
+```
+
+Diagnostics from both analysis runs are preserved. On mismatch, the analyzer
+throws `ExecutionArtifactAnalysisError` with both runs' diagnostics plus an
+error diagnostic for the nondeterminism failure.
+
+Convex references copied in principle:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - `AnalyzeEnvironment` controls import-time timestamp, RNG, crypto,
+    Performance API, syscalls, and logs so analysis is stable.
+- `crates/application/src/deploy_config.rs`
+  - candidate push analysis is a backend-side deployment gate before activation.
+
+Intentional and temporary differences:
+
+- Convex's backend isolate environment is controlled enough that it does not
+  need to double-run every module analysis as a normal compatibility check.
+  Flarex uses this extra local gate while the hosted Dynamic Worker analyzer
+  contract is still being proven.
+- The comparison currently uses deterministic JSON for the existing analysis
+  shape. Once source positions and richer metadata are added, this comparison
+  must either include canonicalization for those fields or explicitly exclude
+  fields that are allowed to vary.
+- Successful analysis returns diagnostics from both runs, so duplicate
+  import-time logs are expected in local dev until diagnostics gain structured
+  run/source labels.
+
+Tests prove:
+
+- local backend analysis calls the execution-artifact adapter twice and returns
+  combined diagnostics when metadata is stable, and
+- divergent metadata across the two runs fails analysis with preserved
+  diagnostics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1921,8 +1978,8 @@ git diff --check
 - Failed candidate analysis leaves the active deployment unchanged.
 - Concurrent pushes produce a deterministic race/superseded result.
 - Final codegen consumes backend analysis, not local source scanning.
-- Local Miniflare and hosted dispatch adapters pass the same push contract
-  suite.
+- Local Miniflare and hosted Dynamic Worker adapters pass the same push
+  contract suite.
 - Runtime invocation resolves only active authoritative metadata.
 
 ## Known Intentional Differences
@@ -2014,3 +2071,9 @@ Vite/esbuild/Miniflare execution on Windows.
 Added structured analyzer diagnostics to the push contract, persisted them in
 `DeploymentDO`, and captured import-time console output in the local execution
 artifact analyzer.
+
+### `d1b83a9` Clarify Dynamic Worker source package architecture
+
+Cleaned stale hosted-platform dispatch wording and clarified that Flarex
+bundles only the uploaded `flarex/` source package for its managed Dynamic
+Worker runtime.

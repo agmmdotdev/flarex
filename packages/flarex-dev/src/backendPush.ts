@@ -34,6 +34,9 @@ export type BackendSourceAnalysisResult = {
   diagnostics?: AnalyzerDiagnostic[];
 };
 
+const NONDETERMINISTIC_ANALYSIS_ERROR =
+  "Flarex analysis is nondeterministic across cold isolates.";
+
 export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnalyzer {
   private readonly executionArtifact: ExecutionArtifactAdapter;
 
@@ -42,6 +45,22 @@ export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnaly
   }
 
   async analyze(sourcePackage: SourcePackage): Promise<BackendSourceAnalysisResult> {
+    const first = await this.analyzeOnce(sourcePackage);
+    const second = await this.analyzeOnce(sourcePackage);
+    const diagnostics = [...(first.diagnostics ?? []), ...(second.diagnostics ?? [])];
+    if (stableAnalysisJson(first.analysis) !== stableAnalysisJson(second.analysis)) {
+      throw new ExecutionArtifactAnalysisError(NONDETERMINISTIC_ANALYSIS_ERROR, [
+        ...diagnostics,
+        { level: "error", message: NONDETERMINISTIC_ANALYSIS_ERROR },
+      ]);
+    }
+    return {
+      analysis: first.analysis,
+      diagnostics,
+    };
+  }
+
+  private async analyzeOnce(sourcePackage: SourcePackage): Promise<BackendSourceAnalysisResult> {
     if (this.executionArtifact.analyzeWithDiagnostics !== undefined) {
       return this.executionArtifact.analyzeWithDiagnostics(sourcePackage);
     }
@@ -132,6 +151,10 @@ function errorMessage(error: unknown): string {
 
 function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {
   return error instanceof ExecutionArtifactAnalysisError ? error.diagnostics : [];
+}
+
+function stableAnalysisJson(analysis: DeploymentAnalysis): string {
+  return JSON.stringify(analysis);
 }
 
 async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {

@@ -4,9 +4,13 @@ import type { DeploymentAnalysis } from "../src/analyze";
 import {
   createLocalAnalyzerService,
   LocalBackendPushCoordinator,
+  LocalExecutionArtifactBackendAnalyzer,
   type BackendSourceAnalyzer,
 } from "../src/backendPush";
-import { ExecutionArtifactAnalysisError } from "../src/executionArtifact";
+import {
+  ExecutionArtifactAnalysisError,
+  type ExecutionArtifactAdapter,
+} from "../src/executionArtifact";
 import type { SourcePackage } from "../src/sourcePackage";
 
 describe("backend push coordinator", () => {
@@ -108,6 +112,60 @@ describe("backend push coordinator", () => {
       diagnostics: [{ level: "error", message: "import failed" }],
     });
   });
+
+  it("runs local execution artifact analysis twice before returning metadata", async () => {
+    const sourcePackage = testSourcePackage();
+    const analysis = testAnalysis();
+    const calls: SourcePackage[] = [];
+    const executionArtifact: ExecutionArtifactAdapter = {
+      analyze: async () => analysis,
+      analyzeWithDiagnostics: async package_ => {
+        calls.push(package_);
+        return {
+          analysis,
+          diagnostics: [{ level: "log", message: `analysis run ${calls.length}` }],
+        };
+      },
+    };
+
+    const result = await new LocalExecutionArtifactBackendAnalyzer(executionArtifact)
+      .analyze(sourcePackage);
+
+    expect(calls).toEqual([sourcePackage, sourcePackage]);
+    expect(result).toEqual({
+      analysis,
+      diagnostics: [
+        { level: "log", message: "analysis run 1" },
+        { level: "log", message: "analysis run 2" },
+      ],
+    });
+  });
+
+  it("rejects nondeterministic local execution artifact analysis", async () => {
+    const sourcePackage = testSourcePackage();
+    const analyses = [testAnalysis(), nondeterministicAnalysis()];
+    const executionArtifact: ExecutionArtifactAdapter = {
+      analyze: async () => analyses[0]!,
+      analyzeWithDiagnostics: async () => ({
+        analysis: analyses.shift()!,
+        diagnostics: [{ level: "warn", message: `remaining analyses ${analyses.length}` }],
+      }),
+    };
+
+    await expect(
+      new LocalExecutionArtifactBackendAnalyzer(executionArtifact).analyze(sourcePackage),
+    ).rejects.toMatchObject({
+      message: "Flarex analysis is nondeterministic across cold isolates.",
+      diagnostics: [
+        { level: "warn", message: "remaining analyses 1" },
+        { level: "warn", message: "remaining analyses 0" },
+        {
+          level: "error",
+          message: "Flarex analysis is nondeterministic across cold isolates.",
+        },
+      ],
+    });
+  });
 });
 
 function testSourcePackage(): SourcePackage {
@@ -143,6 +201,27 @@ function testAnalysis(): DeploymentAnalysis {
             exportName: "list",
             kind: "query",
             visibility: "public",
+            args: { type: "object", value: {} },
+            returns: null,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function nondeterministicAnalysis(): DeploymentAnalysis {
+  return {
+    ...testAnalysis(),
+    functions: [
+      {
+        moduleName: "lessons",
+        functions: [
+          {
+            moduleName: "lessons",
+            exportName: "list",
+            kind: "query",
+            visibility: "internal",
             args: { type: "object", value: {} },
             returns: null,
           },

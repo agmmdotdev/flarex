@@ -519,6 +519,39 @@ Verification:
 git diff --check
 ```
 
+## Cold-Isolate Consistency Update
+
+Previous completed checkpoint: `d1b83a9` Clarify Dynamic Worker source package
+architecture.
+
+Local backend analysis now runs the same source package through the
+execution-artifact adapter twice before returning metadata to `push/start`.
+If the two analyses differ, local dev receives a failed analyzer response with:
+
+```txt
+Flarex analysis is nondeterministic across cold isolates.
+```
+
+Diagnostics from both runs are preserved so import-time logs remain visible.
+This is a local-dev compatibility gate for the same stability guarantee the
+hosted Dynamic Worker analyzer must eventually enforce.
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - Convex controls import-time timestamp, RNG, unsupported APIs, syscalls, and
+    logs inside `AnalyzeEnvironment`.
+
+Cloudflare difference: Flarex uses a double-run local Miniflare gate while the
+hosted Dynamic Worker runtime is still being proven.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Verification
 
 ```sh

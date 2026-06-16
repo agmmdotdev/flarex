@@ -339,6 +339,36 @@ Verification:
 git diff --check
 ```
 
+## Cold-Isolate Consistency Boundary Update
+
+Previous completed checkpoint: `d1b83a9` Clarify Dynamic Worker source package
+architecture.
+
+`LocalExecutionArtifactBackendAnalyzer` now owns the cold-isolate consistency
+gate. It runs the local execution-artifact adapter twice and compares the
+deployment analysis before the analyzer service returns metadata to the
+backend.
+
+Package responsibilities remain:
+
+- `flarex-dev` owns the local double-run analyzer gate.
+- `flarex-backend` keeps the source-only push route and durable candidate
+  state.
+- the hosted Dynamic Worker analyzer service should implement the same
+  stability contract before activation.
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - stable analysis comes from a controlled import-time environment.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Analyzer Service Binding Update
 
 Previous completed checkpoint: `c563d88` Make push start source-only.
@@ -354,8 +384,8 @@ This keeps the package roles aligned:
 
 - `flarex-backend` owns the source-only push API and candidate activation.
 - `flarex-dev` owns the local implementation of the analyzer service.
-- hosted Flarex can later replace the local analyzer service with Workers for
-  Platforms dispatch without changing the public push request shape.
+- hosted Flarex can later replace the local analyzer service with the Dynamic
+  Worker analyzer service without changing the public push request shape.
 
 Convex reference:
 
