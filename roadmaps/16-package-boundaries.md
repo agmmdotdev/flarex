@@ -208,8 +208,7 @@ Convex reference:
 Cloudflare difference: local Flarex needs a Node-side coordinator because a
 Miniflare backend Worker cannot spawn another Miniflare runtime for candidate
 artifact analysis. Hosted Flarex should replace this local coordinator with a
-backend service that uploads and dispatches Workers for Platforms execution
-artifacts.
+backend Dynamic Worker analyzer service for uploaded source packages.
 
 The package also gained its own Vitest config so `flarex-dev` test files run
 serially. This matches `flarex-backend` and keeps package-local Vite/esbuild/
@@ -258,8 +257,8 @@ Convex reference:
     but the analyzed deployment contract is backend-owned.
 
 Cloudflare difference: Flarex still needs a local Node-side analyzer adapter
-until the backend platform can upload and dispatch candidate execution
-artifacts itself.
+until the backend platform can load candidate source packages into the hosted
+Dynamic Worker analyzer itself.
 
 Verification:
 
@@ -296,8 +295,8 @@ Package responsibilities remain:
   artifact diagnostics capture.
 - `flarex-backend` owns the source-only push route, analyzer service binding,
   durable push state, and diagnostics persistence.
-- future hosted platform code should replace the local analyzer service with a
-  Workers for Platforms dispatcher while preserving the same response shape.
+- future hosted runtime code should replace the local analyzer service with the
+  Dynamic Worker analyzer service while preserving the same response shape.
 
 Convex reference:
 
@@ -316,6 +315,28 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
+```
+
+## Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Updated package-boundary wording so hosted analysis is described as a Dynamic
+Worker analyzer service for uploaded source packages, not an external platform
+dispatch path. `flarex-dev` remains responsible for the local Miniflare
+analyzer implementation; `flarex-backend` remains responsible for the
+source-only push API and durable candidate state.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - source/config inputs cross the push boundary; analyzed metadata is produced
+    by the backend side of that boundary.
+
+Verification:
+
+```sh
+git diff --check
 ```
 
 ## Analyzer Service Binding Update

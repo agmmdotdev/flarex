@@ -656,10 +656,10 @@ using Vite, then generates the Cloudflare Worker registry from those results.
 
 The next codegen change must not make developers write or deploy Worker code.
 Developers continue writing ordinary modules under `flarex/`. Flarex tooling
-will bundle those modules and send the source bundle to the Flarex backend.
-The platform will create the internal Cloudflare execution artifact, analyze it
-inside a backend-controlled dynamic execution isolate, and return authoritative
-analysis for final codegen.
+will bundle those modules and send the source package to the Flarex backend.
+The platform will create the internal Flarex-managed execution artifact,
+analyze it inside a backend-controlled dynamic execution isolate, and return
+authoritative analysis for final codegen.
 
 The detailed Convex analysis, validation, `start_push`, and `finish_push` porting
 plan is recorded in `roadmaps/17-deployment-analysis-and-push.md`.
@@ -721,6 +721,20 @@ filesystem.
 Generated runtime deployment schema and Worker table metadata are static
 analysis outputs. Generated `dataModel.ts` still imports the developer schema
 solely for TypeScript type inference.
+
+## Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Normalized SDK/CLI wording around deployment input. Flarex tooling sends the
+`flarex/` source package to the backend; it does not bundle the developer's
+whole app or require developers to deploy Worker code.
+
+Verification:
+
+```sh
+git diff --check
+```
 
 ## Implementation Checkpoints
 

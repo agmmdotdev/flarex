@@ -177,12 +177,12 @@ user request.
     limitation in API design and generated errors instead of pretending it is
     transparent.
 
-13. Keep Cloudflare execution artifacts invisible to developers.
+13. Keep Flarex-managed execution artifacts invisible to developers.
     Developers write ordinary TypeScript modules under `flarex/`; they do not
     write Worker entrypoints, `fetch` handlers, Wrangler configuration, or
-    Dynamic Worker code. Flarex tooling bundles developer modules and the
-    Flarex platform creates and manages the internal Cloudflare execution
-    artifact.
+    Dynamic Worker code. Flarex tooling bundles only the `flarex/` developer
+    modules into a source package, and the Flarex platform creates and manages
+    the internal execution artifact.
 
 14. Treat backend analysis as authoritative.
     Local analysis may provide fast feedback, but deployed function paths,

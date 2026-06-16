@@ -124,7 +124,7 @@ should eventually own:
 - push race/superseded detection,
 - atomic activation after schema validation.
 
-Large source bundles and source maps should live outside Durable Object SQLite;
+Large source packages and source maps should live outside Durable Object SQLite;
 `DeploymentDO` should store references, hashes, authoritative metadata, and
 state transitions.
 
@@ -292,3 +292,17 @@ does not receive a raw database connection or Durable Object storage handle.
 
 Known limitation: session state is currently in `ExecutionDO` memory. A future
 executor must add retry semantics for eviction, restart, and `OCC_CONFLICT`.
+
+## Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Normalized storage wording to `source package`. Large uploaded `flarex/`
+source packages and source maps should live outside Durable Object SQLite; the
+developer's whole app is not part of deployment metadata.
+
+Verification:
+
+```sh
+git diff --check
+```

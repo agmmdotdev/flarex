@@ -17,19 +17,19 @@ Flarex function deployment
   executed by a Flarex-managed dynamic execution isolate
 ```
 
-Cloudflare calls dynamically dispatched scripts "User Workers." Flarex
-documentation should avoid that term because it incorrectly suggests that the
-developer writes Worker code. Use these terms instead:
+Avoid Cloudflare platform terms that suggest the developer writes or deploys
+Worker code. Use these terms instead:
 
 - **developer modules**: ordinary files written under `flarex/`
-- **source bundle**: bundled developer modules, source maps, schema, and module
+- **source package**: bundled developer modules, source maps, schema, and module
   metadata uploaded to Flarex
-- **execution artifact**: internal Cloudflare script created and managed by
-  Flarex from the source bundle plus the Flarex runtime wrapper
-- **dynamic execution isolate**: Cloudflare runtime instance executing the
-  Flarex-managed execution artifact
+- **execution artifact**: internal Flarex runtime wrapper plus the source
+  package metadata needed for analysis and execution
+- **Dynamic Worker runtime**: Flarex-managed Cloudflare runtime that loads and
+  executes only the uploaded `flarex/` source package, not the developer's
+  whole application
 - **deployment analysis**: authoritative metadata produced by evaluating the
-  source bundle in the backend-controlled execution environment
+  source package in the backend-controlled execution environment
 
 ## Developer Contract
 
@@ -293,10 +293,10 @@ artifact boundary.
 ```txt
 flarex dev / flarex deploy
   -> initial codegen
-  -> bundle developer modules, schema, and source maps
-  -> POST start_push source bundle to Flarex backend
+  -> bundle only the flarex/ developer modules, schema, and source maps
+  -> POST start_push source package to Flarex backend
   -> Flarex creates an internal candidate execution artifact
-  -> backend invokes candidate analysis inside dynamic execution isolate
+  -> backend invokes candidate analysis inside the Dynamic Worker runtime
   -> candidate returns authoritative module and schema analysis
   -> backend validates and stores candidate analysis
   -> CLI performs final codegen from backend response
@@ -485,23 +485,24 @@ Copy Convex's layered validation model:
 
 - Detect concurrent or superseded pushes.
 - Confirm schema validation and required index work completed.
-- Atomically activate source bundle, execution artifact reference, schema, and
+- Atomically activate source package, execution artifact reference, schema, and
   analyzed metadata.
 
 ## Cloudflare Adaptation
 
 Cloudflare Workers cannot evaluate arbitrary uploaded JavaScript source with
-`eval()` or `new Function()`. Therefore Flarex cannot upload a source bundle to
-one permanent Dynamic Worker and ask that Worker to execute the source directly.
+`eval()` or `new Function()`. Therefore Flarex does not store raw TypeScript and
+ask one permanent Worker to evaluate it directly.
 
-Flarex must internally convert each candidate source bundle into a
-Flarex-managed execution artifact and upload it to a Workers for Platforms
-dispatch namespace. The Flarex dispatch Worker can then invoke that artifact
-dynamically.
+Flarex tooling bundles only the developer's `flarex/` folder into a source
+package. The backend stores that source package and creates an internal
+execution artifact for the Flarex-managed Dynamic Worker runtime. The
+developer's frontend, mobile app, Next.js app, or other application deployment
+is not bundled into this artifact and is not deployed by Flarex.
 
-This does not change the developer model. The developer still uploads ordinary
-Flarex modules to Flarex, exactly as they upload ordinary Convex modules to
-Convex.
+This keeps the developer model close to Convex. The developer uploads ordinary
+Flarex backend modules to Flarex and uses client APIs from their app wherever
+that app is hosted.
 
 ### Import-Phase Determinism Risk
 
@@ -538,15 +539,11 @@ Before implementing hosted analysis, create focused probes for:
 If full control is not portable, Flarex should define a stricter import-time
 subset than Convex and enforce it at bundle and runtime boundaries.
 
-Official Cloudflare references:
+Relevant Cloudflare runtime constraint:
 
-- `https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/how-workers-for-platforms-works/`
-  - A platform accepts customer code, deploys it into a dispatch namespace, and
-    invokes it through a dynamic dispatch Worker.
-- `https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/reference/platform-examples/`
-  - Execution artifacts are uploaded programmatically through the platform API.
 - `https://developers.cloudflare.com/workers/runtime-apis/web-standards/`
-  - Workers prohibit `eval()` and `new Function()`.
+  - Workers prohibit `eval()` and `new Function()`, so Flarex must analyze and
+    execute prepared source packages through its managed runtime boundary.
 
 ## Deployment State Model
 
@@ -586,7 +583,7 @@ failed
 superseded
 ```
 
-Large source bundles and source maps should live outside Durable Object SQLite,
+Large source packages and source maps should live outside Durable Object SQLite,
 likely in R2. `DeploymentDO` should own authoritative state transitions,
 analysis metadata, schema metadata, and the active pointer.
 
@@ -631,7 +628,7 @@ Local development must use the same push state machine:
 ```txt
 Vite watcher
   -> initial codegen
-  -> source bundle
+  -> source package
   -> local start_push
   -> candidate Miniflare execution artifact
   -> authoritative local analysis
@@ -639,8 +636,9 @@ Vite watcher
   -> local finish_push
 ```
 
-Miniflare replaces Workers for Platforms only at the execution-artifact adapter
-boundary. Local dev must not keep a separate metadata deployment shortcut.
+Miniflare is the local execution-artifact adapter for the same source-package
+analysis contract. Local dev must not keep a separate metadata deployment
+shortcut.
 
 ## Ownership Boundaries
 
@@ -665,23 +663,21 @@ packages/flarex-backend
   authoritative analyzed metadata persistence
   invocation resolution against active metadata
 
-Cloudflare deployment control plane
-  execution-artifact upload/delete
-  dispatch candidate analysis
-  dispatch active invocation
-  Cloudflare API credentials
+Flarex Dynamic Worker runtime
+  load candidate source packages
+  run candidate analysis
+  run active invocation
+  enforce import-time and syscall boundaries
 ```
 
-The hosted Cloudflare deployment control plane should be separated from the
-public request/data plane because artifact-upload credentials are highly
-privileged. The first prototype may keep the adapter near
-`packages/flarex-backend`, but public invocation code must not receive or expose
-Cloudflare upload credentials.
+The Dynamic Worker runtime/control path should be separated from the public
+request/data plane. Public invocation code must not receive raw storage
+bindings, database connections, or unrestricted runtime capabilities.
 
-Do not create a new package solely for the adapter until the Miniflare and
-Workers for Platforms implementations create a real shared contract. At that
-point, extract the interface and shared push orchestration instead of
-duplicating the state machine.
+Do not create a new package solely for the adapter until local Miniflare and
+the hosted Dynamic Worker runtime create a real shared contract. At that point,
+extract the interface and shared push orchestration instead of duplicating the
+state machine.
 
 ## Implementation Plan
 
@@ -1032,7 +1028,7 @@ Intentional and temporary differences:
 - Convex uses esbuild and its backend source-package storage. Flarex currently
   uses Vite/Rollup and returns an in-memory serializable package.
 - Flarex adds a duplicated self-contained internal execution entrypoint so a
-  Cloudflare execution artifact can load all registered functions from one
+  Flarex-managed execution artifact can load all registered functions from one
   module. Individual function bundles remain available for Convex-style module
   identity and future changed-module pushes.
 - Source maps are preserved and normalized, but analyzed source positions are
@@ -1157,8 +1153,8 @@ git diff --check
 ### Phase 3 Step 1 Implementation Update
 
 Added the first backend candidate push lifecycle. No Dynamic Worker analysis,
-Miniflare analysis adapter, hosted artifact upload, schema diff validation, or
-local-dev push orchestration was added.
+Miniflare analysis adapter, hosted source-package loading, schema diff
+validation, or local-dev push orchestration was added.
 
 New backend API types:
 
@@ -1378,7 +1374,7 @@ Intentional and temporary differences:
 
 - Convex analyzes in the backend Rust/V8 isolate. This step analyzes in a
   local Miniflare Worker-shaped artifact so the boundary is Cloudflare-shaped
-  before hosted dispatch exists.
+  before the hosted Dynamic Worker runtime is connected.
 - The artifact analyzer embeds a small analyzer runtime instead of importing
   `flarex-dev` internals. This keeps the future hosted artifact self-contained,
   but the code should be deduplicated once the runtime package boundary is
@@ -1386,7 +1382,7 @@ Intentional and temporary differences:
 - The backend still receives client-supplied analysis in `push/start`; it does
   not yet create the candidate artifact or call analysis itself.
 - Import-phase determinism controls, source positions, logs, module limits,
-  R2 artifact storage, and Workers for Platforms upload remain future work.
+  source package storage, and hosted Dynamic Worker loading remain future work.
 
 Tests prove:
 
@@ -1533,7 +1529,7 @@ Intentional and temporary differences:
   Removing that field requires a hosted or service-bound analyzer available to
   the backend runtime.
 - The coordinator uses the local Miniflare adapter. Production should replace
-  this with Workers for Platforms artifact upload and dispatch.
+  this with the hosted Dynamic Worker analysis/invocation adapter.
 
 Tests prove:
 
@@ -1615,8 +1611,8 @@ Convex references copied in principle:
 Intentional and temporary differences:
 
 - Convex does not need an exposed `start-analyzed` route. Flarex keeps this as
-  an internal local-dev bridge until the backend runtime has a hosted analyzer
-  service or Workers for Platforms dispatch integration.
+  an internal local-dev bridge until the backend runtime has a hosted Dynamic
+  Worker analyzer service.
 - `POST /push/start` currently returns 501 instead of analyzing because the
   Worker/Durable Object runtime cannot yet create candidate execution
   artifacts by itself.
@@ -1665,7 +1661,7 @@ POST /deployments/:deploymentId/push/start
 
 If `FLAREX_ANALYZER` is not configured, the route still returns the explicit
 501 analysis-not-configured error. That keeps hosted production honest until
-Workers for Platforms dispatch is implemented.
+the Dynamic Worker analyzer service is implemented.
 
 Local dev configures `FLAREX_ANALYZER` as a Miniflare service binding backed
 by `createLocalAnalyzerService()`. That service uses
@@ -1689,7 +1685,7 @@ Intentional and temporary differences:
 
 - Convex performs analysis inside its backend isolate stack. Flarex local dev
   uses a service binding to a Node-side Miniflare analyzer because the hosted
-  Workers for Platforms artifact path is not implemented yet.
+  Dynamic Worker analyzer path is not implemented yet.
 - `/push/start-analyzed` remains an internal prototype route behind the
   analyzer binding. It should disappear or become private platform plumbing
   once hosted backend analysis is real.
@@ -1758,7 +1754,7 @@ Intentional and temporary differences:
 - Convex captures logs inside its Rust/V8 isolate. Flarex currently captures
   logs in the local Miniflare execution artifact and forwards them through the
   analyzer service binding. Hosted Flarex must move the same contract behind
-  Workers for Platforms dispatch.
+  the Dynamic Worker analyzer runtime.
 - Flarex currently captures `console.log`, `console.warn`, and `console.error`
   only. More console methods and source positions remain future work.
 
@@ -1824,8 +1820,8 @@ Intentional and temporary differences:
 - This slice does not yet block database/syscall access because user code still
   has no analysis-time `ctx.db` or syscall capability. That must remain true
   when the hosted execution artifact runtime is added.
-- Hosted Workers for Platforms analysis still needs probes to verify which
-  globals can be patched consistently across cold isolates.
+- Hosted Dynamic Worker analysis still needs probes to verify which globals can
+  be patched consistently across cold isolates.
 
 Tests prove:
 
@@ -1841,6 +1837,48 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+### Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Cleaned the deployment-analysis roadmap to match the current architecture
+decision:
+
+```txt
+developer app
+  hosted by the developer anywhere
+  uses Flarex client APIs
+
+flarex/ source package
+  bundled by Flarex tooling
+  pushed to the Flarex backend
+  analyzed and executed by the Flarex-managed Dynamic Worker runtime
+```
+
+Removed stale hosted-platform dispatch wording and standardized the terms
+`source package`, `Flarex-managed execution artifact`, and `Dynamic Worker
+runtime`.
+
+Convex reference remains the same:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - Convex pushes backend function modules, not the developer's whole
+    application.
+- `crates/application/src/deploy_config.rs`
+  - backend deployment analysis and activation operate on uploaded module
+    packages.
+
+Cloudflare difference: Flarex still uses Cloudflare runtime isolation, but the
+documented target is now specifically the Flarex-managed Dynamic Worker runtime
+for the uploaded `flarex/` source package. The developer's application is not
+part of that artifact.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1851,11 +1889,11 @@ corepack pnpm --filter flarex-dev test
 4. Block hosted activation until candidate analysis satisfies the import-phase
    contract.
 
-### Phase 6: Hosted Dynamic Execution Isolate
+### Phase 6: Hosted Dynamic Worker Runtime
 
-1. Implement Workers for Platforms artifact upload and dispatch.
-2. Upload immutable candidate execution artifacts.
-3. Invoke internal analysis through the dispatch binding.
+1. Store immutable candidate source packages.
+2. Build or load internal execution artifacts for those source packages.
+3. Invoke internal analysis through the Dynamic Worker analyzer boundary.
 4. Apply CPU, subrequest, egress, and import-phase restrictions.
 5. Route invocation through the active execution-artifact pointer.
 6. Garbage-collect failed and superseded candidates.
@@ -1891,8 +1929,8 @@ corepack pnpm --filter flarex-dev test
 
 - Flarex adds `workflowMutation`; Convex has query, mutation, and action UDF
   types.
-- Flarex uses Cloudflare-managed execution artifacts and dynamic dispatch
-  instead of Convex's Rust/V8 function runner.
+- Flarex uses a Flarex-managed Dynamic Worker runtime instead of Convex's
+  Rust/V8 function runner.
 - Flarex may initially enforce a stricter import-time API subset where
   Cloudflare cannot reproduce Convex's controlled import environment.
 - Flarex schema validation and index preparation must account for partitioned

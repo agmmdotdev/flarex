@@ -4,9 +4,9 @@
 
 Developer modules should run in Flarex-managed dynamic execution isolates and
 receive only restricted syscall APIs. Developers write ordinary TypeScript
-functions, not Worker entrypoints. Flarex converts the uploaded source bundle
-into an internal Cloudflare execution artifact. Developer code must not receive
-raw Durable Object stubs, SQLite handles, or environment bindings.
+functions under `flarex/`, not Worker entrypoints. Flarex converts the uploaded
+source package into an internal execution artifact. Developer code must not
+receive raw Durable Object stubs, SQLite handles, or environment bindings.
 
 ## Intended Flow
 
@@ -14,7 +14,7 @@ raw Durable Object stubs, SQLite handles, or environment bindings.
 Worker router
   -> resolve deployment and partition
   -> begin transaction in PartitionDO
-  -> dispatch active Flarex-managed execution artifact
+  -> load active Flarex-managed execution artifact
   -> run developer function in dynamic execution isolate
   -> syscalls collect reads and staged writes
   -> commit through PartitionDO
@@ -222,6 +222,24 @@ corepack pnpm test
 
 ## Implementation Checkpoints
 
+### Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Updated the Dynamic Worker roadmap to say Flarex loads the uploaded `flarex/`
+source package through a Flarex-managed execution artifact. The developer does
+not write Worker code, and Flarex does not bundle the developer's whole app.
+
+Convex reference: Convex executes uploaded backend function modules behind its
+own function runner boundary, while clients and application hosting remain
+separate.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ### `a973c3a` Add backend execution sessions
 
 Added backend-owned execution sessions and syscall routing so generated user
@@ -240,8 +258,8 @@ entrypoint inside a deterministic source package. Local analysis executes that
 entrypoint directly.
 
 This is not a deployed Dynamic Worker yet. It establishes the immutable input
-that future local Miniflare and hosted Workers for Platforms adapters must
-consume, without giving either adapter access to the developer filesystem.
+that future local Miniflare and hosted Dynamic Worker adapters must consume,
+without giving either adapter access to the developer filesystem.
 
 ## Local Execution Artifact Analysis Update
 
@@ -265,10 +283,9 @@ Convex inspiration:
 - `crates/application/src/deploy_config.rs`
   - analysis is a deployment step that precedes activation.
 
-Cloudflare difference: this is a local Miniflare execution artifact, not
-production Workers for Platforms dynamic dispatch. Hosted execution artifact
-upload, dispatch, import-phase restrictions, and backend-owned analysis remain
-future work.
+Cloudflare difference: this is a local Miniflare execution artifact, not the
+hosted Flarex Dynamic Worker runtime. Hosted source-package loading,
+import-phase restrictions, and backend-owned analysis remain future work.
 
 Verified with:
 

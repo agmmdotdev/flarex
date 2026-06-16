@@ -90,7 +90,7 @@ exercise the same Convex-shaped lifecycle as hosted Flarex:
 ```txt
 file change
   -> initial codegen
-  -> source bundle
+  -> source package
   -> local start_push
   -> candidate Miniflare execution artifact
   -> authoritative candidate analysis
@@ -100,10 +100,10 @@ file change
   -> active candidate serves invoke requests
 ```
 
-Miniflare is the local implementation of the execution-artifact adapter.
-Workers for Platforms dynamic dispatch is the hosted implementation. The push
-state machine, analysis contract, final codegen input, and activation semantics
-must be shared.
+Miniflare is the local implementation of the execution-artifact adapter. The
+hosted implementation is the Flarex-managed Dynamic Worker runtime for the
+uploaded `flarex/` source package. The push state machine, analysis contract,
+final codegen input, and activation semantics must be shared.
 
 See `roadmaps/17-deployment-analysis-and-push.md`.
 
@@ -167,8 +167,8 @@ Convex references:
 
 Cloudflare difference: Flarex still analyzes locally in the Node dev process
 and starts an app Miniflare Worker from generated code. The next step is to
-move analysis into an execution-artifact adapter so local Miniflare and hosted
-Workers for Platforms share the same analyzer boundary.
+move analysis into an execution-artifact adapter so local Miniflare and the
+hosted Dynamic Worker runtime share the same analyzer boundary.
 
 Verification:
 
@@ -307,8 +307,8 @@ Convex references:
 
 Cloudflare difference: this coordinator is Node-side local dev scaffolding
 because the local backend Worker cannot spawn nested Miniflare analysis. The
-hosted replacement should be a backend-owned execution-artifact service using
-Workers for Platforms dispatch.
+hosted replacement should be a backend-owned Dynamic Worker analyzer service
+for the uploaded source package.
 
 `flarex-dev` now runs Vitest files serially, like `flarex-backend`, because
 these tests start Vite/esbuild/Miniflare runtimes and can exhaust Windows
@@ -359,7 +359,7 @@ Convex references:
 
 Cloudflare difference: Flarex local dev uses a Node-side
 `BackendSourceAnalyzer` to run the local Miniflare artifact. Hosted Flarex
-should replace that analyzer with Workers for Platforms artifact dispatch.
+should replace that analyzer with the Dynamic Worker analyzer service.
 
 Verification:
 
@@ -402,8 +402,8 @@ Convex references:
   - backend push response contains analyzed deployment metadata.
 
 Cloudflare difference: the local analyzer binding is a Node-side Miniflare
-service, not hosted Workers for Platforms dispatch. It is the adapter boundary
-for the hosted implementation.
+service, not the hosted Dynamic Worker analyzer service. It is the adapter
+boundary for the hosted implementation.
 
 Verification:
 
@@ -448,7 +448,7 @@ Convex reference:
     100-entry bound.
 
 Cloudflare difference: Flarex local dev captures logs in Miniflare by
-dynamically importing the source bundle after installing the console wrapper.
+dynamically importing the source package after installing the console wrapper.
 Hosted Flarex must preserve the same contract inside the dynamic execution
 isolate rather than in the Node-side dev package.
 
@@ -488,14 +488,35 @@ Convex reference:
 
 Cloudflare difference: this is implemented as a generated Worker prelude in
 local Miniflare analysis. Hosted analysis must enforce the same behavior in
-the platform-managed execution artifact and verify that global patching is
-portable across Workers for Platforms dispatch isolates.
+the Flarex-managed Dynamic Worker runtime and verify that global patching is
+portable across cold analysis isolates.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
+```
+
+## Architecture Terminology Cleanup
+
+Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
+
+Updated local-dev wording so the local Miniflare execution-artifact adapter is
+described as the development implementation of the same source-package
+analysis boundary used by the hosted Dynamic Worker runtime. Normalized the
+deployment input term to `source package`.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - local dev pushes backend modules and receives backend analysis; it does not
+    bundle the developer's whole app into the backend runtime.
+
+Verification:
+
+```sh
+git diff --check
 ```
 
 ## Verification
