@@ -298,3 +298,51 @@ corepack pnpm test
 corepack pnpm build
 git diff --check
 ```
+
+## Active Deployment Session Start Update
+
+Previous completed checkpoint: `b08269e` Record active deployment pointer on
+finish.
+
+Backend execution sessions now start from active deployment metadata.
+`ExecutionDO.start` calls `loadActiveFunctionMetadata`, receives the active
+deployment schema and function metadata from `DeploymentDO`, validates
+arguments from that active analysis, syncs the partition schema cache, and only
+then begins the shard transaction.
+
+This keeps the generated Worker syscall path aligned with the hosted Dynamic
+Worker target:
+
+```txt
+generated execution artifact /invoke
+  -> backend /executions/start
+  -> active deployment analysis lookup
+  -> active schema and function validators
+  -> backend-owned transaction session
+```
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - query and mutation execution receives validated path/argument metadata
+    before isolate execution.
+- `crates/application/src/lib.rs`
+  - functions are executed through the application runner after module
+    metadata has been analyzed and stored.
+
+Cloudflare difference: Flarex's execution session is still a Durable Object
+memory session backed by syscalls. Convex keeps the transaction and function
+runner inside its backend runtime. The important matching behavior is that
+user code does not choose its own schema or validator metadata at invocation
+time.
+
+Tests now activate execution-session metadata through the push lifecycle and
+prove a stale mutable `/functions` table entry cannot start a session when it
+is not part of active analysis.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```

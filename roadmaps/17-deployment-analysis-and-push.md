@@ -2064,6 +2064,72 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+### Phase 5 Step 5 Implementation Update
+
+Previous completed checkpoint: `b08269e` Record active deployment pointer on
+finish.
+
+Runtime function resolution now prefers the active deployment analysis.
+
+`packages/flarex-backend/src/invoke.ts` added active deployment loaders:
+
+```ts
+loadActiveDeployment(env, deploymentId)
+loadActiveFunctionMetadata(env, deploymentId, path)
+```
+
+`ExecutionDO.start` now resolves:
+
+```txt
+DeploymentDO.active_push_id
+  -> active push analysis.schema
+  -> active push analysis.functions.functions[path]
+  -> argument validation
+  -> partition schema sync
+  -> transaction begin
+```
+
+This means a generated execution session cannot start from a stale mutable
+`/functions` table entry after a different push is active. The activated push
+analysis is the contract used for function kind, argument validator, return
+validator, and schema metadata.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - `ValidatedPathAndArgs` and `FunctionMetadata` are passed into isolate
+    execution after backend validation.
+  - `run_mutation_inner` resolves validated path/args and return validator
+    before executing the mutation and validating the outcome.
+- `crates/application/src/lib.rs`
+  - deployment/module analysis metadata is written before functions are run
+    through the application function runner.
+
+Cloudflare difference:
+
+- Convex runs the analyzed module through its Rust-managed isolate runner.
+  Flarex currently runs generated local execution sessions and syscalls, so
+  this checkpoint makes the metadata boundary authoritative before the hosted
+  Flarex-managed Dynamic Worker runtime exists.
+- `executeInvoke` still has a no-active-deployment fallback for low-level
+  transaction tests and prototypes. When an active deployment exists, it
+  rejects paths missing from active analysis before handler execution.
+
+Known follow-up:
+
+- Add an active execution artifact reference alongside `active_push_id`.
+- Route hosted Dynamic Worker invocation through that active artifact reference
+  instead of the generated local execution harness.
+- Remove normal use of legacy direct `/schema` and `/functions` mutation
+  routes from development and deployment flows.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact

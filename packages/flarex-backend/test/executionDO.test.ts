@@ -1,11 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
 import { SingleShardTransaction } from "../src/transaction";
-import type { DeploymentSchema, Env, InvokeResponse } from "../src/types";
+import type {
+  AnalyzedStartPushRequest,
+  DeploymentFunctions,
+  DeploymentSchema,
+  Env,
+  InvokeResponse,
+  PushStatus,
+} from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
 let harness: BackendHarness;
 let env: Env;
+
+type TestResponse = {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+};
 
 beforeAll(async () => {
   harness = await createBackendHarness();
@@ -18,8 +31,7 @@ afterAll(async () => {
 
 describe("ExecutionDO sessions", () => {
   it("commits mutation syscalls only after finish", async () => {
-    await putSchema("execution-mutation-deployment", lessonSchema());
-    await putFunctions("execution-mutation-deployment", {
+    await activateDeployment("execution-mutation-deployment", lessonSchema(), {
       functions: [
         {
           path: "lessons:complete",
@@ -85,8 +97,7 @@ describe("ExecutionDO sessions", () => {
   });
 
   it("validates returns before committing mutation syscalls", async () => {
-    await putSchema("execution-return-deployment", lessonSchema());
-    await putFunctions("execution-return-deployment", {
+    await activateDeployment("execution-return-deployment", lessonSchema(), {
       functions: [
         {
           path: "lessons:badReturn",
@@ -133,8 +144,7 @@ describe("ExecutionDO sessions", () => {
 
   it("serves indexed query syscalls from a session snapshot", async () => {
     const schema = lessonSchema();
-    await putSchema("execution-query-deployment", schema);
-    await putFunctions("execution-query-deployment", {
+    await activateDeployment("execution-query-deployment", schema, {
       functions: [{ path: "lessons:list", kind: "query" }],
     });
     await SingleShardTransaction.ensureSchema(env, "execution-query-deployment", "user:u1", schema);
@@ -182,6 +192,27 @@ describe("ExecutionDO sessions", () => {
       ],
     });
   });
+
+  it("resolves function metadata from the active deployment, not the mutable function table", async () => {
+    await activateDeployment("execution-active-deployment", lessonSchema(), {
+      functions: [{ path: "lessons:list", kind: "query" }],
+    });
+    await putFunctions("execution-active-deployment", {
+      functions: [{ path: "lessons:stale", kind: "query" }],
+    });
+
+    const response = await startExecutionResponse("execution-active-deployment", {
+      path: "lessons:stale",
+      kind: "query",
+      partitionKey: "user:u1",
+      args: null,
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unknown active Flarex function metadata: lessons:stale",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {
@@ -205,16 +236,57 @@ function lessonSchema(): DeploymentSchema {
   };
 }
 
-async function putSchema(deploymentId: string, schema: DeploymentSchema): Promise<void> {
+async function activateDeployment(
+  deploymentId: string,
+  schema: DeploymentSchema,
+  functions: DeploymentFunctions,
+): Promise<void> {
+  const start = await startPush(deploymentId, {
+    sourcePackage: sourcePackageForFunctions(functions),
+    analysis: { schema, functions },
+  });
   const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/schema`,
+    `http://flarex.test/deployments/${deploymentId}/push/${start.pushId}/finish`,
     {
-      method: "PUT",
+      method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(schema),
+      body: JSON.stringify({}),
     },
   );
   expect(response.ok).toBe(true);
+}
+
+async function startPush(
+  deploymentId: string,
+  body: AnalyzedStartPushRequest,
+): Promise<PushStatus> {
+  const response = await harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<PushStatus>;
+}
+
+function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStartPushRequest["sourcePackage"] {
+  const functionModules = [
+    ...new Set(functions.functions.map(fn => `${fn.path.split(":")[0]}.js`)),
+  ].sort();
+  const modules = ["__flarex_execution.js", "__flarex_schema.js", ...functionModules].map(path => ({
+    path,
+    environment: "isolate" as const,
+    sha256: "0".repeat(64),
+  }));
+  return {
+    modules,
+    functions: functionModules,
+    schema: "__flarex_schema.js",
+    execution: "__flarex_execution.js",
+  };
 }
 
 async function putFunctions(
@@ -236,6 +308,15 @@ async function startExecution(
   deploymentId: string,
   body: { path: string; kind: string; partitionKey: string; args: unknown },
 ): Promise<{ sessionId: string }> {
+  const response = await startExecutionResponse(deploymentId, body);
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<{ sessionId: string }>;
+}
+
+async function startExecutionResponse(
+  deploymentId: string,
+  body: { path: string; kind: string; partitionKey: string; args: unknown },
+): Promise<TestResponse> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/start`,
     {
@@ -244,8 +325,7 @@ async function startExecution(
       body: JSON.stringify(body),
     },
   );
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<{ sessionId: string }>;
+  return response;
 }
 
 async function syscall(deploymentId: string, sessionId: string, body: unknown): Promise<unknown> {

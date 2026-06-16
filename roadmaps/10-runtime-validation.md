@@ -193,6 +193,43 @@ corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example test
 ```
 
+## Active Deployment Validation Update
+
+Previous completed checkpoint: `b08269e` Record active deployment pointer on
+finish.
+
+Backend execution-session validation now consumes active deployment analysis
+instead of the mutable function metadata table. `ExecutionDO.start` loads the
+active deployment, finds the requested function in
+`analysis.functions.functions`, and validates arguments against that
+function's analyzed validator before any syscall session can run.
+
+Direct `executeInvoke` also prefers active analysis when one exists. It keeps a
+temporary no-active fallback for low-level backend transaction tests, but if an
+active deployment exists and the requested path is not in that active analysis,
+the invoke fails before user handler execution.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - `ValidatedPathAndArgs` and return validators are resolved before query or
+    mutation execution.
+- `crates/model/src/modules/function_validators.rs`
+  - function validators are stored deployment metadata, not handler-local
+    choices.
+
+Cloudflare difference: Flarex validates in TypeScript at the Durable Object
+boundary for now. Convex validates in Rust against its central module and
+schema models. The semantic target is the same: active analyzed metadata is
+the authoritative validation contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Verification
 
 ```sh

@@ -344,3 +344,42 @@ Verification:
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
+
+## Active Deployment Invoke Resolution Update
+
+Previous completed checkpoint: `b08269e` Record active deployment pointer on
+finish.
+
+The backend data model now has its first runtime consumer of
+`active_push_id`. Execution sessions resolve schema and function metadata from
+the active push's analyzed deployment payload instead of trusting the mutable
+`functions` table alone.
+
+`DeploymentDO` still materializes the active schema/functions into tables for
+legacy reads and partition schema sync, but the execution start path now treats
+the active push analysis as authoritative:
+
+```txt
+active_push_id -> pushes.analysis -> schema/functions -> ExecutionDO.start
+```
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution receives validated metadata derived from stored module
+    analysis.
+- `crates/model/src/modules/mod.rs`
+  - analyzed module metadata is durable deployment state used for later
+    function resolution.
+
+Cloudflare difference: Flarex still stores active source package and analysis
+inline in Durable Object SQLite. Convex has richer module/config models and a
+separate isolate runner. Future Flarex storage should move large source
+packages and execution artifact references out of this row.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```

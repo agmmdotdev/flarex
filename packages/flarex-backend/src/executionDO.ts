@@ -4,8 +4,7 @@ import {
   idValidatorForSchema,
   invokeErrorResponse,
   isInvokableKind,
-  loadFunctionMetadata,
-  loadSchema,
+  loadActiveFunctionMetadata,
   readerFor,
   validateReturn,
   writerFor,
@@ -66,11 +65,9 @@ export class ExecutionDO extends DurableObject<Env> {
       throw new HttpError(409, "Execution session is already active.");
     }
 
-    const schema = await loadSchema(this.env, request.deploymentId);
-    const metadata = await loadFunctionMetadata(this.env, request.deploymentId, request.path);
-    if (metadata === null) {
-      throw new HttpError(404, `Unknown deployed function metadata: ${request.path}`);
-    }
+    const active = await loadActiveFunctionMetadata(this.env, request.deploymentId, request.path);
+    const schema = active.deployment.analysis.schema;
+    const metadata = active.metadata;
     if (!isInvokableKind(metadata.kind)) {
       throw new HttpError(400, `${metadata.kind} execution is not implemented by execution sessions.`);
     }
