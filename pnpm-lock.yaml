@@ -80,6 +80,10 @@ importers:
   packages/flarex: {}
 
   packages/flarex-backend:
+    dependencies:
+      flarex:
+        specifier: workspace:*
+        version: link:../flarex
     devDependencies:
       miniflare:
         specifier: 'catalog:'

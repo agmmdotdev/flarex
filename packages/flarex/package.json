@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./browser": "./src/client.ts",
     "./client": "./src/client.ts",
+    "./artifacts": "./src/artifacts.ts",
     "./ids": "./src/ids.ts",
     "./server": "./src/server.ts",
     "./validator-json": "./src/validatorJson.ts",

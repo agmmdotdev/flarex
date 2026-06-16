@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
+import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import type {
   ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
@@ -55,7 +55,7 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-activation")).resolves.toMatchObject({
       activePushId: start.pushId,
       schemaVersion: 2,
-      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
+      executionArtifactRef: await executionArtifactRefForSourcePackage(sourcePackage()),
       sourcePackage: sourcePackage(),
       analysis: { schema: normalizedCandidateSchema(), functions: candidateFunctions() },
       codegenAnalysis: candidateCodegenAnalysis(),
@@ -90,7 +90,7 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
       activePushId: activated.pushId,
       schemaVersion: 2,
-      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
+      executionArtifactRef: await executionArtifactRefForSourcePackage(sourcePackage()),
     });
 
     const response = await finishPushResponse("push-supersede", first.pushId);
@@ -101,7 +101,7 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
       activePushId: activated.pushId,
       schemaVersion: 2,
-      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
+      executionArtifactRef: await executionArtifactRefForSourcePackage(sourcePackage()),
     });
   });
 
@@ -115,7 +115,7 @@ describe("deployment push lifecycle", () => {
     const firstActive = await getActiveDeployment("push-artifact-ref");
     expect(firstActive).toMatchObject({
       activePushId: first.pushId,
-      executionArtifactRef: expectedExecutionArtifactRef(firstPackage),
+      executionArtifactRef: await executionArtifactRefForSourcePackage(firstPackage),
     });
 
     const secondPackage = sourcePackage("e".repeat(64));
@@ -128,7 +128,7 @@ describe("deployment push lifecycle", () => {
 
     expect(secondActive).toMatchObject({
       activePushId: second.pushId,
-      executionArtifactRef: expectedExecutionArtifactRef(secondPackage),
+      executionArtifactRef: await executionArtifactRefForSourcePackage(secondPackage),
     });
     expect(secondActive.executionArtifactRef).not.toEqual(firstActive.executionArtifactRef);
   });
@@ -196,33 +196,6 @@ function sourcePackage(functionModuleHash = "c".repeat(64)): StartPushRequest["s
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
   };
-}
-
-function expectedExecutionArtifactRef(package_: StartPushRequest["sourcePackage"]) {
-  const sourcePackageHash = createHash("sha256")
-    .update(stableSourcePackageManifest(package_))
-    .digest("hex");
-  return {
-    runtime: "dynamic-worker",
-    artifactId: `artifact_${sourcePackageHash.slice(0, 32)}`,
-    sourcePackageHash,
-    executionModule: package_.execution,
-  };
-}
-
-function stableSourcePackageManifest(package_: StartPushRequest["sourcePackage"]): string {
-  return JSON.stringify({
-    execution: package_.execution,
-    schema: package_.schema ?? null,
-    functions: [...package_.functions].sort(),
-    modules: [...package_.modules]
-      .map(module => ({
-        path: module.path,
-        environment: module.environment,
-        sha256: module.sha256,
-      }))
-      .sort((left, right) => left.path.localeCompare(right.path)),
-  });
 }
 
 function activeSchema(): DeploymentSchema {

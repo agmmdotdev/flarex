@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import type { Plugin } from "vite";
 
 export type BackendHarness = {
   mf: Miniflare;
@@ -46,6 +47,7 @@ async function bundleWorker(): Promise<string> {
   const output = await build({
     configFile: false,
     logLevel: "silent",
+    plugins: [workspacePackageResolution()],
     build: {
       write: false,
       target: "es2022",
@@ -61,4 +63,16 @@ async function bundleWorker(): Promise<string> {
     throw new Error("Worker bundle was not emitted.");
   }
   return worker.code;
+}
+
+function workspacePackageResolution(): Plugin {
+  return {
+    name: "flarex-workspace-package-resolution",
+    resolveId(id) {
+      if (id === "flarex" || id.startsWith("flarex/")) {
+        return fileURLToPath(import.meta.resolve(id));
+      }
+      return undefined;
+    },
+  };
 }

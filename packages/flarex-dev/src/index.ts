@@ -38,6 +38,10 @@ export type {
   ExecutionArtifactRef,
   ExecutionArtifactRuntime,
 } from "./executionArtifact.ts";
+export {
+  LocalInMemoryExecutionArtifactStore,
+} from "./executionArtifactStore.ts";
+export type { ExecutionArtifactStore } from "./executionArtifactStore.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
 export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";

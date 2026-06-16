@@ -2,7 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
-import { build } from "vite";
+import { build, type Plugin } from "vite";
 import {
   createLocalAnalyzerService,
   LocalBackendPushCoordinator,
@@ -13,6 +13,9 @@ import {
   type ExecutionArtifactInvokeRequest,
   type ExecutionArtifactRef,
 } from "./executionArtifact.ts";
+import {
+  LocalInMemoryExecutionArtifactStore,
+} from "./executionArtifactStore.ts";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
@@ -58,6 +61,7 @@ export async function createFlarexDevRuntime(
 
   const backend = await createBackendMiniflare(backendPersist);
   const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
+  const artifactStore = new LocalInMemoryExecutionArtifactStore();
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
@@ -102,6 +106,7 @@ export async function createFlarexDevRuntime(
     await finalCodegen(context, started.codegenAnalysis);
     const nextApp = await createApp();
     try {
+      await artifactStore.put(sourcePackage);
       const finished = await pushCoordinator.finish(started.pushId);
       if (finished.state !== "activated") {
         throw new Error(`Flarex push ${started.pushId} did not activate: ${finished.state}`);
@@ -158,6 +163,7 @@ export async function createFlarexDevRuntime(
       if (url.pathname === "/__flarex_dev/invoke" && request.method === "POST") {
         try {
           const activeDeployment = await activeDeploymentStatus(backend, deploymentId);
+          await artifactStore.get(activeDeployment.executionArtifactRef);
           const runtime = new LocalMiniflareExecutionArtifactRuntime({
             fetch: request => dispatchArtifactFetch(activeApp, request),
           });
@@ -277,6 +283,7 @@ async function bundleWorker(entry: string): Promise<string> {
   const output = await build({
     configFile: false,
     logLevel: "silent",
+    plugins: [workspacePackageResolution()],
     build: {
       write: false,
       target: "es2022",
@@ -305,6 +312,21 @@ function generatedWorkerEntry(options: FlarexGenerateOptions): string {
 
 function defaultBackendEntry(): string {
   return fileURLToPath(import.meta.resolve("flarex-backend/worker"));
+}
+
+function workspacePackageResolution(): Plugin {
+  return {
+    name: "flarex-workspace-package-resolution",
+    resolveId(id) {
+      if (id === "flarex" || id.startsWith("flarex/")) {
+        return fileURLToPath(import.meta.resolve(id));
+      }
+      if (id === "flarex-backend" || id.startsWith("flarex-backend/")) {
+        return fileURLToPath(import.meta.resolve(id));
+      }
+      return undefined;
+    },
+  };
 }
 
 async function toWebResponse(response: ResponseLike): Promise<Response> {

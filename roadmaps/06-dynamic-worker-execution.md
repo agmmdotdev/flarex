@@ -408,6 +408,62 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Execution Artifact Store Boundary Update
+
+Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
+invoke.
+
+Added the first source-package store boundary for execution artifacts.
+
+New shared runtime-neutral helpers live in `flarex/artifacts`:
+
+```ts
+executionArtifactRefForSourcePackage(sourcePackage)
+stableSourcePackageManifest(sourcePackage)
+validateExecutionArtifactRef(value)
+```
+
+`flarex-dev` now exposes:
+
+```ts
+interface ExecutionArtifactStore {
+  put(sourcePackage): Promise<ExecutionArtifactRef>;
+  get(ref): Promise<SourcePackage>;
+}
+```
+
+with `LocalInMemoryExecutionArtifactStore` as the local implementation. Local
+dev stores the bundled source package before finishing a push, then validates
+that the active `executionArtifactRef` can retrieve an artifact before invoking
+through `LocalMiniflareExecutionArtifactRuntime`.
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put` and `get` are the durable source package store
+    boundary.
+- `crates/model/src/modules/types.rs`
+  - module metadata links active analyzed modules to source package identity
+    and module `sha256`.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution can retrieve source package metadata before calling an executor.
+
+Cloudflare difference: this checkpoint stores packages in local memory only.
+The hosted Dynamic Worker runtime still needs an R2/KV-backed store and a
+loader that materializes an internal execution artifact from the stored source
+package.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Active Execution Artifact Pointer Update
 
 Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active

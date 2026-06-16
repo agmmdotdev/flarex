@@ -354,6 +354,48 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Shared Artifact Reference Helper Update
+
+Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
+invoke.
+
+Execution artifact reference types and hash helpers moved into the
+runtime-neutral `flarex/artifacts` subpath.
+
+Package responsibilities now are:
+
+- `flarex/artifacts`: structural source package manifest hashing and
+  `ExecutionArtifactRef` validation.
+- `flarex-backend`: active deployment state and execution-session ownership.
+- `flarex-dev`: local in-memory artifact store and local Miniflare runtime
+  adapter.
+
+`flarex-backend` now depends on `flarex` for this shared helper. The workspace
+install was refreshed so local package links include that dependency.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source package identity is shared model state used by deployment and
+    execution code.
+- `crates/model/src/modules/types.rs`
+  - module hashes are part of the shared module/source-package contract.
+
+Known follow-up: a future `flarex-core` package may be cleaner than using the
+public `flarex` package for backend-facing artifact types. For now the
+`flarex/artifacts` subpath is narrow and runtime-neutral.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Architecture Terminology Cleanup
 
 Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.

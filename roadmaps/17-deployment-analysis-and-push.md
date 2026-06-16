@@ -1837,6 +1837,71 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+### Phase 6 Step 2 Implementation Update
+
+Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
+invoke.
+
+Added the first execution artifact store boundary.
+
+`flarex/artifacts` now owns the deterministic source-package manifest hash and
+`ExecutionArtifactRef` validation. `DeploymentDO` uses that shared helper
+instead of its previous local duplicate.
+
+`flarex-dev` now has `ExecutionArtifactStore` and
+`LocalInMemoryExecutionArtifactStore`. Local dev stores the source package
+before `finish_push`, then validates the active deployment ref exists in the
+store before invoking.
+
+This gives Phase 6 the next missing abstraction:
+
+```txt
+sourcePackage
+  -> ExecutionArtifactStore.put
+  -> ExecutionArtifactRef
+  -> finish_push active deployment
+  -> ExecutionArtifactStore.get(ref)
+  -> ExecutionArtifactRuntime.invoke(ref, request)
+```
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put` stores packages and returns durable
+    `SourcePackageId`; `get` retrieves by ID.
+- `crates/model/src/modules/types.rs`
+  - module metadata carries `source_package_id`, environment, analyzed module
+    metadata, and module `sha256`.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution retrieves source package metadata before constructing executor
+    requests.
+
+Cloudflare difference:
+
+- Convex stores source packages in system tables backed by its database and
+  module storage. Flarex's first implementation is an in-memory dev store.
+- Hosted Flarex still needs durable artifact storage, runtime authorization,
+  and Dynamic Worker loading from `ExecutionArtifactRef`.
+
+Tests prove:
+
+- identical source package manifests produce identical refs,
+- changing a module hash changes the ref,
+- local store retrieves the exact source package by ref,
+- retrieved packages are cloned, and
+- unknown refs fail with a clear error.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Architecture Terminology Cleanup
 
 Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.

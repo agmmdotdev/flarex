@@ -1,6 +1,9 @@
 import { Miniflare } from "miniflare";
+import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentAnalysis } from "./analyze.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
+
+export type { ExecutionArtifactRef } from "flarex/artifacts";
 
 export type AnalyzerDiagnostic = {
   level: "log" | "warn" | "error";
@@ -26,13 +29,6 @@ export interface ExecutionArtifactAdapter {
   analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
   analyzeWithDiagnostics?(sourcePackage: SourcePackage): Promise<ExecutionArtifactAnalysis>;
 }
-
-export type ExecutionArtifactRef = {
-  runtime: "dynamic-worker";
-  artifactId: string;
-  sourcePackageHash: string;
-  executionModule: string;
-};
 
 export type ExecutionArtifactInvokeRequest = {
   deploymentId: string;

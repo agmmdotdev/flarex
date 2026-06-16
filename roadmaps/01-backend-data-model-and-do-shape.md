@@ -345,6 +345,31 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Shared Artifact Ref Computation Update
+
+Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
+invoke.
+
+`DeploymentDO` now computes `active_execution_artifact_ref` through the shared
+`flarex/artifacts` helper instead of an inline helper in the Durable Object.
+This keeps active deployment metadata aligned with the local artifact store and
+future hosted artifact storage.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - package identity is shared between deployment metadata and execution.
+
+Cloudflare difference: the backend still stores only the active ref and source
+package JSON inline. Durable hosted storage remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Active Execution Artifact Reference Update
 
 Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active

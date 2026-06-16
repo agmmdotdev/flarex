@@ -459,6 +459,43 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Local Artifact Store Update
+
+Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
+invoke.
+
+Local dev now stores the bundled source package in a local
+`ExecutionArtifactStore` before activating the push. During
+`/__flarex_dev/invoke`, local dev resolves the active deployment and verifies
+the active `executionArtifactRef` is present in the store before dispatching
+to the generated internal invoke route.
+
+This keeps the local path close to the hosted shape:
+
+```txt
+bundle flarex/ source package
+  -> artifactStore.put(sourcePackage)
+  -> finish_push activates executionArtifactRef
+  -> dev invoke artifactStore.get(executionArtifactRef)
+  -> LocalMiniflareExecutionArtifactRuntime.invoke
+```
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are stored and retrieved through a model boundary, not
+    passed around as ad hoc request state.
+
+Cloudflare difference: the store is process-local memory for development. It
+does not survive process restart and does not represent hosted R2/KV storage.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Local Invoke Runtime Adapter Update
 
 Previous completed checkpoint: `d5e13dd` Store active execution artifact

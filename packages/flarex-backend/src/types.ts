@@ -1,3 +1,6 @@
+import type { ExecutionArtifactRef } from "flarex/artifacts";
+export type { ExecutionArtifactRef } from "flarex/artifacts";
+
 export type Json =
   | null
   | boolean
@@ -213,13 +216,6 @@ export type AnalyzeSourcePackageRequest = {
 export type AnalyzeSourcePackageResponse =
   | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
   | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] };
-
-export type ExecutionArtifactRef = {
-  runtime: "dynamic-worker";
-  artifactId: string;
-  sourcePackageHash: string;
-  executionModule: string;
-};
 
 export type PushStatus = {
   pushId: string;
