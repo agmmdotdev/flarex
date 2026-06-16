@@ -1,7 +1,9 @@
 import type { Miniflare } from "miniflare";
 import type { DeploymentAnalysis } from "./analyze.ts";
 import {
+  ExecutionArtifactAnalysisError,
   LocalMiniflareExecutionArtifactAdapter,
+  type AnalyzerDiagnostic,
   type ExecutionArtifactAdapter,
 } from "./executionArtifact.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
@@ -15,6 +17,7 @@ export type DevPushStatus = {
   };
   codegenAnalysis?: DeploymentAnalysis;
   error?: string;
+  diagnostics?: AnalyzerDiagnostic[];
 };
 
 export interface BackendPushCoordinator {
@@ -23,8 +26,13 @@ export interface BackendPushCoordinator {
 }
 
 export interface BackendSourceAnalyzer {
-  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
+  analyze(sourcePackage: SourcePackage): Promise<BackendSourceAnalysisResult>;
 }
+
+export type BackendSourceAnalysisResult = {
+  analysis: DeploymentAnalysis;
+  diagnostics?: AnalyzerDiagnostic[];
+};
 
 export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnalyzer {
   private readonly executionArtifact: ExecutionArtifactAdapter;
@@ -33,8 +41,14 @@ export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnaly
     this.executionArtifact = executionArtifact;
   }
 
-  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis> {
-    return this.executionArtifact.analyze(sourcePackage);
+  async analyze(sourcePackage: SourcePackage): Promise<BackendSourceAnalysisResult> {
+    if (this.executionArtifact.analyzeWithDiagnostics !== undefined) {
+      return this.executionArtifact.analyzeWithDiagnostics(sourcePackage);
+    }
+    return {
+      analysis: await this.executionArtifact.analyze(sourcePackage),
+      diagnostics: [],
+    };
   }
 }
 
@@ -79,11 +93,16 @@ export function createLocalAnalyzerService(
       if (body.sourcePackage === undefined) {
         return Response.json({ error: "Analyzer request missing sourcePackage." }, { status: 400 });
       }
+      const result = await analyzer.analyze(body.sourcePackage);
       return Response.json({
-        analysis: backendAnalysisFromCodegenAnalysis(await analyzer.analyze(body.sourcePackage)),
+        analysis: backendAnalysisFromCodegenAnalysis(result.analysis),
+        diagnostics: result.diagnostics ?? [],
       });
     } catch (error) {
-      return Response.json({ error: errorMessage(error) }, { status: 400 });
+      return Response.json(
+        { error: errorMessage(error), diagnostics: diagnosticsFromError(error) },
+        { status: 400 },
+      );
     }
   };
 }
@@ -109,6 +128,10 @@ export function backendAnalysisFromCodegenAnalysis(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {
+  return error instanceof ExecutionArtifactAnalysisError ? error.diagnostics : [];
 }
 
 async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {

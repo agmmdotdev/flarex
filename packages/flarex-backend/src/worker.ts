@@ -164,13 +164,26 @@ async function analyzeSourcePackage(
     "analysis" in body &&
     body.analysis !== undefined
   ) {
-    return { sourcePackage: request.sourcePackage, analysis: body.analysis };
+    return {
+      sourcePackage: request.sourcePackage,
+      analysis: body.analysis,
+      ...(body.diagnostics === undefined ? {} : { diagnostics: body.diagnostics }),
+    };
   }
   const error =
     body !== null && typeof body === "object" && "error" in body
       ? String(body.error)
       : `Analyzer request failed with status ${response.status}`;
-  return { sourcePackage: request.sourcePackage, error };
+  return {
+    sourcePackage: request.sourcePackage,
+    error,
+    ...(body !== null &&
+    typeof body === "object" &&
+    "diagnostics" in body &&
+    body.diagnostics !== undefined
+      ? { diagnostics: body.diagnostics }
+      : {}),
+  };
 }
 
 async function routeExecution(

@@ -1719,6 +1719,65 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 7 Implementation Update
+
+Previous completed checkpoint: `0a57edd` Analyze push source through backend
+binding.
+
+Added bounded analyzer diagnostics to the push contract and `DeploymentDO`
+candidate state.
+
+Backend behavior is now:
+
+```txt
+POST /deployments/:deploymentId/push/start
+  -> call FLAREX_ANALYZER /analyze
+  -> receive { analysis, diagnostics } or { error, diagnostics }
+  -> store diagnostics with the analyzed or failed push
+  -> return diagnostics from push/start and push/:id
+```
+
+`DeploymentDO` stores diagnostics in `pushes.diagnostics_json` and validates
+at most the newest 100 entries. This mirrors Convex's bounded analysis log
+retention rather than letting import-time output grow unbounded.
+
+Convex references copied in principle:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - `AnalyzeEnvironment` has `collected_logs: VecDeque<String>`.
+  - analysis keeps a maximum of 100 import-time console log entries.
+  - failed analysis appends collected logs to the deployment error message for
+    push failure reporting.
+
+Intentional and temporary differences:
+
+- Convex appends collected import-time logs into the JavaScript analysis error
+  string. Flarex stores structured `{ level, message }` diagnostics beside the
+  error so the push API can later expose logs, warnings, and source-positioned
+  diagnostics without reparsing text.
+- Convex captures logs inside its Rust/V8 isolate. Flarex currently captures
+  logs in the local Miniflare execution artifact and forwards them through the
+  analyzer service binding. Hosted Flarex must move the same contract behind
+  Workers for Platforms dispatch.
+- Flarex currently captures `console.log`, `console.warn`, and `console.error`
+  only. More console methods and source positions remain future work.
+
+Tests prove:
+
+- failed push candidates retain diagnostics when returned from `push/start` and
+  later fetched by `push/:id`, and
+- local execution-artifact analysis captures import-time console output before
+  module analysis.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact

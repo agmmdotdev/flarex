@@ -17,10 +17,15 @@ describe("execution artifact analysis", () => {
     const sourcePackage = await bundleFlarexSourcePackage(context);
 
     const direct = await analyzeSourcePackageLocally(sourcePackage);
-    const artifact = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+    const artifact = await new LocalMiniflareExecutionArtifactAdapter()
+      .analyzeWithDiagnostics(sourcePackage);
 
-    expect(artifact).toEqual(direct);
-    await finalCodegen(context, artifact);
+    expect(artifact.analysis).toEqual(direct);
+    expect(artifact.diagnostics).toContainEqual({
+      level: "log",
+      message: "loading users module {\"scope\":\"test\"}",
+    });
+    await finalCodegen(context, artifact.analysis);
   });
 });
 
@@ -43,6 +48,8 @@ export default defineSchema({
     path.join(root, "flarex/functions/users.ts"),
     `import { mutation, query } from "../_generated/server";
 import { v } from "flarex/values";
+
+console.log("loading users module", { scope: "test" });
 
 export const get = query({
   args: { id: v.id("users") },

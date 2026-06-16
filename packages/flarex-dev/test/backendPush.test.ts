@@ -6,6 +6,7 @@ import {
   LocalBackendPushCoordinator,
   type BackendSourceAnalyzer,
 } from "../src/backendPush";
+import { ExecutionArtifactAnalysisError } from "../src/executionArtifact";
 import type { SourcePackage } from "../src/sourcePackage";
 
 describe("backend push coordinator", () => {
@@ -49,7 +50,10 @@ describe("backend push coordinator", () => {
     const analyzer: BackendSourceAnalyzer = {
       analyze: async package_ => {
         expect(package_).toEqual(sourcePackage);
-        return analysis;
+        return {
+          analysis,
+          diagnostics: [{ level: "log", message: "loaded lessons.js" }],
+        };
       },
     };
 
@@ -77,6 +81,31 @@ describe("backend push coordinator", () => {
           ],
         },
       },
+      diagnostics: [{ level: "log", message: "loaded lessons.js" }],
+    });
+  });
+
+  it("serves analyzer failure diagnostics through the local analyzer service binding", async () => {
+    const analyzer: BackendSourceAnalyzer = {
+      analyze: async () => {
+        throw new ExecutionArtifactAnalysisError("analysis failed", [
+          { level: "error", message: "import failed" },
+        ]);
+      },
+    };
+
+    const response = await createLocalAnalyzerService(analyzer)(
+      new Request("http://flarex-analyzer.internal/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deploymentId: "deployment1", sourcePackage: testSourcePackage() }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "analysis failed",
+      diagnostics: [{ level: "error", message: "import failed" }],
     });
   });
 });

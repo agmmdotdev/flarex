@@ -13,6 +13,7 @@ import type {
   FinishPushRequest,
   FunctionVisibility,
   Json,
+  PushDiagnostic,
   PushSourcePackage,
   PushStatus,
   SchemaIndex,
@@ -60,10 +61,12 @@ export class DeploymentDO extends DurableObject<Env> {
         schema_json TEXT,
         functions_json TEXT,
         error TEXT,
+        diagnostics_json TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
     `);
+    this.ensurePushDiagnosticsColumn();
     this.setMetaIfMissing("schema_version", "0");
   }
 
@@ -120,6 +123,7 @@ export class DeploymentDO extends DurableObject<Env> {
     const pushId = crypto.randomUUID();
     const error = request.error;
     const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
+    const diagnostics = validateDiagnostics(request.diagnostics);
     const state = analysis === undefined ? "failed" : "analyzed";
     if (analysis === undefined && (typeof error !== "string" || error.length === 0)) {
       throw new HttpError(400, "A push without analysis must include an error message.");
@@ -139,10 +143,11 @@ export class DeploymentDO extends DurableObject<Env> {
           schema_json,
           functions_json,
           error,
+          diagnostics_json,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         pushId,
         state,
@@ -150,6 +155,7 @@ export class DeploymentDO extends DurableObject<Env> {
         analysis === undefined ? null : JSON.stringify(analysis.schema),
         analysis === undefined ? null : JSON.stringify(analysis.functions),
         error ?? null,
+        diagnostics.length === 0 ? null : JSON.stringify(diagnostics),
         now,
         now,
       );
@@ -192,11 +198,12 @@ export class DeploymentDO extends DurableObject<Env> {
         schema_json: string | null;
         functions_json: string | null;
         error: string | null;
+        diagnostics_json: string | null;
         created_at: number;
         updated_at: number;
       }>(
         `
-        SELECT push_id, state, source_package_json, schema_json, functions_json, error, created_at, updated_at
+        SELECT push_id, state, source_package_json, schema_json, functions_json, error, diagnostics_json, created_at, updated_at
         FROM pushes
         WHERE push_id = ?
         `,
@@ -382,6 +389,15 @@ export class DeploymentDO extends DurableObject<Env> {
     const row = this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
     return row?.value ?? null;
   }
+
+  private ensurePushDiagnosticsColumn(): void {
+    try {
+      this.sql.exec("ALTER TABLE pushes ADD COLUMN diagnostics_json TEXT");
+    } catch {
+      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN. Existing
+      // deployments created after the column was added will raise here.
+    }
+  }
 }
 
 function functionMetadataFromRow(row: {
@@ -407,6 +423,7 @@ function pushStatusFromRow(row: {
   schema_json: string | null;
   functions_json: string | null;
   error: string | null;
+  diagnostics_json: string | null;
   created_at: number;
   updated_at: number;
 }): PushStatus {
@@ -414,6 +431,9 @@ function pushStatusFromRow(row: {
   const functions = row.functions_json === null
     ? undefined
     : JSON.parse(row.functions_json) as DeploymentFunctions;
+  const diagnostics = row.diagnostics_json === null
+    ? []
+    : JSON.parse(row.diagnostics_json) as PushDiagnostic[];
   return {
     pushId: row.push_id,
     state: parsePushState(row.state),
@@ -425,6 +445,7 @@ function pushStatusFromRow(row: {
         }
       : {}),
     ...(row.error === null ? {} : { error: row.error }),
+    ...(diagnostics.length === 0 ? {} : { diagnostics }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -610,6 +631,29 @@ function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePack
     ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
     execution: sourcePackage.execution,
   };
+}
+
+function validateDiagnostics(value: unknown): PushDiagnostic[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, "Push diagnostics must be an array.");
+  }
+  return value.slice(-100).map((diagnostic, index) => {
+    if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
+      throw new HttpError(400, `Push diagnostic at index ${index} must be an object.`);
+    }
+    const record = diagnostic as Partial<PushDiagnostic>;
+    if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
+      throw new HttpError(400, `Push diagnostic at index ${index} has an invalid level.`);
+    }
+    if (typeof record.message !== "string") {
+      throw new HttpError(400, `Push diagnostic at index ${index} has an invalid message.`);
+    }
+    return {
+      level: record.level,
+      message: record.message,
+    };
+  });
 }
 
 function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {

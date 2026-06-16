@@ -275,6 +275,49 @@ corepack pnpm build
 git diff --check
 ```
 
+## Analyzer Diagnostics Boundary Update
+
+Previous completed checkpoint: `0a57edd` Analyze push source through backend
+binding.
+
+The analyzer boundary now carries structured diagnostics as well as deployment
+analysis:
+
+```ts
+type BackendSourceAnalysisResult = {
+  analysis: DeploymentAnalysis;
+  diagnostics?: AnalyzerDiagnostic[];
+};
+```
+
+Package responsibilities remain:
+
+- `flarex-dev` owns the local analyzer implementation and Miniflare execution
+  artifact diagnostics capture.
+- `flarex-backend` owns the source-only push route, analyzer service binding,
+  durable push state, and diagnostics persistence.
+- future hosted platform code should replace the local analyzer service with a
+  Workers for Platforms dispatcher while preserving the same response shape.
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - backend-controlled analysis owns import-time log collection and failure
+    reporting.
+
+Cloudflare difference: diagnostics are structured and explicitly forwarded
+across the service binding. Convex's current implementation appends collected
+logs into the analysis error text inside the backend isolate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Analyzer Service Binding Update
 
 Previous completed checkpoint: `c563d88` Make push start source-only.

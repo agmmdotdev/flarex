@@ -419,6 +419,46 @@ corepack pnpm build
 git diff --check
 ```
 
+## Analyzer Diagnostics Update
+
+Previous completed checkpoint: `0a57edd` Analyze push source through backend
+binding.
+
+Local dev's analyzer service now preserves import-time diagnostics from the
+execution artifact.
+
+The local analyzer path is:
+
+```txt
+FLAREX_ANALYZER service binding
+  -> LocalExecutionArtifactBackendAnalyzer
+  -> LocalMiniflareExecutionArtifactAdapter.analyzeWithDiagnostics()
+  -> { analysis, diagnostics } or { error, diagnostics }
+```
+
+The execution artifact installs a console capture wrapper before dynamically
+importing the generated execution entrypoint and schema entrypoint. That makes
+top-level developer module output available to the backend push response,
+including failed analysis candidates.
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - analysis captures import-time logs for push failure reporting with a
+    100-entry bound.
+
+Cloudflare difference: Flarex local dev captures logs in Miniflare by
+dynamically importing the source bundle after installing the console wrapper.
+Hosted Flarex must preserve the same contract inside the dynamic execution
+isolate rather than in the Node-side dev package.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Verification
 
 ```sh

@@ -156,6 +156,11 @@ export type DeploymentAnalysis = {
   functions: DeploymentFunctions;
 };
 
+export type PushDiagnostic = {
+  level: "log" | "warn" | "error";
+  message: string;
+};
+
 export type DeploymentCodegenFunction = {
   moduleName: string;
   exportName: string;
@@ -188,8 +193,8 @@ export type StartPushRequest = {
 
 export type AnalyzedStartPushRequest = StartPushRequest &
   (
-    | { analysis: DeploymentAnalysis; error?: never }
-    | { analysis?: never; error: string }
+    | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
+    | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] }
   );
 
 export type AnalyzeSourcePackageRequest = {
@@ -198,8 +203,8 @@ export type AnalyzeSourcePackageRequest = {
 };
 
 export type AnalyzeSourcePackageResponse =
-  | { analysis: DeploymentAnalysis; error?: never }
-  | { analysis?: never; error: string };
+  | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
+  | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] };
 
 export type PushStatus = {
   pushId: string;
@@ -208,6 +213,7 @@ export type PushStatus = {
   analysis?: DeploymentAnalysis;
   codegenAnalysis?: DeploymentCodegenAnalysis;
   error?: string;
+  diagnostics?: PushDiagnostic[];
   createdAt: number;
   updatedAt: number;
 };

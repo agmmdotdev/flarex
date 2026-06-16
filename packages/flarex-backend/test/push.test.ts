@@ -84,8 +84,13 @@ describe("deployment push lifecycle", () => {
     const failed = await startPush("push-failed", {
       sourcePackage: sourcePackage(),
       error: "analysis failed",
+      diagnostics: [{ level: "error", message: "import failed" }],
     });
     expect(failed.state).toBe("failed");
+    expect(failed.diagnostics).toEqual([{ level: "error", message: "import failed" }]);
+    await expect(getPush("push-failed", failed.pushId)).resolves.toMatchObject({
+      diagnostics: [{ level: "error", message: "import failed" }],
+    });
 
     const failedFinish = await finishPushResponse("push-failed", failed.pushId);
     expect(failedFinish.status).toBe(409);
