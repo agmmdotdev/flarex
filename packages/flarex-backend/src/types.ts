@@ -124,12 +124,19 @@ export type DeploymentFunctionKind =
   | "workflowMutation";
 export type FunctionVisibility = "public" | "internal";
 
+export type AnalyzedSourcePosition = {
+  path: string;
+  startLine: number;
+  startColumn: number;
+};
+
 export type DeploymentFunctionMetadata = {
   path: string;
   kind: DeploymentFunctionKind;
   visibility?: FunctionVisibility;
   args?: ValidatorJson | null;
   returns?: ValidatorJson | null;
+  position?: AnalyzedSourcePosition;
 };
 
 export type DeploymentFunctions = {
@@ -168,6 +175,7 @@ export type DeploymentCodegenFunction = {
   visibility: FunctionVisibility;
   args: ValidatorJson;
   returns: ValidatorJson | null;
+  position?: AnalyzedSourcePosition;
 };
 
 export type DeploymentCodegenModule = {

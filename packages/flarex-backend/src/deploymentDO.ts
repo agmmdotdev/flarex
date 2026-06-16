@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
   AnalyzedStartPushRequest,
+  AnalyzedSourcePosition,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   DeploymentCodegenModule,
@@ -52,7 +53,8 @@ export class DeploymentDO extends DurableObject<Env> {
         kind TEXT NOT NULL,
         visibility TEXT NOT NULL,
         args_json TEXT,
-        returns_json TEXT
+        returns_json TEXT,
+        position_json TEXT
       );
       CREATE TABLE IF NOT EXISTS pushes (
         push_id TEXT PRIMARY KEY,
@@ -66,6 +68,7 @@ export class DeploymentDO extends DurableObject<Env> {
         updated_at INTEGER NOT NULL
       );
     `);
+    this.ensureFunctionPositionColumn();
     this.ensurePushDiagnosticsColumn();
     this.setMetaIfMissing("schema_version", "0");
   }
@@ -267,14 +270,15 @@ export class DeploymentDO extends DurableObject<Env> {
     for (const metadata of normalized.functions) {
       this.sql.exec(
         `
-        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, position_json)
+        VALUES (?, ?, ?, ?, ?, ?)
         `,
         metadata.path,
         metadata.kind,
         metadata.visibility,
         JSON.stringify(metadata.args),
         JSON.stringify(metadata.returns),
+        metadata.position === undefined ? null : JSON.stringify(metadata.position),
       );
     }
     return normalized;
@@ -289,9 +293,10 @@ export class DeploymentDO extends DurableObject<Env> {
           visibility: string;
           args_json: string | null;
           returns_json: string | null;
+          position_json: string | null;
         }>(
           `
-          SELECT function_path, kind, visibility, args_json, returns_json
+          SELECT function_path, kind, visibility, args_json, returns_json, position_json
           FROM functions
           ORDER BY function_path
           `,
@@ -309,9 +314,10 @@ export class DeploymentDO extends DurableObject<Env> {
         visibility: string;
         args_json: string | null;
         returns_json: string | null;
+        position_json: string | null;
       }>(
         `
-        SELECT function_path, kind, visibility, args_json, returns_json
+        SELECT function_path, kind, visibility, args_json, returns_json, position_json
         FROM functions
         WHERE function_path = ?
         `,
@@ -398,6 +404,14 @@ export class DeploymentDO extends DurableObject<Env> {
       // deployments created after the column was added will raise here.
     }
   }
+
+  private ensureFunctionPositionColumn(): void {
+    try {
+      this.sql.exec("ALTER TABLE functions ADD COLUMN position_json TEXT");
+    } catch {
+      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
+    }
+  }
 }
 
 function functionMetadataFromRow(row: {
@@ -406,6 +420,7 @@ function functionMetadataFromRow(row: {
   visibility: string;
   args_json: string | null;
   returns_json: string | null;
+  position_json: string | null;
 }): DeploymentFunctionMetadata {
   return {
     path: row.function_path,
@@ -413,6 +428,9 @@ function functionMetadataFromRow(row: {
     visibility: row.visibility as FunctionVisibility,
     args: JSON.parse(row.args_json ?? "null") as ValidatorJson | null,
     returns: JSON.parse(row.returns_json ?? "null") as ValidatorJson | null,
+    ...(row.position_json === null
+      ? {}
+      : { position: JSON.parse(row.position_json) as AnalyzedSourcePosition }),
   };
 }
 
@@ -465,6 +483,7 @@ function codegenAnalysisFromDeploymentAnalysis(
       visibility: metadata.visibility ?? "public",
       args: metadata.args ?? { type: "any" },
       returns: metadata.returns ?? null,
+      ...(metadata.position === undefined ? {} : { position: metadata.position }),
     });
     modules.set(moduleName, module);
   }
@@ -577,9 +596,50 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
     const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
     const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
     const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
-    return { path, kind, visibility, args, returns };
+    const position = validateSourcePosition(metadata.position, `$functions.${path}.position`);
+    return {
+      path,
+      kind,
+      visibility,
+      args,
+      returns,
+      ...(position === undefined ? {} : { position }),
+    };
   });
   return { functions: normalized };
+}
+
+function validateSourcePosition(
+  value: unknown,
+  path: string,
+): AnalyzedSourcePosition | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, `${path}: Invalid source position.`);
+  }
+  const position = value as Partial<AnalyzedSourcePosition>;
+  if (typeof position.path !== "string" || position.path.length === 0) {
+    throw new HttpError(400, `${path}.path: Source position path must be a non-empty string.`);
+  }
+  if (
+    typeof position.startLine !== "number" ||
+    !Number.isInteger(position.startLine) ||
+    position.startLine <= 0
+  ) {
+    throw new HttpError(400, `${path}.startLine: Source position line must be a positive integer.`);
+  }
+  if (
+    typeof position.startColumn !== "number" ||
+    !Number.isInteger(position.startColumn) ||
+    position.startColumn <= 0
+  ) {
+    throw new HttpError(400, `${path}.startColumn: Source position column must be a positive integer.`);
+  }
+  return {
+    path: position.path,
+    startLine: position.startLine,
+    startColumn: position.startColumn,
+  };
 }
 
 function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {

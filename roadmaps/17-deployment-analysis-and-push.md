@@ -1936,6 +1936,70 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+### Phase 5 Step 3 Implementation Update
+
+Previous completed checkpoint: `c471b67` Gate analysis on cold isolate
+consistency.
+
+Added first-class source-position metadata to analyzed functions.
+
+The Flarex analysis shape now carries:
+
+```ts
+type AnalyzedSourcePosition = {
+  path: string;
+  startLine: number;
+  startColumn: number;
+};
+```
+
+Local source-package analysis and local execution-artifact analysis both derive
+positions from source-map `sourcesContent` by finding exported registered
+function declarations. The metadata is preserved through:
+
+- `DeploymentAnalysis`,
+- analyzer-service flattening,
+- `DeploymentDO` candidate push state,
+- active `functions` table metadata via `position_json`,
+- `codegenAnalysis`,
+- generated `functionMetadata.ts`.
+
+Convex references copied in principle:
+
+- `crates/model/src/modules/module_versions.rs`
+  - `AnalyzedSourcePosition` stores source path, start line, and start column
+    on `AnalyzedFunction`.
+- `crates/isolate/src/environment/analyze.rs`
+  - Convex reads handler script line/column, resolves it through the module
+    source map, and stores the mapped source position when valid.
+
+Intentional and temporary differences:
+
+- Convex resolves the actual handler function origin from V8 and maps that
+  token through the source map. Flarex currently scans original source text for
+  `export const name =` or `export default` declarations. This is deterministic
+  and useful, but less precise for aliases, reexports, and handler properties.
+- Flarex exposes `startLine` and `startColumn` as one-based camelCase fields.
+  Convex's serialized Rust model uses `start_lineno` and `start_col`.
+- Source positions are now part of the cold-isolate comparison. Any future
+  richer position metadata must remain canonical or be explicitly excluded.
+
+Tests prove:
+
+- local execution-artifact analysis reports a stable position for an exported
+  function in `users.ts`,
+- analyzer-service flattening preserves positions, and
+- backend push state and reconstructed `codegenAnalysis` preserve positions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -2077,3 +2141,9 @@ artifact analyzer.
 Cleaned stale hosted-platform dispatch wording and clarified that Flarex
 bundles only the uploaded `flarex/` source package for its managed Dynamic
 Worker runtime.
+
+### `c471b67` Gate analysis on cold isolate consistency
+
+Added a local analyzer gate that analyzes the same source package twice through
+fresh execution artifacts and rejects nondeterministic analyzed metadata before
+the backend stores it.

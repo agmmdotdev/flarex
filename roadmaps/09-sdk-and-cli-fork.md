@@ -736,6 +736,29 @@ Verification:
 git diff --check
 ```
 
+## Source Position Metadata Codegen Update
+
+Previous completed checkpoint: `c471b67` Gate analysis on cold isolate
+consistency.
+
+Final codegen now preserves optional analyzed function source positions in
+`functionMetadata.ts`. This keeps generated metadata aligned with the backend
+analysis response instead of dropping dev-tooling context after push analysis.
+
+Convex reference:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata includes an optional source position.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated artifacts are produced from deployment analysis context.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Implementation Checkpoints
 
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen

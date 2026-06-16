@@ -28,6 +28,12 @@ describe("execution artifact analysis", () => {
       level: "log",
       message: "loading users module {\"scope\":\"test\"}",
     });
+    const usersModule = artifact.analysis.functions.find(module => module.moduleName === "users");
+    expect(usersModule?.functions.find(fn => fn.exportName === "get")?.position).toEqual({
+      path: "users.ts",
+      startLine: 7,
+      startColumn: 1,
+    });
     await finalCodegen(context, artifact.analysis);
   });
 

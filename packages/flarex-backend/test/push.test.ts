@@ -229,6 +229,7 @@ function candidateFunctions(): DeploymentFunctions {
         visibility: "internal",
         args: { type: "object", value: {} },
         returns: { type: "array", value: { type: "string" } },
+        position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
       },
     ],
   };
@@ -252,6 +253,7 @@ function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
             visibility: "internal",
             args: { type: "object", value: {} },
             returns: { type: "array", value: { type: "string" } },
+            position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
           },
         ],
       },

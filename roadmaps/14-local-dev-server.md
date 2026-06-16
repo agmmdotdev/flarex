@@ -552,6 +552,45 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Source Position Metadata Update
+
+Previous completed checkpoint: `c471b67` Gate analysis on cold isolate
+consistency.
+
+Local analysis now includes best-effort source positions for analyzed
+functions. The local execution-artifact analyzer embeds function module source
+maps into its analysis wrapper and scans original `sourcesContent` for exported
+registered function declarations.
+
+The position metadata flows through local push responses and final codegen so
+generated `functionMetadata.ts` can include:
+
+```ts
+position?: {
+  path: string;
+  startLine: number;
+  startColumn: number;
+};
+```
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - analysis maps function origins back through source maps.
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed functions store optional source positions.
+
+Cloudflare difference: this local slice uses source-map contents and source
+text scanning. Hosted Dynamic Worker analysis should eventually resolve actual
+handler origins when the runtime can expose enough origin information.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Verification
 
 ```sh

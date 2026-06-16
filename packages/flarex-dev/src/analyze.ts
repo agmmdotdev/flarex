@@ -6,6 +6,12 @@ import type { ValidatorJSON } from "flarex/values";
 import { build, type Plugin } from "vite";
 import { sourceModule, type SourcePackage } from "./sourcePackage.ts";
 
+export type AnalyzedSourcePosition = {
+  path: string;
+  startLine: number;
+  startColumn: number;
+};
+
 export type AnalyzedFunction = {
   moduleName: string;
   exportName: string;
@@ -13,6 +19,7 @@ export type AnalyzedFunction = {
   visibility: "public" | "internal";
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
+  position?: AnalyzedSourcePosition;
 };
 
 export type AnalyzedModule = {
@@ -163,7 +170,10 @@ export async function analyzeSourcePackageLocally(
     `data:text/javascript;base64,${Buffer.from(execution.source, "utf8").toString("base64")}`
   );
   return {
-    functions: analyzeModuleExports(bundled.default as Record<string, Record<string, unknown>>),
+    functions: analyzeModuleExports(
+      bundled.default as Record<string, Record<string, unknown>>,
+      sourcePositionResolver(package_),
+    ),
     schema: await analyzeSchema(package_),
   };
 }
@@ -260,12 +270,13 @@ function analyzeIndexes(
 
 function analyzeModuleExports(
   analyzedExports: Record<string, Record<string, unknown>>,
+  positionFor?: (moduleName: string, exportName: string) => AnalyzedSourcePosition | undefined,
 ): AnalyzedModule[] {
   return Object.entries(analyzedExports)
     .map(([moduleName, exports]) => ({
       moduleName,
       functions: Object.entries(exports)
-        .map(([exportName, value]) => analyzeExport(moduleName, exportName, value))
+        .map(([exportName, value]) => analyzeExport(moduleName, exportName, value, positionFor))
         .filter((fn): fn is AnalyzedFunction => fn !== null)
         .sort((left, right) => left.exportName.localeCompare(right.exportName)),
     }))
@@ -278,6 +289,7 @@ function analyzeExport(
   moduleName: string,
   exportName: string,
   value: unknown,
+  positionFor?: (moduleName: string, exportName: string) => AnalyzedSourcePosition | undefined,
 ): AnalyzedFunction | null {
   if (!isRuntimeFunction(value)) return null;
 
@@ -288,6 +300,7 @@ function analyzeExport(
 
   const identifier = `${moduleName}:${exportName}`;
   assertHandler(value, identifier);
+  const position = positionFor?.(moduleName, exportName);
   return {
     moduleName,
     exportName,
@@ -295,7 +308,71 @@ function analyzeExport(
     visibility,
     args: parseArgsValidator(value, identifier),
     returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
+    ...(position === undefined ? {} : { position }),
   };
+}
+
+function sourcePositionResolver(
+  package_: SourcePackage,
+): (moduleName: string, exportName: string) => AnalyzedSourcePosition | undefined {
+  const positions = new Map<string, AnalyzedSourcePosition>();
+  for (const modulePath of package_.functions) {
+    const module = sourceModule(package_, modulePath);
+    if (module.sourceMap === undefined) continue;
+    const moduleName = module.path.replace(/\.js$/, "");
+    const sourceMap = JSON.parse(module.sourceMap) as {
+      sources?: string[];
+      sourcesContent?: string[];
+    };
+    const sourceIndex = findSourceIndex(sourceMap.sources ?? [], moduleName);
+    if (sourceIndex === undefined) continue;
+    const sourcePath = sourceMap.sources?.[sourceIndex];
+    const source = sourceMap.sourcesContent?.[sourceIndex];
+    if (sourcePath === undefined || source === undefined) continue;
+    for (const [exportName, position] of exportedFunctionPositions(sourcePath, source)) {
+      positions.set(`${moduleName}:${exportName}`, position);
+    }
+  }
+  return (moduleName, exportName) => positions.get(`${moduleName}:${exportName}`);
+}
+
+function findSourceIndex(sources: string[], moduleName: string): number | undefined {
+  const candidates = [
+    `${moduleName}.ts`,
+    `${moduleName}.tsx`,
+    `${moduleName}.js`,
+    `${moduleName}.jsx`,
+    `${moduleName}.mts`,
+    `${moduleName}.cts`,
+  ];
+  const index = sources.findIndex(source => candidates.includes(source));
+  return index === -1 ? undefined : index;
+}
+
+function exportedFunctionPositions(
+  sourcePath: string,
+  source: string,
+): Array<[string, AnalyzedSourcePosition]> {
+  const positions: Array<[string, AnalyzedSourcePosition]> = [];
+  const lines = source.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const named = /\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=/.exec(line);
+    if (named) {
+      positions.push([
+        named[1]!,
+        { path: sourcePath, startLine: index + 1, startColumn: named.index + 1 },
+      ]);
+      return;
+    }
+    const defaultMatch = /\bexport\s+default\b/.exec(line);
+    if (defaultMatch) {
+      positions.push([
+        "default",
+        { path: sourcePath, startLine: index + 1, startColumn: defaultMatch.index + 1 },
+      ]);
+    }
+  });
+  return positions;
 }
 
 function isRuntimeFunction(value: unknown): value is RuntimeFunction {

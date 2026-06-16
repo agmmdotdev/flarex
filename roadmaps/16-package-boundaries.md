@@ -369,6 +369,37 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Source Position Metadata Boundary Update
+
+Previous completed checkpoint: `c471b67` Gate analysis on cold isolate
+consistency.
+
+Source-position metadata now crosses the analyzer/backend boundary as part of
+analyzed function metadata. `flarex-dev` produces the best-effort position from
+source-package source maps, `flarex-backend` validates and persists it, and
+generated metadata preserves it for runtime/dev tooling.
+
+Convex reference:
+
+- `crates/model/src/modules/module_versions.rs`
+  - `AnalyzedFunction` owns optional source position metadata.
+
+Package responsibility:
+
+- `flarex-dev` owns local source-map position extraction.
+- `flarex-backend` owns validation and durable persistence.
+- a future shared/core package should define the common analyzed-function
+  metadata shape so backend and dev packages do not duplicate the type.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Analyzer Service Binding Update
 
 Previous completed checkpoint: `c563d88` Make push start source-only.
