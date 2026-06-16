@@ -375,6 +375,50 @@ corepack pnpm build
 git diff --check
 ```
 
+## Analyzer Service Binding Update
+
+Previous completed checkpoint: `c563d88` Make push start source-only.
+
+Local dev now configures the backend Miniflare runtime with a
+`FLAREX_ANALYZER` service binding. The reload path still calls only:
+
+```txt
+pushCoordinator.start(sourcePackage)
+  -> POST /deployments/:deploymentId/push/start
+```
+
+The backend Worker receives that public source-only request, calls
+`FLAREX_ANALYZER`, then forwards the analyzed candidate to its internal
+`/push/start-analyzed` route. This is closer to Convex's local-dev shape:
+the tooling pushes source to the backend boundary and receives backend
+analysis in the response.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - local dev pushes source and performs final codegen from the backend push
+    response.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend push response contains analyzed deployment metadata.
+
+Cloudflare difference: the local analyzer binding is a Node-side Miniflare
+service, not hosted Workers for Platforms dispatch. It is the adapter boundary
+for the hosted implementation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh

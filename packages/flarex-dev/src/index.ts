@@ -18,6 +18,8 @@ export type {
   DeploymentAnalysis,
 } from "./analyze.ts";
 export {
+  backendAnalysisFromCodegenAnalysis,
+  createLocalAnalyzerService,
   LocalBackendPushCoordinator,
   LocalExecutionArtifactBackendAnalyzer,
 } from "./backendPush.ts";

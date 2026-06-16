@@ -20,6 +20,7 @@ import {
 import { SchedulerDO } from "./schedulerDO";
 import type {
   AnalyzedStartPushRequest,
+  AnalyzeSourcePackageResponse,
   CommitRequest,
   DeploymentFunctions,
   DeploymentSchema,
@@ -106,14 +107,21 @@ async function routeDeploymentPush(
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
   if (parts[0] === "start" && request.method === "POST") {
     const body = await readJson<StartPushRequest>(request);
-    void body;
-    return json(
-      {
-        error:
-          "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
-      },
-      { status: 501 },
-    );
+    if (env.FLAREX_ANALYZER === undefined) {
+      return json(
+        {
+          error:
+            "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+        },
+        { status: 501 },
+      );
+    }
+    const analyzed = await analyzeSourcePackage(env.FLAREX_ANALYZER, deploymentId, body);
+    return deployment.fetch("https://flarex.internal/push/start-analyzed", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(analyzed),
+    });
   }
   if (parts[0] === "start-analyzed" && request.method === "POST") {
     const body = await readJson<AnalyzedStartPushRequest>(request);
@@ -136,6 +144,33 @@ async function routeDeploymentPush(
     });
   }
   return json({ error: "Push route not found." }, { status: 404 });
+}
+
+async function analyzeSourcePackage(
+  analyzer: Fetcher,
+  deploymentId: string,
+  request: StartPushRequest,
+): Promise<AnalyzedStartPushRequest> {
+  const response = await analyzer.fetch("https://flarex-analyzer.internal/analyze", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ deploymentId, sourcePackage: request.sourcePackage }),
+  });
+  const body = await response.json().catch(() => null) as AnalyzeSourcePackageResponse | null;
+  if (
+    response.ok &&
+    body !== null &&
+    typeof body === "object" &&
+    "analysis" in body &&
+    body.analysis !== undefined
+  ) {
+    return { sourcePackage: request.sourcePackage, analysis: body.analysis };
+  }
+  const error =
+    body !== null && typeof body === "object" && "error" in body
+      ? String(body.error)
+      : `Analyzer request failed with status ${response.status}`;
+  return { sourcePackage: request.sourcePackage, error };
 }
 
 async function routeExecution(

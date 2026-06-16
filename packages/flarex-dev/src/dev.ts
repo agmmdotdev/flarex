@@ -3,7 +3,11 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build } from "vite";
-import { LocalBackendPushCoordinator, type DevPushStatus } from "./backendPush.ts";
+import {
+  createLocalAnalyzerService,
+  LocalBackendPushCoordinator,
+  type DevPushStatus,
+} from "./backendPush.ts";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
@@ -176,6 +180,9 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
       EXECUTIONS: { className: "ExecutionDO", useSQLite: true },
       CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
+    },
+    serviceBindings: {
+      FLAREX_ANALYZER: createLocalAnalyzerService(),
     },
   });
 }

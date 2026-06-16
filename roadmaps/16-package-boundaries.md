@@ -274,3 +274,43 @@ corepack pnpm test
 corepack pnpm build
 git diff --check
 ```
+
+## Analyzer Service Binding Update
+
+Previous completed checkpoint: `c563d88` Make push start source-only.
+
+The backend analyzer boundary now has two concrete pieces:
+
+- `flarex-backend` exposes a `FLAREX_ANALYZER` service binding in `Env` and
+  calls it from public `push/start`.
+- `flarex-dev` provides `createLocalAnalyzerService()` for local Miniflare,
+  backed by `LocalExecutionArtifactBackendAnalyzer`.
+
+This keeps the package roles aligned:
+
+- `flarex-backend` owns the source-only push API and candidate activation.
+- `flarex-dev` owns the local implementation of the analyzer service.
+- hosted Flarex can later replace the local analyzer service with Workers for
+  Platforms dispatch without changing the public push request shape.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - source/config request and backend-produced analysis response are distinct.
+
+Cloudflare difference: the analyzer is a service binding in local dev because
+the backend Worker cannot create execution artifacts directly yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```

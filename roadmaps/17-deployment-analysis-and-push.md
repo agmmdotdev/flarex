@@ -1646,6 +1646,79 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 6 Implementation Update
+
+Previous completed checkpoint: `c563d88` Make push start source-only.
+
+Connected the public source-only `push/start` route to a backend analyzer
+binding.
+
+Backend behavior is now:
+
+```txt
+POST /deployments/:deploymentId/push/start
+  -> read StartPushRequest { sourcePackage }
+  -> call env.FLAREX_ANALYZER /analyze when configured
+  -> forward { sourcePackage, analysis } to internal /push/start-analyzed
+  -> return DeploymentDO PushStatus
+```
+
+If `FLAREX_ANALYZER` is not configured, the route still returns the explicit
+501 analysis-not-configured error. That keeps hosted production honest until
+Workers for Platforms dispatch is implemented.
+
+Local dev configures `FLAREX_ANALYZER` as a Miniflare service binding backed
+by `createLocalAnalyzerService()`. That service uses
+`LocalExecutionArtifactBackendAnalyzer`, which wraps the local Miniflare
+execution artifact adapter. `LocalBackendPushCoordinator` is now source-only
+again and posts only to public `push/start`.
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - `StartPushRequest` carries source/config inputs; `StartPushResponse`
+    carries backend-produced analysis.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - the client pushes source material and final codegen consumes the backend
+    push response.
+- `crates/application/src/deploy_config.rs`
+  - backend `start_push` evaluates and analyzes candidate contents before
+    activation.
+
+Intentional and temporary differences:
+
+- Convex performs analysis inside its backend isolate stack. Flarex local dev
+  uses a service binding to a Node-side Miniflare analyzer because the hosted
+  Workers for Platforms artifact path is not implemented yet.
+- `/push/start-analyzed` remains an internal prototype route behind the
+  analyzer binding. It should disappear or become private platform plumbing
+  once hosted backend analysis is real.
+- Analyzer failures currently become failed push candidates. Later schema and
+  module validation should preserve richer analysis logs and source positions.
+
+Tests prove:
+
+- source-only `push/start` still rejects when no analyzer binding exists,
+- local dev supplies an analyzer service binding and successfully reloads via
+  public `push/start`,
+- the local analyzer service returns flattened backend deployment analysis,
+  and
+- the coordinator no longer sends analysis itself.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact

@@ -22,6 +22,7 @@ export type Env = {
   EXECUTIONS: DurableObjectNamespace;
   CONNECTIONS: DurableObjectNamespace;
   SCHEDULERS: DurableObjectNamespace;
+  FLAREX_ANALYZER?: Fetcher;
 };
 
 export type TablePlacement =
@@ -190,6 +191,15 @@ export type AnalyzedStartPushRequest = StartPushRequest &
     | { analysis: DeploymentAnalysis; error?: never }
     | { analysis?: never; error: string }
   );
+
+export type AnalyzeSourcePackageRequest = {
+  deploymentId: string;
+  sourcePackage: PushSourcePackage;
+};
+
+export type AnalyzeSourcePackageResponse =
+  | { analysis: DeploymentAnalysis; error?: never }
+  | { analysis?: never; error: string };
 
 export type PushStatus = {
   pushId: string;

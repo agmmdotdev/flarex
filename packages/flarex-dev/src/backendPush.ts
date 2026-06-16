@@ -41,26 +41,18 @@ export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnaly
 export class LocalBackendPushCoordinator implements BackendPushCoordinator {
   private readonly backend: Miniflare;
   private readonly deploymentId: string;
-  private readonly analyzer: BackendSourceAnalyzer;
 
-  constructor(
-    backend: Miniflare,
-    deploymentId: string,
-    analyzer: BackendSourceAnalyzer = new LocalExecutionArtifactBackendAnalyzer(),
-  ) {
+  constructor(backend: Miniflare, deploymentId: string) {
     this.backend = backend;
     this.deploymentId = deploymentId;
-    this.analyzer = analyzer;
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
-    const analysis = await this.analyzer.analyze(sourcePackage);
     return postBackend<DevPushStatus>(
       this.backend,
-      `/deployments/${this.deploymentId}/push/start-analyzed`,
+      `/deployments/${this.deploymentId}/push/start`,
       {
         sourcePackage,
-        analysis: backendAnalysisFromCodegenAnalysis(analysis),
       },
     );
   }
@@ -74,7 +66,29 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
   }
 }
 
-function backendAnalysisFromCodegenAnalysis(
+export function createLocalAnalyzerService(
+  analyzer: BackendSourceAnalyzer = new LocalExecutionArtifactBackendAnalyzer(),
+): (request: Request) => Promise<Response> {
+  return async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.pathname !== "/analyze" || request.method !== "POST") {
+      return Response.json({ error: "Analyzer route not found." }, { status: 404 });
+    }
+    try {
+      const body = await request.json() as { sourcePackage?: SourcePackage };
+      if (body.sourcePackage === undefined) {
+        return Response.json({ error: "Analyzer request missing sourcePackage." }, { status: 400 });
+      }
+      return Response.json({
+        analysis: backendAnalysisFromCodegenAnalysis(await analyzer.analyze(body.sourcePackage)),
+      });
+    } catch (error) {
+      return Response.json({ error: errorMessage(error) }, { status: 400 });
+    }
+  };
+}
+
+export function backendAnalysisFromCodegenAnalysis(
   analysis: DeploymentAnalysis,
 ): { schema: DeploymentAnalysis["schema"]; functions: { functions: unknown[] } } {
   return {
@@ -91,6 +105,10 @@ function backendAnalysisFromCodegenAnalysis(
       ),
     },
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {
