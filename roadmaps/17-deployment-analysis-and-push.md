@@ -1902,6 +1902,71 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+### Phase 6 Step 3 Implementation Update
+
+Previous completed checkpoint: `bccc7cd` Add execution artifact store
+boundary.
+
+Added the hosted artifact store contract and R2-shaped adapter.
+
+`R2ExecutionArtifactStore` writes two JSON objects per artifact:
+
+```txt
+artifacts/{artifactId}/manifest.json
+artifacts/{artifactId}/source-package.json
+```
+
+The manifest records:
+
+```ts
+{
+  version: 1,
+  ref: ExecutionArtifactRef,
+  sourcePackagePath: string,
+}
+```
+
+Reads validate:
+
+1. manifest exists,
+2. manifest version is supported,
+3. manifest ref matches the requested ref,
+4. source package object exists, and
+5. recomputed source package ref matches the requested ref.
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source packages have a model-level `put`/`get` boundary.
+- `crates/model/src/source_packages/types.rs`
+  - package metadata includes storage key and `sha256`.
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor setup resolves package storage metadata and passes package hash
+    information to the executor.
+
+Cloudflare difference:
+
+- Convex stores source package metadata in system tables and packages in module
+  storage. Flarex's hosted adapter is R2-shaped and stores a manifest plus the
+  normalized source package JSON.
+- This checkpoint does not add a real Worker binding, hosted Dynamic Worker
+  loader, authorization, or garbage collection.
+
+Tests prove:
+
+- `put` writes source package and manifest JSON objects,
+- `get` validates manifest and source package hash before returning,
+- unknown artifact refs fail clearly,
+- mismatched refs fail clearly, and
+- `delete` removes both objects.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Architecture Terminology Cleanup
 
 Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.

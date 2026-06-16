@@ -396,6 +396,38 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## R2 Artifact Store Adapter Boundary Update
+
+Previous completed checkpoint: `bccc7cd` Add execution artifact store
+boundary.
+
+The Cloudflare-oriented artifact store adapter currently lives in `flarex-dev`
+because it is still a development/runtime-contract proof, not a deployed
+backend service.
+
+Package responsibilities remain:
+
+- `flarex/artifacts` owns artifact refs and manifest hashing.
+- `flarex-dev` owns local and R2-shaped artifact store adapters.
+- `flarex-backend` owns active deployment metadata, but is not yet wired to an
+  artifact bucket binding.
+
+Convex reference:
+
+- `crates/model/src/source_packages/types.rs`
+  - the model stores source package storage key and package hash as metadata.
+
+Known follow-up: when hosted backend bindings are added, move Cloudflare
+artifact storage behind a backend/runtime package boundary so `flarex-dev`
+does not own hosted infrastructure code.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Architecture Terminology Cleanup
 
 Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.

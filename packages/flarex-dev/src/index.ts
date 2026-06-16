@@ -40,8 +40,14 @@ export type {
 } from "./executionArtifact.ts";
 export {
   LocalInMemoryExecutionArtifactStore,
+  manifestKey,
+  R2ExecutionArtifactStore,
+  sourcePackageKey,
 } from "./executionArtifactStore.ts";
-export type { ExecutionArtifactStore } from "./executionArtifactStore.ts";
+export type {
+  DurableExecutionArtifactStore,
+  ExecutionArtifactStore,
+} from "./executionArtifactStore.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
 export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";

@@ -464,6 +464,57 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Hosted Artifact Store Contract Update
+
+Previous completed checkpoint: `bccc7cd` Add execution artifact store
+boundary.
+
+Added the first Cloudflare-oriented artifact store contract without wiring it
+to production runtime yet.
+
+`flarex-dev` now exposes:
+
+```ts
+interface DurableExecutionArtifactStore {
+  put(ref, sourcePackage): Promise<void>;
+  get(ref): Promise<SourcePackage>;
+  delete(ref): Promise<void>;
+}
+```
+
+and `R2ExecutionArtifactStore`, which stores:
+
+```txt
+artifacts/{artifactId}/manifest.json
+artifacts/{artifactId}/source-package.json
+```
+
+`get(ref)` loads the manifest and source package, validates that the manifest
+matches the requested ref, then recomputes the source package ref before
+returning the package.
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put` and `get` define the durable package store
+    boundary.
+- `crates/model/src/source_packages/types.rs`
+  - source package metadata carries `storage_key` and `sha256`.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves source package storage metadata before invoking an
+    executor.
+
+Cloudflare difference: this is an R2-shaped adapter tested with a fake bucket.
+It is not yet bound to a Worker environment and does not yet create/load the
+hosted Dynamic Worker artifact.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Active Execution Artifact Pointer Update
 
 Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active

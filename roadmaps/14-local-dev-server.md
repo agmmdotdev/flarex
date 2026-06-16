@@ -459,6 +459,40 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Hosted Store Format Update
+
+Previous completed checkpoint: `bccc7cd` Add execution artifact store
+boundary.
+
+Local development still uses `LocalInMemoryExecutionArtifactStore`, but
+`flarex-dev` now also defines the hosted object-store shape with
+`R2ExecutionArtifactStore`.
+
+The serialized hosted format is:
+
+```txt
+artifacts/{artifactId}/manifest.json
+artifacts/{artifactId}/source-package.json
+```
+
+This lets local tests verify the hosted storage contract before local dev is
+changed to use R2 persistence.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are retrieved by durable package identity.
+
+Cloudflare difference: local dev does not use this adapter by default yet; the
+adapter is present for the upcoming hosted/runtime path and for contract tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Local Artifact Store Update
 
 Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
