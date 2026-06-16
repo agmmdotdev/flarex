@@ -183,9 +183,13 @@ export type PushState =
 
 export type StartPushRequest = {
   sourcePackage: PushSourcePackage;
-  analysis?: DeploymentAnalysis;
-  error?: string;
 };
+
+export type AnalyzedStartPushRequest = StartPushRequest &
+  (
+    | { analysis: DeploymentAnalysis; error?: never }
+    | { analysis?: never; error: string }
+  );
 
 export type PushStatus = {
   pushId: string;

@@ -226,3 +226,51 @@ corepack pnpm test
 corepack pnpm build
 git diff --check
 ```
+
+## Backend Analyzer Boundary Update
+
+Previous completed checkpoint: `67b2e04` Move local analysis behind push
+coordinator.
+
+`packages/flarex-dev` now names the analyzer dependency explicitly:
+
+```ts
+interface BackendSourceAnalyzer {
+  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
+}
+```
+
+`LocalExecutionArtifactBackendAnalyzer` wraps the local Miniflare execution
+artifact adapter. `LocalBackendPushCoordinator` depends on this analyzer
+interface and posts analyzed candidates to the internal
+`/push/start-analyzed` route.
+
+This keeps package responsibilities clearer:
+
+- `flarex-dev` owns local orchestration and local analyzer adapters.
+- `flarex-backend` owns Durable Object candidate state and activation.
+- Public `StartPushRequest` is source-only and no longer contains analysis.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - CLI orchestration coordinates source push and consumes backend analysis,
+    but the analyzed deployment contract is backend-owned.
+
+Cloudflare difference: Flarex still needs a local Node-side analyzer adapter
+until the backend platform can upload and dispatch candidate execution
+artifacts itself.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```

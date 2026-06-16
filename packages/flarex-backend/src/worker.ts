@@ -19,6 +19,7 @@ import {
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
 import type {
+  AnalyzedStartPushRequest,
   CommitRequest,
   DeploymentFunctions,
   DeploymentSchema,
@@ -105,7 +106,18 @@ async function routeDeploymentPush(
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
   if (parts[0] === "start" && request.method === "POST") {
     const body = await readJson<StartPushRequest>(request);
-    return deployment.fetch("https://flarex.internal/push/start", {
+    void body;
+    return json(
+      {
+        error:
+          "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+      },
+      { status: 501 },
+    );
+  }
+  if (parts[0] === "start-analyzed" && request.method === "POST") {
+    const body = await readJson<AnalyzedStartPushRequest>(request);
+    return deployment.fetch("https://flarex.internal/push/start-analyzed", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),

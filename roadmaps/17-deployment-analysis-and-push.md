@@ -1559,6 +1559,93 @@ corepack pnpm build
 git diff --check
 ```
 
+### Phase 4 Step 5 Implementation Update
+
+Previous completed checkpoint: `67b2e04` Move local analysis behind push
+coordinator.
+
+Split the prototype push API into a public source-only request and an internal
+analyzed-candidate request.
+
+Public request:
+
+```ts
+type StartPushRequest = {
+  sourcePackage: PushSourcePackage;
+};
+```
+
+Internal prototype request:
+
+```ts
+type AnalyzedStartPushRequest =
+  | { sourcePackage: PushSourcePackage; analysis: DeploymentAnalysis }
+  | { sourcePackage: PushSourcePackage; error: string };
+```
+
+Backend routes now behave as:
+
+```txt
+POST /deployments/:deploymentId/push/start
+  source package only
+  returns 501 until backend artifact analysis is configured
+
+POST /deployments/:deploymentId/push/start-analyzed
+  internal prototype route used by local dev coordinator
+  stores analyzed/failed candidate in DeploymentDO
+```
+
+`LocalBackendPushCoordinator` now depends on a `BackendSourceAnalyzer`
+interface. The local implementation, `LocalExecutionArtifactBackendAnalyzer`,
+wraps the Miniflare execution-artifact adapter. The coordinator calls that
+backend analyzer and then posts to the internal analyzed route. This keeps
+analysis out of `StartPushRequest` while preserving the working local-dev
+prototype.
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - the public push request sends source/config material to the backend push
+    boundary; analyzed metadata is a backend result, not client-authored
+    deployment truth.
+- `crates/application/src/deploy_config.rs`
+  - `start_push` evaluates and analyzes push contents before candidate
+    activation.
+
+Intentional and temporary differences:
+
+- Convex does not need an exposed `start-analyzed` route. Flarex keeps this as
+  an internal local-dev bridge until the backend runtime has a hosted analyzer
+  service or Workers for Platforms dispatch integration.
+- `POST /push/start` currently returns 501 instead of analyzing because the
+  Worker/Durable Object runtime cannot yet create candidate execution
+  artifacts by itself.
+- `DeploymentDO` still stores the same validated candidate schema/functions.
+  Only the boundary shape changed.
+
+Tests prove:
+
+- public source-only `push/start` rejects with the expected backend-analysis
+  not-configured error,
+- internal `push/start-analyzed` still stores, supersedes, and activates
+  candidates, and
+- local dev's coordinator posts analyzed metadata only through the internal
+  analyzed route.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1682,3 +1769,9 @@ Cloudflare-shaped boundary.
 
 Added `codegenAnalysis` to backend push status and changed local dev final
 codegen to consume the backend push response.
+
+### `67b2e04` Move local analysis behind push coordinator
+
+Added `LocalBackendPushCoordinator`, moved local artifact analysis out of the
+dev reload loop, and made `flarex-dev` tests run serially for stable
+Vite/esbuild/Miniflare execution on Windows.

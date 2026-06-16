@@ -22,26 +22,42 @@ export interface BackendPushCoordinator {
   finish(pushId: string): Promise<DevPushStatus>;
 }
 
+export interface BackendSourceAnalyzer {
+  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
+}
+
+export class LocalExecutionArtifactBackendAnalyzer implements BackendSourceAnalyzer {
+  private readonly executionArtifact: ExecutionArtifactAdapter;
+
+  constructor(executionArtifact: ExecutionArtifactAdapter = new LocalMiniflareExecutionArtifactAdapter()) {
+    this.executionArtifact = executionArtifact;
+  }
+
+  analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis> {
+    return this.executionArtifact.analyze(sourcePackage);
+  }
+}
+
 export class LocalBackendPushCoordinator implements BackendPushCoordinator {
   private readonly backend: Miniflare;
   private readonly deploymentId: string;
-  private readonly executionArtifact: ExecutionArtifactAdapter;
+  private readonly analyzer: BackendSourceAnalyzer;
 
   constructor(
     backend: Miniflare,
     deploymentId: string,
-    executionArtifact: ExecutionArtifactAdapter = new LocalMiniflareExecutionArtifactAdapter(),
+    analyzer: BackendSourceAnalyzer = new LocalExecutionArtifactBackendAnalyzer(),
   ) {
     this.backend = backend;
     this.deploymentId = deploymentId;
-    this.executionArtifact = executionArtifact;
+    this.analyzer = analyzer;
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
-    const analysis = await this.executionArtifact.analyze(sourcePackage);
+    const analysis = await this.analyzer.analyze(sourcePackage);
     return postBackend<DevPushStatus>(
       this.backend,
-      `/deployments/${this.deploymentId}/push/start`,
+      `/deployments/${this.deploymentId}/push/start-analyzed`,
       {
         sourcePackage,
         analysis: backendAnalysisFromCodegenAnalysis(analysis),

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
+  AnalyzedStartPushRequest,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
@@ -48,6 +49,17 @@ describe("deployment push lifecycle", () => {
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedCandidateFunctions());
   });
 
+  it("keeps public start source-only until backend analysis is configured", async () => {
+    const response = await startSourceOnlyPushResponse("push-source-only", {
+      sourcePackage: sourcePackage(),
+    });
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+    });
+  });
+
   it("supersedes previous pending or analyzed pushes", async () => {
     const first = await startPush("push-supersede", analyzedPush(activeSchema(), activeFunctions()));
     const second = await startPush("push-supersede", analyzedPush(candidateSchema(), candidateFunctions()));
@@ -92,7 +104,7 @@ describe("deployment push lifecycle", () => {
 function analyzedPush(
   schema: DeploymentSchema,
   functions: DeploymentFunctions,
-): StartPushRequest {
+): AnalyzedStartPushRequest {
   return {
     sourcePackage: sourcePackage(),
     analysis: { schema, functions },
@@ -242,9 +254,9 @@ function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
   };
 }
 
-async function startPush(deploymentId: string, body: StartPushRequest): Promise<PushStatus> {
+async function startPush(deploymentId: string, body: AnalyzedStartPushRequest): Promise<PushStatus> {
   const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/push/start`,
+    `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -253,6 +265,20 @@ async function startPush(deploymentId: string, body: StartPushRequest): Promise<
   );
   expect(response.ok).toBe(true);
   return response.json() as Promise<PushStatus>;
+}
+
+async function startSourceOnlyPushResponse(
+  deploymentId: string,
+  body: StartPushRequest,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/start`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 async function getPush(deploymentId: string, pushId: string): Promise<PushStatus> {

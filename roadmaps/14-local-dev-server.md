@@ -326,6 +326,55 @@ corepack pnpm build
 git diff --check
 ```
 
+## Source-Only Push Boundary Update
+
+Previous completed checkpoint: `67b2e04` Move local analysis behind push
+coordinator.
+
+The public backend `push/start` request is now source-package only. It no
+longer accepts analyzed metadata in `StartPushRequest`.
+
+Local dev still works through the coordinator:
+
+```txt
+reload
+  -> bundleFlarexSourcePackage
+  -> LocalBackendPushCoordinator.start(sourcePackage)
+      -> BackendSourceAnalyzer.analyze(sourcePackage)
+      -> POST /push/start-analyzed
+  -> finalCodegen from backend push response
+```
+
+`/push/start-analyzed` is explicitly an internal prototype route. It keeps
+local dev moving while the hosted backend analyzer is not implemented. The
+normal public route returns a clear 501 in this runtime instead of silently
+accepting client-authored analysis.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - push sends source/config material and receives analyzed metadata.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - local dev treats analysis as part of backend push, not application code.
+
+Cloudflare difference: Flarex local dev uses a Node-side
+`BackendSourceAnalyzer` to run the local Miniflare artifact. Hosted Flarex
+should replace that analyzer with Workers for Platforms artifact dispatch.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/example test
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Verification
 
 ```sh

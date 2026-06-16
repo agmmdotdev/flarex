@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
+  AnalyzedStartPushRequest,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   DeploymentCodegenModule,
@@ -16,7 +17,6 @@ import type {
   PushStatus,
   SchemaIndex,
   SchemaTable,
-  StartPushRequest,
   ValidatorJson,
 } from "./types";
 import { assertValidatorJson, BackendValidationError } from "./validation";
@@ -92,8 +92,8 @@ export class DeploymentDO extends DurableObject<Env> {
         if (!metadata) throw new HttpError(404, `Unknown Flarex function metadata: ${path}`);
         return json(metadata);
       }
-      if (url.pathname === "/push/start" && request.method === "POST") {
-        return json(await this.startPush(await readJson<StartPushRequest>(request)));
+      if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
+        return json(await this.startPush(await readJson<AnalyzedStartPushRequest>(request)));
       }
       const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
       if (pushMatch) {
@@ -114,7 +114,7 @@ export class DeploymentDO extends DurableObject<Env> {
     }
   }
 
-  private async startPush(request: StartPushRequest): Promise<PushStatus> {
+  private async startPush(request: AnalyzedStartPushRequest): Promise<PushStatus> {
     const sourcePackage = validateSourcePackage(request.sourcePackage);
     const now = Date.now();
     const pushId = crypto.randomUUID();

@@ -1,15 +1,14 @@
 import type { Miniflare } from "miniflare";
 import { describe, expect, it } from "vitest";
 import type { DeploymentAnalysis } from "../src/analyze";
-import { LocalBackendPushCoordinator } from "../src/backendPush";
-import type { ExecutionArtifactAdapter } from "../src/executionArtifact";
+import { LocalBackendPushCoordinator, type BackendSourceAnalyzer } from "../src/backendPush";
 import type { SourcePackage } from "../src/sourcePackage";
 
 describe("backend push coordinator", () => {
   it("owns execution artifact analysis before starting backend push", async () => {
     const sourcePackage = testSourcePackage();
     const analysis = testAnalysis();
-    const analyzer: ExecutionArtifactAdapter = {
+    const analyzer: BackendSourceAnalyzer = {
       analyze: async package_ => {
         expect(package_).toBe(sourcePackage);
         return analysis;
@@ -40,7 +39,7 @@ describe("backend push coordinator", () => {
     expect(status.codegenAnalysis).toEqual(analysis);
     expect(requests).toEqual([
       {
-        url: "http://flarex.backend/deployments/deployment1/push/start",
+        url: "http://flarex.backend/deployments/deployment1/push/start-analyzed",
         body: {
           sourcePackage,
           analysis: {
