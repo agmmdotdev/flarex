@@ -317,6 +317,43 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Execution Artifact Runtime Package Boundary Update
+
+Previous completed checkpoint: `d5e13dd` Store active execution artifact
+reference.
+
+The invoke-side execution artifact runtime boundary lives in `flarex-dev` for
+now:
+
+- `flarex-backend` owns active deployment metadata and execution sessions.
+- `flarex-dev` owns the local Miniflare execution artifact runtime adapter.
+- generated app code owns `/__flarex_internal/invoke`, the internal artifact
+  entrypoint.
+
+`flarex-dev` deliberately defines a narrow local active-deployment response
+type instead of importing `flarex-backend/types`, because the backend type file
+also contains Cloudflare Worker binding globals (`DurableObjectNamespace`,
+`Fetcher`) that should not leak into the dev package's type environment.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source package identity is a model boundary.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution runner code consumes package identity without exposing storage
+    internals to user code.
+
+Future package cleanup: a shared runtime-neutral package should own
+`ExecutionArtifactRef`, analyzed deployment metadata, and validator JSON types
+so backend/dev/sdk packages do not duplicate small structural types.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Architecture Terminology Cleanup
 
 Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.

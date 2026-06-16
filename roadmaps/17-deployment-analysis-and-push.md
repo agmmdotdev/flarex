@@ -2208,6 +2208,64 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+### Phase 6 Step 1 Implementation Update
+
+Previous completed checkpoint: `d5e13dd` Store active execution artifact
+reference.
+
+Added the first invoke-side execution artifact runtime boundary in local dev.
+
+The active deployment record's `executionArtifactRef` is now consumed by
+`createFlarexDevRuntime` when handling:
+
+```txt
+POST /__flarex_dev/invoke
+```
+
+Local dev resolves the active deployment from the backend, passes its
+`executionArtifactRef` to `LocalMiniflareExecutionArtifactRuntime`, and invokes
+the generated execution artifact through:
+
+```txt
+POST /__flarex_internal/invoke
+```
+
+The generated Worker still supports public `/invoke`, but it also exposes the
+internal artifact endpoint required by the future hosted Dynamic Worker
+adapter.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - source package identity and package hashes are passed into executor
+    requests when execution happens outside the main Rust isolate path.
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are durable deployment metadata looked up for execution.
+
+Cloudflare difference:
+
+- Convex has a mature isolate/node executor selection path. Flarex currently
+  models that as an `ExecutionArtifactRuntime` interface and a local Miniflare
+  implementation.
+- The hosted Dynamic Worker adapter does not exist yet. This checkpoint only
+  makes invocation depend on `executionArtifactRef` through a replaceable
+  runtime boundary.
+
+Tests prove:
+
+- the local runtime adapter calls `/__flarex_internal/invoke` with artifact
+  identity headers,
+- generated Worker code includes the internal invoke route, and
+- local dev exposes the active deployment `executionArtifactRef` while
+  `/__flarex_dev/invoke` still reaches backend execution sessions/syscalls.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact

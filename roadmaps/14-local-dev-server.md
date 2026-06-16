@@ -459,6 +459,47 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Local Invoke Runtime Adapter Update
+
+Previous completed checkpoint: `d5e13dd` Store active execution artifact
+reference.
+
+Local dev invoke now uses the same shape as the intended hosted runtime:
+
+```txt
+/__flarex_dev/invoke
+  -> backend /deployments/:deploymentId/deployment
+  -> active executionArtifactRef
+  -> LocalMiniflareExecutionArtifactRuntime.invoke(...)
+  -> generated /__flarex_internal/invoke
+  -> backend execution session syscalls
+```
+
+`/__flarex_dev/deployment` was added as a development inspection endpoint so
+tests and tooling can see the active deployment record, including
+`executionArtifactRef`.
+
+The generated app Worker still supports `/invoke` for compatibility and direct
+local forwarding, but the dev server's preferred invoke path now exercises the
+execution artifact runtime adapter.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution goes through a backend-owned runner boundary with source
+    package identity rather than directly exposing database state to user code.
+
+Cloudflare difference: local dev uses a Miniflare app Worker as the execution
+artifact. Hosted Flarex should replace only the runtime adapter with the
+Flarex-managed Dynamic Worker runtime.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Import-Phase Prelude Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push

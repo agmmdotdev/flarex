@@ -347,6 +347,67 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Local Execution Artifact Runtime Boundary Update
+
+Previous completed checkpoint: `d5e13dd` Store active execution artifact
+reference.
+
+`flarex-dev` now has the first invoke-side execution artifact runtime
+boundary:
+
+```ts
+interface ExecutionArtifactRuntime {
+  invoke(ref: ExecutionArtifactRef, request: ExecutionArtifactInvokeRequest): Promise<unknown>;
+}
+```
+
+`LocalMiniflareExecutionArtifactRuntime` calls:
+
+```txt
+POST /__flarex_internal/invoke
+```
+
+on the generated execution artifact and sends artifact identity headers:
+
+```txt
+x-flarex-artifact-id
+x-flarex-source-package-hash
+```
+
+The generated Worker now serves `/__flarex_internal/invoke` with the same
+backend execution-session/syscall behavior as `/invoke`. Local dev resolves
+the active deployment through the backend, reads `executionArtifactRef`, and
+invokes through the runtime adapter.
+
+This creates the contract needed for the hosted path:
+
+```txt
+active deployment
+  -> executionArtifactRef
+  -> ExecutionArtifactRuntime.invoke
+  -> internal execution artifact invoke
+  -> backend execution sessions/syscalls
+```
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests carry source package identity/hash information when code
+    is loaded outside the main runtime.
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are durable metadata looked up by ID before execution.
+
+Cloudflare difference: this checkpoint is still local Miniflare execution
+artifact plumbing. The hosted Dynamic Worker runtime adapter, artifact upload,
+and runtime authorization are not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Active Execution Artifact Pointer Update
 
 Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active

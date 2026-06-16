@@ -28,8 +28,16 @@ export type {
   BackendSourceAnalyzer,
   DevPushStatus,
 } from "./backendPush.ts";
-export { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
-export type { ExecutionArtifactAdapter } from "./executionArtifact.ts";
+export {
+  LocalMiniflareExecutionArtifactAdapter,
+  LocalMiniflareExecutionArtifactRuntime,
+} from "./executionArtifact.ts";
+export type {
+  ExecutionArtifactAdapter,
+  ExecutionArtifactInvokeRequest,
+  ExecutionArtifactRef,
+  ExecutionArtifactRuntime,
+} from "./executionArtifact.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
 export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";

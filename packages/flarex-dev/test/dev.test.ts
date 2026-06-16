@@ -76,6 +76,20 @@ describe("Flarex dev runtime", () => {
     );
   });
 
+  it("exposes the active deployment execution artifact reference", async () => {
+    const response = await runtime.fetch(new Request("http://localhost/__flarex_dev/deployment"));
+    expect(response.ok).toBe(true);
+    await expect(response.json()).resolves.toMatchObject({
+      activePushId: expect.any(String),
+      executionArtifactRef: {
+        runtime: "dynamic-worker",
+        artifactId: expect.stringMatching(/^artifact_[a-f0-9]{32}$/),
+        sourcePackageHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        executionModule: expect.any(String),
+      },
+    });
+  });
+
   it("proxies invoke through the generated Worker path", async () => {
     const response = await runtime.fetch(
       new Request("http://localhost/__flarex_dev/invoke", {

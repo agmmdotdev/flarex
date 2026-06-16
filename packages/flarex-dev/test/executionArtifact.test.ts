@@ -6,6 +6,7 @@ import { analyzeSourcePackageLocally } from "../src/analyze";
 import {
   ExecutionArtifactAnalysisError,
   LocalMiniflareExecutionArtifactAdapter,
+  LocalMiniflareExecutionArtifactRuntime,
 } from "../src/executionArtifact";
 import {
   bundleFlarexSourcePackage,
@@ -14,6 +15,57 @@ import {
 } from "../src/generate";
 
 describe("execution artifact analysis", () => {
+  it("invokes execution artifacts through the internal invoke route", async () => {
+    const calls: Array<{
+      url: string;
+      artifactId: string | null;
+      sourcePackageHash: string | null;
+      body: unknown;
+    }> = [];
+    const runtime = new LocalMiniflareExecutionArtifactRuntime({
+      fetch: async request => {
+        calls.push({
+          url: request.url,
+          artifactId: request.headers.get("x-flarex-artifact-id"),
+          sourcePackageHash: request.headers.get("x-flarex-source-package-hash"),
+          body: await request.json(),
+        });
+        return Response.json({ value: { ok: true } });
+      },
+    });
+
+    await expect(
+      runtime.invoke(
+        {
+          runtime: "dynamic-worker",
+          artifactId: "artifact_1234567890abcdef1234567890abcdef",
+          sourcePackageHash: "a".repeat(64),
+          executionModule: "_flarex/execution.js",
+        },
+        {
+          deploymentId: "deployment1",
+          path: "users:get",
+          partitionKey: "user:1",
+          args: { id: "1:user" },
+        },
+      ),
+    ).resolves.toEqual({ value: { ok: true } });
+
+    expect(calls).toEqual([
+      {
+        url: "https://flarex-artifact.internal/__flarex_internal/invoke",
+        artifactId: "artifact_1234567890abcdef1234567890abcdef",
+        sourcePackageHash: "a".repeat(64),
+        body: {
+          deploymentId: "deployment1",
+          path: "users:get",
+          partitionKey: "user:1",
+          args: { id: "1:user" },
+        },
+      },
+    ]);
+  });
+
   it("analyzes a source package inside a Miniflare execution artifact", async () => {
     const root = await createProject();
     const context = await initialCodegen({ root });

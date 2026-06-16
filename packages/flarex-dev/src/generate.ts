@@ -375,7 +375,10 @@ export default {
       const session = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
       return env.CONNECTIONS.getByName(session).fetch(request);
     }
-    if (url.pathname === "/invoke" && request.method === "POST") {
+    if (
+      (url.pathname === "/invoke" || url.pathname === "/__flarex_internal/invoke") &&
+      request.method === "POST"
+    ) {
       try {
         return Response.json(await invokeWithBackend(await request.json<InvokeBody>(), env, request));
       } catch (error) {

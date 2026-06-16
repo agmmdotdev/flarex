@@ -80,6 +80,7 @@ export const helper = "not a function";
     expect(worker).not.toContain("fn.handler");
     expect(worker).not.toContain("validateFunctionArgs(fn.args");
     expect(worker).toContain('url.pathname === "/invoke"');
+    expect(worker).toContain('url.pathname === "/__flarex_internal/invoke"');
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });
 

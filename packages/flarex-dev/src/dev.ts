@@ -9,6 +9,11 @@ import {
   type DevPushStatus,
 } from "./backendPush.ts";
 import {
+  LocalMiniflareExecutionArtifactRuntime,
+  type ExecutionArtifactInvokeRequest,
+  type ExecutionArtifactRef,
+} from "./executionArtifact.ts";
+import {
   bundleFlarexSourcePackage,
   finalCodegen,
   initialCodegen,
@@ -34,6 +39,10 @@ type ResponseLike = {
   status: number;
   statusText: string;
   headers: { forEach: (callback: (value: string, key: string) => void) => void };
+};
+
+type ActiveDeploymentStatus = {
+  executionArtifactRef: ExecutionArtifactRef;
 };
 
 export async function createFlarexDevRuntime(
@@ -139,6 +148,32 @@ export async function createFlarexDevRuntime(
       if (url.pathname === "/__flarex_dev/push") {
         return Response.json(lastPush ?? null);
       }
+      if (url.pathname === "/__flarex_dev/deployment" && request.method === "GET") {
+        return toWebResponse(
+          await backend.dispatchFetch(
+            `http://flarex.backend/deployments/${deploymentId}/deployment`,
+          ),
+        );
+      }
+      if (url.pathname === "/__flarex_dev/invoke" && request.method === "POST") {
+        try {
+          const activeDeployment = await activeDeploymentStatus(backend, deploymentId);
+          const runtime = new LocalMiniflareExecutionArtifactRuntime({
+            fetch: request => dispatchArtifactFetch(activeApp, request),
+          });
+          return Response.json(
+            await runtime.invoke(
+              activeDeployment.executionArtifactRef,
+              await devInvokeRequest(request, deploymentId),
+            ),
+          );
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : String(error) },
+            { status: 400 },
+          );
+        }
+      }
 
       const forwardedPath = url.pathname.replace(/^\/__flarex_dev/, "") || "/";
       const forwardedUrl = new URL(request.url);
@@ -160,6 +195,57 @@ export async function createFlarexDevRuntime(
       }
     },
   };
+}
+
+async function activeDeploymentStatus(
+  backend: Miniflare,
+  deploymentId: string,
+): Promise<ActiveDeploymentStatus> {
+  const response = await backend.dispatchFetch(
+    `http://flarex.backend/deployments/${deploymentId}/deployment`,
+  );
+  const body = await responseJson(response);
+  if (!response.ok) {
+    const message =
+      typeof body === "object" && body !== null && "error" in body
+        ? String((body as { error: unknown }).error)
+        : `Active deployment request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  return body as ActiveDeploymentStatus;
+}
+
+async function devInvokeRequest(
+  request: Request,
+  deploymentId: string,
+): Promise<ExecutionArtifactInvokeRequest> {
+  const body = await request.json() as Partial<ExecutionArtifactInvokeRequest>;
+  return {
+    deploymentId,
+    path: requiredString(body.path, "function path"),
+    args: body.args ?? null,
+    partitionKey:
+      request.headers.get("x-flarex-partition") ??
+      requiredString(body.partitionKey, "partition key"),
+    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+  };
+}
+
+function requiredString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Missing ${name}.`);
+  }
+  return value;
+}
+
+async function dispatchArtifactFetch(artifact: Miniflare, request: Request): Promise<Response> {
+  return toWebResponse(
+    await artifact.dispatchFetch(request.url, {
+      method: request.method,
+      headers: Array.from(request.headers.entries()),
+      body: await request.text(),
+    }),
+  );
 }
 
 async function createBackendMiniflare(persistDir: string | false): Promise<Miniflare> {

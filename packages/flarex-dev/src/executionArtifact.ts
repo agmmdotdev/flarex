@@ -27,6 +27,29 @@ export interface ExecutionArtifactAdapter {
   analyzeWithDiagnostics?(sourcePackage: SourcePackage): Promise<ExecutionArtifactAnalysis>;
 }
 
+export type ExecutionArtifactRef = {
+  runtime: "dynamic-worker";
+  artifactId: string;
+  sourcePackageHash: string;
+  executionModule: string;
+};
+
+export type ExecutionArtifactInvokeRequest = {
+  deploymentId: string;
+  path: string;
+  args: unknown;
+  partitionKey: string;
+  idempotencyKey?: string;
+};
+
+export interface ExecutionArtifactRuntime {
+  invoke(ref: ExecutionArtifactRef, request: ExecutionArtifactInvokeRequest): Promise<unknown>;
+}
+
+type ArtifactFetcher = {
+  fetch(request: Request): Promise<Response>;
+};
+
 export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifactAdapter {
   async analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis> {
     return (await this.analyzeWithDiagnostics(sourcePackage)).analysis;
@@ -75,6 +98,35 @@ export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifact
     } finally {
       await artifact.dispose();
     }
+  }
+}
+
+export class LocalMiniflareExecutionArtifactRuntime implements ExecutionArtifactRuntime {
+  private readonly artifact: ArtifactFetcher;
+
+  constructor(artifact: ArtifactFetcher) {
+    this.artifact = artifact;
+  }
+
+  async invoke(ref: ExecutionArtifactRef, request: ExecutionArtifactInvokeRequest): Promise<unknown> {
+    const response = await this.artifact.fetch(new Request("https://flarex-artifact.internal/__flarex_internal/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-flarex-artifact-id": ref.artifactId,
+        "x-flarex-source-package-hash": ref.sourcePackageHash,
+      },
+      body: JSON.stringify(request),
+    }));
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error =
+        typeof body === "object" && body !== null && "error" in body
+          ? String((body as { error: unknown }).error)
+          : `Execution artifact invoke failed with status ${response.status}`;
+      throw new Error(error);
+    }
+    return body;
   }
 }
 
