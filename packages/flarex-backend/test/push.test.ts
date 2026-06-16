@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import type {
   ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
@@ -54,6 +55,7 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-activation")).resolves.toMatchObject({
       activePushId: start.pushId,
       schemaVersion: 2,
+      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
       sourcePackage: sourcePackage(),
       analysis: { schema: normalizedCandidateSchema(), functions: candidateFunctions() },
       codegenAnalysis: candidateCodegenAnalysis(),
@@ -88,6 +90,7 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
       activePushId: activated.pushId,
       schemaVersion: 2,
+      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
     });
 
     const response = await finishPushResponse("push-supersede", first.pushId);
@@ -98,7 +101,36 @@ describe("deployment push lifecycle", () => {
     await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
       activePushId: activated.pushId,
       schemaVersion: 2,
+      executionArtifactRef: expectedExecutionArtifactRef(sourcePackage()),
     });
+  });
+
+  it("moves the active execution artifact reference with each activated push", async () => {
+    const firstPackage = sourcePackage("d".repeat(64));
+    const first = await startPush(
+      "push-artifact-ref",
+      analyzedPush(activeSchema(), activeFunctions(), firstPackage),
+    );
+    await finishPush("push-artifact-ref", first.pushId);
+    const firstActive = await getActiveDeployment("push-artifact-ref");
+    expect(firstActive).toMatchObject({
+      activePushId: first.pushId,
+      executionArtifactRef: expectedExecutionArtifactRef(firstPackage),
+    });
+
+    const secondPackage = sourcePackage("e".repeat(64));
+    const second = await startPush(
+      "push-artifact-ref",
+      analyzedPush(candidateSchema(), candidateFunctions(), secondPackage),
+    );
+    await finishPush("push-artifact-ref", second.pushId);
+    const secondActive = await getActiveDeployment("push-artifact-ref");
+
+    expect(secondActive).toMatchObject({
+      activePushId: second.pushId,
+      executionArtifactRef: expectedExecutionArtifactRef(secondPackage),
+    });
+    expect(secondActive.executionArtifactRef).not.toEqual(firstActive.executionArtifactRef);
   });
 
   it("does not activate failed or unknown pushes", async () => {
@@ -130,14 +162,15 @@ describe("deployment push lifecycle", () => {
 function analyzedPush(
   schema: DeploymentSchema,
   functions: DeploymentFunctions,
+  package_: StartPushRequest["sourcePackage"] = sourcePackage(),
 ): AnalyzedStartPushRequest {
   return {
-    sourcePackage: sourcePackage(),
+    sourcePackage: package_,
     analysis: { schema, functions },
   };
 }
 
-function sourcePackage(): StartPushRequest["sourcePackage"] {
+function sourcePackage(functionModuleHash = "c".repeat(64)): StartPushRequest["sourcePackage"] {
   return {
     modules: [
       {
@@ -155,7 +188,7 @@ function sourcePackage(): StartPushRequest["sourcePackage"] {
       {
         path: "lessons.js",
         environment: "isolate",
-        sha256: "c".repeat(64),
+        sha256: functionModuleHash,
         source: "export const list = {};",
       },
     ],
@@ -163,6 +196,33 @@ function sourcePackage(): StartPushRequest["sourcePackage"] {
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
   };
+}
+
+function expectedExecutionArtifactRef(package_: StartPushRequest["sourcePackage"]) {
+  const sourcePackageHash = createHash("sha256")
+    .update(stableSourcePackageManifest(package_))
+    .digest("hex");
+  return {
+    runtime: "dynamic-worker",
+    artifactId: `artifact_${sourcePackageHash.slice(0, 32)}`,
+    sourcePackageHash,
+    executionModule: package_.execution,
+  };
+}
+
+function stableSourcePackageManifest(package_: StartPushRequest["sourcePackage"]): string {
+  return JSON.stringify({
+    execution: package_.execution,
+    schema: package_.schema ?? null,
+    functions: [...package_.functions].sort(),
+    modules: [...package_.modules]
+      .map(module => ({
+        path: module.path,
+        environment: module.environment,
+        sha256: module.sha256,
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  });
 }
 
 function activeSchema(): DeploymentSchema {

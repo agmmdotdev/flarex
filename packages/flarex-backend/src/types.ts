@@ -214,6 +214,13 @@ export type AnalyzeSourcePackageResponse =
   | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
   | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] };
 
+export type ExecutionArtifactRef = {
+  runtime: "dynamic-worker";
+  artifactId: string;
+  sourcePackageHash: string;
+  executionModule: string;
+};
+
 export type PushStatus = {
   pushId: string;
   state: PushState;
@@ -232,6 +239,7 @@ export type ActiveDeploymentStatus = {
   activePushId: string;
   activatedAt: number;
   schemaVersion: number;
+  executionArtifactRef: ExecutionArtifactRef;
   sourcePackage: PushSourcePackage;
   analysis: DeploymentAnalysis;
   codegenAnalysis: DeploymentCodegenAnalysis;

@@ -345,6 +345,56 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Active Execution Artifact Reference Update
+
+Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active
+deployment.
+
+`DeploymentDO` now stores the first active execution artifact reference with
+the active deployment pointer:
+
+```txt
+active_push_id
+active_activated_at
+active_execution_artifact_ref
+```
+
+The reference is content-addressed from the normalized source package manifest
+and returned by `GET /deployments/:deploymentId/deployment` as:
+
+```ts
+executionArtifactRef: {
+  runtime: "dynamic-worker";
+  artifactId: string;
+  sourcePackageHash: string;
+  executionModule: string;
+}
+```
+
+This gives the backend data model the missing pointer between active analyzed
+deployment metadata and the future Flarex-managed Dynamic Worker runtime.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are stored as durable metadata and addressed by
+    `SourcePackageId`.
+- `crates/model/src/modules/types.rs`
+  - module metadata links analyzed modules to source package identity and
+    module hash.
+
+Cloudflare difference: Flarex has not built the artifact storage service yet,
+so the reference is a deterministic manifest-derived pointer rather than a
+database document ID for an uploaded package. R2-backed package storage and
+hosted Dynamic Worker loading remain follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Active Deployment Invoke Resolution Update
 
 Previous completed checkpoint: `b08269e` Record active deployment pointer on

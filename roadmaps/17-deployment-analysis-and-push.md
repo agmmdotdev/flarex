@@ -2130,6 +2130,84 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+### Phase 5 Step 6 Implementation Update
+
+Previous completed checkpoint: `4a6e66f` Resolve execution sessions from
+active deployment.
+
+Active deployment status now includes a deterministic execution artifact
+reference:
+
+```ts
+type ExecutionArtifactRef = {
+  runtime: "dynamic-worker";
+  artifactId: string;
+  sourcePackageHash: string;
+  executionModule: string;
+};
+```
+
+`finish_push` computes the reference from a canonical source-package manifest,
+stores it in:
+
+```txt
+meta.active_execution_artifact_ref
+```
+
+and `GET /deployments/:deploymentId/deployment` returns it next to
+`activePushId`, source package, schema, function analysis, and codegen
+analysis.
+
+The source package hash is based on:
+
+- execution module path,
+- schema module path,
+- function module paths,
+- each module path,
+- each module environment, and
+- each module `sha256`.
+
+It intentionally does not hash raw source text directly because each module
+hash is already the source/source-map identity in the current source package
+contract.
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put` stores source packages as durable deployment
+    metadata and returns a `SourcePackageId`.
+- `crates/model/src/modules/types.rs`
+  - active module metadata stores `source_package_id`, environment, analyzed
+    metadata, and module `sha256`.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution can resolve source package metadata and pass package
+    identity/hash information into executor requests.
+
+Cloudflare difference:
+
+- Convex uses database-backed source package documents and module metadata.
+  Flarex currently stores a deterministic artifact reference in
+  `DeploymentDO` metadata and still keeps the source package JSON inline in
+  Durable Object SQLite.
+- The reference is not yet backed by R2, KV, or a hosted Dynamic Worker
+  artifact registry. It is the stable pointer that the hosted runtime will
+  consume later.
+
+Tests prove:
+
+- active deployment returns the expected artifact reference,
+- superseded push finish attempts do not move the active artifact reference,
+  and
+- a later activated push moves both `activePushId` and
+  `executionArtifactRef` together.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact

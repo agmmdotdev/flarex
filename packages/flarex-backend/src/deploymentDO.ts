@@ -12,6 +12,7 @@ import type {
   DeploymentFunctions,
   DeploymentSchema,
   Env,
+  ExecutionArtifactRef,
   FinishPushRequest,
   FunctionVisibility,
   Json,
@@ -175,6 +176,10 @@ export class DeploymentDO extends DurableObject<Env> {
   }
 
   private async finishPush(pushId: string, _request: FinishPushRequest): Promise<PushStatus> {
+    const preflight = this.getPush(pushId);
+    if (!preflight) throw new HttpError(404, `Unknown push: ${pushId}`);
+    const executionArtifactRef = await executionArtifactRefForSourcePackage(preflight.sourcePackage);
+
     return this.ctx.storage.transaction(async () => {
       const status = this.getPush(pushId);
       if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
@@ -194,6 +199,7 @@ export class DeploymentDO extends DurableObject<Env> {
       );
       this.setMeta("active_push_id", pushId);
       this.setMeta("active_activated_at", String(now));
+      this.setMeta("active_execution_artifact_ref", JSON.stringify(executionArtifactRef));
       const activated = this.getPush(pushId);
       if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
       return activated;
@@ -210,14 +216,24 @@ export class DeploymentDO extends DurableObject<Env> {
     if (push.analysis === undefined || push.codegenAnalysis === undefined) {
       throw new Error(`Active push ${activePushId} has no analyzed deployment metadata.`);
     }
+    const executionArtifactRef = this.getActiveExecutionArtifactRef(activePushId);
     return {
       activePushId,
       activatedAt: Number(this.getMeta("active_activated_at") ?? push.updatedAt),
       schemaVersion: push.analysis.schema.version,
+      executionArtifactRef,
       sourcePackage: push.sourcePackage,
       analysis: push.analysis,
       codegenAnalysis: push.codegenAnalysis,
     };
+  }
+
+  private getActiveExecutionArtifactRef(activePushId: string): ExecutionArtifactRef {
+    const raw = this.getMeta("active_execution_artifact_ref");
+    if (raw === null) {
+      throw new Error(`Active push ${activePushId} has no execution artifact reference.`);
+    }
+    return validateExecutionArtifactRef(JSON.parse(raw));
   }
 
   private getPush(pushId: string): PushStatus | null {
@@ -718,6 +734,68 @@ function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePack
     functions,
     ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
     execution: sourcePackage.execution,
+  };
+}
+
+async function executionArtifactRefForSourcePackage(
+  sourcePackage: PushSourcePackage,
+): Promise<ExecutionArtifactRef> {
+  const sourcePackageHash = await sha256Hex(stableSourcePackageManifest(sourcePackage));
+  return {
+    runtime: "dynamic-worker",
+    artifactId: `artifact_${sourcePackageHash.slice(0, 32)}`,
+    sourcePackageHash,
+    executionModule: sourcePackage.execution,
+  };
+}
+
+function stableSourcePackageManifest(sourcePackage: PushSourcePackage): string {
+  return JSON.stringify({
+    execution: sourcePackage.execution,
+    schema: sourcePackage.schema ?? null,
+    functions: [...sourcePackage.functions].sort(),
+    modules: [...sourcePackage.modules]
+      .map(module => ({
+        path: module.path,
+        environment: module.environment,
+        sha256: module.sha256,
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)]
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function validateExecutionArtifactRef(value: unknown): ExecutionArtifactRef {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Stored execution artifact reference is invalid.");
+  }
+  const ref = value as Partial<ExecutionArtifactRef>;
+  if (ref.runtime !== "dynamic-worker") {
+    throw new Error("Stored execution artifact reference has an invalid runtime.");
+  }
+  if (typeof ref.artifactId !== "string" || !/^artifact_[a-f0-9]{32}$/.test(ref.artifactId)) {
+    throw new Error("Stored execution artifact reference has an invalid artifact ID.");
+  }
+  if (
+    typeof ref.sourcePackageHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(ref.sourcePackageHash)
+  ) {
+    throw new Error("Stored execution artifact reference has an invalid source package hash.");
+  }
+  if (typeof ref.executionModule !== "string" || ref.executionModule.length === 0) {
+    throw new Error("Stored execution artifact reference has an invalid execution module.");
+  }
+  return {
+    runtime: ref.runtime,
+    artifactId: ref.artifactId,
+    sourcePackageHash: ref.sourcePackageHash,
+    executionModule: ref.executionModule,
   };
 }
 

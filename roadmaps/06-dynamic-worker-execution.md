@@ -346,3 +346,49 @@ Verification:
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
+
+## Active Execution Artifact Pointer Update
+
+Previous completed checkpoint: `4a6e66f` Resolve execution sessions from active
+deployment.
+
+The active deployment record now exposes `executionArtifactRef`, a deterministic
+pointer for the Flarex-managed Dynamic Worker runtime to load later.
+
+Current flow:
+
+```txt
+finish_push
+  -> compute source package manifest hash
+  -> store active_execution_artifact_ref
+  -> /deployment returns executionArtifactRef
+```
+
+Target hosted invoke flow:
+
+```txt
+active deployment
+  -> executionArtifactRef
+  -> Flarex-managed Dynamic Worker runtime
+  -> internal execution artifact invoke
+  -> backend execution session syscalls
+```
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests can carry source package identity and package hashes
+    when code is loaded outside the main Rust runtime.
+- `crates/model/src/source_packages/mod.rs`
+  - source package metadata is durable and retrieved by ID.
+
+Cloudflare difference: this is still only a pointer. The hosted Dynamic Worker
+adapter, artifact upload/storage, and internal `/__flarex_internal/invoke`
+loader are not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
