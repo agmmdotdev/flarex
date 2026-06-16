@@ -76,6 +76,11 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "push") {
       return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
     }
+    if (parts[2] === "deployment" && request.method === "GET") {
+      return env.DEPLOYMENTS
+        .getByName(deploymentObjectName(deploymentId))
+        .fetch("https://flarex.internal/deployment");
+    }
     if (parts[2] === "invoke" && request.method === "POST") {
       return routeInvoke(env, deploymentId, await readJson(request));
     }

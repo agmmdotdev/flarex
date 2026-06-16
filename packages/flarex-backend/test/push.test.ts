@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
+  ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
   DeploymentFunctions,
   DeploymentSchema,
@@ -33,6 +34,9 @@ describe("deployment push lifecycle", () => {
 
     await expect(getSchema("push-activation")).resolves.toEqual(normalizedActiveSchema());
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedActiveFunctions());
+    await expect(getActiveDeploymentResponse("push-activation")).resolves.toMatchObject({
+      status: 404,
+    });
 
     const status = await getPush("push-activation", start.pushId);
     expect(status).toMatchObject({
@@ -47,6 +51,13 @@ describe("deployment push lifecycle", () => {
     expect(finish.codegenAnalysis).toEqual(candidateCodegenAnalysis());
     await expect(getSchema("push-activation")).resolves.toEqual(normalizedCandidateSchema());
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedCandidateFunctions());
+    await expect(getActiveDeployment("push-activation")).resolves.toMatchObject({
+      activePushId: start.pushId,
+      schemaVersion: 2,
+      sourcePackage: sourcePackage(),
+      analysis: { schema: normalizedCandidateSchema(), functions: candidateFunctions() },
+      codegenAnalysis: candidateCodegenAnalysis(),
+    });
   });
 
   it("keeps public start source-only until backend analysis is configured", async () => {
@@ -73,10 +84,20 @@ describe("deployment push lifecycle", () => {
       state: "analyzed",
     });
 
+    const activated = await finishPush("push-supersede", second.pushId);
+    await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
+      activePushId: activated.pushId,
+      schemaVersion: 2,
+    });
+
     const response = await finishPushResponse("push-supersede", first.pushId);
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       error: `Cannot finish push ${first.pushId} in state superseded.`,
+    });
+    await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
+      activePushId: activated.pushId,
+      schemaVersion: 2,
     });
   });
 
@@ -294,6 +315,20 @@ async function getPush(deploymentId: string, pushId: string): Promise<PushStatus
   );
   expect(response.ok).toBe(true);
   return response.json() as Promise<PushStatus>;
+}
+
+async function getActiveDeployment(deploymentId: string): Promise<ActiveDeploymentStatus> {
+  const response = await getActiveDeploymentResponse(deploymentId);
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<ActiveDeploymentStatus>;
+}
+
+async function getActiveDeploymentResponse(
+  deploymentId: string,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/deployment`,
+  );
 }
 
 async function finishPush(deploymentId: string, pushId: string): Promise<PushStatus> {

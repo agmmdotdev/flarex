@@ -228,6 +228,15 @@ export type PushStatus = {
 
 export type StartPushResponse = PushStatus;
 
+export type ActiveDeploymentStatus = {
+  activePushId: string;
+  activatedAt: number;
+  schemaVersion: number;
+  sourcePackage: PushSourcePackage;
+  analysis: DeploymentAnalysis;
+  codegenAnalysis: DeploymentCodegenAnalysis;
+};
+
 export type FinishPushRequest = {
   activate?: boolean;
 };

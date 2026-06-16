@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
+  ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
   AnalyzedSourcePosition,
   DeploymentAnalysis,
@@ -78,6 +79,11 @@ export class DeploymentDO extends DurableObject<Env> {
       const url = new URL(request.url);
       if (url.pathname === "/health") {
         return json({ service: "flarex-deployment", status: "ok" });
+      }
+      if (url.pathname === "/deployment" && request.method === "GET") {
+        const active = this.getActiveDeployment();
+        if (!active) throw new HttpError(404, "No active deployment.");
+        return json(active);
       }
       if (url.pathname === "/schema" && request.method === "PUT") {
         return json(await this.putSchema(await readJson<DeploymentSchema>(request)));
@@ -186,10 +192,32 @@ export class DeploymentDO extends DurableObject<Env> {
         now,
         pushId,
       );
+      this.setMeta("active_push_id", pushId);
+      this.setMeta("active_activated_at", String(now));
       const activated = this.getPush(pushId);
       if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
       return activated;
     });
+  }
+
+  private getActiveDeployment(): ActiveDeploymentStatus | null {
+    const activePushId = this.getMeta("active_push_id");
+    if (activePushId === null) return null;
+    const push = this.getPush(activePushId);
+    if (push === null) {
+      throw new Error(`Active push ${activePushId} is missing.`);
+    }
+    if (push.analysis === undefined || push.codegenAnalysis === undefined) {
+      throw new Error(`Active push ${activePushId} has no analyzed deployment metadata.`);
+    }
+    return {
+      activePushId,
+      activatedAt: Number(this.getMeta("active_activated_at") ?? push.updatedAt),
+      schemaVersion: push.analysis.schema.version,
+      sourcePackage: push.sourcePackage,
+      analysis: push.analysis,
+      codegenAnalysis: push.codegenAnalysis,
+    };
   }
 
   private getPush(pushId: string): PushStatus | null {

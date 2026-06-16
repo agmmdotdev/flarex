@@ -2000,6 +2000,70 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+### Phase 5 Step 4 Implementation Update
+
+Previous completed checkpoint: `6db912b` Preserve analyzed function source
+positions.
+
+Added the first active deployment pointer to `DeploymentDO`.
+
+`finish_push` now records:
+
+```txt
+meta.active_push_id
+meta.active_activated_at
+```
+
+and `GET /deployments/:deploymentId/deployment` returns:
+
+```ts
+type ActiveDeploymentStatus = {
+  activePushId: string;
+  activatedAt: number;
+  schemaVersion: number;
+  sourcePackage: PushSourcePackage;
+  analysis: DeploymentAnalysis;
+  codegenAnalysis: DeploymentCodegenAnalysis;
+};
+```
+
+This keeps the active deployment version separate from candidate push state.
+Starting a push still stores a candidate and leaves active deployment metadata
+unchanged until `finish_push` succeeds.
+
+Convex references copied in principle:
+
+- `crates/application/src/deploy_config.rs`
+  - `finish_push` is the activation boundary for checked deployment contents.
+- `crates/model/src/modules/mod.rs`
+  - active module metadata is applied as durable deployment state and used for
+    later function resolution.
+
+Intentional and temporary differences:
+
+- Convex stores richer module/config versions. Flarex currently points to the
+  activated push row and keeps the source package inline in Durable Object
+  SQLite as prototype storage.
+- There is no active Dynamic Worker artifact pointer yet. That field should be
+  added when hosted source-package loading is implemented.
+- Legacy direct `/schema` and `/functions` PUT routes can still mutate active
+  metadata without setting an active push pointer. Those routes remain
+  prototype/test helpers and should be removed from normal deployment flow.
+
+Tests prove:
+
+- a candidate push does not create an active deployment before finish,
+- finishing a push records the active push, schema version, source package, and
+  analyzed metadata, and
+- a later failed finish on a superseded push does not move the active pointer.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -2147,3 +2211,9 @@ Worker runtime.
 Added a local analyzer gate that analyzes the same source package twice through
 fresh execution artifacts and rejects nondeterministic analyzed metadata before
 the backend stores it.
+
+### `6db912b` Preserve analyzed function source positions
+
+Added source-position metadata to analyzed functions and preserved it through
+local analysis, backend push state, active function metadata, codegen analysis,
+and generated function metadata.

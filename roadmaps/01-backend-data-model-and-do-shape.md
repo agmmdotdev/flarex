@@ -306,3 +306,41 @@ Verification:
 ```sh
 git diff --check
 ```
+
+## Active Deployment Pointer Update
+
+Previous completed checkpoint: `6db912b` Preserve analyzed function source
+positions.
+
+`DeploymentDO` now records the first active deployment pointer in its `meta`
+table:
+
+```txt
+active_push_id
+active_activated_at
+```
+
+`finish_push` sets those values only after applying the candidate schema and
+function metadata. `GET /deployments/:deploymentId/deployment` reads the active
+push row and returns active source package, analysis, codegen analysis, schema
+version, and activation timestamp.
+
+Convex reference:
+
+- `crates/application/src/deploy_config.rs`
+  - deployment activation is a distinct finish step after candidate analysis.
+- `crates/model/src/modules/mod.rs`
+  - active module metadata is durable deployment state used for function
+    resolution.
+
+Cloudflare difference: Flarex currently uses the activated push row as the
+source package reference and stores source package JSON inline in Durable
+Object SQLite. Large source package storage and the active Dynamic Worker
+artifact pointer remain future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
