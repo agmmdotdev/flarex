@@ -459,6 +459,45 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Import-Phase Prelude Update
+
+Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push
+state.
+
+Local execution-artifact analysis now installs a Convex-inspired import-phase
+prelude before dynamically importing developer modules.
+
+The prelude provides deterministic local-dev analysis behavior for:
+
+- `Date.now()`,
+- zero-argument `new Date()`,
+- `Math.random()`.
+
+It rejects these import-time APIs with structured diagnostics:
+
+- `fetch()`,
+- `crypto.randomUUID()`,
+- `crypto.getRandomValues()`,
+- `performance.now()`.
+
+Convex reference:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - analysis uses a configured import timestamp and seeded RNG, while rejecting
+    crypto randomness and Performance APIs during import.
+
+Cloudflare difference: this is implemented as a generated Worker prelude in
+local Miniflare analysis. Hosted analysis must enforce the same behavior in
+the platform-managed execution artifact and verify that global patching is
+portable across Workers for Platforms dispatch isolates.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Verification
 
 ```sh

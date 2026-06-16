@@ -1778,6 +1778,69 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+### Phase 5 Step 1 Implementation Update
+
+Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in
+push state.
+
+Added the first import-phase compatibility prelude to the local execution
+artifact analyzer.
+
+Before importing developer modules for analysis, the generated artifact now:
+
+- captures console diagnostics,
+- installs a fixed `Date.now()` and zero-argument `new Date()` timestamp,
+- installs deterministic `Math.random()`,
+- rejects import-time `fetch()`,
+- rejects import-time `crypto.randomUUID()`,
+- rejects import-time `crypto.getRandomValues()`,
+- rejects import-time `performance.now()`.
+
+Rejected import-time APIs throw clear deployment-analysis errors and append an
+`error` diagnostic before the import fails. This makes failed analysis useful
+to the pusher and keeps the candidate push state compatible with the structured
+diagnostics added in the previous checkpoint.
+
+Convex references copied in principle:
+
+- `crates/isolate/src/environment/analyze.rs`
+  - `AnalyzeEnvironment` seeds `ChaCha12Rng` from
+    `udf_config.import_phase_rng_seed`.
+  - `unix_timestamp()` returns `udf_config.import_phase_unix_timestamp`.
+  - `crypto_rng()` rejects cryptographic randomness at import time.
+  - `performance_now()` and `performance_time_origin()` reject the Performance
+    API at import time.
+  - `syscall()` and async syscall paths reject database/syscall use at import
+    time.
+
+Intentional and temporary differences:
+
+- Convex enforces these rules inside its Rust/V8 isolate environment. Flarex
+  currently enforces them in a generated Miniflare analysis prelude by patching
+  globals before dynamic imports.
+- Convex supports a configured import timestamp and RNG seed per deployment
+  config. Flarex currently uses fixed prototype constants and must later make
+  them deployment-configurable and persisted.
+- This slice does not yet block database/syscall access because user code still
+  has no analysis-time `ctx.db` or syscall capability. That must remain true
+  when the hosted execution artifact runtime is added.
+- Hosted Workers for Platforms analysis still needs probes to verify which
+  globals can be patched consistently across cold isolates.
+
+Tests prove:
+
+- two separate local analysis artifacts observe identical import-time
+  `Date.now()`, `new Date()`, and `Math.random()` diagnostics, and
+- top-level `fetch`, `crypto.randomUUID`, `crypto.getRandomValues`, and
+  `performance.now` fail analysis with structured diagnostics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Phase 5: Import-Phase Compatibility Layer
 
 1. Port Convex's import-phase restrictions into the Flarex execution-artifact
@@ -1907,3 +1970,9 @@ codegen to consume the backend push response.
 Added `LocalBackendPushCoordinator`, moved local artifact analysis out of the
 dev reload loop, and made `flarex-dev` tests run serially for stable
 Vite/esbuild/Miniflare execution on Windows.
+
+### `b3e17bb` Preserve analyzer diagnostics in push state
+
+Added structured analyzer diagnostics to the push contract, persisted them in
+`DeploymentDO`, and captured import-time console output in the local execution
+artifact analyzer.

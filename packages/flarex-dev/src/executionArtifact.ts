@@ -103,7 +103,7 @@ const schemaImport = ${schemaImport === null ? "null" : JSON.stringify(schemaImp
 
 async function analyze() {
   const diagnostics = [];
-  const restoreConsole = installConsoleCapture(diagnostics);
+  const restoreAnalysisPrelude = installAnalysisPrelude(diagnostics);
   try {
     const executionModule = await import(executionImport);
     const schemaModule = schemaImport === null
@@ -122,8 +122,17 @@ async function analyze() {
     }
     throw error;
   } finally {
-    restoreConsole();
+    restoreAnalysisPrelude();
   }
+}
+
+function installAnalysisPrelude(diagnostics) {
+  const restoreConsole = installConsoleCapture(diagnostics);
+  const restoreGlobals = installImportPhaseGlobals(diagnostics);
+  return () => {
+    restoreGlobals();
+    restoreConsole();
+  };
 }
 
 function installConsoleCapture(diagnostics) {
@@ -152,6 +161,109 @@ function installConsoleCapture(diagnostics) {
     console.warn = original.warn;
     console.error = original.error;
   };
+}
+
+function installImportPhaseGlobals(diagnostics) {
+  const restore = [];
+  installDeterministicDate(restore);
+  installDeterministicRandom(restore);
+  installRejectedGlobal(restore, diagnostics, globalThis, "fetch", "fetch is not supported during Flarex analysis import.");
+  installRejectedCrypto(restore, diagnostics);
+  installRejectedPerformance(restore, diagnostics);
+  return () => {
+    for (let index = restore.length - 1; index >= 0; index--) {
+      restore[index]();
+    }
+  };
+}
+
+function installDeterministicDate(restore) {
+  const OriginalDate = Date;
+  const fixedUnixTimeMs = 1700000000000;
+  class FlarexAnalysisDate extends OriginalDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super(fixedUnixTimeMs);
+      } else {
+        super(...args);
+      }
+    }
+    static now() {
+      return fixedUnixTimeMs;
+    }
+  }
+  FlarexAnalysisDate.UTC = OriginalDate.UTC;
+  FlarexAnalysisDate.parse = OriginalDate.parse;
+  installValue(restore, globalThis, "Date", FlarexAnalysisDate);
+}
+
+function installDeterministicRandom(restore) {
+  let seed = 0x5eed1234;
+  installValue(restore, Math, "random", () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  });
+}
+
+function installRejectedCrypto(restore, diagnostics) {
+  if (!isRecord(globalThis.crypto)) return;
+  installRejectedGlobal(
+    restore,
+    diagnostics,
+    globalThis.crypto,
+    "randomUUID",
+    "crypto.randomUUID is not supported during Flarex analysis import.",
+  );
+  installRejectedGlobal(
+    restore,
+    diagnostics,
+    globalThis.crypto,
+    "getRandomValues",
+    "crypto.getRandomValues is not supported during Flarex analysis import.",
+  );
+}
+
+function installRejectedPerformance(restore, diagnostics) {
+  if (!isRecord(globalThis.performance)) return;
+  installRejectedGlobal(
+    restore,
+    diagnostics,
+    globalThis.performance,
+    "now",
+    "performance.now is not supported during Flarex analysis import.",
+  );
+}
+
+function installRejectedGlobal(restore, diagnostics, target, key, message) {
+  installValue(restore, target, key, () => {
+    diagnostics.push({ level: "error", message });
+    if (diagnostics.length > 100) diagnostics.shift();
+    throw new Error(message);
+  });
+}
+
+function installValue(restore, target, key, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key);
+  try {
+    Object.defineProperty(target, key, {
+      configurable: true,
+      writable: true,
+      value,
+    });
+  } catch {
+    return;
+  }
+  restore.push(() => {
+    if (descriptor === undefined) {
+      try {
+        delete target[key];
+      } catch {}
+      return;
+    }
+    try {
+      Object.defineProperty(target, key, descriptor);
+    } catch {}
+  });
 }
 
 function formatConsoleArg(value) {
