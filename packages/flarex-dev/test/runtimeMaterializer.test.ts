@@ -1,0 +1,217 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  createExecutionArtifactRuntimeService,
+  type ExecutionArtifactInvokePayload,
+  type ExecutionArtifactMaterializer,
+  type MaterializedExecutionArtifact,
+} from "flarex-backend/artifact-runtime";
+import {
+  R2BackendExecutionArtifactStore,
+  type R2BucketLike,
+} from "flarex-backend/artifact-store";
+import { afterAll, describe, expect, it } from "vitest";
+import { createBackendHarness, type BackendHarness } from "flarex-backend/test/backendHarness";
+import {
+  backendAnalysisFromCodegenAnalysis,
+} from "../src/backendPush";
+import { LocalMiniflareExecutionArtifactAdapter } from "../src/executionArtifact";
+import {
+  bundleFlarexSourcePackage,
+  initialCodegen,
+} from "../src/generate";
+import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMaterializer";
+
+describe("runtime materializer", () => {
+  const harnesses: BackendHarness[] = [];
+
+  afterAll(async () => {
+    await Promise.all(harnesses.map(harness => harness.dispose()));
+  });
+
+  it("materializes a stored source package and invokes it through backend sessions", async () => {
+    const root = await createProject();
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+    const codegenAnalysis = await new LocalMiniflareExecutionArtifactAdapter()
+      .analyze(sourcePackage);
+    const analysis = backendAnalysisFromCodegenAnalysis(codegenAnalysis);
+
+    let materializeCount = 0;
+    let harness!: BackendHarness;
+    const baseMaterializer = new LocalMiniflareExecutionArtifactMaterializer({
+      internalToken: "artifact-internal",
+      backend: request => dispatchBackend(harness, request),
+    });
+    const materializer: ExecutionArtifactMaterializer = {
+      materialize: async (payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact> => {
+        materializeCount += 1;
+        return baseMaterializer.materialize(payload);
+      },
+    };
+
+    harness = await createBackendHarness({
+      bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret" },
+      r2Buckets: ["ARTIFACTS"],
+      serviceBindings: {
+        FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
+          capabilityToken: "runtime-secret",
+          materializer,
+        }),
+      },
+    });
+    harnesses.push(harness);
+
+    const deploymentId = "runtime-materializer";
+    const start = await startPush(harness, deploymentId, {
+      sourcePackage,
+      analysis,
+    });
+    const bucket = await harness.mf.getR2Bucket("ARTIFACTS");
+    await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike)
+      .put(sourcePackage);
+    await finishPush(harness, deploymentId, start.pushId);
+
+    const created = await invoke(harness, deploymentId, {
+      path: "messages:create",
+      kind: "mutation",
+      partitionKey: "lesson:1",
+      args: { text: "hello" },
+    });
+    const createBody = await created.json() as {
+      value: { id: string };
+      committedTs: number;
+      writes: Array<{ value: { text: string; done: boolean } }>;
+    };
+    expect({ status: created.status, body: createBody }).toMatchObject({ status: 200 });
+    expect(createBody.value.id).toMatch(/^1:/);
+    expect(createBody.writes).toEqual([
+      expect.objectContaining({
+        value: { text: "hello", done: true },
+      }),
+    ]);
+
+    const listed = await invoke(harness, deploymentId, {
+      path: "messages:list",
+      kind: "query",
+      partitionKey: "lesson:1",
+      args: {},
+    });
+    const listBody = await listed.json();
+    expect({ status: listed.status, body: listBody }).toMatchObject({ status: 200 });
+    expect(listBody).toMatchObject({
+      value: [
+        {
+          _id: createBody.value.id,
+          text: "hello",
+          done: true,
+        },
+      ],
+    });
+    expect(materializeCount).toBe(1);
+  });
+});
+
+async function createProject(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-runtime-materializer-"));
+  await mkdir(path.join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    path.join(root, "flarex/schema.ts"),
+    `import { defineSchema, defineTable } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  messages: defineTable({
+    text: v.string(),
+    done: v.boolean(),
+  }).index("by_text", ["text"]).partitionBy("_id"),
+});
+`,
+  );
+  await writeFile(
+    path.join(root, "flarex/functions/messages.ts"),
+    `import { mutation, query } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  args: { text: v.string() },
+  returns: v.object({ id: v.id("messages") }),
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("messages", { text: args.text, done: false });
+    await ctx.db.patch(id, { done: true });
+    return { id };
+  },
+});
+
+export const list = query({
+  args: {},
+  handler: async ctx => {
+    return await ctx.db.query("messages").withIndex("by_text", q => q.eq("text", "hello")).collect();
+  },
+});
+`,
+  );
+  return root;
+}
+
+async function dispatchBackend(harness: BackendHarness, request: Request): Promise<Response> {
+  const init = {
+    method: request.method,
+    headers: Object.fromEntries(request.headers.entries()),
+    ...(request.method === "GET" || request.method === "HEAD"
+      ? {}
+      : { body: await request.text() }),
+  };
+  return harness.mf.dispatchFetch(request.url, {
+    ...init,
+  }) as unknown as Promise<Response>;
+}
+
+async function startPush(
+  harness: BackendHarness,
+  deploymentId: string,
+  body: unknown,
+): Promise<{ pushId: string }> {
+  const response = await harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<{ pushId: string }>;
+}
+
+async function finishPush(
+  harness: BackendHarness,
+  deploymentId: string,
+  pushId: string,
+): Promise<void> {
+  const response = await harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  expect(response.ok).toBe(true);
+}
+
+function invoke(
+  harness: BackendHarness,
+  deploymentId: string,
+  body: unknown,
+): Promise<Response> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/invoke`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  ) as unknown as Promise<Response>;
+}

@@ -39,6 +39,13 @@ export type {
   ExecutionArtifactRuntime,
 } from "./executionArtifact.ts";
 export {
+  LocalMiniflareExecutionArtifactMaterializer,
+} from "./runtimeMaterializer.ts";
+export type {
+  LocalMiniflareExecutionArtifactMaterializerOptions,
+  RuntimeBackendDispatcher,
+} from "./runtimeMaterializer.ts";
+export {
   LocalInMemoryExecutionArtifactStore,
   manifestKey,
   R2ExecutionArtifactStore,

@@ -571,6 +571,46 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Stored Source Package Invoke Update
+
+Previous completed checkpoint: `0447832` Add artifact runtime materializer
+cache.
+
+Added a local materializer that executes the stored source package itself,
+rather than relying on a generated app Worker file as the invoke artifact.
+
+For local proof, the materializer uses Miniflare:
+
+```txt
+source package from active deployment storage
+  -> LocalMiniflareExecutionArtifactMaterializer
+  -> internal runtime wrapper imports _flarex/execution.js
+  -> function handler receives syscall-backed ctx.db
+  -> backend execution session owns validation and commit
+```
+
+This keeps local development aligned with the hosted target: the source package
+is the durable input, and the execution artifact is Flarex-managed.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev coordinates source push and backend execution instead of asking
+    the application server to own database execution.
+- `crates/application/src/application_function_runner/mod.rs`
+  - runtime execution is reached through a backend-owned runner boundary.
+
+Cloudflare difference: Miniflare is still the development implementation of
+the execution-artifact loader. Hosted Flarex should replace this with the
+Dynamic Worker runtime without changing the source-package push contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+```
+
 ## Import-Phase Prelude Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push

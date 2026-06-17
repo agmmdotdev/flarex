@@ -31,6 +31,11 @@ Flarex must guarantee transaction serializability, schema invariants, and data s
   handles and close-timeout warning after example tests pass.
 - Made the backend test harness resolve its Worker entry from the harness file
   path instead of the process cwd, so other packages can reuse it safely.
+- Added a cross-package runtime materializer integration test proving a stored
+  source package can be loaded from backend R2, materialized in Miniflare,
+  invoked through public backend `/invoke`, and executed through backend
+  sessions/syscalls. The test also verifies the runtime cache reuses the
+  materialized artifact across mutation and query calls.
 
 ## Why This Shape
 
@@ -87,4 +92,41 @@ corepack pnpm --filter flarex-backend test
 corepack pnpm --filter @flarex/example test
 corepack pnpm typecheck
 corepack pnpm test
+```
+
+## Runtime Materializer Test Update
+
+Previous completed checkpoint: `0447832` Add artifact runtime materializer
+cache.
+
+`packages/flarex-dev/test/runtimeMaterializer.test.ts` now covers the full
+stored-package invoke shape:
+
+```txt
+start analyzed push
+  -> put source package in backend R2 store
+  -> finish push
+  -> public backend invoke
+  -> artifact runtime cache
+  -> local Miniflare materializer
+  -> backend execution sessions
+```
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution routes through a backend-owned runner after active deployment
+    metadata is resolved.
+- `crates/application/src/module_cache/mod.rs`
+  - loaded execution state is cached by package/module identity.
+
+Cloudflare difference: this is an integration test over Miniflare Workers,
+Durable Objects, and R2 rather than Convex's internal simulation framework. It
+proves the runtime boundary but does not yet simulate DO eviction, runtime
+eviction, or concurrent OCC retries.
+
+Verified with:
+
+```sh
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 ```

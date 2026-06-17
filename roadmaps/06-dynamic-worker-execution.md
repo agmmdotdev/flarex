@@ -393,6 +393,56 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Local Source Package Materializer Update
+
+Previous completed checkpoint: `0447832` Add artifact runtime materializer cache.
+
+Added the first concrete execution artifact materializer for development:
+`LocalMiniflareExecutionArtifactMaterializer`.
+
+It consumes the stored `flarex/` source package, builds a Worker-shaped module
+graph in Miniflare, generates a small internal runtime wrapper, imports the
+package's `_flarex/execution.js` entrypoint, resolves `module:export`
+functions, and runs query/mutation handlers with only a syscall-backed
+`ctx.db`.
+
+The materialized runtime calls:
+
+```txt
+developer function
+  -> ctx.db syscall client
+  -> backend /executions/:sessionId/syscall
+  -> backend /executions/:sessionId/finish
+  -> PartitionDO commit for mutations
+```
+
+The developer still uploads only the `flarex/` source package. This is not a
+developer Worker and not a whole-app bundle.
+
+Convex references inspected:
+
+- `crates/application/src/module_cache/mod.rs`
+  - module cache identity includes module path and sha256.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves source package identity before invoking an executor.
+- `crates/node_executor/src/executor.rs`
+  - executor requests carry source package identity/hash and report import
+    timing.
+
+Cloudflare difference: Convex materializes modules inside its Rust/V8 or Node
+executor path. Flarex currently materializes the source package in a local
+Miniflare isolate; the hosted replacement should be the Flarex-managed Dynamic
+Worker loader with the same `ExecutionArtifactMaterializer` contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- artifactRuntimeRoute.test.ts
+```
+
 ## Runtime Capability Authorization Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact
