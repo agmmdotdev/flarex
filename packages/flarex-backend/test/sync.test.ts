@@ -266,6 +266,139 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("executes mutations over sync and refreshes same-partition queries", async () => {
+    let currentName = "Ada";
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, async payload => {
+      if (payload.request.kind === "mutation") {
+        currentName = (payload.request.args as { name: string }).name;
+        return { ok: true };
+      }
+      return { user: currentName };
+    });
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-mutation-deployment");
+
+    const ws = await openSync(harness, "sync-mutation-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 12,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const messages = collectJsonMessages(ws, 2);
+    ws.send(JSON.stringify({
+      type: "Mutation",
+      requestId: 21,
+      udfPath: "users:update",
+      args: [{ name: "Grace" }],
+      partitionKey: "user:ada",
+    }));
+
+    await expect(messages).resolves.toEqual([
+      expect.objectContaining({
+        type: "MutationResponse",
+        requestId: 21,
+        success: true,
+        result: { ok: true },
+        logLines: [],
+      }),
+      expect.objectContaining({
+        type: "Transition",
+        modifications: [
+          expect.objectContaining({
+            type: "QueryUpdated",
+            queryId: 12,
+            value: { user: "Grace" },
+          }),
+        ],
+      }),
+    ]);
+    expect(runtimeCalls).toEqual([
+      expect.objectContaining({ request: expect.objectContaining({ kind: "query" }) }),
+      expect.objectContaining({ request: expect.objectContaining({ kind: "mutation" }) }),
+      expect.objectContaining({ request: expect.objectContaining({ kind: "query" }) }),
+    ]);
+    ws.close();
+  });
+
+  it("returns a mutation failure when partitionKey is missing", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-mutation-failure-deployment");
+
+    const ws = await openSync(harness, "sync-mutation-failure-deployment");
+    const response = nextJsonMessage(ws);
+    ws.send(JSON.stringify({
+      type: "Mutation",
+      requestId: 22,
+      udfPath: "users:update",
+      args: [{ name: "Grace" }],
+    }));
+
+    await expect(response).resolves.toEqual({
+      type: "MutationResponse",
+      requestId: 22,
+      success: false,
+      result: "Mutation.partitionKey is required until Flarex routing inference is implemented.",
+      logLines: [],
+    });
+    ws.close();
+  });
+
+  it("executes sync mutations sequentially per connection", async () => {
+    let releaseFirst!: () => void;
+    const firstMutationGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const mutationOrder: number[] = [];
+    const harness = await createSyncHarness([], async payload => {
+      if (payload.request.kind !== "mutation") return null;
+      const requestId = (payload.request.args as { requestId: number }).requestId;
+      mutationOrder.push(requestId);
+      if (requestId === 1) await firstMutationGate;
+      return { requestId };
+    });
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-mutation-queue-deployment");
+
+    const ws = await openSync(harness, "sync-mutation-queue-deployment");
+    const messages = collectJsonMessages(ws, 2);
+    ws.send(JSON.stringify({
+      type: "Mutation",
+      requestId: 1,
+      udfPath: "users:update",
+      args: [{ requestId: 1 }],
+      partitionKey: "user:ada",
+    }));
+    ws.send(JSON.stringify({
+      type: "Mutation",
+      requestId: 2,
+      udfPath: "users:update",
+      args: [{ requestId: 2 }],
+      partitionKey: "user:ada",
+    }));
+    await waitFor(() => mutationOrder.length === 1);
+    releaseFirst();
+
+    await expect(messages).resolves.toEqual([
+      expect.objectContaining({ type: "MutationResponse", requestId: 1 }),
+      expect.objectContaining({ type: "MutationResponse", requestId: 2 }),
+    ]);
+    expect(mutationOrder).toEqual([1, 2]);
+    ws.close();
+  });
+
   it("reports query failures inside transitions", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);
@@ -328,7 +461,14 @@ describe("sync protocol", () => {
 
 async function createSyncHarness(
   runtimeCalls: unknown[],
-  valueForRequest: (payload: { request: { path: string; args: unknown } }) => Json | Promise<Json> =
+  valueForRequest: (payload: {
+    request: {
+      path: string;
+      kind?: "query" | "mutation";
+      args: unknown;
+      partitionKey: string;
+    };
+  }) => Json | Promise<Json> =
     payload => ({
       result: payload.request.path,
       args: payload.request.args as Json,

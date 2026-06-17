@@ -13,6 +13,7 @@ import {
   parseClientMessage,
   type AddQuery,
   type ClientMessage,
+  type MutationRequest,
   type QueryId,
   type ServerMessage,
   type StateModification,
@@ -42,6 +43,8 @@ type ConnectionState = {
 };
 
 export class ConnectionDO extends DurableObject<Env> {
+  private mutationQueue: Promise<void> = Promise.resolve();
+
   private readonly state: ConnectionState = {
     deploymentId: null,
     connectionName: null,
@@ -111,6 +114,8 @@ export class ConnectionDO extends DurableObject<Env> {
         await this.applyQuerySetModifications(ws, message.baseVersion, message.modifications);
         return;
       case "Mutation":
+        this.enqueueMutation(ws, message);
+        return;
       case "Action":
         send(ws, {
           type: "FatalError",
@@ -121,6 +126,58 @@ export class ConnectionDO extends DurableObject<Env> {
         return;
       default:
         message satisfies never;
+    }
+  }
+
+  private enqueueMutation(ws: WebSocket, message: MutationRequest): void {
+    this.mutationQueue = this.mutationQueue
+      .then(() => this.executeMutation(ws, message))
+      .catch(error => {
+        send(ws, {
+          type: "FatalError",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  private async executeMutation(ws: WebSocket, message: MutationRequest): Promise<void> {
+    const partitionKey = message.partitionKey;
+    if (partitionKey === undefined || partitionKey.length === 0) {
+      send(ws, {
+        type: "MutationResponse",
+        requestId: message.requestId,
+        success: false,
+        result: "Mutation.partitionKey is required until Flarex routing inference is implemented.",
+        logLines: [],
+      });
+      return;
+    }
+
+    try {
+      const deploymentId = requireDeploymentId(this.state.deploymentId);
+      const response = await executeSyncInvoke(this.env, deploymentId, {
+        path: message.udfPath,
+        kind: "mutation",
+        partitionKey,
+        args: argsObjectForInvoke(message.args),
+      });
+      send(ws, {
+        type: "MutationResponse",
+        requestId: message.requestId,
+        success: true,
+        result: response.value,
+        ...(response.committedTs === undefined ? {} : { ts: response.committedTs }),
+        logLines: [],
+      });
+      await this.rerunQueriesForPartition(ws, partitionKey);
+    } catch (error) {
+      send(ws, {
+        type: "MutationResponse",
+        requestId: message.requestId,
+        success: false,
+        result: errorMessage(error),
+        logLines: [],
+      });
     }
   }
 
@@ -258,6 +315,26 @@ export class ConnectionDO extends DurableObject<Env> {
       query.rerunQueued = false;
     }
     return json({ invalidated: true });
+  }
+
+  private async rerunQueriesForPartition(ws: WebSocket, partitionKey: string): Promise<void> {
+    const stateModifications: StateModification[] = [];
+    const startVersion = this.currentVersion();
+    for (const query of this.state.queries.values()) {
+      if (query.partitionKey !== partitionKey) continue;
+      const modification = await this.executeQuery(query, { emitUnchanged: false });
+      if (modification?.type === "QueryUpdated") {
+        await this.registerQuery(query);
+      } else if (modification?.type === "QueryFailed") {
+        await this.unregisterQuery(query.queryId);
+      } else {
+        await this.registerQuery(query);
+      }
+      if (modification !== null) stateModifications.push(modification);
+    }
+    if (stateModifications.length > 0) {
+      await this.sendTransition(ws, startVersion, stateModifications);
+    }
   }
 
   private async registerQuery(query: ActiveQuery): Promise<void> {

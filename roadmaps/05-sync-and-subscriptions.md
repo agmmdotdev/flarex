@@ -21,6 +21,9 @@ OCC, and notifies the owning `ConnectionDO` to rerun invalidated queries.
 `ConnectionDO` fingerprints query results, refreshes read-set registrations on
 unchanged reruns, and suppresses `QueryUpdated` when the query result did not
 change.
+It also accepts Convex-style `Mutation` messages over `/sync`, executes them
+sequentially per connection, emits `MutationResponse`, and reruns active
+queries on the same partition after successful mutations.
 
 A detailed implementation plan now lives in
 [`05-sync-protocol-implementation.md`](./05-sync-protocol-implementation.md).
@@ -64,17 +67,18 @@ projections they read.
 - Subscription invalidation is partition-local only.
 - Subscription state is still in `ConnectionDO` memory; durable WebSocket
   hibernation/recovery is not implemented.
-- Mutation and action execution over `/sync` is not implemented yet.
+- Action execution over `/sync` is not implemented yet.
 - No cross-shard subscription aggregation exists yet.
-- `partitionKey` is still required in `AddQuery` until routing inference exists.
+- `partitionKey` is still required in `AddQuery` and Flarex `Mutation` messages
+  until routing inference exists.
 
 ## Last Update
 
-Implemented partition-local subscription invalidation. `ConnectionDO` now
-deduplicates invalidation reruns by result fingerprint and queues concurrent
-invalidations for the same query so only one rerun is active at a time.
+Implemented mutation execution over `/sync`. `ConnectionDO` now queues
+mutations per connection, emits `MutationResponse`, and reruns same-partition
+active queries after successful mutations.
 
-Previous completed checkpoint: `e15c749` Add partition-local sync invalidation.
+Previous completed checkpoint: `e881c54` Deduplicate sync invalidation reruns.
 
 Validation:
 

@@ -414,7 +414,8 @@ Validation:
 Known limitations:
 
 - No `PartitionDO` invalidation registration yet.
-- No mutation/action-over-sync queue yet.
+- Mutation-over-sync is handled in the next checkpoint. No action-over-sync
+  queue yet.
 - No client SDK integration yet.
 - No cross-shard live query support yet.
 
@@ -519,7 +520,61 @@ Validation:
 Known limitations:
 
 - Result fingerprints do not include log lines yet.
-- No mutation/action-over-sync queue yet.
+- No action-over-sync queue yet.
+- No client SDK integration yet.
+- No cross-shard live query aggregation yet.
+- No durable subscription recovery across hibernation/restart yet.
+
+### `e881c54` Deduplicate sync invalidation reruns
+
+Changed:
+
+- Extended Flarex `Mutation` sync messages with temporary `partitionKey`.
+- Added per-connection mutation queueing in `ConnectionDO`.
+- Executed sync mutations through the same active deployment artifact-runtime
+  path as invoke and query sync.
+- Emitted Convex-style `MutationResponse` messages for success and failure.
+- Reran active same-partition queries after successful mutations.
+- Added tests for mutation success plus query refresh, missing partition key
+  failure, and sequential mutation execution.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  queues mutations through `mutation_sender` and executes only one mutation at
+  a time for a sync worker.
+- `crates/sync/src/worker.rs`
+  emits `ServerMessage::MutationResponse` and schedules query updates after
+  mutation completion.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  sends `Mutation` messages with `requestId`, `udfPath`, and encoded args, and
+  resolves client-side mutation promises from mutation responses.
+
+Flarex differences:
+
+- Flarex temporarily requires `partitionKey` on `Mutation` messages because the
+  backend routes writes to one `PartitionDO`.
+- Flarex currently reruns all active queries on the same partition after a
+  successful mutation. Convex uses its subscription invalidation machinery and
+  stronger timestamp coordination.
+- Flarex mutation responses include `committedTs` as `ts` when available, but
+  log lines are not wired through yet.
+
+Validation:
+
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts`
+- `corepack pnpm --filter flarex-backend test`
+- `corepack pnpm --filter flarex-backend build`
+- `corepack pnpm --filter @flarex/backend typecheck`
+- `corepack pnpm --filter @flarex/backend build`
+
+Known limitations:
+
+- No action-over-sync queue yet.
+- Mutation-triggered query refresh is partition-local.
+- Mutation/query refresh ordering can still be improved around backend
+  invalidation notifications from real commits.
 - No client SDK integration yet.
 - No cross-shard live query aggregation yet.
 - No durable subscription recovery across hibernation/restart yet.

@@ -49,6 +49,7 @@ export type MutationRequest = {
   requestId: RequestId;
   udfPath: string;
   args: Json[];
+  partitionKey?: string;
 };
 
 export type ActionRequest = {
@@ -180,7 +181,7 @@ export function parseClientMessage(value: unknown): ClientMessage {
     case "Authenticate":
       return parseAuthenticate(value);
     case "Mutation":
-      return parseRequestMessage(value, "Mutation");
+      return parseMutationRequest(value);
     case "Action":
       return parseRequestMessage(value, "Action");
     case "Event":
@@ -247,6 +248,20 @@ function parseAuthenticate(value: Record<string, unknown>): Authenticate {
     };
   }
   throw new Error("Authenticate.tokenType must be User, Admin, or None.");
+}
+
+function parseMutationRequest(value: Record<string, unknown>): MutationRequest {
+  const args = value.args;
+  if (!Array.isArray(args)) throw new Error("Mutation.args must be an array.");
+  return {
+    type: "Mutation",
+    requestId: requiredInteger(value.requestId, "requestId"),
+    udfPath: requiredString(value.udfPath, "udfPath"),
+    args: args.map(assertJson),
+    ...(value.partitionKey === undefined
+      ? {}
+      : { partitionKey: requiredString(value.partitionKey, "partitionKey") }),
+  };
 }
 
 function parseRequestMessage<T extends "Mutation" | "Action">(
