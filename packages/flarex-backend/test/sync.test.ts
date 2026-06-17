@@ -153,6 +153,119 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
+    const harness = await createSyncHarness([], () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-dedup-deployment");
+
+    const ws = await openSync(harness, "sync-dedup-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 10,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", queryId: 10 }],
+    });
+
+    const invalidated = nextJsonMessage(ws);
+    await commitDirect(harness, "sync-dedup-deployment", "user:ada", {
+      beginTs: 0,
+      writes: [{ tableId: 1, id: "1:ada", value: { name: "Ada", revision: 2 } }],
+    });
+
+    await expect(invalidated).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 0 },
+      endVersion: { querySet: 1, ts: 4, identity: 0 },
+      modifications: [],
+    });
+    ws.close();
+  });
+
+  it("coalesces concurrent invalidations for one query", async () => {
+    let currentName = "Ada";
+    let blockRerun = false;
+    let releaseRerun!: () => void;
+    const rerunGate = new Promise<void>(resolve => {
+      releaseRerun = resolve;
+    });
+    let invocationCount = 0;
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, async () => {
+      invocationCount += 1;
+      if (blockRerun && invocationCount === 2) await rerunGate;
+      return { user: currentName };
+    });
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-coalesce-deployment");
+
+    const ws = await openSync(harness, "sync-coalesce-deployment", "coalesce-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 11,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-coalesce-deployment:coalesce-session",
+    );
+    blockRerun = true;
+    currentName = "Grace";
+    const firstInvalidation = connection.fetch("https://flarex.internal/invalidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queryId: 11, invalidatedTs: 1 }),
+    });
+    await waitFor(() => invocationCount === 2);
+    currentName = "Lin";
+    const secondInvalidation = await connection.fetch("https://flarex.internal/invalidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queryId: 11, invalidatedTs: 2 }),
+    });
+    await expect(secondInvalidation.json()).resolves.toEqual({
+      invalidated: true,
+      queued: true,
+    });
+    const transitions = collectJsonMessages(ws, 2);
+    releaseRerun();
+    await firstInvalidation;
+
+    const [firstTransition, secondTransition] = await transitions;
+    expect(firstTransition).toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", value: { user: "Lin" } }],
+    });
+    expect(secondTransition).toMatchObject({
+      type: "Transition",
+      modifications: [],
+    });
+    expect(invocationCount).toBe(3);
+    ws.close();
+  });
+
   it("reports query failures inside transitions", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);
@@ -215,7 +328,7 @@ describe("sync protocol", () => {
 
 async function createSyncHarness(
   runtimeCalls: unknown[],
-  valueForRequest: (payload: { request: { path: string; args: unknown } }) => Json =
+  valueForRequest: (payload: { request: { path: string; args: unknown } }) => Json | Promise<Json> =
     payload => ({
       result: payload.request.path,
       args: payload.request.args as Json,
@@ -232,7 +345,7 @@ async function createSyncHarness(
             invoke: async payload => {
               runtimeCalls.push(payload);
               return {
-                value: valueForRequest(payload),
+                value: await valueForRequest(payload),
                 readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
                 readTs: 3,
               };
@@ -264,16 +377,27 @@ async function commitDirect(
 async function openSync(
   harness: BackendHarness,
   deploymentId: string,
+  sessionId?: string,
 ): Promise<MiniflareWebSocket> {
+  const headers: Record<string, string> = { Upgrade: "websocket" };
+  if (sessionId !== undefined) headers["x-flarex-session"] = sessionId;
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/sync`,
-    { headers: { Upgrade: "websocket" } },
+    { headers },
   );
   expect(response.status).toBe(101);
   const ws = response.webSocket;
   expect(ws).toBeDefined();
   ws!.accept();
   return ws! as unknown as MiniflareWebSocket;
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > 1000) throw new Error("Timed out waiting for condition.");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 }
 
 function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
@@ -283,6 +407,24 @@ function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
       clearTimeout(timeout);
       resolve(JSON.parse(String(event.data)));
     }, { once: true });
+    ws.addEventListener("error", event => {
+      clearTimeout(timeout);
+      reject(event);
+    }, { once: true });
+  });
+}
+
+function collectJsonMessages(ws: MiniflareWebSocket, count: number): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    const messages: unknown[] = [];
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket messages.")), 1000);
+    ws.addEventListener("message", event => {
+      messages.push(JSON.parse(String(event.data)));
+      if (messages.length === count) {
+        clearTimeout(timeout);
+        resolve(messages);
+      }
+    });
     ws.addEventListener("error", event => {
       clearTimeout(timeout);
       reject(event);

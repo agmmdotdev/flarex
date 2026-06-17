@@ -27,7 +27,9 @@ type ActiveQuery = {
   partitionKey: string;
   journal: string | null;
   readSet?: ReadSet;
-  resultJson?: string;
+  resultHash?: string;
+  rerunInFlight?: boolean;
+  rerunQueued?: boolean;
 };
 
 type ConnectionState = {
@@ -146,18 +148,21 @@ export class ConnectionDO extends DurableObject<Env> {
         journal: modification.journal ?? null,
       };
       this.state.queries.set(modification.queryId, activeQuery);
-      const stateModification = await this.executeQuery(activeQuery);
-      if (stateModification.type === "QueryUpdated") {
+      const stateModification = await this.executeQuery(activeQuery, { emitUnchanged: true });
+      if (stateModification?.type === "QueryUpdated") {
         await this.registerQuery(activeQuery);
       } else {
         await this.unregisterQuery(activeQuery.queryId);
       }
-      stateModifications.push(stateModification);
+      if (stateModification !== null) stateModifications.push(stateModification);
     }
     await this.sendTransition(ws, startVersion, stateModifications);
   }
 
-  private async executeQuery(query: ActiveQuery): Promise<StateModification> {
+  private async executeQuery(
+    query: ActiveQuery,
+    options: { emitUnchanged: boolean },
+  ): Promise<StateModification | null> {
     try {
       if (query.partitionKey.length === 0) {
         throw new Error("Add.partitionKey is required until Flarex routing inference is implemented.");
@@ -170,8 +175,11 @@ export class ConnectionDO extends DurableObject<Env> {
         args: argsObjectForInvoke(query.args),
       });
       if (response.readSet !== undefined) query.readSet = response.readSet;
-      query.resultJson = JSON.stringify(response.value);
+      const resultHash = fingerprintJson(response.value);
+      const isUnchanged = query.resultHash === resultHash;
+      query.resultHash = resultHash;
       this.state.ts = Math.max(this.state.ts + 1, response.readTs ?? 0);
+      if (isUnchanged && !options.emitUnchanged) return null;
       return {
         type: "QueryUpdated",
         queryId: query.queryId,
@@ -223,16 +231,31 @@ export class ConnectionDO extends DurableObject<Env> {
     const queryId = queryIdFromInvalidation(body);
     const query = this.state.queries.get(queryId);
     if (query === undefined) return json({ invalidated: false });
-
-    const startVersion = this.currentVersion();
-    const modification = await this.executeQuery(query);
-    if (modification.type === "QueryUpdated") {
-      await this.registerQuery(query);
-    } else {
-      await this.unregisterQuery(query.queryId);
+    if (query.rerunInFlight) {
+      query.rerunQueued = true;
+      return json({ invalidated: true, queued: true });
     }
-    for (const ws of this.ctx.getWebSockets()) {
-      await this.sendTransition(ws, startVersion, [modification]);
+
+    query.rerunInFlight = true;
+    try {
+      do {
+        query.rerunQueued = false;
+        const startVersion = this.currentVersion();
+        const modification = await this.executeQuery(query, { emitUnchanged: false });
+        if (modification?.type === "QueryUpdated") {
+          await this.registerQuery(query);
+        } else if (modification?.type === "QueryFailed") {
+          await this.unregisterQuery(query.queryId);
+        } else {
+          await this.registerQuery(query);
+        }
+        for (const ws of this.ctx.getWebSockets()) {
+          await this.sendTransition(ws, startVersion, modification === null ? [] : [modification]);
+        }
+      } while (query.rerunQueued && this.state.queries.has(query.queryId));
+    } finally {
+      query.rerunInFlight = false;
+      query.rerunQueued = false;
     }
     return json({ invalidated: true });
   }
@@ -379,4 +402,17 @@ function send(ws: WebSocket, message: ServerMessage): void {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function fingerprintJson(value: Json): string {
+  return stableJson(value);
+}
+
+function stableJson(value: Json): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
+    .join(",")}}`;
 }

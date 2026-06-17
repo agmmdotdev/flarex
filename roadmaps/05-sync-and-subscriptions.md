@@ -18,6 +18,9 @@ the owning `PartitionDO`.
 `PartitionDO` stores partition-local sync subscription registrations, checks
 new commits against registered read sets with the same overlap logic used by
 OCC, and notifies the owning `ConnectionDO` to rerun invalidated queries.
+`ConnectionDO` fingerprints query results, refreshes read-set registrations on
+unchanged reruns, and suppresses `QueryUpdated` when the query result did not
+change.
 
 A detailed implementation plan now lives in
 [`05-sync-protocol-implementation.md`](./05-sync-protocol-implementation.md).
@@ -68,12 +71,10 @@ projections they read.
 ## Last Update
 
 Implemented partition-local subscription invalidation. `ConnectionDO` now
-registers successful query read sets with `PartitionDO`, unregisters removed or
-closed subscriptions, and reruns invalidated queries when a partition commit
-overlaps their read set.
+deduplicates invalidation reruns by result fingerprint and queues concurrent
+invalidations for the same query so only one rerun is active at a time.
 
-Previous completed checkpoint: `d07e2fe` Implement initial sync query
-transitions.
+Previous completed checkpoint: `e15c749` Add partition-local sync invalidation.
 
 Validation:
 

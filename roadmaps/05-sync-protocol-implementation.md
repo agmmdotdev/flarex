@@ -456,8 +456,8 @@ Flarex differences:
   `AddQuery`.
 - `ConnectionDO` keeps active query definitions in memory. Durable WebSocket
   hibernation/recovery is still future work.
-- Reruns currently send a transition for every invalidation; result de-duplication
-  like Convex's result hash behavior is still future work.
+- Result de-duplication and invalidation coalescing are handled in the next
+  checkpoint.
 
 Validation:
 
@@ -470,6 +470,55 @@ Validation:
 
 Known limitations:
 
+- No mutation/action-over-sync queue yet.
+- No client SDK integration yet.
+- No cross-shard live query aggregation yet.
+- No durable subscription recovery across hibernation/restart yet.
+
+### `e15c749` Add partition-local sync invalidation
+
+Changed:
+
+- Added stable JSON result fingerprints to active `ConnectionDO` queries.
+- Updated invalidation reruns to refresh read-set registration while suppressing
+  `QueryUpdated` when the result fingerprint is unchanged.
+- Added per-query invalidation coalescing so a second invalidation arriving
+  during an active rerun is queued instead of starting a parallel rerun.
+- Added focused sync tests for unchanged-result invalidations and coalesced
+  concurrent invalidations.
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  `complete_fetch` computes `hash_result`, stores `result_hash`, and returns
+  `None` when a rerun produces the same result.
+- `crates/sync/src/worker.rs`
+  processes invalidations through the sync worker loop instead of running
+  parallel reruns for the same query.
+
+Flarex differences:
+
+- Convex hashes packed JSON plus log lines. Flarex currently fingerprints a
+  stable JSON representation of the result value because log lines are not yet
+  part of the execution envelope.
+- Convex tracks invalidation futures in the sync state machine. Flarex keeps
+  lightweight `rerunInFlight` and `rerunQueued` flags on the active
+  `ConnectionDO` query.
+- Unchanged Flarex reruns still emit an empty `Transition` to advance the
+  server-side timestamp; they do not include `QueryUpdated`.
+
+Validation:
+
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts`
+- `corepack pnpm --filter flarex-backend test`
+- `corepack pnpm --filter flarex-backend build`
+- `corepack pnpm --filter @flarex/backend typecheck`
+- `corepack pnpm --filter @flarex/backend build`
+
+Known limitations:
+
+- Result fingerprints do not include log lines yet.
 - No mutation/action-over-sync queue yet.
 - No client SDK integration yet.
 - No cross-shard live query aggregation yet.
