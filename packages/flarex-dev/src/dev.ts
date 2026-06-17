@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
+import type { R2BucketLike } from "flarex-backend/artifact-store";
 import {
   createLocalAnalyzerService,
   LocalBackendPushCoordinator,
@@ -226,6 +227,8 @@ async function dispatchMiniflare(target: Miniflare, request: Request): Promise<R
 async function createBackendMiniflare(persistDir: string | false): Promise<Miniflare> {
   const { createExecutionArtifactRuntimeService } =
     await import("flarex-backend/artifact-runtime");
+  const { R2BackendExecutionArtifactStore } =
+    await import("flarex-backend/artifact-store");
   let backend!: Miniflare;
   const artifactRuntimeToken = "local-dev-artifact-runtime";
   const artifactInternalToken = "local-dev-artifact-internal";
@@ -244,6 +247,7 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
     compatibilityDate,
     bindings: {
       FLAREX_ARTIFACT_RUNTIME_TOKEN: artifactRuntimeToken,
+      FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
     },
     r2Buckets: ["ARTIFACTS"],
     ...(persistDir === false ? {} : { r2Persist: persistDir }),
@@ -261,6 +265,18 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
       FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
         capabilityToken: artifactRuntimeToken,
         materializer,
+        store: {
+          put: async sourcePackage =>
+            new R2BackendExecutionArtifactStore(
+              (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+            )
+              .put(sourcePackage),
+          get: async ref =>
+            new R2BackendExecutionArtifactStore(
+              (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+            )
+              .get(ref),
+        },
       }),
     },
   });

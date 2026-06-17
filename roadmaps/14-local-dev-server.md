@@ -656,6 +656,51 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- dev.test.ts
 ```
 
+## Runtime-Store Dev Invoke Update
+
+Previous completed checkpoint: `ef50030` Use artifact runtime for local dev
+invoke.
+
+Local dev now sets:
+
+```txt
+FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true
+```
+
+on the backend runtime and gives the local artifact runtime service a lazy R2
+store backed by the same `ARTIFACTS` bucket. This means `/__flarex_dev/invoke`
+does not move source-package JSON across the backend-to-runtime service call.
+The runtime service loads the source package by `executionArtifactRef`.
+
+Updated local path:
+
+```txt
+Vite /__flarex_dev/invoke
+  -> backend /deployments/:deploymentId/invoke
+  -> runtime service receives ref + request
+  -> runtime service loads source package from ARTIFACTS
+  -> LocalMiniflareExecutionArtifactMaterializer
+```
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev uses the same backend deployment and execution loop as hosted
+    semantics.
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are retrieved through durable storage identity.
+
+Cloudflare difference: the local store is Miniflare R2. The hosted store can
+use the same service contract with platform R2 or another internal artifact
+registry.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
+```
+
 ## Import-Phase Prelude Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push

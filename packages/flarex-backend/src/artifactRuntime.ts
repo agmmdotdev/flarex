@@ -10,9 +10,12 @@ import type {
 export type ExecutionArtifactInvokePayload = {
   deploymentId: string;
   ref: ActiveDeploymentStatus["executionArtifactRef"];
-  sourcePackage: PushSourcePackage;
+  sourcePackage?: PushSourcePackage;
   request: InvokeRequest;
 };
+
+export type MaterializedExecutionArtifactPayload =
+  ExecutionArtifactInvokePayload & { sourcePackage: PushSourcePackage };
 
 export interface BackendExecutionArtifactRuntime {
   invoke(
@@ -22,11 +25,11 @@ export interface BackendExecutionArtifactRuntime {
 }
 
 export interface MaterializedExecutionArtifact {
-  invoke(payload: ExecutionArtifactInvokePayload): Promise<InvokeResponse>;
+  invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse>;
 }
 
 export interface ExecutionArtifactMaterializer {
-  materialize(payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact>;
+  materialize(payload: MaterializedExecutionArtifactPayload): Promise<MaterializedExecutionArtifact>;
 }
 
 export class CachedExecutionArtifactMaterializer {
@@ -40,7 +43,7 @@ export class CachedExecutionArtifactMaterializer {
     this.materializer = materializer;
   }
 
-  async get(payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact> {
+  async get(payload: MaterializedExecutionArtifactPayload): Promise<MaterializedExecutionArtifact> {
     const cached = this.cache.get(payload.ref.artifactId);
     if (cached?.sourcePackageHash === payload.ref.sourcePackageHash) {
       return cached.artifact;
@@ -68,6 +71,7 @@ export class CachedExecutionArtifactMaterializer {
 
 export function createExecutionArtifactRuntimeService(options: {
   materializer: ExecutionArtifactMaterializer;
+  store?: BackendExecutionArtifactStore;
   capabilityToken?: string;
 }): Fetcher["fetch"] {
   const cache = new CachedExecutionArtifactMaterializer(options.materializer);
@@ -86,8 +90,9 @@ export function createExecutionArtifactRuntimeService(options: {
       }
       const headerError = validateArtifactHeaders(request, payload);
       if (headerError !== null) return headerError;
+      const materializedPayload = await resolveSourcePackage(payload, options.store);
 
-      return Response.json(await (await cache.get(payload)).invoke(payload));
+      return Response.json(await (await cache.get(materializedPayload)).invoke(materializedPayload));
     } catch (error) {
       const status = errorStatus(error) ?? 500;
       return Response.json(
@@ -103,29 +108,33 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
   private readonly store: BackendExecutionArtifactStore;
   private readonly deploymentId: string;
   private readonly capabilityToken: string | undefined;
+  private readonly sendSourcePackage: boolean;
 
   constructor(options: {
     runtime: Fetcher;
     store: BackendExecutionArtifactStore;
     deploymentId: string;
     capabilityToken?: string;
+    sendSourcePackage?: boolean;
   }) {
     this.runtime = options.runtime;
     this.store = options.store;
     this.deploymentId = options.deploymentId;
     this.capabilityToken = options.capabilityToken;
+    this.sendSourcePackage = options.sendSourcePackage ?? true;
   }
 
   async invoke(
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
   ): Promise<InvokeResponse> {
-    const sourcePackage = await this.store.get(deployment.executionArtifactRef);
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: this.deploymentId,
       ref: deployment.executionArtifactRef,
-      sourcePackage,
       request,
+      ...(this.sendSourcePackage
+        ? { sourcePackage: await this.store.get(deployment.executionArtifactRef) }
+        : {}),
     };
     const response = await this.runtime.fetch("https://flarex-artifact-runtime.internal/invoke", {
       method: "POST",
@@ -171,6 +180,22 @@ function validateArtifactHeaders(
   return null;
 }
 
+async function resolveSourcePackage(
+  payload: ExecutionArtifactInvokePayload,
+  store: BackendExecutionArtifactStore | undefined,
+): Promise<MaterializedExecutionArtifactPayload> {
+  if (payload.sourcePackage !== undefined) {
+    return payload as MaterializedExecutionArtifactPayload;
+  }
+  if (store === undefined) {
+    throw new HttpError(400, "Execution artifact invoke payload missing sourcePackage.");
+  }
+  return {
+    ...payload,
+    sourcePackage: await store.get(payload.ref),
+  };
+}
+
 function errorStatus(error: unknown): number | undefined {
   if (error instanceof HttpError) return error.status;
   if (typeof error !== "object" || error === null) return undefined;
@@ -185,8 +210,8 @@ function isExecutionArtifactInvokePayload(value: unknown): value is ExecutionArt
     typeof payload.deploymentId === "string" &&
     typeof payload.ref === "object" &&
     payload.ref !== null &&
-    typeof payload.sourcePackage === "object" &&
-    payload.sourcePackage !== null &&
+    (payload.sourcePackage === undefined ||
+      (typeof payload.sourcePackage === "object" && payload.sourcePackage !== null)) &&
     typeof payload.request === "object" &&
     payload.request !== null
   );

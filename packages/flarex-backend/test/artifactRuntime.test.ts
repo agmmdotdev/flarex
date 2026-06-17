@@ -6,6 +6,7 @@ import {
   ServiceBindingExecutionArtifactRuntime,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
+  type MaterializedExecutionArtifactPayload,
 } from "../src/artifactRuntime";
 import type {
   ActiveDeploymentStatus,
@@ -74,6 +75,47 @@ describe("backend execution artifact runtime", () => {
     ]);
   });
 
+  it("can invoke the runtime without embedding sourcePackage when the runtime owns artifact loading", async () => {
+    const calls: Array<{ body: unknown }> = [];
+    const store: BackendExecutionArtifactStore = {
+      put: async () => activeDeployment.executionArtifactRef,
+      get: async () => {
+        throw new Error("backend store should not be read in runtime-store mode");
+      },
+    };
+    const runtime = new ServiceBindingExecutionArtifactRuntime({
+      deploymentId: "deployment1",
+      store,
+      sendSourcePackage: false,
+      runtime: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          calls.push({ body: await request.json() });
+          return Response.json({ value: { ok: true } });
+        },
+      } as unknown as Fetcher,
+    });
+    const invokeRequest: InvokeRequest = {
+      path: "users:get",
+      args: { id: "1:user" },
+      partitionKey: "user:1",
+      kind: "query",
+    };
+
+    await expect(runtime.invoke(activeDeployment, invokeRequest)).resolves.toEqual({
+      value: { ok: true },
+    });
+    expect(calls).toEqual([
+      {
+        body: {
+          deploymentId: "deployment1",
+          ref: activeDeployment.executionArtifactRef,
+          request: invokeRequest,
+        },
+      },
+    ]);
+  });
+
   it("materializes each artifact once and reuses cached artifacts by artifact ID", async () => {
     const payload = testPayload();
     const materialized: string[] = [];
@@ -105,7 +147,7 @@ describe("backend execution artifact runtime", () => {
 
   it("rematerializes when an artifact ID is reused with a different source hash", async () => {
     const first = testPayload();
-    const second: ExecutionArtifactInvokePayload = {
+    const second: MaterializedExecutionArtifactPayload = {
       ...first,
       ref: { ...first.ref, sourcePackageHash: "b".repeat(64) },
       sourcePackage: {
@@ -187,6 +229,45 @@ describe("backend execution artifact runtime", () => {
       value: { deploymentId: "deployment1", path: "users:list" },
     });
     expect(materialized).toEqual([payload.ref.artifactId]);
+  });
+
+  it("loads sourcePackage from runtime store before materializing", async () => {
+    const payload = testPayload();
+    const { sourcePackage: _sourcePackage, ...payloadWithoutSource } = payload;
+    const storeCalls: Array<string> = [];
+    const materializedSources: PushSourcePackage[] = [];
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      store: {
+        put: async () => payload.ref,
+        get: async ref => {
+          storeCalls.push(ref.artifactId);
+          return payload.sourcePackage!;
+        },
+      },
+      materializer: {
+        materialize: async materializedPayload => {
+          materializedSources.push(materializedPayload.sourcePackage);
+          return { invoke: async () => ({ value: { path: materializedPayload.request.path } }) };
+        },
+      },
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payloadWithoutSource),
+    });
+
+    expect(response.ok).toBe(true);
+    await expect(response.json()).resolves.toEqual({ value: { path: "users:get" } });
+    expect(storeCalls).toEqual([payload.ref.artifactId]);
+    expect(materializedSources).toEqual([payload.sourcePackage]);
   });
 
   it("rejects unauthorized or mismatched runtime invoke requests", async () => {
@@ -302,7 +383,7 @@ function testSourcePackage(): PushSourcePackage {
   };
 }
 
-function testPayload(): ExecutionArtifactInvokePayload {
+function testPayload(): MaterializedExecutionArtifactPayload {
   return {
     deploymentId: "deployment1",
     ref: activeDeployment.executionArtifactRef,

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   createExecutionArtifactRuntimeService,
-  type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
+  type MaterializedExecutionArtifactPayload,
   type MaterializedExecutionArtifact,
 } from "flarex-backend/artifact-runtime";
 import {
@@ -38,26 +38,42 @@ describe("runtime materializer", () => {
       .analyze(sourcePackage);
     const analysis = backendAnalysisFromCodegenAnalysis(codegenAnalysis);
 
-    let materializeCount = 0;
     let harness!: BackendHarness;
+    let materializeCount = 0;
+    const artifactStore = {
+      put: async (package_: typeof sourcePackage) =>
+        new R2BackendExecutionArtifactStore(
+          (await harness.mf.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        ).put(package_),
+      get: async (ref: Parameters<R2BackendExecutionArtifactStore["get"]>[0]) =>
+        new R2BackendExecutionArtifactStore(
+          (await harness.mf.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        ).get(ref),
+    };
     const baseMaterializer = new LocalMiniflareExecutionArtifactMaterializer({
       internalToken: "artifact-internal",
       backend: request => dispatchBackend(harness, request),
     });
     const materializer: ExecutionArtifactMaterializer = {
-      materialize: async (payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact> => {
+      materialize: async (
+        payload: MaterializedExecutionArtifactPayload,
+      ): Promise<MaterializedExecutionArtifact> => {
         materializeCount += 1;
         return baseMaterializer.materialize(payload);
       },
     };
 
     harness = await createBackendHarness({
-      bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret" },
+      bindings: {
+        FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+        FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
+      },
       r2Buckets: ["ARTIFACTS"],
       serviceBindings: {
         FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
           capabilityToken: "runtime-secret",
           materializer,
+          store: artifactStore,
         }),
       },
     });
@@ -69,8 +85,7 @@ describe("runtime materializer", () => {
       analysis,
     });
     const bucket = await harness.mf.getR2Bucket("ARTIFACTS");
-    await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike)
-      .put(sourcePackage);
+    await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike).put(sourcePackage);
     await finishPush(harness, deploymentId, start.pushId);
 
     const created = await invoke(harness, deploymentId, {

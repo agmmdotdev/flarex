@@ -1,7 +1,7 @@
 import { Miniflare } from "miniflare";
 import type {
-  ExecutionArtifactInvokePayload,
   ExecutionArtifactMaterializer,
+  MaterializedExecutionArtifactPayload,
   MaterializedExecutionArtifact,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse } from "flarex-backend/types";
@@ -26,7 +26,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
   }
 
   async materialize(
-    payload: ExecutionArtifactInvokePayload,
+    payload: MaterializedExecutionArtifactPayload,
   ): Promise<MaterializedExecutionArtifact> {
     const artifact = new Miniflare({
       modules: [
@@ -67,7 +67,7 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
     this.internalToken = internalToken;
   }
 
-  async invoke(payload: ExecutionArtifactInvokePayload): Promise<InvokeResponse> {
+  async invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse> {
     const response = await this.artifact.dispatchFetch(
       "https://flarex-artifact.internal/__flarex_internal/invoke",
       {

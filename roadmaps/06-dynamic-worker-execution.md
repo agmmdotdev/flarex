@@ -481,6 +481,46 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- dev.test.ts
 ```
 
+## Runtime Store Loading Update
+
+Previous completed checkpoint: `ef50030` Use artifact runtime for local dev
+invoke.
+
+The execution artifact runtime no longer has to receive raw source package JSON
+from backend invoke. In runtime-store mode, the backend sends only:
+
+```txt
+deploymentId
+executionArtifactRef
+invoke request
+```
+
+The runtime service loads the source package from its own artifact store before
+materializing. Materializers still receive a fully resolved source package, so
+the sandbox/runtime implementation stays simple while the transport contract
+moves closer to the hosted Dynamic Worker target.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution carries source-package identity to the executor
+    boundary.
+- `crates/model/src/source_packages/mod.rs`
+  - source-package bytes are loaded through backend-owned storage metadata.
+
+Cloudflare difference: local dev uses Miniflare R2 and a service binding as
+the runtime store. Hosted Flarex should make the Dynamic Worker runtime load
+the artifact from the platform-owned store.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
+```
+
 ## Runtime Capability Authorization Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact

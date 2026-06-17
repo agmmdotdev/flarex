@@ -28,6 +28,7 @@ export type Env = {
   FLAREX_ANALYZER?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME_TOKEN?: string;
+  FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE?: string;
   ARTIFACTS?: R2Bucket;
 };
 

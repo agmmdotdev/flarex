@@ -2457,6 +2457,63 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- dev.test.ts
 ```
 
+## Runtime-Owned Source Package Loading Update
+
+Previous completed checkpoint: `ef50030` Use artifact runtime for local dev
+invoke.
+
+The artifact runtime service can now own source-package loading. Runtime invoke
+payloads may omit `sourcePackage` when the runtime service is configured with a
+`BackendExecutionArtifactStore`; the service resolves the active
+`executionArtifactRef` from its own store before materializing.
+
+The backend service-binding runtime keeps compatibility mode by default, but
+can now be configured with:
+
+```ts
+sendSourcePackage: false
+```
+
+The backend Worker exposes that through:
+
+```txt
+FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true
+```
+
+Local dev uses this hosted shape:
+
+```txt
+backend /deployments/:deploymentId/invoke
+  -> send deploymentId + executionArtifactRef + request only
+  -> FLAREX_ARTIFACT_RUNTIME
+  -> runtime R2 ARTIFACTS get(ref)
+  -> materialize source package
+  -> execute through backend sessions
+```
+
+Convex references copied in principle:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests carry package identity and hash rather than requiring
+    the application invoke path to own module bytes.
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are durable backend state retrieved by package identity.
+- `crates/node_executor/src/executor.rs`
+  - execution is a package-loader boundary, not an inline source transport
+    boundary.
+
+Cloudflare difference: this is still a Miniflare/R2 local proof. Hosted Flarex
+should use the same runtime-store contract with the Dynamic Worker loader.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
+```
+
 ### Phase 5 Step 5 Implementation Update
 
 Previous completed checkpoint: `b08269e` Record active deployment pointer on

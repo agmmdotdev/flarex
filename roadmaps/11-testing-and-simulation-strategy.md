@@ -157,3 +157,37 @@ Verified with:
 ```sh
 corepack pnpm --filter flarex-dev test -- dev.test.ts
 ```
+
+## Runtime Store Contract Test Update
+
+Previous completed checkpoint: `ef50030` Use artifact runtime for local dev
+invoke.
+
+The artifact runtime tests now cover both runtime modes:
+
+- compatibility mode, where backend invoke embeds `sourcePackage` in the
+  runtime payload,
+- runtime-store mode, where backend invoke sends only the artifact ref and the
+  runtime service loads source package bytes from `BackendExecutionArtifactStore`.
+
+`runtimeMaterializer.test.ts` now runs through the runtime-store mode with the
+backend harness, R2 artifact storage, service binding runtime, and local
+Miniflare materializer.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution tests should validate package identity handoff to the runner.
+- `crates/model/src/source_packages/mod.rs`
+  - source package retrieval should be tested through the storage model.
+
+Cloudflare difference: these are still Miniflare integration tests. They prove
+the artifact-store service contract but not hosted Dynamic Worker eviction or
+Cloudflare production R2 behavior.
+
+Verified with:
+
+```sh
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
+```
