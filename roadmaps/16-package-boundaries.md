@@ -274,6 +274,46 @@ corepack pnpm build
 git diff --check
 ```
 
+## Backend Artifact Store Boundary Update
+
+Previous completed checkpoint: `873fee7` Add R2 execution artifact store
+adapter.
+
+`flarex-backend` now has its own artifact store boundary:
+`R2BackendExecutionArtifactStore`. This deliberately avoids importing
+`flarex-dev` from hosted backend code.
+
+Current package split:
+
+- `flarex`
+  - shared runtime-neutral artifact ref/hash helpers in `flarex/artifacts`.
+- `flarex-backend`
+  - hosted R2 artifact persistence and public push finish verification.
+- `flarex-dev`
+  - local in-memory artifact store, local Miniflare execution-artifact runtime,
+    and local analyzer service.
+
+Known cleanup:
+
+- The R2 object layout and manifest validation are duplicated between
+  `flarex-backend` and `flarex-dev`.
+- Once the hosted Dynamic Worker loader and local runtime use the same durable
+  store contract, extract the duplicated object-layout code into a shared core
+  package or a runtime-neutral `flarex/artifact-store` export.
+
+Convex reference:
+
+- `crates/model/src/source_packages/mod.rs`
+  - source package persistence is backend model code, not CLI/dev-tool-only
+    code.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Analyzer Diagnostics Boundary Update
 
 Previous completed checkpoint: `0a57edd` Analyze push source through backend

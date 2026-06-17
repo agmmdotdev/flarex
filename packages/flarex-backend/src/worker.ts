@@ -1,6 +1,11 @@
+import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import {
+  R2BackendExecutionArtifactStore,
+  type BackendExecutionArtifactStore,
+} from "./artifactStore";
 import { ConnectionDO } from "./connectionDO";
 import { DeploymentDO } from "./deploymentDO";
-import { errorResponse, json, readJson, required } from "./http";
+import { errorResponse, HttpError, json, readJson, required } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
@@ -28,6 +33,7 @@ import type {
   FinishPushRequest,
   InvokeRequest,
   Json,
+  PushStatus,
   StartPushRequest,
 } from "./types";
 
@@ -122,6 +128,7 @@ async function routeDeploymentPush(
       );
     }
     const analyzed = await analyzeSourcePackage(env.FLAREX_ANALYZER, deploymentId, body);
+    await persistAnalyzedSourcePackage(env, analyzed);
     return deployment.fetch("https://flarex.internal/push/start-analyzed", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -142,6 +149,7 @@ async function routeDeploymentPush(
   }
   if (parts[1] === "finish" && request.method === "POST") {
     const body = await readJson<FinishPushRequest>(request);
+    await verifyStoredPushArtifact(env, deployment, pushId);
     return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/finish`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -149,6 +157,45 @@ async function routeDeploymentPush(
     });
   }
   return json({ error: "Push route not found." }, { status: 404 });
+}
+
+async function persistAnalyzedSourcePackage(
+  env: Env,
+  analyzed: AnalyzedStartPushRequest,
+): Promise<void> {
+  const artifactStore = artifactStoreFromEnv(env);
+  if (artifactStore === undefined || analyzed.analysis === undefined) return;
+  await artifactStore.put(analyzed.sourcePackage);
+}
+
+async function verifyStoredPushArtifact(
+  env: Env,
+  deployment: DurableObjectStub,
+  pushId: string,
+): Promise<void> {
+  const artifactStore = artifactStoreFromEnv(env);
+  if (artifactStore === undefined) return;
+
+  const response = await deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}`);
+  if (!response.ok) return;
+  const status = await response.json() as PushStatus;
+  if (status.state !== "analyzed") return;
+
+  const ref = await executionArtifactRefForSourcePackage(status.sourcePackage);
+  try {
+    await artifactStore.get(ref);
+  } catch {
+    throw new HttpError(
+      409,
+      `Execution artifact ${ref.artifactId} is not available in durable storage.`,
+    );
+  }
+}
+
+function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {
+  return env.ARTIFACTS === undefined
+    ? undefined
+    : new R2BackendExecutionArtifactStore(env.ARTIFACTS);
 }
 
 async function analyzeSourcePackage(

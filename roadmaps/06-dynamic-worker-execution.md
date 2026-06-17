@@ -347,6 +347,43 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Backend Artifact Storage Binding Update
+
+Previous completed checkpoint: `873fee7` Add R2 execution artifact store
+adapter.
+
+The hosted backend now has an optional R2-backed artifact store binding:
+`Env.ARTIFACTS`. Public push start stores successfully analyzed source packages
+through `R2BackendExecutionArtifactStore`, and public push finish verifies the
+stored manifest/source package before activation.
+
+This moves the hosted path from "active deployment has an artifact pointer" to
+"active deployment can only be publicly finished after the artifact pointer is
+backed by durable storage" when R2 is configured.
+
+Still not implemented:
+
+- hosted Dynamic Worker artifact materialization,
+- internal Dynamic Worker `/__flarex_internal/invoke` loading from R2,
+- runtime authorization between backend and the managed execution artifact,
+- GC for old `artifacts/{artifactId}` objects.
+
+Convex reference:
+
+- `crates/application/src/deploy_config.rs`
+  - `finish_push` validates and downloads package storage before committing the
+    deployment.
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests carry package storage identity/hash when code runs
+    outside the main backend process.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Local Execution Artifact Runtime Boundary Update
 
 Previous completed checkpoint: `d5e13dd` Store active execution artifact

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
+import type { R2BucketLike } from "../src/artifactStore";
 import type {
   ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
@@ -131,6 +133,46 @@ describe("deployment push lifecycle", () => {
       executionArtifactRef: await executionArtifactRefForSourcePackage(secondPackage),
     });
     expect(secondActive.executionArtifactRef).not.toEqual(firstActive.executionArtifactRef);
+  });
+
+  it("requires durable artifact storage before public finish when R2 is configured", async () => {
+    const r2Harness = await createBackendHarness({ r2Buckets: ["ARTIFACTS"] });
+    try {
+      const package_ = sourcePackage();
+      const start = await startPushWithHarness(
+        r2Harness,
+        "push-stored-artifact",
+        analyzedPush(candidateSchema(), candidateFunctions(), package_),
+      );
+
+      const missingArtifactFinish = await finishPushResponseWithHarness(
+        r2Harness,
+        "push-stored-artifact",
+        start.pushId,
+      );
+      const ref = await executionArtifactRefForSourcePackage(package_);
+      expect(missingArtifactFinish.status).toBe(409);
+      await expect(missingArtifactFinish.json()).resolves.toEqual({
+        error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
+      });
+
+      const bucket = await r2Harness.mf.getR2Bucket("ARTIFACTS");
+      await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike).put(package_);
+
+      const finish = await finishPushWithHarness(
+        r2Harness,
+        "push-stored-artifact",
+        start.pushId,
+      );
+      expect(finish.state).toBe("activated");
+      await expect(getActiveDeploymentWithHarness(r2Harness, "push-stored-artifact"))
+        .resolves.toMatchObject({
+          activePushId: start.pushId,
+          executionArtifactRef: ref,
+        });
+    } finally {
+      await r2Harness.dispose();
+    }
   });
 
   it("does not activate failed or unknown pushes", async () => {
@@ -316,7 +358,15 @@ function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
 }
 
 async function startPush(deploymentId: string, body: AnalyzedStartPushRequest): Promise<PushStatus> {
-  const response = await harness.mf.dispatchFetch(
+  return startPushWithHarness(harness, deploymentId, body);
+}
+
+async function startPushWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+  body: AnalyzedStartPushRequest,
+): Promise<PushStatus> {
+  const response = await target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
@@ -351,7 +401,14 @@ async function getPush(deploymentId: string, pushId: string): Promise<PushStatus
 }
 
 async function getActiveDeployment(deploymentId: string): Promise<ActiveDeploymentStatus> {
-  const response = await getActiveDeploymentResponse(deploymentId);
+  return getActiveDeploymentWithHarness(harness, deploymentId);
+}
+
+async function getActiveDeploymentWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+): Promise<ActiveDeploymentStatus> {
+  const response = await getActiveDeploymentResponseWithHarness(target, deploymentId);
   expect(response.ok).toBe(true);
   return response.json() as Promise<ActiveDeploymentStatus>;
 }
@@ -359,13 +416,28 @@ async function getActiveDeployment(deploymentId: string): Promise<ActiveDeployme
 async function getActiveDeploymentResponse(
   deploymentId: string,
 ): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
-  return harness.mf.dispatchFetch(
+  return getActiveDeploymentResponseWithHarness(harness, deploymentId);
+}
+
+async function getActiveDeploymentResponseWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/deployment`,
   );
 }
 
 async function finishPush(deploymentId: string, pushId: string): Promise<PushStatus> {
-  const response = await finishPushResponse(deploymentId, pushId);
+  return finishPushWithHarness(harness, deploymentId, pushId);
+}
+
+async function finishPushWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+  pushId: string,
+): Promise<PushStatus> {
+  const response = await finishPushResponseWithHarness(target, deploymentId, pushId);
   expect(response.ok).toBe(true);
   return response.json() as Promise<PushStatus>;
 }
@@ -374,7 +446,15 @@ async function finishPushResponse(
   deploymentId: string,
   pushId: string,
 ): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
-  return harness.mf.dispatchFetch(
+  return finishPushResponseWithHarness(harness, deploymentId, pushId);
+}
+
+async function finishPushResponseWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+  pushId: string,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
       method: "POST",

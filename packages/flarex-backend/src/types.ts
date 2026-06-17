@@ -26,6 +26,7 @@ export type Env = {
   CONNECTIONS: DurableObjectNamespace;
   SCHEDULERS: DurableObjectNamespace;
   FLAREX_ANALYZER?: Fetcher;
+  ARTIFACTS?: R2Bucket;
 };
 
 export type TablePlacement =

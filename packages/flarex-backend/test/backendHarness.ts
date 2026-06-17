@@ -11,7 +11,11 @@ export type BackendHarness = {
   dispose: () => Promise<void>;
 };
 
-export async function createBackendHarness(): Promise<BackendHarness> {
+export type BackendHarnessOptions = {
+  r2Buckets?: string[];
+};
+
+export async function createBackendHarness(options: BackendHarnessOptions = {}): Promise<BackendHarness> {
   const persistPath = await mkdtemp(join(tmpdir(), "flarex-miniflare-"));
   const mf = new Miniflare({
     modules: [
@@ -31,6 +35,9 @@ export async function createBackendHarness(): Promise<BackendHarness> {
       CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
     },
+    ...(options.r2Buckets === undefined
+      ? {}
+      : { r2Buckets: options.r2Buckets, r2Persist: persistPath }),
   });
 
   return {

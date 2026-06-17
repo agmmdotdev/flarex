@@ -2549,3 +2549,82 @@ the backend stores it.
 Added source-position metadata to analyzed functions and preserved it through
 local analysis, backend push state, active function metadata, codegen analysis,
 and generated function metadata.
+
+## Backend Artifact Storage Binding Update
+
+Previous completed checkpoint: `873fee7` Add R2 execution artifact store
+adapter.
+
+`flarex-backend` now owns the first hosted artifact-storage boundary instead
+of depending on `flarex-dev` infrastructure code.
+
+Added backend pieces:
+
+- `packages/flarex-backend/src/artifactStore.ts`
+  - `BackendExecutionArtifactStore`
+  - `R2BackendExecutionArtifactStore`
+  - `manifestKey(ref)`
+  - `sourcePackageKey(ref)`
+- optional `Env.ARTIFACTS?: R2Bucket` binding.
+- public `push/start` persists the uploaded source package after successful
+  backend analysis when `ARTIFACTS` is configured.
+- public `push/:pushId/finish` verifies that the analyzed push's execution
+  artifact exists in durable storage before forwarding activation to
+  `DeploymentDO`.
+
+Current public hosted path:
+
+```txt
+POST /deployments/:deploymentId/push/start
+  -> FLAREX_ANALYZER analyzes uploaded flarex/ source package
+  -> R2BackendExecutionArtifactStore.put(sourcePackage)
+  -> DeploymentDO /push/start-analyzed
+
+POST /deployments/:deploymentId/push/:pushId/finish
+  -> load candidate push metadata
+  -> recompute executionArtifactRef
+  -> verify R2 manifest/source package
+  -> DeploymentDO finish_push activates candidate
+```
+
+The stored object layout matches the local/dev R2-shaped adapter:
+
+```txt
+artifacts/{artifactId}/manifest.json
+artifacts/{artifactId}/source-package.json
+```
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put` and `get` store source package metadata as
+    backend-owned durable state.
+- `crates/model/src/source_packages/types.rs`
+  - `SourcePackage` tracks storage key, package hash, package size, external
+    dependency package, and runtime node version metadata.
+- `crates/application/src/deploy_config.rs`
+  - `finish_push` downloads source packages by storage key and sha256 before
+    committing deployment metadata.
+- `crates/application/src/application_function_runner/mod.rs`
+  - Node execution resolves the latest source package and passes storage
+    identity/hash to the executor.
+
+Cloudflare difference:
+
+- Convex stores package metadata in system tables and package bytes in module
+  storage. Flarex currently stores the source package JSON directly in R2
+  under the deterministic execution artifact ID.
+- Convex's `finish_push` receives the original `StartPushResponse` and runs the
+  commit in the Rust backend transaction. Flarex public finish now verifies R2
+  availability before calling `DeploymentDO`, while `DeploymentDO` still owns
+  push state and activation.
+- The internal `/push/start-analyzed` route remains a prototype/local-dev escape
+  hatch. Hosted production should eventually protect or remove it once backend
+  analysis and artifact storage are fully authoritative.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
