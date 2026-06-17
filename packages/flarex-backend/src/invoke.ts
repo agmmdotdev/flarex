@@ -157,7 +157,7 @@ export async function executeInvoke(
   validateReturn(metadata?.returns ?? fn.returns, value, schema);
 
   if (fn.kind === "query") {
-    return { value, readSet: tx.currentReadSet() };
+    return { value, readSet: tx.currentReadSet(), readTs: tx.beginTs };
   }
 
   const commit = await commitMutation(tx, request);

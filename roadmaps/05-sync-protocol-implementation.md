@@ -358,3 +358,62 @@ Known limitations:
 
 Record the new commit ID in the final response and carry it into the next sync
 checkpoint.
+
+## Implementation Checkpoints
+
+### `f0af86b` Document sync protocol implementation plan
+
+Changed:
+
+- Added `packages/flarex-backend/src/syncProtocol.ts` with Convex-style client
+  and server message types plus runtime parsing for initial sync messages.
+- Replaced the `ConnectionDO` connected-message stub with a stateful WebSocket
+  session that handles `ModifyQuerySet`, `Add`, and `Remove`.
+- Routed added queries through the existing active deployment invoke path, using
+  the hosted artifact runtime when configured.
+- Added `readTs` to query `InvokeResponse` so sync transitions can advance with
+  the query snapshot timestamp when available.
+- Added Miniflare WebSocket tests for query add, query remove, query failure,
+  and stale base-version handling.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+  for message names and `Transition`/query modification shape.
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+  for query-set version behavior.
+- `crates/sync/src/state.rs`
+  for the state model of query-set version plus timestamp.
+- `crates/sync/src/worker.rs`
+  for handling `ModifyQuerySet` and emitting transitions.
+- `crates/application/src/api.rs`
+  for keeping sync query execution behind the same application function
+  boundary as invoke.
+
+Flarex differences:
+
+- `AddQuery.partitionKey` is currently required because Flarex routes queries
+  to one `PartitionDO`; Convex does not expose this.
+- `ConnectionDO` owns the socket and query-set state, while `PartitionDO` owns
+  authoritative data. Convex keeps the sync worker closer to the database
+  subscription manager.
+- Mutation/action messages are recognized but return `FatalError` until their
+  ordering semantics are implemented.
+- Query read sets are stored on the connection but are not yet registered for
+  partition invalidation.
+
+Validation:
+
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts`
+- `corepack pnpm --filter flarex-backend test`
+- `corepack pnpm --filter flarex-backend build`
+- `corepack pnpm --filter @flarex/backend typecheck`
+- `corepack pnpm --filter @flarex/backend build`
+
+Known limitations:
+
+- No `PartitionDO` invalidation registration yet.
+- No mutation/action-over-sync queue yet.
+- No client SDK integration yet.
+- No cross-shard live query support yet.

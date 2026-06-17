@@ -8,8 +8,12 @@ whose read set overlaps the write log.
 
 ## Implemented So Far
 
-`ConnectionDO` exists as a WebSocket-capable Durable Object stub. It currently
-only accepts a WebSocket and sends a connected message.
+`ConnectionDO` accepts WebSocket connections for `/deployments/:deploymentId/sync`.
+It now parses a Convex-style `ModifyQuerySet` message, enforces query-set base
+versions, executes `Add` query modifications through the active backend
+deployment invoke path, emits `Transition` messages with `QueryUpdated`,
+`QueryFailed`, and `QueryRemoved`, and stores query read sets in connection
+state for future invalidation work.
 
 A detailed implementation plan now lives in
 [`05-sync-protocol-implementation.md`](./05-sync-protocol-implementation.md).
@@ -50,18 +54,28 @@ projections they read.
 
 ## Known Limitations
 
-- No query execution pipeline returns read tokens yet.
+- Query execution returns read sets and a query read timestamp, but those read
+  sets are not registered with `PartitionDO` yet.
 - `ConnectionDO` does not subscribe to partition invalidations.
-- No protocol-compatible `/sync` implementation exists yet.
+- Mutation and action execution over `/sync` is not implemented yet.
 - No cross-shard subscription aggregation exists yet.
+- `partitionKey` is still required in `AddQuery` until routing inference exists.
 
 ## Last Update
 
-Recorded the first detailed sync protocol implementation plan. The plan copies
-Convex's query-set protocol shape (`ModifyQuerySet`, `Transition`, mutation and
-action response naming) while adding a temporary Flarex-only `partitionKey` for
-partition-local query routing.
+Implemented the first backend sync protocol slice. The backend now has
+`syncProtocol.ts`, a stateful `ConnectionDO` query-set handler, and Miniflare
+WebSocket tests proving `ModifyQuerySet/Add`, `Remove`, query failure, and stale
+base-version behavior.
 
-Previous completed checkpoint: `c05586d` Dispose cached execution artifacts.
+Previous completed checkpoint: `f0af86b` Document sync protocol implementation
+plan.
 
-Validation: docs-only change; inspected roadmap and git status.
+Validation:
+
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts`
+- `corepack pnpm --filter flarex-backend test`
+- `corepack pnpm --filter flarex-backend build`
+- `corepack pnpm --filter @flarex/backend typecheck`
+- `corepack pnpm --filter @flarex/backend build`

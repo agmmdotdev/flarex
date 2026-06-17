@@ -260,6 +260,7 @@ export type InvokeRequest = {
 export type InvokeResponse = {
   value: Json;
   readSet?: ReadSet;
+  readTs?: number;
   committedTs?: number;
   writes?: CommittedWrite[];
 };
