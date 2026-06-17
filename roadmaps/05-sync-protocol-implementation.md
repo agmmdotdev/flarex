@@ -417,3 +417,60 @@ Known limitations:
 - No mutation/action-over-sync queue yet.
 - No client SDK integration yet.
 - No cross-shard live query support yet.
+
+### `d07e2fe` Implement initial sync query transitions
+
+Changed:
+
+- Added partition-local subscription registration routes to `PartitionDO`.
+- Added a `sync_subscriptions` table keyed by `connectionName` and `queryId`.
+- Reused `findReadSetConflict` to compare committed document/index writes
+  against registered subscription read sets.
+- Passed deterministic connection object names from the backend `/sync` route
+  into `ConnectionDO`.
+- Registered successful query read sets from `ConnectionDO` after `AddQuery`
+  execution and after invalidation reruns.
+- Unregistered subscriptions on `Remove`, query failure, and WebSocket close.
+- Added internal `ConnectionDO` invalidation handling that reruns the affected
+  query and emits a new `Transition` to the active socket.
+- Added a Miniflare WebSocket test proving a direct partition commit reruns an
+  overlapping live query.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  for the read-set subscription and invalidation model.
+- `crates/sync/src/state.rs`
+  for keeping one active subscription per query.
+- `crates/sync/src/worker.rs`
+  for rerunning invalidated queries and sending transitions.
+- `crates/database/src/write_log.rs`
+  for the same write-log/read-set overlap concept used by OCC.
+
+Flarex differences:
+
+- Convex's subscription manager runs close to the database write log. Flarex
+  stores subscription registrations in the owning `PartitionDO` and notifies
+  `ConnectionDO` by Durable Object fetch.
+- This implementation is partition-local and still requires `partitionKey` on
+  `AddQuery`.
+- `ConnectionDO` keeps active query definitions in memory. Durable WebSocket
+  hibernation/recovery is still future work.
+- Reruns currently send a transition for every invalidation; result de-duplication
+  like Convex's result hash behavior is still future work.
+
+Validation:
+
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts`
+- `corepack pnpm --filter flarex-backend test`
+- `corepack pnpm --filter flarex-backend build`
+- `corepack pnpm --filter @flarex/backend typecheck`
+- `corepack pnpm --filter @flarex/backend build`
+
+Known limitations:
+
+- No mutation/action-over-sync queue yet.
+- No client SDK integration yet.
+- No cross-shard live query aggregation yet.
+- No durable subscription recovery across hibernation/restart yet.

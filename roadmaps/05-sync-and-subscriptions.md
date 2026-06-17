@@ -12,8 +12,12 @@ whose read set overlaps the write log.
 It now parses a Convex-style `ModifyQuerySet` message, enforces query-set base
 versions, executes `Add` query modifications through the active backend
 deployment invoke path, emits `Transition` messages with `QueryUpdated`,
-`QueryFailed`, and `QueryRemoved`, and stores query read sets in connection
-state for future invalidation work.
+`QueryFailed`, and `QueryRemoved`, and registers successful query read sets with
+the owning `PartitionDO`.
+
+`PartitionDO` stores partition-local sync subscription registrations, checks
+new commits against registered read sets with the same overlap logic used by
+OCC, and notifies the owning `ConnectionDO` to rerun invalidated queries.
 
 A detailed implementation plan now lives in
 [`05-sync-protocol-implementation.md`](./05-sync-protocol-implementation.md).
@@ -54,22 +58,22 @@ projections they read.
 
 ## Known Limitations
 
-- Query execution returns read sets and a query read timestamp, but those read
-  sets are not registered with `PartitionDO` yet.
-- `ConnectionDO` does not subscribe to partition invalidations.
+- Subscription invalidation is partition-local only.
+- Subscription state is still in `ConnectionDO` memory; durable WebSocket
+  hibernation/recovery is not implemented.
 - Mutation and action execution over `/sync` is not implemented yet.
 - No cross-shard subscription aggregation exists yet.
 - `partitionKey` is still required in `AddQuery` until routing inference exists.
 
 ## Last Update
 
-Implemented the first backend sync protocol slice. The backend now has
-`syncProtocol.ts`, a stateful `ConnectionDO` query-set handler, and Miniflare
-WebSocket tests proving `ModifyQuerySet/Add`, `Remove`, query failure, and stale
-base-version behavior.
+Implemented partition-local subscription invalidation. `ConnectionDO` now
+registers successful query read sets with `PartitionDO`, unregisters removed or
+closed subscriptions, and reruns invalidated queries when a partition commit
+overlaps their read set.
 
-Previous completed checkpoint: `f0af86b` Document sync protocol implementation
-plan.
+Previous completed checkpoint: `d07e2fe` Implement initial sync query
+transitions.
 
 Validation:
 

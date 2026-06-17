@@ -7,6 +7,9 @@ import {
   loadActiveDeployment,
 } from "./invoke";
 import {
+  partitionObjectName,
+} from "./routing";
+import {
   parseClientMessage,
   type AddQuery,
   type ClientMessage,
@@ -29,6 +32,7 @@ type ActiveQuery = {
 
 type ConnectionState = {
   deploymentId: string | null;
+  connectionName: string | null;
   querySetVersion: number;
   identityVersion: number;
   ts: number;
@@ -38,6 +42,7 @@ type ConnectionState = {
 export class ConnectionDO extends DurableObject<Env> {
   private readonly state: ConnectionState = {
     deploymentId: null,
+    connectionName: null,
     querySetVersion: 0,
     identityVersion: 0,
     ts: 0,
@@ -45,10 +50,15 @@ export class ConnectionDO extends DurableObject<Env> {
   };
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/invalidate" && request.method === "POST") {
+      return this.invalidate(await request.json());
+    }
     if (request.headers.get("Upgrade") !== "websocket") {
       return json({ service: "flarex-connection", status: "ok" });
     }
     this.state.deploymentId = deploymentIdFromRequest(request);
+    this.state.connectionName = connectionNameFromRequest(request);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
@@ -65,6 +75,11 @@ export class ConnectionDO extends DurableObject<Env> {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async webSocketClose(): Promise<void> {
+    await this.unregisterConnection();
+    this.state.queries.clear();
   }
 
   private async handleClientMessage(ws: WebSocket, message: ClientMessage): Promise<void> {
@@ -117,7 +132,7 @@ export class ConnectionDO extends DurableObject<Env> {
     const stateModifications: StateModification[] = [];
     for (const modification of modifications) {
       if (modification.type === "Remove") {
-        this.state.queries.delete(modification.queryId);
+        await this.unregisterQuery(modification.queryId);
         stateModifications.push({ type: "QueryRemoved", queryId: modification.queryId });
         continue;
       }
@@ -131,7 +146,13 @@ export class ConnectionDO extends DurableObject<Env> {
         journal: modification.journal ?? null,
       };
       this.state.queries.set(modification.queryId, activeQuery);
-      stateModifications.push(await this.executeQuery(activeQuery));
+      const stateModification = await this.executeQuery(activeQuery);
+      if (stateModification.type === "QueryUpdated") {
+        await this.registerQuery(activeQuery);
+      } else {
+        await this.unregisterQuery(activeQuery.queryId);
+      }
+      stateModifications.push(stateModification);
     }
     await this.sendTransition(ws, startVersion, stateModifications);
   }
@@ -197,6 +218,81 @@ export class ConnectionDO extends DurableObject<Env> {
       identity: this.state.identityVersion,
     };
   }
+
+  private async invalidate(body: unknown): Promise<Response> {
+    const queryId = queryIdFromInvalidation(body);
+    const query = this.state.queries.get(queryId);
+    if (query === undefined) return json({ invalidated: false });
+
+    const startVersion = this.currentVersion();
+    const modification = await this.executeQuery(query);
+    if (modification.type === "QueryUpdated") {
+      await this.registerQuery(query);
+    } else {
+      await this.unregisterQuery(query.queryId);
+    }
+    for (const ws of this.ctx.getWebSockets()) {
+      await this.sendTransition(ws, startVersion, [modification]);
+    }
+    return json({ invalidated: true });
+  }
+
+  private async registerQuery(query: ActiveQuery): Promise<void> {
+    if (query.readSet === undefined) return;
+    const deploymentId = requireDeploymentId(this.state.deploymentId);
+    const connectionName = requireConnectionName(this.state.connectionName);
+    const partition = this.env.PARTITIONS.getByName(
+      partitionObjectName(deploymentId, query.partitionKey),
+    );
+    await partition.fetch("https://flarex.internal/subscriptions/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        connectionName,
+        queryId: query.queryId,
+        readSet: query.readSet,
+      }),
+    });
+  }
+
+  private async unregisterQuery(queryId: QueryId): Promise<void> {
+    const query = this.state.queries.get(queryId);
+    if (query === undefined) return;
+    this.state.queries.delete(queryId);
+    if (query.partitionKey.length === 0 || this.state.deploymentId === null || this.state.connectionName === null) {
+      return;
+    }
+    const partition = this.env.PARTITIONS.getByName(
+      partitionObjectName(this.state.deploymentId, query.partitionKey),
+    );
+    await partition.fetch("https://flarex.internal/subscriptions/unregister", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        connectionName: this.state.connectionName,
+        queryId,
+      }),
+    });
+  }
+
+  private async unregisterConnection(): Promise<void> {
+    if (this.state.deploymentId === null || this.state.connectionName === null) return;
+    const touchedPartitions = new Set(
+      Array.from(this.state.queries.values())
+        .map(query => query.partitionKey)
+        .filter(partitionKey => partitionKey.length > 0),
+    );
+    await Promise.all(Array.from(touchedPartitions, partitionKey => {
+      const partition = this.env.PARTITIONS.getByName(
+        partitionObjectName(this.state.deploymentId!, partitionKey),
+      );
+      return partition.fetch("https://flarex.internal/subscriptions/unregister-connection", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionName: this.state.connectionName }),
+      });
+    }));
+  }
 }
 
 async function executeSyncInvoke(
@@ -239,6 +335,30 @@ function deploymentIdFromRequest(request: Request): string {
 function requireDeploymentId(value: string | null): string {
   if (value !== null) return value;
   throw new Error("Sync connection has not been initialized with a deployment id.");
+}
+
+function requireConnectionName(value: string | null): string {
+  if (value !== null) return value;
+  throw new Error("Sync connection has not been initialized with a connection name.");
+}
+
+function connectionNameFromRequest(request: Request): string {
+  const value = request.headers.get("x-flarex-connection");
+  if (value !== null && value.length > 0) return value;
+  throw new Error("Sync request is missing connection name.");
+}
+
+function queryIdFromInvalidation(body: unknown): QueryId {
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    !Array.isArray(body) &&
+    typeof (body as { queryId?: unknown }).queryId === "number" &&
+    Number.isInteger((body as { queryId: number }).queryId)
+  ) {
+    return (body as { queryId: number }).queryId;
+  }
+  throw new Error("Invalidation queryId must be an integer.");
 }
 
 function parseSocketMessage(message: string | ArrayBuffer): unknown {

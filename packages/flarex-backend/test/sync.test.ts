@@ -6,6 +6,7 @@ import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
   Env,
+  Json,
   PushSourcePackage,
   PushStatus,
 } from "../src/types";
@@ -98,6 +99,60 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("reruns a subscribed query when a partition commit overlaps its read set", async () => {
+    let currentName = "Ada";
+    const harness = await createSyncHarness([], () => ({ user: currentName }));
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-invalidation-deployment");
+
+    const ws = await openSync(harness, "sync-invalidation-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 9,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 9,
+          value: { user: "Ada" },
+        },
+      ],
+    });
+
+    currentName = "Grace";
+    const invalidated = nextJsonMessage(ws);
+    await commitDirect(harness, "sync-invalidation-deployment", "user:ada", {
+      beginTs: 0,
+      writes: [{ tableId: 1, id: "1:ada", value: { name: "Grace" } }],
+    });
+
+    await expect(invalidated).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 0 },
+      endVersion: { querySet: 1, ts: 4, identity: 0 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 9,
+          value: { user: "Grace" },
+        },
+      ],
+    });
+    ws.close();
+  });
+
   it("reports query failures inside transitions", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);
@@ -158,7 +213,14 @@ describe("sync protocol", () => {
   });
 });
 
-async function createSyncHarness(runtimeCalls: unknown[]): Promise<BackendHarness> {
+async function createSyncHarness(
+  runtimeCalls: unknown[],
+  valueForRequest: (payload: { request: { path: string; args: unknown } }) => Json =
+    payload => ({
+      result: payload.request.path,
+      args: payload.request.args as Json,
+    }),
+): Promise<BackendHarness> {
   return createBackendHarness({
     bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret" },
     r2Buckets: ["ARTIFACTS"],
@@ -170,10 +232,7 @@ async function createSyncHarness(runtimeCalls: unknown[]): Promise<BackendHarnes
             invoke: async payload => {
               runtimeCalls.push(payload);
               return {
-                value: {
-                  result: payload.request.path,
-                  args: payload.request.args,
-                },
+                value: valueForRequest(payload),
                 readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
                 readTs: 3,
               };
@@ -183,6 +242,23 @@ async function createSyncHarness(runtimeCalls: unknown[]): Promise<BackendHarnes
       }),
     },
   });
+}
+
+async function commitDirect(
+  harness: BackendHarness,
+  deploymentId: string,
+  partitionKey: string,
+  body: unknown,
+): Promise<void> {
+  const response = await harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/partitions/${partitionKey}/commit`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  expect(response.status).toBe(201);
 }
 
 async function openSync(

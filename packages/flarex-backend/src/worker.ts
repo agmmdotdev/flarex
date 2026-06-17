@@ -104,7 +104,13 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     if (parts[2] === "sync") {
       const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
-      return env.CONNECTIONS.getByName(connectionObjectName(deploymentId, sessionId)).fetch(request);
+      const connectionName = connectionObjectName(deploymentId, sessionId);
+      const headers = new Headers(request.headers);
+      headers.set("x-flarex-deployment", deploymentId);
+      headers.set("x-flarex-connection", connectionName);
+      return env.CONNECTIONS
+        .getByName(connectionName)
+        .fetch(new Request(request, { headers }));
     }
     if (parts[2] === "scheduler") {
       return env.SCHEDULERS.getByName(schedulerObjectName(deploymentId)).fetch(request);
