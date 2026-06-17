@@ -90,7 +90,7 @@ describe("Flarex dev runtime", () => {
     });
   });
 
-  it("proxies invoke through the generated Worker path", async () => {
+  it("proxies invoke through the backend artifact runtime path", async () => {
     const response = await runtime.fetch(
       new Request("http://localhost/__flarex_dev/invoke", {
         method: "POST",

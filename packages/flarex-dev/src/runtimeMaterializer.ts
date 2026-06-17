@@ -92,7 +92,9 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         typeof body === "object" && body !== null && "error" in body
           ? String((body as { error: unknown }).error)
           : `Materialized execution artifact failed with status ${response.status}`;
-      throw new Error(message);
+      const error = new Error(message) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
     }
     return body as InvokeResponse;
   }

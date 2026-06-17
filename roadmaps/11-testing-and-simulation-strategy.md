@@ -130,3 +130,30 @@ Verified with:
 ```sh
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 ```
+
+## Dev Runtime Artifact Invoke Test Update
+
+Previous completed checkpoint: `c8c16bb` Materialize stored source packages
+locally.
+
+The local dev runtime test now verifies `/__flarex_dev/invoke` through the
+backend artifact runtime path. The test still uses the example app, but the
+normal invoke request now reaches backend `/deployments/:deploymentId/invoke`
+and therefore covers active deployment lookup, R2 artifact storage, runtime
+materialization, backend execution sessions, and `PartitionDO` commit.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev should exercise the backend deployment/invoke loop rather than a
+    separate app-local execution shortcut.
+
+Cloudflare difference: this remains a Miniflare integration test, not a
+hosted Dynamic Worker test. It is still the correct local proof because it
+uses the same service-binding and stored-source-package boundaries.
+
+Verified with:
+
+```sh
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+```

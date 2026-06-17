@@ -611,6 +611,51 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 ```
 
+## Local Dev Backend Artifact Runtime Update
+
+Previous completed checkpoint: `c8c16bb` Materialize stored source packages
+locally.
+
+Local dev now invokes through the same backend-owned hosted shape instead of
+calling the generated app Worker as the normal execution artifact.
+
+Current `/__flarex_dev/invoke` flow:
+
+```txt
+Vite /__flarex_dev/invoke
+  -> backend /deployments/:deploymentId/invoke
+  -> active deployment metadata
+  -> backend R2 ARTIFACTS source package
+  -> FLAREX_ARTIFACT_RUNTIME service binding
+  -> LocalMiniflareExecutionArtifactMaterializer
+  -> backend execution sessions and PartitionDO commit
+```
+
+The generated app Worker remains available for health checks, direct
+compatibility routes, and future `/sync`, but it is no longer the normal local
+dev invoke runtime.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev pushes source to a backend deployment boundary and then invokes
+    against the local backend.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves active deployment and package metadata before calling
+    the executor.
+
+Cloudflare difference: Flarex local dev uses Miniflare R2 plus a service
+binding to emulate hosted artifact storage and the Dynamic Worker runtime. The
+hosted runtime should replace the materializer implementation, not the public
+dev/deploy contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+```
+
 ## Import-Phase Prelude Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push

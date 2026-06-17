@@ -21,7 +21,7 @@ afterAll(async () => {
   await t?.dispose();
 });
 
-describe("generated Worker invoke", () => {
+describe("Flarex invoke", () => {
   it("executes app functions through backend execution sessions", async () => {
     const complete = await t.invokeRaw(
       api.lessons.complete,
@@ -55,7 +55,7 @@ describe("generated Worker invoke", () => {
     });
   });
 
-  it("rejects bad IDs before backend execution starts", async () => {
+  it("rejects bad IDs through backend argument validation", async () => {
     const response = await t.fetch("/invoke", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -67,7 +67,8 @@ describe("generated Worker invoke", () => {
     });
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "$args.userId: Expected an ID for table users, got an ID for table lessonProgress.",
+      error:
+        "ArgumentValidationError: $args.userId: Expected an ID for table users, got an ID for table lessonProgress.",
     });
   });
 });

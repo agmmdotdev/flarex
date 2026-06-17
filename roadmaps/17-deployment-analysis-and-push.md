@@ -2407,6 +2407,56 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test -- artifactRuntimeRoute.test.ts
 ```
 
+## Local Dev Uses Hosted Push/Invoke Shape Update
+
+Previous completed checkpoint: `c8c16bb` Materialize stored source packages
+locally.
+
+Local dev now configures the backend Miniflare runtime with:
+
+- `ARTIFACTS` R2 bucket,
+- `FLAREX_ARTIFACT_RUNTIME` service binding,
+- `FLAREX_ARTIFACT_RUNTIME_TOKEN`,
+- `LocalMiniflareExecutionArtifactMaterializer`.
+
+That means public local push and invoke now share the hosted deployment shape:
+
+```txt
+push/start
+  -> backend analyzer service
+  -> backend stores source package in ARTIFACTS
+  -> finish activates executionArtifactRef
+
+/__flarex_dev/invoke
+  -> backend /deployments/:deploymentId/invoke
+  -> active executionArtifactRef
+  -> ARTIFACTS get(source package)
+  -> artifact runtime service
+  -> materialized source package execution
+```
+
+Convex references copied in principle:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev uses the deployment push loop rather than a separate app-owned
+    execution model.
+- `crates/application/src/deploy_config.rs`
+  - source packages are part of backend deployment state before activation.
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment metadata controls function execution.
+
+Intentional difference: Flarex still keeps generated app Worker support for
+compatibility and future `/sync`, but normal dev invoke now goes through the
+backend artifact runtime. Hosted production should keep this route shape and
+swap the Miniflare materializer for the Dynamic Worker loader.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+```
+
 ### Phase 5 Step 5 Implementation Update
 
 Previous completed checkpoint: `b08269e` Record active deployment pointer on

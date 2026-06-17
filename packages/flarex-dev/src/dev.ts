@@ -9,19 +9,12 @@ import {
   type DevPushStatus,
 } from "./backendPush.ts";
 import {
-  LocalMiniflareExecutionArtifactRuntime,
-  type ExecutionArtifactInvokeRequest,
-  type ExecutionArtifactRef,
-} from "./executionArtifact.ts";
-import {
-  LocalInMemoryExecutionArtifactStore,
-} from "./executionArtifactStore.ts";
-import {
   bundleFlarexSourcePackage,
   finalCodegen,
   initialCodegen,
   type FlarexGenerateOptions,
 } from "./generate.ts";
+import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
 
 export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   deploymentId?: string;
@@ -44,10 +37,6 @@ type ResponseLike = {
   headers: { forEach: (callback: (value: string, key: string) => void) => void };
 };
 
-type ActiveDeploymentStatus = {
-  executionArtifactRef: ExecutionArtifactRef;
-};
-
 export async function createFlarexDevRuntime(
   options: FlarexDevRuntimeOptions,
 ): Promise<FlarexDevRuntime> {
@@ -61,7 +50,6 @@ export async function createFlarexDevRuntime(
 
   const backend = await createBackendMiniflare(backendPersist);
   const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
-  const artifactStore = new LocalInMemoryExecutionArtifactStore();
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
@@ -77,12 +65,7 @@ export async function createFlarexDevRuntime(
       compatibilityDate,
       bindings: { FLAREX_DEPLOYMENT_ID: deploymentId },
       serviceBindings: {
-        FLAREX_BACKEND: async (request: Request) =>
-          backend.dispatchFetch(request.url, {
-            method: request.method,
-            headers: Array.from(request.headers.entries()),
-            body: await request.text(),
-          }),
+        FLAREX_BACKEND: async (request: Request) => dispatchMiniflare(backend, request),
       },
       durableObjectsPersist: appPersist,
       durableObjects: {
@@ -106,7 +89,6 @@ export async function createFlarexDevRuntime(
     await finalCodegen(context, started.codegenAnalysis);
     const nextApp = await createApp();
     try {
-      await artifactStore.put(sourcePackage);
       const finished = await pushCoordinator.finish(started.pushId);
       if (finished.state !== "activated") {
         throw new Error(`Flarex push ${started.pushId} did not activate: ${finished.state}`);
@@ -162,15 +144,14 @@ export async function createFlarexDevRuntime(
       }
       if (url.pathname === "/__flarex_dev/invoke" && request.method === "POST") {
         try {
-          const activeDeployment = await activeDeploymentStatus(backend, deploymentId);
-          await artifactStore.get(activeDeployment.executionArtifactRef);
-          const runtime = new LocalMiniflareExecutionArtifactRuntime({
-            fetch: request => dispatchArtifactFetch(activeApp, request),
-          });
-          return Response.json(
-            await runtime.invoke(
-              activeDeployment.executionArtifactRef,
-              await devInvokeRequest(request, deploymentId),
+          return toWebResponse(
+            await backend.dispatchFetch(
+              `http://flarex.backend/deployments/${deploymentId}/invoke`,
+              {
+                method: "POST",
+                headers: requestHeaders(request),
+                body: JSON.stringify(await devInvokeBody(request)),
+              },
             ),
           );
         } catch (error) {
@@ -187,8 +168,10 @@ export async function createFlarexDevRuntime(
       return toWebResponse(
         await activeApp.dispatchFetch(forwardedUrl.toString(), {
           method: request.method,
-          headers: Array.from(request.headers.entries()),
-          body: await request.text(),
+          headers: requestHeaders(request),
+          ...(request.method === "GET" || request.method === "HEAD"
+            ? {}
+            : { body: await request.text() }),
         }),
       );
     },
@@ -203,38 +186,22 @@ export async function createFlarexDevRuntime(
   };
 }
 
-async function activeDeploymentStatus(
-  backend: Miniflare,
-  deploymentId: string,
-): Promise<ActiveDeploymentStatus> {
-  const response = await backend.dispatchFetch(
-    `http://flarex.backend/deployments/${deploymentId}/deployment`,
-  );
-  const body = await responseJson(response);
-  if (!response.ok) {
-    const message =
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Active deployment request failed with status ${response.status}`;
-    throw new Error(message);
-  }
-  return body as ActiveDeploymentStatus;
-}
-
-async function devInvokeRequest(
-  request: Request,
-  deploymentId: string,
-): Promise<ExecutionArtifactInvokeRequest> {
-  const body = await request.json() as Partial<ExecutionArtifactInvokeRequest>;
+async function devInvokeBody(request: Request): Promise<Record<string, unknown>> {
+  const parsed = await request.json();
+  const body = isRecord(parsed) ? parsed : {};
   return {
-    deploymentId,
     path: requiredString(body.path, "function path"),
     args: body.args ?? null,
     partitionKey:
       request.headers.get("x-flarex-partition") ??
       requiredString(body.partitionKey, "partition key"),
+    ...(body.kind === undefined ? {} : { kind: requiredString(body.kind, "function kind") }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requiredString(value: unknown, name: string): string {
@@ -244,18 +211,29 @@ function requiredString(value: unknown, name: string): string {
   return value;
 }
 
-async function dispatchArtifactFetch(artifact: Miniflare, request: Request): Promise<Response> {
+async function dispatchMiniflare(target: Miniflare, request: Request): Promise<Response> {
   return toWebResponse(
-    await artifact.dispatchFetch(request.url, {
+    await target.dispatchFetch(request.url, {
       method: request.method,
-      headers: Array.from(request.headers.entries()),
-      body: await request.text(),
+      headers: requestHeaders(request),
+      ...(request.method === "GET" || request.method === "HEAD"
+        ? {}
+        : { body: await request.text() }),
     }),
   );
 }
 
 async function createBackendMiniflare(persistDir: string | false): Promise<Miniflare> {
-  return new Miniflare({
+  const { createExecutionArtifactRuntimeService } =
+    await import("flarex-backend/artifact-runtime");
+  let backend!: Miniflare;
+  const artifactRuntimeToken = "local-dev-artifact-runtime";
+  const artifactInternalToken = "local-dev-artifact-internal";
+  const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+    internalToken: artifactInternalToken,
+    backend: request => dispatchMiniflare(backend, request),
+  });
+  backend = new Miniflare({
     modules: [
       {
         type: "ESModule",
@@ -264,6 +242,11 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
       },
     ],
     compatibilityDate,
+    bindings: {
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: artifactRuntimeToken,
+    },
+    r2Buckets: ["ARTIFACTS"],
+    ...(persistDir === false ? {} : { r2Persist: persistDir }),
     durableObjectsPersist: persistDir,
     durableObjects: {
       REGISTRY: { className: "RegistryDO", useSQLite: true },
@@ -275,8 +258,13 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
     },
     serviceBindings: {
       FLAREX_ANALYZER: createLocalAnalyzerService(),
+      FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
+        capabilityToken: artifactRuntimeToken,
+        materializer,
+      }),
     },
   });
+  return backend;
 }
 
 async function bundleWorker(entry: string): Promise<string> {
@@ -327,6 +315,10 @@ function workspacePackageResolution(): Plugin {
       return undefined;
     },
   };
+}
+
+function requestHeaders(request: Request): Array<[string, string]> {
+  return Array.from(request.headers.entries());
 }
 
 async function toWebResponse(response: ResponseLike): Promise<Response> {

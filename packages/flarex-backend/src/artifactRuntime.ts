@@ -1,11 +1,11 @@
-import type { BackendExecutionArtifactStore } from "./artifactStore";
-import { HttpError } from "./http";
+import type { BackendExecutionArtifactStore } from "./artifactStore.ts";
+import { HttpError } from "./http.ts";
 import type {
   ActiveDeploymentStatus,
   InvokeRequest,
   InvokeResponse,
   PushSourcePackage,
-} from "./types";
+} from "./types.ts";
 
 export type ExecutionArtifactInvokePayload = {
   deploymentId: string;
@@ -89,9 +89,10 @@ export function createExecutionArtifactRuntimeService(options: {
 
       return Response.json(await (await cache.get(payload)).invoke(payload));
     } catch (error) {
+      const status = errorStatus(error) ?? 500;
       return Response.json(
         { error: error instanceof Error ? error.message : String(error) },
-        { status: 500 },
+        { status },
       );
     }
   };
@@ -168,6 +169,13 @@ function validateArtifactHeaders(
     return Response.json({ error: "Execution artifact source package hash header mismatch." }, { status: 400 });
   }
   return null;
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (error instanceof HttpError) return error.status;
+  if (typeof error !== "object" || error === null) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
 }
 
 function isExecutionArtifactInvokePayload(value: unknown): value is ExecutionArtifactInvokePayload {

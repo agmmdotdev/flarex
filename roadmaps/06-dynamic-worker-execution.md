@@ -443,6 +443,44 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test -- artifactRuntimeRoute.test.ts
 ```
 
+## Dev Invoke Uses Materialized Source Package Update
+
+Previous completed checkpoint: `c8c16bb` Materialize stored source packages
+locally.
+
+Local dev now exercises the backend artifact runtime path for normal invoke.
+`/__flarex_dev/invoke` no longer reads an in-memory local artifact store and no
+longer calls the generated app Worker as the execution artifact. It forwards to
+backend `/deployments/:deploymentId/invoke`, which loads the active source
+package from R2 and invokes the materialized artifact runtime.
+
+This keeps the execution boundary aligned with the target architecture:
+
+```txt
+active deployment
+  -> stored source package
+  -> materialized execution artifact
+  -> restricted ctx.db syscalls
+  -> backend-owned transaction session
+```
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is rooted in active deployment metadata and package
+    identity.
+
+Cloudflare difference: the local materializer is Miniflare. Hosted Flarex
+still needs the real Cloudflare Dynamic Worker loader, but the call contract is
+now the same in local dev.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+```
+
 ## Runtime Capability Authorization Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact

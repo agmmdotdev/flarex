@@ -2,7 +2,7 @@ import {
   executionArtifactRefForSourcePackage,
   type ExecutionArtifactRef,
 } from "flarex/artifacts";
-import type { PushSourcePackage } from "./types";
+import type { PushSourcePackage } from "./types.ts";
 
 export interface BackendExecutionArtifactStore {
   put(sourcePackage: PushSourcePackage): Promise<ExecutionArtifactRef>;

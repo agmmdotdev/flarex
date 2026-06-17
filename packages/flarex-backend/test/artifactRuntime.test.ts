@@ -224,6 +224,40 @@ describe("backend execution artifact runtime", () => {
       error: "Execution artifact ID header mismatch.",
     });
   });
+
+  it("preserves materialized artifact error status codes", async () => {
+    const payload = testPayload();
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      materializer: {
+        materialize: async () => ({
+          invoke: async () => {
+            const error = new Error("ArgumentValidationError: bad args") as Error & {
+              status?: number;
+            };
+            error.status = 400;
+            throw error;
+          },
+        }),
+      },
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "ArgumentValidationError: bad args",
+    });
+  });
 });
 
 const activeDeployment: ActiveDeploymentStatus = {
