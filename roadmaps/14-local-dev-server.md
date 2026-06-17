@@ -701,6 +701,41 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
 ```
 
+## Local Dev Artifact Cleanup Update
+
+Previous completed checkpoint: `e1ccf14` Let artifact runtime load source
+packages.
+
+Local dev now explicitly disposes the artifact runtime service before
+disposing the backend Miniflare runtime. This gives cached materialized
+artifacts a chance to dispose their nested Miniflare execution artifacts.
+
+The local dev cleanup order is now:
+
+```txt
+wait for reload chain
+  -> dispose generated app Worker
+  -> dispose artifact runtime cached materializations
+  -> dispose backend Worker/DO runtime
+  -> remove temporary dev persistence when appropriate
+```
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
+  - local dev owns backend process lifecycle and cleanup.
+
+Cloudflare difference: Flarex local dev owns multiple Miniflare runtimes
+inside one process, including nested materialized execution artifacts. Hosted
+Flarex should expose the same lifecycle at the Dynamic Worker runtime boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts runtimeMaterializer.test.ts
+```
+
 ## Import-Phase Prelude Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push

@@ -38,6 +38,11 @@ type ResponseLike = {
   headers: { forEach: (callback: (value: string, key: string) => void) => void };
 };
 
+type BackendRuntime = {
+  backend: Miniflare;
+  disposeArtifactRuntime: () => Promise<void>;
+};
+
 export async function createFlarexDevRuntime(
   options: FlarexDevRuntimeOptions,
 ): Promise<FlarexDevRuntime> {
@@ -49,7 +54,8 @@ export async function createFlarexDevRuntime(
   if (backendPersist !== false) await mkdir(backendPersist, { recursive: true });
   if (appPersist !== false) await mkdir(appPersist, { recursive: true });
 
-  const backend = await createBackendMiniflare(backendPersist);
+  const backendRuntime = await createBackendMiniflare(backendPersist);
+  const backend = backendRuntime.backend;
   const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
@@ -179,6 +185,7 @@ export async function createFlarexDevRuntime(
     dispose: async () => {
       await reloadChain.catch(() => undefined);
       await app?.dispose();
+      await backendRuntime.disposeArtifactRuntime();
       await backend.dispose();
       if (options.persistDir === undefined && persistDir !== false) {
         await rm(persistDir, { recursive: true, force: true });
@@ -224,7 +231,7 @@ async function dispatchMiniflare(target: Miniflare, request: Request): Promise<R
   );
 }
 
-async function createBackendMiniflare(persistDir: string | false): Promise<Miniflare> {
+async function createBackendMiniflare(persistDir: string | false): Promise<BackendRuntime> {
   const { createExecutionArtifactRuntimeService } =
     await import("flarex-backend/artifact-runtime");
   const { R2BackendExecutionArtifactStore } =
@@ -235,6 +242,22 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
   const materializer = new LocalMiniflareExecutionArtifactMaterializer({
     internalToken: artifactInternalToken,
     backend: request => dispatchMiniflare(backend, request),
+  });
+  const artifactRuntime = createExecutionArtifactRuntimeService({
+    capabilityToken: artifactRuntimeToken,
+    materializer,
+    store: {
+      put: async sourcePackage =>
+        new R2BackendExecutionArtifactStore(
+          (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        )
+          .put(sourcePackage),
+      get: async ref =>
+        new R2BackendExecutionArtifactStore(
+          (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        )
+          .get(ref),
+    },
   });
   backend = new Miniflare({
     modules: [
@@ -262,25 +285,13 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Minif
     },
     serviceBindings: {
       FLAREX_ANALYZER: createLocalAnalyzerService(),
-      FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
-        capabilityToken: artifactRuntimeToken,
-        materializer,
-        store: {
-          put: async sourcePackage =>
-            new R2BackendExecutionArtifactStore(
-              (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
-            )
-              .put(sourcePackage),
-          get: async ref =>
-            new R2BackendExecutionArtifactStore(
-              (await backend.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
-            )
-              .get(ref),
-        },
-      }),
+      FLAREX_ARTIFACT_RUNTIME: artifactRuntime,
     },
   });
-  return backend;
+  return {
+    backend,
+    disposeArtifactRuntime: () => artifactRuntime.dispose(),
+  };
 }
 
 async function bundleWorker(entry: string): Promise<string> {

@@ -191,3 +191,34 @@ Verified with:
 corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
 ```
+
+## Artifact Lifecycle Test Update
+
+Previous completed checkpoint: `e1ccf14` Let artifact runtime load source
+packages.
+
+`artifactRuntime.test.ts` now verifies materialized artifact cleanup:
+
+- replacing a cached artifact with a new source hash disposes the old artifact,
+- `delete()` disposes a single cached artifact,
+- `clear()` disposes every cached artifact,
+- runtime service `dispose()` clears the cache and disposes cached artifacts.
+
+These tests are intentionally small and deterministic. They protect the local
+Miniflare materializer from leaking nested runtimes and establish the lifecycle
+contract the hosted Dynamic Worker runtime must implement later.
+
+Convex reference:
+
+- `crates/application/src/module_cache/mod.rs`
+  - cache identity and ownership are part of runtime correctness.
+
+Cloudflare difference: disposal currently means nested Miniflare cleanup. In
+hosted Cloudflare it should map to Dynamic Worker eviction or platform runtime
+release.
+
+Verified with:
+
+```sh
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+```

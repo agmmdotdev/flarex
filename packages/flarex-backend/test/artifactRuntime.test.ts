@@ -175,6 +175,62 @@ describe("backend execution artifact runtime", () => {
     expect(cache.size()).toBe(1);
   });
 
+  it("disposes the old artifact when an artifact ID is rematerialized", async () => {
+    const first = testPayload();
+    const second: MaterializedExecutionArtifactPayload = {
+      ...first,
+      ref: { ...first.ref, sourcePackageHash: "b".repeat(64) },
+    };
+    const disposed: string[] = [];
+    const cache = new CachedExecutionArtifactMaterializer({
+      materialize: async payload => ({
+        invoke: async () => ({ value: payload.ref.sourcePackageHash }),
+        dispose: () => {
+          disposed.push(payload.ref.sourcePackageHash);
+        },
+      }),
+    });
+
+    await cache.get(first);
+    await cache.get(second);
+
+    expect(disposed).toEqual([first.ref.sourcePackageHash]);
+    expect(cache.size()).toBe(1);
+  });
+
+  it("disposes cached artifacts on delete and clear", async () => {
+    const first = testPayload();
+    const second: MaterializedExecutionArtifactPayload = {
+      ...first,
+      ref: {
+        ...first.ref,
+        artifactId: "artifact_ffffffffffffffffffffffffffffffff",
+        sourcePackageHash: "b".repeat(64),
+      },
+    };
+    const disposed: string[] = [];
+    const cache = new CachedExecutionArtifactMaterializer({
+      materialize: async payload => ({
+        invoke: async () => ({ value: payload.ref.artifactId }),
+        dispose: async () => {
+          disposed.push(payload.ref.artifactId);
+        },
+      }),
+    });
+
+    await cache.get(first);
+    await cache.get(second);
+    await cache.delete(first.ref.artifactId);
+
+    expect(disposed).toEqual([first.ref.artifactId]);
+    expect(cache.size()).toBe(1);
+
+    await cache.clear();
+
+    expect(disposed).toEqual([first.ref.artifactId, second.ref.artifactId]);
+    expect(cache.size()).toBe(0);
+  });
+
   it("serves runtime invoke requests through the materializer cache", async () => {
     const payload = testPayload();
     const materialized: string[] = [];
@@ -229,6 +285,40 @@ describe("backend execution artifact runtime", () => {
       value: { deploymentId: "deployment1", path: "users:list" },
     });
     expect(materialized).toEqual([payload.ref.artifactId]);
+  });
+
+  it("disposes cached runtime service artifacts", async () => {
+    const payload = testPayload();
+    const disposed: string[] = [];
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      materializer: {
+        materialize: async materializedPayload => ({
+          invoke: async () => ({ value: materializedPayload.request.path }),
+          dispose: () => {
+            disposed.push(materializedPayload.ref.artifactId);
+          },
+        }),
+      },
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(response.ok).toBe(true);
+    expect(fetch.cacheSize()).toBe(1);
+
+    await fetch.dispose();
+
+    expect(disposed).toEqual([payload.ref.artifactId]);
+    expect(fetch.cacheSize()).toBe(0);
   });
 
   it("loads sourcePackage from runtime store before materializing", async () => {

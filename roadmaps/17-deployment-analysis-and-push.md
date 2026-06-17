@@ -2514,6 +2514,45 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
 ```
 
+## Artifact Runtime Lifecycle Update
+
+Previous completed checkpoint: `e1ccf14` Let artifact runtime load source
+packages.
+
+The execution artifact runtime service now exposes a lifecycle surface:
+
+```ts
+dispose(): Promise<void>
+cacheSize(): number
+```
+
+and cached materialized artifacts may implement:
+
+```ts
+dispose?(): Promise<void> | void
+```
+
+The runtime cache disposes artifacts when they are evicted, replaced by a new
+source hash, or cleared by service disposal.
+
+Convex references copied in principle:
+
+- `crates/application/src/module_cache/mod.rs`
+  - loaded module state is cached by identity and owned by the runtime layer.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution uses cached runtime state behind an application runner boundary.
+
+Intentional difference: Flarex exposes this lifecycle at the TypeScript
+runtime-service boundary because the hosted Dynamic Worker implementation is
+still being prototyped. The public developer push/invoke API is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+```
+
 ### Phase 5 Step 5 Implementation Update
 
 Previous completed checkpoint: `b08269e` Record active deployment pointer on

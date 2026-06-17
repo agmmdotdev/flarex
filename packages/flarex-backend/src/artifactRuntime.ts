@@ -26,6 +26,7 @@ export interface BackendExecutionArtifactRuntime {
 
 export interface MaterializedExecutionArtifact {
   invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse>;
+  dispose?(): Promise<void> | void;
 }
 
 export interface ExecutionArtifactMaterializer {
@@ -49,6 +50,9 @@ export class CachedExecutionArtifactMaterializer {
       return cached.artifact;
     }
     const artifact = await this.materializer.materialize(payload);
+    if (cached !== undefined) {
+      await disposeArtifact(cached.artifact);
+    }
     this.cache.set(payload.ref.artifactId, {
       sourcePackageHash: payload.ref.sourcePackageHash,
       artifact,
@@ -60,22 +64,33 @@ export class CachedExecutionArtifactMaterializer {
     return this.cache.size;
   }
 
-  delete(artifactId: string): void {
+  async delete(artifactId: string): Promise<void> {
+    const cached = this.cache.get(artifactId);
     this.cache.delete(artifactId);
+    if (cached !== undefined) {
+      await disposeArtifact(cached.artifact);
+    }
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
+    const artifacts = Array.from(this.cache.values(), entry => entry.artifact);
     this.cache.clear();
+    await Promise.all(artifacts.map(artifact => disposeArtifact(artifact)));
   }
 }
+
+export type ExecutionArtifactRuntimeService = Fetcher["fetch"] & {
+  dispose(): Promise<void>;
+  cacheSize(): number;
+};
 
 export function createExecutionArtifactRuntimeService(options: {
   materializer: ExecutionArtifactMaterializer;
   store?: BackendExecutionArtifactStore;
   capabilityToken?: string;
-}): Fetcher["fetch"] {
+}): ExecutionArtifactRuntimeService {
   const cache = new CachedExecutionArtifactMaterializer(options.materializer);
-  return async (input, init) => {
+  const fetch: Fetcher["fetch"] = async (input, init) => {
     try {
       const request = await normalizeRuntimeRequest(input, init);
       if (new URL(request.url).pathname !== "/invoke" || request.method !== "POST") {
@@ -101,6 +116,14 @@ export function createExecutionArtifactRuntimeService(options: {
       );
     }
   };
+  return Object.assign(fetch, {
+    dispose: () => cache.clear(),
+    cacheSize: () => cache.size(),
+  });
+}
+
+async function disposeArtifact(artifact: MaterializedExecutionArtifact): Promise<void> {
+  await artifact.dispose?.();
 }
 
 export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionArtifactRuntime {

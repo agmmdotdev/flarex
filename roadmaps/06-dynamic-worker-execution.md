@@ -521,6 +521,47 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
 ```
 
+## Materialized Artifact Disposal Update
+
+Previous completed checkpoint: `e1ccf14` Let artifact runtime load source
+packages.
+
+The artifact runtime cache now owns the lifecycle of materialized execution
+artifacts:
+
+- replacing an artifact with the same `artifactId` but a different
+  `sourcePackageHash` disposes the old artifact,
+- `delete(artifactId)` removes and disposes one artifact,
+- `clear()` disposes all cached artifacts,
+- `createExecutionArtifactRuntimeService()` exposes `dispose()` and
+  `cacheSize()` for local-dev/test cleanup.
+
+This matters for the Dynamic Worker target because materialized artifacts may
+own nested Worker isolates, module caches, timers, or future runtime resources.
+Dropping references without disposal is not an acceptable long-running runtime
+contract.
+
+Convex reference:
+
+- `crates/application/src/module_cache/mod.rs`
+  - cached module state has explicit runtime ownership and identity.
+- `crates/node_executor/src/executor.rs`
+  - executor/module loading is a long-lived runtime boundary that must be
+    managed separately from request execution.
+
+Cloudflare difference: local dev currently disposes nested Miniflare
+materializations. Hosted Flarex should map the same lifecycle contract to
+Dynamic Worker eviction or artifact runtime teardown.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- artifactRuntime.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts runtimeMaterializer.test.ts
+```
+
 ## Runtime Capability Authorization Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact
