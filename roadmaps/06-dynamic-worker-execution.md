@@ -347,6 +347,47 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Backend Artifact Runtime Invoke Update
+
+Previous completed checkpoint: `804a055` Add backend artifact storage binding.
+
+The backend now has the first invoke-side hosted artifact runtime boundary.
+When both `ARTIFACTS` and `FLAREX_ARTIFACT_RUNTIME` are configured, public
+backend invoke loads the active source package from R2 and forwards an
+`ExecutionArtifactInvokePayload` to the runtime service binding.
+
+This is the first backend-hosted equivalent of the local dev flow:
+
+```txt
+active deployment
+  -> executionArtifactRef
+  -> artifact store get(ref)
+  -> execution artifact runtime invoke
+  -> generated internal invoke route
+  -> execution session syscalls
+```
+
+Still not implemented:
+
+- actual Cloudflare Dynamic Worker upload/loading,
+- runtime-side materialization from R2 without the backend passing source JSON,
+- capability-token authorization for internal runtime calls,
+- runtime cache/eviction keyed by `artifactId`,
+- hosted source-map/runtime diagnostics.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests are built after resolving source package storage identity
+    and package hashes from backend state.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Backend Artifact Storage Binding Update
 
 Previous completed checkpoint: `873fee7` Add R2 execution artifact store

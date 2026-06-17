@@ -13,6 +13,7 @@ export type BackendHarness = {
 
 export type BackendHarnessOptions = {
   r2Buckets?: string[];
+  serviceBindings?: Record<string, (request: Request) => Response | Promise<Response>>;
 };
 
 export async function createBackendHarness(options: BackendHarnessOptions = {}): Promise<BackendHarness> {
@@ -38,6 +39,7 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
     ...(options.r2Buckets === undefined
       ? {}
       : { r2Buckets: options.r2Buckets, r2Persist: persistPath }),
+    ...(options.serviceBindings === undefined ? {} : { serviceBindings: options.serviceBindings }),
   });
 
   return {

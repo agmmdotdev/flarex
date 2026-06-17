@@ -314,6 +314,50 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Backend Artifact Runtime Boundary Update
+
+Previous completed checkpoint: `804a055` Add backend artifact storage binding.
+
+`flarex-backend` now owns the first hosted execution artifact runtime
+interface:
+
+- `BackendExecutionArtifactRuntime`
+- `ServiceBindingExecutionArtifactRuntime`
+- `ExecutionArtifactInvokePayload`
+
+This keeps hosted invoke orchestration out of `flarex-dev`. `flarex-dev` still
+owns local Miniflare runtime simulation, while `flarex-backend` owns hosted
+runtime service binding orchestration.
+
+Current split:
+
+- `flarex-backend/src/artifactStore.ts`
+  - durable package storage lookup.
+- `flarex-backend/src/artifactRuntime.ts`
+  - hosted runtime invoke payload and service-binding dispatch.
+- `flarex-dev/src/executionArtifact.ts`
+  - local Miniflare analyzer/runtime simulation.
+
+Known cleanup:
+
+- Local and hosted runtime payloads should converge into one shared contract
+  once the Dynamic Worker adapter is real.
+- Runtime authorization belongs in the backend/runtime contract, not in
+  `flarex-dev`.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend runner owns source-package resolution and executor request
+    construction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Analyzer Diagnostics Boundary Update
 
 Previous completed checkpoint: `0a57edd` Analyze push source through backend

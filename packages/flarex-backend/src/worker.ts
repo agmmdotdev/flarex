@@ -3,6 +3,10 @@ import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
 } from "./artifactStore";
+import {
+  ServiceBindingExecutionArtifactRuntime,
+  type BackendExecutionArtifactRuntime,
+} from "./artifactRuntime";
 import { ConnectionDO } from "./connectionDO";
 import { DeploymentDO } from "./deploymentDO";
 import { errorResponse, HttpError, json, readJson, required } from "./http";
@@ -10,6 +14,7 @@ import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
   invokeErrorResponse,
+  loadActiveDeployment,
   parseInvokeKind,
   type BackendFunctionRegistry,
 } from "./invoke";
@@ -303,10 +308,28 @@ async function routeInvoke(
       ...(kind === undefined ? {} : { kind }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     };
+    const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
+    if (artifactRuntime !== undefined) {
+      const activeDeployment = await loadActiveDeployment(env, deploymentId);
+      return json(await artifactRuntime.invoke(activeDeployment, invokeRequest));
+    }
     return json(await executeInvoke(env, deploymentId, invokeRequest, functions));
   } catch (error) {
     return invokeErrorResponse(error);
   }
+}
+
+function artifactRuntimeFromEnv(
+  env: Env,
+  deploymentId: string,
+): BackendExecutionArtifactRuntime | undefined {
+  const store = artifactStoreFromEnv(env);
+  if (store === undefined || env.FLAREX_ARTIFACT_RUNTIME === undefined) return undefined;
+  return new ServiceBindingExecutionArtifactRuntime({
+    runtime: env.FLAREX_ARTIFACT_RUNTIME,
+    store,
+    deploymentId,
+  });
 }
 
 async function routeDeploymentSchema(

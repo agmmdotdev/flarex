@@ -2194,6 +2194,69 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Backend Artifact Runtime Invoke Update
+
+Previous completed checkpoint: `804a055` Add backend artifact storage binding.
+
+Public backend invoke can now route through a backend-owned execution artifact
+runtime boundary when hosted artifact bindings are configured.
+
+Added backend pieces:
+
+- `packages/flarex-backend/src/artifactRuntime.ts`
+  - `BackendExecutionArtifactRuntime`
+  - `ServiceBindingExecutionArtifactRuntime`
+  - `ExecutionArtifactInvokePayload`
+- optional `Env.FLAREX_ARTIFACT_RUNTIME?: Fetcher` binding.
+- `/deployments/:deploymentId/invoke` now:
+  - parses the normal `InvokeRequest`,
+  - loads the active deployment metadata,
+  - loads the active source package from `ARTIFACTS` using
+    `executionArtifactRef`,
+  - forwards a normalized payload to `FLAREX_ARTIFACT_RUNTIME`,
+  - falls back to the prototype in-process registry when artifact runtime
+    bindings are absent.
+
+Current hosted invoke path:
+
+```txt
+POST /deployments/:deploymentId/invoke
+  -> load active deployment
+  -> active executionArtifactRef
+  -> R2BackendExecutionArtifactStore.get(ref)
+  -> FLAREX_ARTIFACT_RUNTIME /invoke
+  -> generated execution artifact /__flarex_internal/invoke
+  -> backend execution session syscalls
+```
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - Node execution resolves `SourcePackageModel::get_latest`, signs the stored
+    package URL, and sends package key/hash metadata to the executor.
+- `crates/model/src/source_packages/mod.rs`
+  - source package identity is durable backend model state.
+- `crates/model/src/source_packages/types.rs`
+  - source packages carry storage key and hash metadata used by execution.
+
+Cloudflare difference:
+
+- Convex sends signed storage URLs and package hashes to a Node executor.
+  Flarex currently loads the source package JSON from R2 in the backend Worker
+  and sends it to a runtime service binding.
+- The real hosted Dynamic Worker loader should eventually materialize the
+  internal execution artifact from this package/ref without sending raw source
+  through a public API.
+- Runtime authorization is still missing. `FLAREX_ARTIFACT_RUNTIME` must become
+  an internal-only capability before this path is production safe.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5 Step 5 Implementation Update
 
 Previous completed checkpoint: `b08269e` Record active deployment pointer on
