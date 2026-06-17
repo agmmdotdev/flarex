@@ -244,3 +244,37 @@ corepack pnpm test
 corepack pnpm build
 git diff --check -- custom/cloudflare-executor
 ```
+
+## Internal Runtime Authorization Update
+
+Previous completed checkpoint: `c623476` Route invoke through artifact
+runtime.
+
+Generated execution artifacts now enforce optional authorization for internal
+runtime routes:
+
+- `/__flarex_internal/invoke`
+- `/__flarex_internal/metadata`
+
+When `FLAREX_INTERNAL_TOKEN` is configured, those routes require
+`Authorization: Bearer <token>`. The backend sends the matching token through
+`FLAREX_ARTIFACT_RUNTIME_TOKEN` when calling `FLAREX_ARTIFACT_RUNTIME`.
+
+This is not a user authentication feature. It is a backend/runtime capability
+guard so managed execution artifact routes are not accidentally exposed as
+public app APIs.
+
+Convex reference:
+
+- `crates/node_executor/src/executor.rs`
+  - executor requests include backend callback/auth material separate from user
+    function arguments.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```

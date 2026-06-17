@@ -347,6 +347,46 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Capability Authorization Update
+
+Previous completed checkpoint: `c623476` Route invoke through artifact
+runtime.
+
+Generated execution artifacts now support optional internal-route
+authorization:
+
+- `FLAREX_INTERNAL_TOKEN` on the generated artifact side.
+- `FLAREX_ARTIFACT_RUNTIME_TOKEN` on the backend side.
+- backend artifact runtime calls include `Authorization: Bearer <token>`.
+- generated `/__flarex_internal/invoke` and `/__flarex_internal/metadata`
+  reject unauthorized calls when a token is configured.
+
+This protects the future managed Dynamic Worker internal routes from becoming
+public application API surfaces. Public `/invoke` remains separate; internal
+routes become guarded once the managed runtime is configured with a token.
+
+Still not implemented:
+
+- real Dynamic Worker materialization/cache,
+- token rotation,
+- per-session syscall capability tokens,
+- runtime-side validation that artifact headers match the loaded artifact.
+
+Convex reference:
+
+- `crates/node_executor/src/executor.rs`
+  - executor requests carry backend callback/auth material alongside source
+    package identity.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Backend Artifact Runtime Invoke Update
 
 Previous completed checkpoint: `804a055` Add backend artifact storage binding.

@@ -27,6 +27,7 @@ export type Env = {
   SCHEDULERS: DurableObjectNamespace;
   FLAREX_ANALYZER?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME?: Fetcher;
+  FLAREX_ARTIFACT_RUNTIME_TOKEN?: string;
   ARTIFACTS?: R2Bucket;
 };
 

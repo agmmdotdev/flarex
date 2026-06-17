@@ -1902,6 +1902,62 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Capability Authorization Update
+
+Previous completed checkpoint: `c623476` Route invoke through artifact
+runtime.
+
+The backend-to-execution-artifact runtime path now has an optional internal
+capability token.
+
+Added pieces:
+
+- `Env.FLAREX_ARTIFACT_RUNTIME_TOKEN?: string` in `flarex-backend`.
+- `ServiceBindingExecutionArtifactRuntime` attaches
+  `Authorization: Bearer <token>` when the token is configured.
+- generated execution artifacts accept `Env.FLAREX_INTERNAL_TOKEN?: string`.
+- generated `/__flarex_internal/*` routes reject with `401` when
+  `FLAREX_INTERNAL_TOKEN` is configured and the authorization header is absent
+  or wrong.
+- local dev remains compatible because the token is optional.
+
+Current internal invoke shape:
+
+```txt
+backend Worker
+  -> Authorization: Bearer <runtime capability>
+  -> FLAREX_ARTIFACT_RUNTIME
+  -> generated /__flarex_internal/invoke
+```
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - executor requests include `auth_header` and a `callback_token` issued by
+    the backend key broker.
+- `crates/node_executor/src/executor.rs`
+  - serialized executor requests include `backendCallbackToken`,
+    `authHeader`, source package identity, and package hashes.
+
+Cloudflare difference:
+
+- Convex has a broader authenticated executor/callback protocol. Flarex now
+  has only a narrow internal bearer capability for artifact runtime calls.
+- This does not yet authenticate individual syscalls from generated user code.
+  Syscalls still go through backend execution sessions and need their own
+  session-scoped authorization hardening later.
+- Token storage/rotation is not implemented. Hosted deployment should use
+  Cloudflare secret bindings or another internal secret source.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ### Phase 6 Step 3 Implementation Update
 
 Previous completed checkpoint: `bccc7cd` Add execution artifact store

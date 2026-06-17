@@ -314,6 +314,46 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Capability Boundary Update
+
+Previous completed checkpoint: `c623476` Route invoke through artifact
+runtime.
+
+Runtime capability ownership is now split by package:
+
+- `flarex-backend`
+  - owns `FLAREX_ARTIFACT_RUNTIME_TOKEN`,
+  - attaches the bearer capability when calling the hosted runtime binding.
+- generated execution artifact code from `flarex-dev`
+  - owns `FLAREX_INTERNAL_TOKEN`,
+  - rejects unauthorized `/__flarex_internal/*` requests.
+
+This keeps secret/capability transport out of public client APIs and out of
+developer-authored `flarex/` functions.
+
+Known cleanup:
+
+- The generated artifact uses a simple bearer token check. The hosted runtime
+  should eventually receive the capability through deployment/runtime secret
+  configuration, not through app-facing config.
+- Session-scoped syscall authorization is still a separate backend/runtime
+  contract.
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend runner constructs executor requests with auth and callback token
+    material.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
 ## Backend Artifact Runtime Boundary Update
 
 Previous completed checkpoint: `804a055` Add backend artifact storage binding.

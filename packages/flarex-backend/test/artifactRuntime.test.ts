@@ -14,6 +14,7 @@ describe("backend execution artifact runtime", () => {
       url: string;
       artifactId: string | null;
       sourcePackageHash: string | null;
+      authorization: string | null;
       body: unknown;
     }> = [];
     const store: BackendExecutionArtifactStore = {
@@ -25,6 +26,7 @@ describe("backend execution artifact runtime", () => {
     };
     const runtime = new ServiceBindingExecutionArtifactRuntime({
       deploymentId: "deployment1",
+      capabilityToken: "runtime-secret",
       store,
       runtime: {
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -33,6 +35,7 @@ describe("backend execution artifact runtime", () => {
             url: request.url,
             artifactId: request.headers.get("x-flarex-artifact-id"),
             sourcePackageHash: request.headers.get("x-flarex-source-package-hash"),
+            authorization: request.headers.get("authorization"),
             body: await request.json(),
           });
           return Response.json({ value: { ok: true } });
@@ -54,6 +57,7 @@ describe("backend execution artifact runtime", () => {
         url: "https://flarex-artifact-runtime.internal/invoke",
         artifactId: activeDeployment.executionArtifactRef.artifactId,
         sourcePackageHash: activeDeployment.executionArtifactRef.sourcePackageHash,
+        authorization: "Bearer runtime-secret",
         body: {
           deploymentId: "deployment1",
           ref: activeDeployment.executionArtifactRef,

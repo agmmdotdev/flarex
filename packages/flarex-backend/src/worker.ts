@@ -329,6 +329,9 @@ function artifactRuntimeFromEnv(
     runtime: env.FLAREX_ARTIFACT_RUNTIME,
     store,
     deploymentId,
+    ...(env.FLAREX_ARTIFACT_RUNTIME_TOKEN === undefined
+      ? {}
+      : { capabilityToken: env.FLAREX_ARTIFACT_RUNTIME_TOKEN }),
   });
 }
 

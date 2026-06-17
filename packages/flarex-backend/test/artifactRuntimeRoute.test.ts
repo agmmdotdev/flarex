@@ -25,9 +25,13 @@ describe("backend artifact runtime route", () => {
       body: unknown;
     }> = [];
     const harness = await createBackendHarness({
+      bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "route-secret" },
       r2Buckets: ["ARTIFACTS"],
       serviceBindings: {
         FLAREX_ARTIFACT_RUNTIME: async request => {
+          if (request.headers.get("authorization") !== "Bearer route-secret") {
+            return Response.json({ error: "bad runtime token" }, { status: 401 });
+          }
           runtimeCalls.push({
             artifactId: request.headers.get("x-flarex-artifact-id"),
             sourcePackageHash: request.headers.get("x-flarex-source-package-hash"),

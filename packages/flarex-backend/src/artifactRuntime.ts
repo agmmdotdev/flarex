@@ -25,15 +25,18 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
   private readonly runtime: Fetcher;
   private readonly store: BackendExecutionArtifactStore;
   private readonly deploymentId: string;
+  private readonly capabilityToken: string | undefined;
 
   constructor(options: {
     runtime: Fetcher;
     store: BackendExecutionArtifactStore;
     deploymentId: string;
+    capabilityToken?: string;
   }) {
     this.runtime = options.runtime;
     this.store = options.store;
     this.deploymentId = options.deploymentId;
+    this.capabilityToken = options.capabilityToken;
   }
 
   async invoke(
@@ -53,6 +56,9 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
         "content-type": "application/json",
         "x-flarex-artifact-id": deployment.executionArtifactRef.artifactId,
         "x-flarex-source-package-hash": deployment.executionArtifactRef.sourcePackageHash,
+        ...(this.capabilityToken === undefined
+          ? {}
+          : { authorization: `Bearer ${this.capabilityToken}` }),
       },
       body: JSON.stringify(payload),
     });

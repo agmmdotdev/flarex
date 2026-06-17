@@ -229,6 +229,7 @@ export interface Env {
   CONNECTIONS: DurableObjectNamespace<ConnectionDO>;
   FLAREX_BACKEND: Fetcher;
   FLAREX_DEPLOYMENT_ID?: string;
+  FLAREX_INTERNAL_TOKEN?: string;
 }
 
 export class ConnectionDO extends DurableObject<Env> {
@@ -368,9 +369,20 @@ async function postBackend<T>(backend: Fetcher, path: string, body: unknown): Pr
   return value as T;
 }
 
+function authorizeInternalRequest(request: Request, env: Env): Response | null {
+  if (env.FLAREX_INTERNAL_TOKEN === undefined) return null;
+  const expected = \`Bearer \${env.FLAREX_INTERNAL_TOKEN}\`;
+  if (request.headers.get("authorization") === expected) return null;
+  return Response.json({ error: "Unauthorized internal Flarex request." }, { status: 401 });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/__flarex_internal/")) {
+      const unauthorized = authorizeInternalRequest(request, env);
+      if (unauthorized !== null) return unauthorized;
+    }
     if (url.pathname === "/sync") {
       const session = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
       return env.CONNECTIONS.getByName(session).fetch(request);

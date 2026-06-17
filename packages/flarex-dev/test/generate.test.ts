@@ -1,6 +1,9 @@
 import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Miniflare } from "miniflare";
+import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import { generateFlarex } from "../src/generate";
 
@@ -102,6 +105,57 @@ export default query({ args: {}, handler: async () => null });
     expect(registry).toContain('"messages": module0.default');
     await expect(fileExists(stale)).resolves.toBe(false);
   });
+
+  it("guards generated internal routes when an internal token is configured", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    await generateFlarex({ root });
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: { FLAREX_INTERNAL_TOKEN: "internal-secret" },
+      serviceBindings: {
+        FLAREX_BACKEND: async () => Response.json({}),
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+      },
+    });
+    try {
+      const missing = await worker.dispatchFetch("http://flarex.test/__flarex_internal/metadata");
+      expect(missing.status).toBe(401);
+      await expect(missing.json()).resolves.toEqual({
+        error: "Unauthorized internal Flarex request.",
+      });
+
+      const wrong = await worker.dispatchFetch("http://flarex.test/__flarex_internal/metadata", {
+        headers: { authorization: "Bearer wrong" },
+      });
+      expect(wrong.status).toBe(401);
+
+      const authorized = await worker.dispatchFetch("http://flarex.test/__flarex_internal/metadata", {
+        headers: { authorization: "Bearer internal-secret" },
+      });
+      expect(authorized.ok).toBe(true);
+      await expect(authorized.json()).resolves.toMatchObject({
+        schema: { version: 1 },
+        functions: [expect.objectContaining({ path: "messages:list" })],
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -126,4 +180,42 @@ async function fileExists(file: string): Promise<boolean> {
       throw error;
     },
   );
+}
+
+async function bundleGeneratedWorker(root: string): Promise<string> {
+  const output = await build({
+    configFile: false,
+    logLevel: "silent",
+    plugins: [workspacePackageResolution()],
+    build: {
+      write: false,
+      target: "es2022",
+      lib: {
+        entry: path.join(root, "flarex/_generated/worker.ts"),
+        formats: ["es"],
+        fileName: "worker",
+      },
+      rollupOptions: { external: ["cloudflare:workers"] },
+    },
+  });
+  const chunks = (Array.isArray(output) ? output : [output]).flatMap(result =>
+    "output" in result ? result.output : [],
+  );
+  const worker = chunks.find(chunk => chunk.type === "chunk" && chunk.fileName === "worker.js");
+  if (!worker || worker.type !== "chunk") {
+    throw new Error("Generated Worker bundle was not emitted.");
+  }
+  return worker.code;
+}
+
+function workspacePackageResolution(): Plugin {
+  return {
+    name: "flarex-test-workspace-package-resolution",
+    resolveId(id) {
+      if (id === "flarex" || id.startsWith("flarex/")) {
+        return fileURLToPath(import.meta.resolve(id));
+      }
+      return undefined;
+    },
+  };
 }
