@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
-import { ServiceBindingExecutionArtifactRuntime } from "../src/artifactRuntime";
+import {
+  CachedExecutionArtifactMaterializer,
+  createExecutionArtifactRuntimeService,
+  ServiceBindingExecutionArtifactRuntime,
+  type ExecutionArtifactInvokePayload,
+  type ExecutionArtifactMaterializer,
+} from "../src/artifactRuntime";
 import type {
   ActiveDeploymentStatus,
   InvokeRequest,
@@ -67,6 +73,157 @@ describe("backend execution artifact runtime", () => {
       },
     ]);
   });
+
+  it("materializes each artifact once and reuses cached artifacts by artifact ID", async () => {
+    const payload = testPayload();
+    const materialized: string[] = [];
+    const invoked: string[] = [];
+    const cache = new CachedExecutionArtifactMaterializer({
+      materialize: async nextPayload => {
+        materialized.push(nextPayload.ref.artifactId);
+        return {
+          invoke: async invokePayload => {
+            invoked.push(invokePayload.request.path);
+            return { value: { artifactId: nextPayload.ref.artifactId } };
+          },
+        };
+      },
+    });
+
+    await expect((await cache.get(payload)).invoke(payload)).resolves.toEqual({
+      value: { artifactId: payload.ref.artifactId },
+    });
+    await expect((await cache.get(payload)).invoke({
+      ...payload,
+      request: { ...payload.request, path: "users:list" },
+    })).resolves.toEqual({ value: { artifactId: payload.ref.artifactId } });
+
+    expect(materialized).toEqual([payload.ref.artifactId]);
+    expect(invoked).toEqual(["users:get", "users:list"]);
+    expect(cache.size()).toBe(1);
+  });
+
+  it("rematerializes when an artifact ID is reused with a different source hash", async () => {
+    const first = testPayload();
+    const second: ExecutionArtifactInvokePayload = {
+      ...first,
+      ref: { ...first.ref, sourcePackageHash: "b".repeat(64) },
+      sourcePackage: {
+        ...first.sourcePackage,
+        modules: first.sourcePackage.modules.map(module =>
+          module.path === "users.js" ? { ...module, sha256: "c".repeat(64) } : module,
+        ),
+      },
+    };
+    const materializedHashes: string[] = [];
+    const cache = new CachedExecutionArtifactMaterializer({
+      materialize: async payload => {
+        materializedHashes.push(payload.ref.sourcePackageHash);
+        return { invoke: async () => ({ value: payload.ref.sourcePackageHash }) };
+      },
+    });
+
+    await cache.get(first);
+    await cache.get(second);
+
+    expect(materializedHashes).toEqual([
+      first.ref.sourcePackageHash,
+      second.ref.sourcePackageHash,
+    ]);
+    expect(cache.size()).toBe(1);
+  });
+
+  it("serves runtime invoke requests through the materializer cache", async () => {
+    const payload = testPayload();
+    const materialized: string[] = [];
+    const materializer: ExecutionArtifactMaterializer = {
+      materialize: async nextPayload => {
+        materialized.push(nextPayload.ref.artifactId);
+        return {
+          invoke: async invokePayload => ({
+            value: {
+              deploymentId: invokePayload.deploymentId,
+              path: invokePayload.request.path,
+            },
+          }),
+        };
+      },
+    };
+    const fetch = createExecutionArtifactRuntimeService({
+      materializer,
+      capabilityToken: "runtime-secret",
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(response.ok).toBe(true);
+    await expect(response.json()).resolves.toEqual({
+      value: { deploymentId: "deployment1", path: "users:get" },
+    });
+
+    const second = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify({
+        ...payload,
+        request: { ...payload.request, path: "users:list" },
+      }),
+    });
+    expect(second.ok).toBe(true);
+    await expect(second.json()).resolves.toEqual({
+      value: { deploymentId: "deployment1", path: "users:list" },
+    });
+    expect(materialized).toEqual([payload.ref.artifactId]);
+  });
+
+  it("rejects unauthorized or mismatched runtime invoke requests", async () => {
+    const payload = testPayload();
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      materializer: {
+        materialize: async () => ({ invoke: async () => ({ value: null }) }),
+      },
+    });
+
+    const unauthorized = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const mismatched = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": "artifact_ffffffffffffffffffffffffffffffff",
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(mismatched.status).toBe(400);
+    await expect(mismatched.json()).resolves.toEqual({
+      error: "Execution artifact ID header mismatch.",
+    });
+  });
 });
 
 const activeDeployment: ActiveDeploymentStatus = {
@@ -108,5 +265,19 @@ function testSourcePackage(): PushSourcePackage {
     ],
     functions: ["users.js"],
     execution: "_flarex/execution.js",
+  };
+}
+
+function testPayload(): ExecutionArtifactInvokePayload {
+  return {
+    deploymentId: "deployment1",
+    ref: activeDeployment.executionArtifactRef,
+    sourcePackage: testSourcePackage(),
+    request: {
+      path: "users:get",
+      args: { id: "1:user" },
+      partitionKey: "user:1",
+      kind: "query",
+    },
   };
 }

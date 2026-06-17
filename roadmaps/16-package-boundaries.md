@@ -314,6 +314,39 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Materializer Package Export Update
+
+Previous completed checkpoint: `f88296c` Authorize artifact runtime calls.
+
+`flarex-backend` now exports `./artifact-runtime` for the hosted runtime Worker
+surface. The exported module contains the runtime-service-side materialization
+contract and cache:
+
+- `ExecutionArtifactMaterializer`
+- `MaterializedExecutionArtifact`
+- `CachedExecutionArtifactMaterializer`
+- `createExecutionArtifactRuntimeService`
+
+Package responsibility:
+
+- `flarex-backend` owns the backend/runtime contract and cache helper.
+- a future hosted runtime Worker imports `flarex-backend/artifact-runtime` and
+  supplies the Cloudflare Dynamic Worker materializer.
+- `flarex-dev` remains responsible only for local Miniflare simulation.
+
+Convex reference:
+
+- `crates/application/src/module_cache/mod.rs`
+  - package/module retrieval is a backend execution concern with explicit cache
+    boundaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Runtime Capability Boundary Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact

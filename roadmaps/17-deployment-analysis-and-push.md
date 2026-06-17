@@ -1774,6 +1774,44 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Runtime Materializer Cache Update
+
+Previous completed checkpoint: `f88296c` Authorize artifact runtime calls.
+
+The hosted runtime service path now has a materializer/cache abstraction. The
+backend still sends an `ExecutionArtifactInvokePayload`, but the runtime
+service can now materialize once and reuse the artifact for repeated invokes.
+
+Added behavior:
+
+- first invoke for an artifact calls `ExecutionArtifactMaterializer.materialize`,
+- repeated invokes with the same `artifactId` and source package hash reuse the
+  cached `MaterializedExecutionArtifact`,
+- a reused `artifactId` with a different source package hash rematerializes,
+- runtime service validates artifact identity headers before materialization.
+
+Convex references inspected:
+
+- `crates/application/src/module_cache/mod.rs`
+  - cache key includes sha256 to avoid stale module reuse.
+- `crates/node_executor/src/executor.rs`
+  - executor request/response model includes source package identity and
+    import/download timing.
+
+Cloudflare difference:
+
+- Flarex's cache currently lives in a service helper and is in-memory per
+  runtime instance. It is not distributed and has no eviction policy yet.
+- The actual materializer still needs to load/build a Cloudflare Dynamic Worker
+  artifact from R2.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ### Phase 5 Step 1 Implementation Update
 
 Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in

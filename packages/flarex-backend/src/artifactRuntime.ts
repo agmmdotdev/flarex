@@ -21,6 +21,82 @@ export interface BackendExecutionArtifactRuntime {
   ): Promise<InvokeResponse>;
 }
 
+export interface MaterializedExecutionArtifact {
+  invoke(payload: ExecutionArtifactInvokePayload): Promise<InvokeResponse>;
+}
+
+export interface ExecutionArtifactMaterializer {
+  materialize(payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact>;
+}
+
+export class CachedExecutionArtifactMaterializer {
+  private readonly materializer: ExecutionArtifactMaterializer;
+  private readonly cache = new Map<string, {
+    sourcePackageHash: string;
+    artifact: MaterializedExecutionArtifact;
+  }>();
+
+  constructor(materializer: ExecutionArtifactMaterializer) {
+    this.materializer = materializer;
+  }
+
+  async get(payload: ExecutionArtifactInvokePayload): Promise<MaterializedExecutionArtifact> {
+    const cached = this.cache.get(payload.ref.artifactId);
+    if (cached?.sourcePackageHash === payload.ref.sourcePackageHash) {
+      return cached.artifact;
+    }
+    const artifact = await this.materializer.materialize(payload);
+    this.cache.set(payload.ref.artifactId, {
+      sourcePackageHash: payload.ref.sourcePackageHash,
+      artifact,
+    });
+    return artifact;
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  delete(artifactId: string): void {
+    this.cache.delete(artifactId);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+export function createExecutionArtifactRuntimeService(options: {
+  materializer: ExecutionArtifactMaterializer;
+  capabilityToken?: string;
+}): Fetcher["fetch"] {
+  const cache = new CachedExecutionArtifactMaterializer(options.materializer);
+  return async (input, init) => {
+    try {
+      const request = await normalizeRuntimeRequest(input, init);
+      if (new URL(request.url).pathname !== "/invoke" || request.method !== "POST") {
+        return Response.json({ error: "Not found." }, { status: 404 });
+      }
+      const unauthorized = authorizeRuntimeRequest(request, options.capabilityToken);
+      if (unauthorized !== null) return unauthorized;
+
+      const payload = await request.json().catch(() => null) as ExecutionArtifactInvokePayload | null;
+      if (!isExecutionArtifactInvokePayload(payload)) {
+        return Response.json({ error: "Invalid execution artifact invoke payload." }, { status: 400 });
+      }
+      const headerError = validateArtifactHeaders(request, payload);
+      if (headerError !== null) return headerError;
+
+      return Response.json(await (await cache.get(payload)).invoke(payload));
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        { status: 500 },
+      );
+    }
+  };
+}
+
 export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionArtifactRuntime {
   private readonly runtime: Fetcher;
   private readonly store: BackendExecutionArtifactStore;
@@ -72,4 +148,80 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
     }
     return body as InvokeResponse;
   }
+}
+
+function authorizeRuntimeRequest(request: Request, capabilityToken: string | undefined): Response | null {
+  if (capabilityToken === undefined) return null;
+  const expected = `Bearer ${capabilityToken}`;
+  if (request.headers.get("authorization") === expected) return null;
+  return Response.json({ error: "Unauthorized execution artifact runtime request." }, { status: 401 });
+}
+
+function validateArtifactHeaders(
+  request: Request,
+  payload: ExecutionArtifactInvokePayload,
+): Response | null {
+  if (request.headers.get("x-flarex-artifact-id") !== payload.ref.artifactId) {
+    return Response.json({ error: "Execution artifact ID header mismatch." }, { status: 400 });
+  }
+  if (request.headers.get("x-flarex-source-package-hash") !== payload.ref.sourcePackageHash) {
+    return Response.json({ error: "Execution artifact source package hash header mismatch." }, { status: 400 });
+  }
+  return null;
+}
+
+function isExecutionArtifactInvokePayload(value: unknown): value is ExecutionArtifactInvokePayload {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const payload = value as Partial<ExecutionArtifactInvokePayload>;
+  return (
+    typeof payload.deploymentId === "string" &&
+    typeof payload.ref === "object" &&
+    payload.ref !== null &&
+    typeof payload.sourcePackage === "object" &&
+    payload.sourcePackage !== null &&
+    typeof payload.request === "object" &&
+    payload.request !== null
+  );
+}
+
+async function normalizeRuntimeRequest(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Request> {
+  if (isRequestLike(input) && !(input instanceof Request)) {
+    return requestFromRequestLike(input);
+  }
+  if (init !== undefined || typeof input === "string" || input instanceof URL || input instanceof Request) {
+    return new Request(input, init);
+  }
+  return new Request(input, init);
+}
+
+type RequestLike = {
+  url: string;
+  method: string;
+  headers: HeadersInit;
+  text(): Promise<string>;
+};
+
+function isRequestLike(value: unknown): value is RequestLike {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RequestLike>;
+  return (
+    typeof candidate.url === "string" &&
+    typeof candidate.method === "string" &&
+    candidate.headers !== undefined &&
+    typeof candidate.text === "function"
+  );
+}
+
+async function requestFromRequestLike(request: RequestLike): Promise<Request> {
+  const init: RequestInit = {
+    method: request.method,
+    headers: request.headers,
+    ...(request.method === "GET" || request.method === "HEAD"
+      ? {}
+      : { body: await request.text() }),
+  };
+  return new Request(request.url, init);
 }

@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/worker.ts",
+    "./artifact-runtime": "./src/artifactRuntime.ts",
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts"

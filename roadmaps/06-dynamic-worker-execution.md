@@ -347,6 +347,52 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Materializer Cache Update
+
+Previous completed checkpoint: `f88296c` Authorize artifact runtime calls.
+
+The artifact runtime service now has a reusable materialization/cache boundary:
+
+- `ExecutionArtifactMaterializer`
+- `MaterializedExecutionArtifact`
+- `CachedExecutionArtifactMaterializer`
+- `createExecutionArtifactRuntimeService()`
+
+The runtime service:
+
+- authorizes `/invoke` with the internal capability token when configured,
+- validates `x-flarex-artifact-id` and `x-flarex-source-package-hash` against
+  the invoke payload,
+- materializes an artifact on first use,
+- reuses the cached artifact for later invokes with the same `artifactId` and
+  full source package hash,
+- rematerializes if an artifact ID is reused with a different hash.
+
+This is still not the real Cloudflare Dynamic Worker loader. It is the runtime
+service contract the loader should implement.
+
+Convex references inspected:
+
+- `crates/application/src/module_cache/mod.rs`
+  - module cache keys include module path and sha256.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves source package storage metadata before executor invoke.
+- `crates/node_executor/src/executor.rs`
+  - executor responses track download and import timing, reflecting the
+    package materialization/import boundary.
+
+Cloudflare difference: Flarex caches a materialized artifact object by
+`artifactId` plus full source package hash. Convex caches module source by
+module path and sha256 and delegates Node package loading/import to its
+executor path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Runtime Capability Authorization Update
 
 Previous completed checkpoint: `c623476` Route invoke through artifact

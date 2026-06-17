@@ -1,11 +1,14 @@
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { afterAll, describe, expect, it } from "vitest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
+import {
+  createExecutionArtifactRuntimeService,
+  type ExecutionArtifactInvokePayload,
+} from "../src/artifactRuntime";
 import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
   Env,
-  InvokeRequest,
   PushSourcePackage,
   PushStatus,
 } from "../src/types";
@@ -28,22 +31,26 @@ describe("backend artifact runtime route", () => {
       bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "route-secret" },
       r2Buckets: ["ARTIFACTS"],
       serviceBindings: {
-        FLAREX_ARTIFACT_RUNTIME: async request => {
-          if (request.headers.get("authorization") !== "Bearer route-secret") {
-            return Response.json({ error: "bad runtime token" }, { status: 401 });
-          }
-          runtimeCalls.push({
-            artifactId: request.headers.get("x-flarex-artifact-id"),
-            sourcePackageHash: request.headers.get("x-flarex-source-package-hash"),
-            body: await request.json(),
-          });
-          return Response.json({
-            value: {
-              runtime: "artifact",
-              path: (runtimeCalls[0]?.body as { request?: InvokeRequest }).request?.path,
-            },
-          });
-        },
+        FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
+          capabilityToken: "route-secret",
+          materializer: {
+            materialize: async payload => ({
+              invoke: async invokePayload => {
+                runtimeCalls.push({
+                  artifactId: payload.ref.artifactId,
+                  sourcePackageHash: payload.ref.sourcePackageHash,
+                  body: invokePayload,
+                });
+                return {
+                  value: {
+                    runtime: "artifact",
+                    path: invokePayload.request.path,
+                  },
+                };
+              },
+            }),
+          },
+        }),
       },
     });
     harnesses.push(harness);
@@ -72,8 +79,9 @@ describe("backend artifact runtime route", () => {
         }),
       },
     );
+    const responseBody = await response.json();
     expect(response.ok).toBe(true);
-    await expect(response.json()).resolves.toEqual({
+    expect(responseBody).toEqual({
       value: { runtime: "artifact", path: "users:get" },
     });
 
