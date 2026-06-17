@@ -1,0 +1,360 @@
+# Sync Protocol Implementation Details
+
+## Goal
+
+Implement Flarex live sync as a Convex-style query-set protocol over a single
+WebSocket connection, while preserving Flarex's Cloudflare Durable Object
+partition boundary.
+
+The first implementation should make `/sync` feel like Convex from the client
+side:
+
+- clients subscribe by function reference/path plus args,
+- active subscriptions are represented as a versioned query set,
+- the backend sends ordered query result transitions,
+- mutations and actions can later share the same socket,
+- query reruns are driven by read-set invalidation instead of polling.
+
+The first implementation is intentionally partition-local. Cross-shard live
+queries and global query invalidation remain later work.
+
+## Convex Source References
+
+Primary files to inspect before each implementation slice:
+
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+  Defines the wire message model: `Connect`, `ModifyQuerySet`, `Mutation`,
+  `Action`, `Authenticate`, `Transition`, `MutationResponse`,
+  `ActionResponse`, `AuthError`, `FatalError`, and `Ping`.
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+  Maintains client query-set versions and produces `ModifyQuerySet` messages
+  for subscribe, unsubscribe, pause, and reconnect.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  Provides `BaseConvexClient.subscribe`, mutation/action request queueing,
+  optimistic updates, and the WebSocket URL shape.
+- `npm-packages/convex/src/react/client.ts`
+  Maps public React APIs such as `watchQuery`, `mutation`, and `action` onto
+  the sync client.
+- `crates/local_backend/src/subs/mod.rs`
+  Owns the WebSocket upgrade and splits socket receive, socket send, and sync
+  worker loops.
+- `crates/sync/src/worker.rs`
+  Runs the authoritative sync worker, processes `ModifyQuerySet`, queues
+  mutations, executes queries, and emits `Transition`.
+- `crates/sync/src/state.rs`
+  Documents the core state model: query-set version plus timestamp, one
+  subscription per active query, and invalidation futures.
+- `crates/application/src/api.rs`
+  Shows the compatibility boundary: sync calls `execute_public_query`,
+  `execute_public_mutation`, `execute_public_action`, and obtains a
+  `subscription_client`.
+- `crates/database/src/subscription.rs`
+  Tracks read-set subscriptions and invalidates them by comparing committed
+  writes against read sets.
+- `crates/database/src/write_log.rs`
+  Implements stale-read and overlap checks used by tokens/subscriptions.
+
+## Protocol Shape
+
+Flarex should keep Convex message names where practical:
+
+```ts
+type ClientMessage =
+  | Connect
+  | Authenticate
+  | ModifyQuerySet
+  | MutationRequest
+  | ActionRequest
+  | Event;
+
+type ServerMessage =
+  | Transition
+  | MutationResponse
+  | ActionResponse
+  | FatalError
+  | AuthError
+  | Ping;
+```
+
+The first supported client message should be `ModifyQuerySet`:
+
+```ts
+type ModifyQuerySet = {
+  type: "ModifyQuerySet";
+  baseVersion: number;
+  newVersion: number;
+  modifications: Array<AddQuery | RemoveQuery>;
+};
+
+type AddQuery = {
+  type: "Add";
+  queryId: number;
+  udfPath: string;
+  args: unknown[];
+  journal?: string | null;
+  partitionKey?: string;
+};
+
+type RemoveQuery = {
+  type: "Remove";
+  queryId: number;
+};
+```
+
+The first server response should be a Convex-style `Transition`:
+
+```ts
+type Transition = {
+  type: "Transition";
+  startVersion: StateVersion;
+  endVersion: StateVersion;
+  modifications: Array<QueryUpdated | QueryFailed | QueryRemoved>;
+  serverTs?: number;
+};
+
+type StateVersion = {
+  querySet: number;
+  ts: number;
+  identity: number;
+};
+```
+
+`partitionKey` is a Flarex-only temporary addition. Convex does not need it
+because Convex owns a global deployment database and routing model. Flarex
+currently executes against one `PartitionDO`, so the first live query protocol
+must either receive a partition key explicitly or infer one from future
+schema/codegen metadata.
+
+## Backend Shape
+
+### Worker Route
+
+Current route:
+
+```txt
+GET /deployments/:deploymentId/sync
+  -> ConnectionDO connection:{deploymentId}:{sessionId}
+```
+
+This route should remain the public backend sync boundary. The generated app
+worker and Vite plugin can proxy to it later, but backend behavior should live
+in `packages/flarex-backend`.
+
+### ConnectionDO
+
+`ConnectionDO` owns one WebSocket session.
+
+Responsibilities:
+
+- accept WebSocket upgrade,
+- parse `ClientMessage`,
+- enforce monotonic query-set versions,
+- store active query subscriptions in memory,
+- execute added queries through the active deployment invoke path,
+- return ordered `Transition` messages,
+- remove queries on `Remove`,
+- close with clear protocol errors for malformed messages.
+
+Initial in-memory state:
+
+```ts
+type ConnectionState = {
+  querySetVersion: number;
+  identityVersion: number;
+  ts: number;
+  queries: Map<number, ActiveQuery>;
+};
+
+type ActiveQuery = {
+  queryId: number;
+  udfPath: string;
+  args: unknown[];
+  partitionKey: string;
+  journal?: string | null;
+  readSet?: ReadSet;
+  resultHash?: string;
+};
+```
+
+For the first slice, `ConnectionDO` may rerun only when a query is added.
+Invalidation registration is the next slice.
+
+### Query Execution
+
+On `AddQuery`, `ConnectionDO` should call the existing hosted invoke path:
+
+```txt
+ConnectionDO
+  -> load active deployment
+  -> execution artifact runtime invoke
+  -> generated internal invoke route
+  -> backend execution session/syscalls
+  -> PartitionDO read at beginTs
+```
+
+The query response already returns enough backend envelope data to start sync:
+
+- function result value,
+- read set,
+- begin/commit timestamp equivalent for query snapshot,
+- log lines once available.
+
+`ConnectionDO` stores the read set with the query so later invalidation can
+compare committed writes against it.
+
+### PartitionDO
+
+`PartitionDO` remains the source of truth for one `{deploymentId,
+partitionKey}`. It already owns documents, indexes, write log, idempotency, and
+OCC validation.
+
+Future sync responsibilities:
+
+- store or receive active subscription registrations,
+- compare commit writes and index writes against registered read sets,
+- notify affected `ConnectionDO`s after commit,
+- avoid notifying subscriptions when writes do not overlap.
+
+The first implementation should not move subscription truth into `DeploymentDO`
+or the generated execution artifact. Live invalidation belongs at the boundary
+where committed writes are known.
+
+## Implementation Slices
+
+### Slice 1: Protocol Types And Initial Query Transitions
+
+Add a shared protocol module, preferably in `packages/flarex-backend` first and
+then re-export or mirror it in `packages/flarex` when the client package starts
+consuming it.
+
+Implement:
+
+- `ModifyQuerySet` parsing,
+- `Add` query execution,
+- `Remove` query deletion,
+- query-set version checks,
+- `Transition` response with `QueryUpdated`, `QueryFailed`, and
+  `QueryRemoved`,
+- tests for malformed base versions and successful query subscription.
+
+This slice proves the `/sync` state machine without pretending invalidation is
+complete.
+
+### Slice 2: Partition-Local Invalidation
+
+Add subscription registration tied to one `PartitionDO`.
+
+Options to evaluate during implementation:
+
+- `ConnectionDO` registers read sets with `PartitionDO` after query execution,
+- `PartitionDO` stores registered read sets and connection object names,
+- after commit, `PartitionDO` compares writes against registered reads,
+- on overlap, `PartitionDO` sends an internal invalidation request to
+  `ConnectionDO`,
+- `ConnectionDO` reruns the affected query and emits a new `Transition`.
+
+This is the closest Cloudflare equivalent to Convex's
+`SubscriptionClient.subscribe(token)` plus invalidation future.
+
+### Slice 3: Mutation And Action Over Sync
+
+Add Convex-style `Mutation` and `Action` messages to the WebSocket after
+query transitions are working.
+
+Mutation ordering matters. Convex's sync worker queues mutations with
+single-client ordering and avoids advancing query results past pending
+mutations in a way that would break optimistic updates. Flarex should copy that
+behavior before adding optimistic client APIs.
+
+### Slice 4: Client Package Compatibility
+
+Once the backend protocol works, port/adapt Convex client code:
+
+- `BaseConvexClient.subscribe`,
+- `RemoteQuerySet`,
+- `LocalSyncState`,
+- `RequestManager`,
+- React `watchQuery`, `useQuery`, `useMutation`, and `useAction`.
+
+Keep names and mental model close to Convex. Only add Flarex-specific options
+where needed for partition routing.
+
+### Slice 5: Cross-Shard And Projection Sync
+
+Cross-shard live queries are not part of the first protocol.
+
+Later options:
+
+- require a declared shard key for live queries,
+- subscribe to projection tables for fan-out views,
+- split one logical query into multiple partition subscriptions,
+- reject unsupported cross-shard live queries at analysis/runtime with a clear
+  error.
+
+## Flarex Differences From Convex
+
+- Convex has a coordinated backend database and timestamp model. Flarex starts
+  with partition-local timestamps inside `PartitionDO`.
+- Convex query subscriptions are backed by backend read tokens. Flarex already
+  records read sets and must promote them into subscription tokens.
+- Convex can hide routing from app developers. Flarex may temporarily require
+  `partitionKey` until schema placement and generated routing can infer it.
+- Convex's sync worker runs close to the database subscription manager. Flarex
+  splits socket ownership (`ConnectionDO`) from data ownership (`PartitionDO`).
+- Convex can eventually rerun all invalidated queries in one sync worker.
+  Flarex must notify the correct connection object from the committed partition.
+
+## Correctness Rules
+
+- Do not implement live sync as polling.
+- Do not send query updates without recording the read set that produced them.
+- Do not claim global Convex-style live query semantics for cross-shard reads.
+- Do not expose Durable Object or internal artifact concepts to application
+  developers.
+- Do not bypass the existing backend invoke/session/syscall path for query
+  execution.
+- Do not put authoritative subscription invalidation in the generated app
+  worker.
+- Keep protocol errors explicit and deterministic.
+
+## Testing Strategy
+
+Backend tests should cover:
+
+- WebSocket upgrade route reaches `ConnectionDO`,
+- `ModifyQuerySet/Add` runs a query and returns `Transition`,
+- `ModifyQuerySet/Remove` returns `QueryRemoved`,
+- base-version mismatch rejects the client message,
+- missing `partitionKey` fails clearly until routing inference exists,
+- query execution errors become `QueryFailed`,
+- later: mutation commit invalidates only overlapping read sets.
+
+Client tests should come after backend protocol stabilization and should reuse
+Convex client behavior where possible.
+
+## Implementation Record Template
+
+Each sync implementation turn should append a checkpoint here or in
+`05-sync-and-subscriptions.md` with:
+
+```md
+### `<previous commit>` Previous checkpoint title
+
+Changed:
+- ...
+
+Convex references:
+- ...
+
+Flarex differences:
+- ...
+
+Validation:
+- ...
+
+Known limitations:
+- ...
+```
+
+Record the new commit ID in the final response and carry it into the next sync
+checkpoint.

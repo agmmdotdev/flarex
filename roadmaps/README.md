@@ -25,6 +25,7 @@ Start with:
 - [03-occ-and-transactions.md](./03-occ-and-transactions.md)
 - [04-indexes.md](./04-indexes.md)
 - [05-sync-and-subscriptions.md](./05-sync-and-subscriptions.md)
+- [05-sync-protocol-implementation.md](./05-sync-protocol-implementation.md)
 - [06-dynamic-worker-execution.md](./06-dynamic-worker-execution.md)
 - [07-cross-shard-workflows.md](./07-cross-shard-workflows.md)
 - [08-projections.md](./08-projections.md)
