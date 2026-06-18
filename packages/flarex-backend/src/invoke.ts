@@ -17,6 +17,8 @@ import type {
   DeploymentSchema,
   DeploymentFunctionKind,
   Env,
+  FunctionExecutionScope,
+  FunctionPartitionPolicy,
   FunctionRoutePolicy,
   InvokeRequest,
   InvokeResponse,
@@ -91,6 +93,7 @@ export type BackendRegisteredFunction =
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
       route?: FunctionRoutePolicy | null;
+      partition?: FunctionPartitionPolicy | null;
       handler: (ctx: BackendQueryCtx, args: Json) => Promise<Json> | Json;
     }
   | {
@@ -98,6 +101,7 @@ export type BackendRegisteredFunction =
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
       route?: FunctionRoutePolicy | null;
+      partition?: FunctionPartitionPolicy | null;
       handler: (ctx: BackendMutationCtx, args: Json) => Promise<Json> | Json;
     };
 
@@ -151,9 +155,14 @@ export async function executeInvoke(
     }
     throw error;
   }
-  validateInvokeRoute(metadata?.route ?? fn.route ?? null, request);
-  await SingleShardTransaction.ensureSchema(env, deploymentId, request.partitionKey, schema);
-  const tx = await SingleShardTransaction.begin(env, deploymentId, request.partitionKey);
+  const scope = resolveFunctionExecutionScope(
+    metadata?.partition ?? fn.partition ?? null,
+    metadata?.route ?? fn.route ?? null,
+    request,
+    schema,
+  );
+  await SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema);
+  const tx = await SingleShardTransaction.begin(env, deploymentId, scope.partitionKey);
   const value =
     fn.kind === "query"
       ? await fn.handler({ db: readerFor(tx, schema) }, request.args)
@@ -199,6 +208,118 @@ export function validateInvokeRoute(
     }
     return;
   }
+}
+
+export function resolveFunctionExecutionScope(
+  partition: FunctionPartitionPolicy | null | undefined,
+  route: FunctionRoutePolicy | null | undefined,
+  request: Pick<InvokeRequest, "path" | "args" | "partitionKey">,
+  schema: DeploymentSchema,
+): FunctionExecutionScope {
+  if (partition !== undefined && partition !== null) {
+    validatePartitionPolicyAgainstSchema(partition, request.path, schema);
+    if (
+      route !== null &&
+      route !== undefined &&
+      route.type === "args" &&
+      route.field !== partition.argField
+    ) {
+      throw new HttpError(
+        400,
+        `PartitionValidationError: ${request.path} partition argument ${partition.argField} must match route argument ${route.field}.`,
+      );
+    }
+    const partitionKey = partitionKeyFromArgs(
+      request,
+      partition.argField,
+      `partition ${partition.table}.${partition.selector}`,
+      "PartitionValidationError",
+    );
+    if (request.partitionKey !== partitionKey) {
+      throw new HttpError(
+        400,
+        `PartitionValidationError: partitionKey must match args.${partition.argField} for ${request.path}.`,
+      );
+    }
+    return {
+      kind: "partition",
+      table: partition.table,
+      selector: partition.selector,
+      partitionField: partition.partitionField,
+      argField: partition.argField,
+      partitionKey,
+    };
+  }
+
+  if (route !== undefined && route !== null) {
+    validateInvokeRoute(route, request);
+    return { kind: "route", field: route.field, partitionKey: request.partitionKey };
+  }
+
+  return { kind: "explicit", partitionKey: request.partitionKey };
+}
+
+function validatePartitionPolicyAgainstSchema(
+  partition: FunctionPartitionPolicy,
+  path: string,
+  schema: DeploymentSchema,
+): void {
+  const table = tableForName(schema, partition.table);
+  if (table.placement.kind !== "partitionBy") {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${path} partition table ${partition.table} is not partitioned.`,
+    );
+  }
+  if (table.placement.field !== partition.partitionField) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${path} partition selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
+    );
+  }
+  const expectedSelector = selectorNameForPartitionField(table.placement.field);
+  if (partition.selector !== expectedSelector) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${path} expected partition selector ${expectedSelector} for ${partition.table}.partitionBy(${JSON.stringify(table.placement.field)}).`,
+    );
+  }
+}
+
+function partitionKeyFromArgs(
+  request: Pick<InvokeRequest, "path" | "args">,
+  field: string,
+  label: string,
+  errorPrefix: "RouteValidationError" | "PartitionValidationError",
+): string {
+  if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
+    throw new HttpError(
+      400,
+      `${errorPrefix}: ${request.path} ${label} requires object arguments.`,
+    );
+  }
+  const value = request.args[field];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new HttpError(
+      400,
+      `${errorPrefix}: ${request.path} ${label} requires a non-empty string argument.`,
+    );
+  }
+  return value;
+}
+
+function selectorNameForPartitionField(field: string): string {
+  if (field === "_id") return "byId";
+  const suffix = field
+    .split(/[^A-Za-z0-9]+/)
+    .filter(part => part.length > 0)
+    .map(capitalize)
+    .join("");
+  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
 export function invokeErrorResponse(error: unknown): Response {

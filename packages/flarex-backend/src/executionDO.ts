@@ -6,7 +6,7 @@ import {
   isInvokableKind,
   loadActiveFunctionMetadata,
   readerFor,
-  validateInvokeRoute,
+  resolveFunctionExecutionScope,
   validateReturn,
   writerFor,
 } from "./invoke";
@@ -17,6 +17,7 @@ import type {
   DeploymentSchema,
   Env,
   ExecutionFinishRequest,
+  FunctionExecutionScope,
   ExecutionStartRequest,
   ExecutionStartResponse,
   ExecutionSyscallRequest,
@@ -31,6 +32,7 @@ type ExecutionSession = {
   path: string;
   kind: BackendFunctionKind;
   idempotencyKey?: string;
+  scope: FunctionExecutionScope;
   schema: DeploymentSchema;
   metadata: DeploymentFunctionMetadata;
   tx: SingleShardTransaction;
@@ -91,25 +93,26 @@ export class ExecutionDO extends DurableObject<Env> {
       }
       throw error;
     }
-    validateInvokeRoute(metadata.route, request);
+    const scope = resolveFunctionExecutionScope(metadata.partition, metadata.route, request, schema);
 
     await SingleShardTransaction.ensureSchema(
       this.env,
       request.deploymentId,
-      request.partitionKey,
+      scope.partitionKey,
       schema,
     );
     const tx = await SingleShardTransaction.begin(
       this.env,
       request.deploymentId,
-      request.partitionKey,
+      scope.partitionKey,
     );
     this.session = {
       deploymentId: request.deploymentId,
-      partitionKey: request.partitionKey,
+      partitionKey: scope.partitionKey,
       path: request.path,
       kind: metadata.kind,
       ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
+      scope,
       schema,
       metadata,
       tx,

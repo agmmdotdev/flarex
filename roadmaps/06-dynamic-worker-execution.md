@@ -111,6 +111,60 @@ analysis, candidate push, and activation lifecycle.
 - Index reads through the wrapper do not yet overlay staged writes.
 - Cross-shard calls remain intentionally out of scope for normal mutations.
 
+## Partition Scope Runtime Update
+
+Bound `ExecutionDO` sessions to function partition metadata before user-code
+syscalls can run.
+
+Checkpoint title: `Bind execution sessions to partition metadata`
+
+Previous completed checkpoint: `231447a` Preserve partition selector metadata.
+
+What changed:
+
+- `ExecutionDO.start()` now resolves a `FunctionExecutionScope` from active
+  deployment metadata.
+- Partition metadata is preferred over route metadata and must match the
+  request args and supplied partition key before a `SingleShardTransaction`
+  begins.
+- The active execution session stores the resolved scope alongside metadata,
+  schema, and transaction state.
+- Added an execution-session regression test where
+  `partition: model.teams.bySlug("teamSlug")` rejects `partitionKey: "wrong"`
+  before any syscalls run.
+
+Convex references:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - syscalls run after the backend creates the function execution context.
+- `crates/function_runner/src/server.rs`
+  - the function runner receives a backend-controlled transaction context.
+- `crates/application/src/application_function_runner/mod.rs`
+  - deployment metadata and function runner state are joined by the backend.
+
+Cloudflare difference:
+
+- Flarex's execution session must hold a concrete `PartitionDO` key because
+  Durable Object routing is outside the isolate. Convex's function runner does
+  not expose that shard selection problem to user code.
+
+Remaining limitations:
+
+- The generated Worker still sends a `partitionKey` transport field; the
+  backend now validates it, but the client transport has not been simplified.
+- The scope is runtime metadata only. It does not yet narrow generated handler
+  `ctx.db` types.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
 ## Last Update
 
 Added the backend invoke boundary on top of `SingleShardTransaction`.

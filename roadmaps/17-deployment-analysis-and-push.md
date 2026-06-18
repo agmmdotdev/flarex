@@ -2909,6 +2909,60 @@ Added source-position metadata to analyzed functions and preserved it through
 local analysis, backend push state, active function metadata, codegen analysis,
 and generated function metadata.
 
+## Partition Metadata Runtime Binding Update
+
+Checkpoint title: `Bind execution sessions to partition metadata`
+
+Previous completed checkpoint: `231447a` Preserve partition selector metadata.
+
+The analyzed and stored `partition` metadata now participates in backend
+execution, not only in generated files and push validation.
+
+What changed:
+
+- `DeploymentFunctionMetadata.partition` is resolved into a
+  `FunctionExecutionScope` at execution start.
+- Direct `/invoke` and `ExecutionDO` both prefer stored partition metadata over
+  route metadata when validating the target shard.
+- The backend rechecks that the partition descriptor still matches the active
+  schema before opening a `PartitionDO` transaction. This keeps runtime safe for
+  legacy direct metadata routes and stale metadata during prototype tests.
+- Added regression coverage for stored metadata in the direct invoke and
+  execution-session paths.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata is backend deployment state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment metadata selects the function execution context.
+- `crates/function_runner/src/lib.rs`
+  - execution merges user-code reads and writes into backend-owned transaction
+    state.
+
+Cloudflare difference:
+
+- Convex does not have to turn function metadata into a Durable Object name.
+  Flarex must resolve `partition.table/selector/argField` into a concrete
+  `PartitionDO` key before starting the transaction.
+
+Remaining limitations:
+
+- Runtime binding does not remove the legacy explicit `partitionKey` transport
+  field yet; generated clients still send it.
+- This does not yet persist execution-session state across `ExecutionDO`
+  eviction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
 ## Partition Metadata Analysis Update
 
 Checkpoint title: `Preserve partition selector metadata`

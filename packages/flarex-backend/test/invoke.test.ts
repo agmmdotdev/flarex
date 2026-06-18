@@ -404,6 +404,78 @@ describe("executeInvoke", () => {
     );
   });
 
+  it("uses stored partition metadata as the authoritative invoke execution scope", async () => {
+    await putSchema("invoke-partition-scope-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "teams",
+          placement: { kind: "partitionBy", field: "slug" },
+        },
+      ],
+      indexes: [],
+    });
+    await putFunctions("invoke-partition-scope-deployment", {
+      functions: [
+        {
+          path: "teams:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              teamSlug: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "bySlug",
+            partitionField: "slug",
+            argField: "teamSlug",
+          },
+        },
+      ],
+    });
+
+    const functions: BackendFunctionRegistry = {
+      "teams:create": {
+        kind: "mutation",
+        handler: async () => null,
+      },
+    };
+
+    await expect(
+      executeInvoke(
+        env,
+        "invoke-partition-scope-deployment",
+        {
+          path: "teams:create",
+          kind: "mutation",
+          partitionKey: "wrong",
+          args: { teamSlug: "acme" },
+        },
+        functions,
+      ),
+    ).rejects.toThrow(
+      "PartitionValidationError: partitionKey must match args.teamSlug for teams:create.",
+    );
+
+    await expect(
+      executeInvoke(
+        env,
+        "invoke-partition-scope-deployment",
+        {
+          path: "teams:create",
+          kind: "mutation",
+          partitionKey: "acme",
+          args: { teamSlug: "acme" },
+        },
+        functions,
+      ),
+    ).resolves.toMatchObject({ value: null });
+  });
+
   it("enforces colocateWith placement on user-code reads and writes", async () => {
     await putSchema("placement-validation-deployment", {
       version: 1,
@@ -1126,6 +1198,7 @@ async function putFunctions(
       args?: unknown;
       returns?: unknown;
       route?: unknown;
+      partition?: unknown;
     }>;
   },
 ): Promise<void> {

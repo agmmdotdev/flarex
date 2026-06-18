@@ -237,6 +237,42 @@ describe("ExecutionDO sessions", () => {
       error: "RouteValidationError: partitionKey must match args.userId for lessons:list.",
     });
   });
+
+  it("uses stored partition metadata as the authoritative execution session scope", async () => {
+    await activateDeployment("execution-partition-scope-deployment", teamSchema(), {
+      functions: [
+        {
+          path: "teams:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              teamSlug: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "bySlug",
+            partitionField: "slug",
+            argField: "teamSlug",
+          },
+        },
+      ],
+    });
+
+    const response = await startExecutionResponse("execution-partition-scope-deployment", {
+      path: "teams:create",
+      kind: "mutation",
+      partitionKey: "wrong",
+      args: { teamSlug: "acme" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "PartitionValidationError: partitionKey must match args.teamSlug for teams:create.",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {
@@ -257,6 +293,20 @@ function lessonSchema(): DeploymentSchema {
         fields: ["userId", "lessonId"],
       },
     ],
+  };
+}
+
+function teamSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [
+      {
+        tableId: 1,
+        name: "teams",
+        placement: { kind: "partitionBy", field: "slug" },
+      },
+    ],
+    indexes: [],
   };
 }
 

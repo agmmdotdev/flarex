@@ -139,6 +139,22 @@ export type FunctionPartitionPolicy = {
   argField: string;
 };
 
+export type FunctionExecutionScope =
+  | {
+      kind: "partition";
+      table: string;
+      selector: string;
+      partitionField: string;
+      argField: string;
+      partitionKey: string;
+    }
+  | {
+      kind: "route";
+      field: string;
+      partitionKey: string;
+    }
+  | { kind: "explicit"; partitionKey: string };
+
 export type AnalyzedSourcePosition = {
   path: string;
   startLine: number;

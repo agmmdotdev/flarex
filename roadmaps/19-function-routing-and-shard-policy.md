@@ -717,6 +717,63 @@ corepack pnpm --filter @flarex/example build
 
 ## Previous Update
 
+Bound backend execution to stored partition metadata.
+
+Checkpoint title: `Bind execution sessions to partition metadata`
+
+Previous completed checkpoint: `231447a` Preserve partition selector metadata.
+
+What changed:
+
+- Added `FunctionExecutionScope` as the backend runtime view of a function's
+  selected shard.
+- `/invoke` now resolves execution scope from stored `partition` metadata
+  first, then falls back to `route`, then to explicit legacy `partitionKey`.
+- `ExecutionDO` session start uses the same resolver, so syscall-backed Dynamic
+  Worker sessions and direct invokes enforce the same boundary.
+- Partition metadata now rejects mismatched `partitionKey` before schema cache
+  sync, transaction begin, handler execution, or syscalls.
+- Added backend tests proving stored `partition` metadata drives both direct
+  invoke and execution-session routing even without `route` metadata.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - function execution is bound to a backend-owned transaction context before
+    user code runs.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code accesses storage through syscalls after the backend establishes
+    execution context.
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+  - function metadata is attached to the registered handler, not trusted from
+    client calls.
+
+Cloudflare difference:
+
+- Convex chooses a logical transaction context without a developer-visible
+  shard key. Flarex must resolve a `PartitionDO` key from partition metadata
+  and verify the client-sent key is only a transport value, not authority.
+
+Remaining limitations:
+
+- Scoped TypeScript `ctx.db` surfaces are still future work. Runtime now has a
+  `FunctionExecutionScope`, but generated handler types do not yet narrow
+  allowed writes from `partition: model.table.byX(...)`.
+- The explicit `partitionKey` fallback still exists for prototype/unrouted
+  functions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Update
+
 Preserved `partition: model.table.byField(argField)` as first-class function
 partition metadata while still lowering it to the existing route metadata for
 current runtime compatibility.
