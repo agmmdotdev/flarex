@@ -113,7 +113,9 @@ Primary npm package areas to fork or study:
 - `npm-packages/convex/src/browser/http_client.ts`
   HTTP client shape, but not endpoints as-is.
 - `npm-packages/convex/src/browser/sync`
-  Future live sync inspiration, not a drop-in port.
+  Fork/refactor target for live sync state, public client behavior, and protocol
+  shape. The transport URL, authentication, timestamp encoding, and
+  partition-routing fields must be adapted for Flarex.
 - `npm-packages/convex/src/react`
   React hook shapes.
 - `npm-packages/convex/src/nextjs`
@@ -160,8 +162,13 @@ the developer explicitly opts into workflow-style cross-shard behavior.
 5. Keep generated `_generated/api` and `_generated/server` close to Convex.
 6. Add a minimal Flarex CLI/codegen command before porting larger Convex CLI
    behavior.
-7. Add React/Next.js helpers after invoke and sync protocols stabilize.
-8. Only then revisit WebSocket live sync and optimistic updates.
+7. Port the Convex sync client layering before React hooks:
+   `LocalSyncState`-style query-set bookkeeping, `BaseConvexClient`-style
+   sync transport boundary, and `ConvexClient`-style public callback API.
+8. Add React/Next.js helpers after the live client exposes stable
+   `onUpdate`, `watchQuery`, `mutation`, and connection-state semantics.
+9. Revisit optimistic updates, paginated sync, auth refresh, and reconnect
+   polish after the first partition-aware live client is working.
 
 ## Known Limitations
 
@@ -172,8 +179,95 @@ the developer explicitly opts into workflow-style cross-shard behavior.
 - Dynamic Worker loading is not connected yet, so generated functions are not
   deployed through the new backend invoke registry.
 - Client-side partition routing is still explicit.
-- Live sync is not implemented yet, so React hook compatibility will be staged
-  after the backend sync protocol exists.
+- Live sync is implemented on the backend side only. `packages/flarex` still
+  needs a Convex-style client-side sync stack.
+
+## Sync Client Fork Plan
+
+The live client should not be a new hand-written WebSocket wrapper. It should
+selectively port Convex's browser sync client architecture and keep the
+Flarex-specific changes narrow and named.
+
+### Convex Files To Port Closely
+
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+  - Owns query tokens, query IDs, query-set versions, subscription
+    deduplication, restart query-set reconstruction, and `Remove` emission
+    only after the last subscriber unsubscribes.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Owns the base sync client boundary: subscribe, local query result,
+    mutation enqueueing, server message handling, and transition callbacks.
+- `npm-packages/convex/src/browser/simple_client.ts`
+  - Owns the public `ConvexClient` style: `onUpdate`, `query`, `mutation`,
+    unsubscribe objects, callback dispatch, and connection-state subscription.
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+  - Owns message names and payload shape. Flarex should keep names such as
+    `ModifyQuerySet`, `Transition`, `QueryUpdated`, `QueryFailed`,
+    `QueryRemoved`, `Mutation`, and `MutationResponse`.
+
+### Flarex Adaptations
+
+- Flarex sync URLs target the Flarex backend, not Convex's
+  `/api/{version}/sync` path.
+- The initial live client must include `partitionKey` in `AddQuery` and
+  `Mutation` messages, and the query token must include that partition route.
+- Client protocol types belong in `packages/flarex`, not by importing
+  `packages/flarex-backend`. The client package may mirror the shared protocol
+  shape, but it must not depend on backend-only code.
+- Keep the current HTTP `/invoke` client as a compatibility path while the live
+  sync client is introduced.
+- Stage out Convex features that require backend support Flarex does not have
+  yet: auth refresh, component paths, optimistic updates, paginated reactive
+  sync, transition chunks, action-over-sync, and production reconnect polish.
+
+### First Implementation Slice
+
+1. Add `packages/flarex/src/sync/protocol.ts` with a client-side mirror of the
+   current Flarex `/sync` messages, using Convex names.
+2. Add `packages/flarex/src/sync/localState.ts` as a close Flarex port of
+   Convex `LocalSyncState`, adapted for `partitionKey`.
+3. Add a minimal `BaseFlarexClient` that opens a WebSocket, sends
+   `ModifyQuerySet` and `Mutation`, ingests `Transition` and
+   `MutationResponse`, and exposes local query results.
+4. Extend `FlarexClient` with Convex-style live APIs while keeping existing
+   HTTP invoke APIs:
+
+```ts
+const unsubscribe = client.onUpdate(
+  api.lessons.list,
+  args,
+  result => {
+    // result changed
+  },
+  error => {
+    // query failed
+  },
+  { partitionKey: userId },
+);
+
+await client.mutation(api.lessons.complete, args, {
+  partitionKey: userId,
+});
+```
+
+5. Cover the slice with fake-WebSocket tests that assert exact protocol
+   messages and local callback behavior.
+
+### Current Planning Checkpoint
+
+Previous completed checkpoint: `dbac8a6` Add mutation execution over sync.
+
+This planning update promotes `npm-packages/convex/src/browser/sync` from
+"future inspiration" to a concrete fork/refactor target for the next SDK slice.
+The first code step should port the client state machine and public live-client
+shape closely, while rewriting only the Flarex transport and explicit
+partition-routing differences.
+
+Verification:
+
+```sh
+git diff --check
+```
 
 ## Last Update
 
