@@ -349,6 +349,11 @@ Current differences from Convex:
   `"skip"`.
 - It also accepts optional `journal` because Flarex watch options are
   explicitly routed for now.
+- Next routing ergonomics step: add provider-level default `partitionKey` so
+  user-sharded apps can write `useQuery(api.lessons.list, args)` and
+  `await complete(args)` under `<FlarexProvider partitionKey={userId}>`.
+- Later routing step: generated APIs infer routes from schema placement
+  metadata when unambiguous.
 - `useAction`, pagination, optimistic updates, auth helpers, connection state,
   hydration, and Next.js helpers are still pending.
 

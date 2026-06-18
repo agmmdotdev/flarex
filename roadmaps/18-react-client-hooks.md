@@ -57,6 +57,72 @@ global transaction boundary that the Durable Object design does not provide.
 Generated placement metadata may later infer `partitionKey` for colocated
 tables and common app patterns.
 
+## Partition Routing Ergonomics Plan
+
+Do this in stages instead of jumping directly to full generated inference.
+
+### Stage 1: Provider Default Partition
+
+Add a default `partitionKey` to `FlarexProvider`:
+
+```tsx
+const client = new FlarexReactClient(import.meta.env.VITE_FLAREX_URL);
+
+<FlarexProvider client={client} partitionKey={userId}>
+  <App />
+</FlarexProvider>;
+```
+
+Then normal user-sharded calls can look close to Convex:
+
+```ts
+const lessons = useQuery(api.lessons.list, { courseId: "english" });
+
+const complete = useMutation(api.lessons.complete);
+
+await complete({ lessonId: "intro" });
+```
+
+The hook layer resolves routing in this order:
+
+1. Explicit call option:
+
+```ts
+useQuery(api.leaderboard.top, { leagueId }, { partitionKey: `league:${leagueId}` });
+```
+
+2. Provider default:
+
+```ts
+<FlarexProvider client={client} partitionKey={userId}>
+```
+
+3. Runtime error if no route exists.
+
+This keeps routing honest while removing repetitive `{ partitionKey: userId }`
+from normal user-owned app screens.
+
+### Stage 2: Generated Routing Inference
+
+Later, generated APIs should use schema placement metadata to infer the route
+where it is unambiguous:
+
+```ts
+defineTable(...)
+  .colocateWith("users", "userId");
+```
+
+Generated helpers can then derive `partitionKey` from:
+
+- auth identity for current-user functions
+- function args such as `args.userId`
+- model placement metadata from `.partitionBy(...)` and `.colocateWith(...)`
+- explicit overrides for global/projection/cross-shard reads
+
+If inference is ambiguous, generated helpers must require an explicit route or
+throw a clear runtime error. They must not pretend a cross-shard operation is a
+single-shard transaction.
+
 ## Implemented First Slice
 
 Previous completed checkpoint: `e349214` Add Convex-style watch query client
@@ -128,7 +194,10 @@ Tests now cover pending-to-success, default error-result mode, and
 - Optimistic updates are not implemented.
 - Auth helpers, connection state hooks, hydration helpers, and Next.js helpers
   remain future work.
-- `partitionKey` is still required in hook options.
+- `partitionKey` is still required in hook options until provider-level default
+  routing is implemented.
+- Full generated partition inference remains future work after provider default
+  routing.
 - The first hook tests use `react-test-renderer`, which React now marks as
   deprecated. Keep the tests small until the app-level React test environment
   is introduced.
