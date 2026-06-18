@@ -122,4 +122,53 @@ describe("SingleShardTransaction", () => {
       },
     } satisfies Partial<PartitionRequestError>);
   });
+
+  it("rejects partitionBy field writes at the partition commit boundary", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "cartItems",
+          placement: { kind: "partitionBy", field: "cartId" },
+        },
+      ],
+      indexes: [],
+    };
+    await SingleShardTransaction.ensureSchema(env, "partition-field-commit-deployment", "cart:1", schema);
+
+    const wrongInsert = await SingleShardTransaction.begin(
+      env,
+      "partition-field-commit-deployment",
+      "cart:1",
+    );
+    wrongInsert.insert(1, { cartId: "cart:2", sku: "coffee" }, "1:coffee");
+    await expect(wrongInsert.commit({ source: "wrong-insert" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: "PlacementValidationError: $document(cartItems).cartId must match partitionKey cart:1.",
+      },
+    } satisfies Partial<PartitionRequestError>);
+
+    const valid = await SingleShardTransaction.begin(
+      env,
+      "partition-field-commit-deployment",
+      "cart:1",
+    );
+    valid.insert(1, { cartId: "cart:1", sku: "tea" }, "1:tea");
+    await valid.commit({ source: "valid" });
+
+    const wrongReplace = await SingleShardTransaction.begin(
+      env,
+      "partition-field-commit-deployment",
+      "cart:1",
+    );
+    wrongReplace.replace(1, "1:tea", { cartId: "cart:2", sku: "tea" });
+    await expect(wrongReplace.commit({ source: "wrong-replace" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: "PlacementValidationError: $document(cartItems).cartId must match partitionKey cart:1.",
+      },
+    } satisfies Partial<PartitionRequestError>);
+  });
 });

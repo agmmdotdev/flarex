@@ -100,6 +100,64 @@ Convex references:
 
 ## Colocated Query Placement Update
 
+Root tables using `partitionBy(field)` now follow the same owner-field query
+rule as colocated tables when `field !== "_id"`.
+
+Checkpoint title: `Enforce partitionBy field ownership`
+
+Previous completed checkpoint: `9e60c33` Require colocated query placement
+equality.
+
+For a table declared as:
+
+```ts
+cartItems: defineTable({
+  cartId: v.string(),
+  sku: v.string(),
+}).partitionBy("cartId")
+```
+
+index reads must constrain the owner field:
+
+```ts
+ctx.db
+  .query("cartItems")
+  .withIndex("by_cart_sku", q => q.eq("cartId", cartId).eq("sku", sku))
+```
+
+Reads that use only a secondary field are rejected:
+
+```ts
+ctx.db.query("cartItems").withIndex("by_sku", q => q.eq("sku", sku));
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/index_range_builder.ts`
+- `crates/common/src/query.rs`
+- `crates/database/src/reads.rs`
+
+Cloudflare difference:
+
+- Convex indexes are deployment-wide. Flarex owner-field indexes must be
+  queried through the selected shard owner because the backend talks to one
+  `PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
+
 Colocated table index reads now require a placement-field equality before the
 query reaches `PartitionDO`.
 

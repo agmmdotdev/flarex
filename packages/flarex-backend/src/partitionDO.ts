@@ -491,7 +491,8 @@ export class PartitionDO extends DurableObject<Env> {
     placement: TablePlacement,
     value: Json,
   ): void {
-    if (placement.kind !== "colocateWith") return;
+    const placementField = ownerFieldForPlacement(placement);
+    if (placementField === null) return;
     const partitionKey = this.partitionKey();
     if (partitionKey === null) {
       throw new HttpError(400, "Partition placement validation requires a cached partitionKey.");
@@ -499,20 +500,20 @@ export class PartitionDO extends DurableObject<Env> {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
       throw new HttpError(
         400,
-        `PlacementValidationError: $document(${tableName}) must be an object for colocateWith("${placement.table}", "${placement.field}").`,
+        `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
       );
     }
-    const colocatedValue = value[placement.field];
-    if (typeof colocatedValue !== "string" || colocatedValue.length === 0) {
+    const placementValue = value[placementField];
+    if (typeof placementValue !== "string" || placementValue.length === 0) {
       throw new HttpError(
         400,
-        `PlacementValidationError: $document(${tableName}).${placement.field} must be a non-empty string matching partitionKey.`,
+        `PlacementValidationError: $document(${tableName}).${placementField} must be a non-empty string matching partitionKey.`,
       );
     }
-    if (colocatedValue !== partitionKey) {
+    if (placementValue !== partitionKey) {
       throw new HttpError(
         400,
-        `PlacementValidationError: $document(${tableName}).${placement.field} must match partitionKey ${partitionKey}.`,
+        `PlacementValidationError: $document(${tableName}).${placementField} must match partitionKey ${partitionKey}.`,
       );
     }
   }
@@ -941,6 +942,14 @@ function requiredReadSet(body: unknown, field: string): ReadSet {
     throw new HttpError(400, `${field} must be an object.`);
   }
   return body[field] as ReadSet;
+}
+
+function ownerFieldForPlacement(placement: TablePlacement): string | null {
+  if (placement.kind === "colocateWith") return placement.field;
+  if (placement.kind === "partitionBy" && placement.field !== "_id") {
+    return placement.field;
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

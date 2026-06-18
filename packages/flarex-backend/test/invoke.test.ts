@@ -529,7 +529,7 @@ describe("executeInvoke", () => {
       ),
     ).rejects.toMatchObject({
       status: 400,
-      message: 'PlacementValidationError: query on scores must include q.eq("userId", partitionKey) for colocateWith("users", "userId").',
+      message: 'PlacementValidationError: query on scores must include q.eq("userId", partitionKey).',
     });
 
     await expect(
@@ -563,6 +563,105 @@ describe("executeInvoke", () => {
       ),
     ).resolves.toMatchObject({
       value: [{ _id: "1:u1-score", userId: "u1", score: 10 }],
+    });
+  });
+
+  it("enforces partitionBy field placement on user-code reads, writes, and queries", async () => {
+    const schema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "cartItems",
+          placement: { kind: "partitionBy", field: "cartId" },
+        },
+      ],
+      indexes: [
+        { indexId: 1, tableId: 1, name: "by_cart_sku", fields: ["cartId", "sku"] },
+        { indexId: 2, tableId: 1, name: "by_sku", fields: ["sku"] },
+      ],
+    } satisfies DeploymentSchema;
+    await putSchema("partition-field-deployment", schema);
+    await SingleShardTransaction.ensureSchema(env, "partition-field-deployment", "cart:1", schema);
+    const seed = await SingleShardTransaction.begin(env, "partition-field-deployment", "cart:1");
+    seed.insert(1, { cartId: "cart:1", sku: "tea", quantity: 1 }, "1:tea");
+    await seed.commit({ source: "seed" });
+
+    const functions: BackendFunctionRegistry = {
+      "cartItems:insertWrongCart": {
+        kind: "mutation",
+        handler: ctx =>
+          ctx.db.insert(
+            "cartItems",
+            { cartId: "cart:2", sku: "coffee", quantity: 1 },
+            "1:coffee",
+          ),
+      },
+      "cartItems:moveCart": {
+        kind: "mutation",
+        handler: async ctx => {
+          await ctx.db.patch("1:tea", { cartId: "cart:2" });
+          return null;
+        },
+      },
+      "cartItems:missingCartQuery": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db.query("cartItems").withIndex("by_sku", q => q.eq("sku", "tea")).collect(),
+      },
+      "cartItems:wrongCartQuery": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db.query("cartItems").withIndex("by_cart_sku", q => q.eq("cartId", "cart:2")).collect(),
+      },
+      "cartItems:validCartQuery": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db
+            .query("cartItems")
+            .withIndex("by_cart_sku", q => q.eq("cartId", "cart:1").eq("sku", "tea"))
+            .collect(),
+      },
+    };
+
+    for (const path of [
+      "cartItems:insertWrongCart",
+      "cartItems:moveCart",
+      "cartItems:missingCartQuery",
+      "cartItems:wrongCartQuery",
+    ]) {
+      await expect(
+        executeInvoke(
+          env,
+          "partition-field-deployment",
+          {
+            path,
+            kind: path.endsWith("Query") ? "query" : "mutation",
+            partitionKey: "cart:1",
+            args: null,
+          },
+          functions,
+        ),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining("PlacementValidationError"),
+      });
+    }
+
+    await expect(
+      executeInvoke(
+        env,
+        "partition-field-deployment",
+        {
+          path: "cartItems:validCartQuery",
+          kind: "query",
+          partitionKey: "cart:1",
+          args: null,
+        },
+        functions,
+      ),
+    ).resolves.toMatchObject({
+      value: [{ _id: "1:tea", cartId: "cart:1", sku: "tea", quantity: 1 }],
     });
   });
 

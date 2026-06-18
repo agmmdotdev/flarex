@@ -301,8 +301,9 @@ remain separate follow-up policies.
 
 ## Known Limitations
 
-- `colocateWith` is enforced for backend DB reads/writes and at
-  `PartitionDO` commit, but is not yet a route-inference source.
+- `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
+  for backend DB reads/writes, index query ranges, and `PartitionDO` commit,
+  but are not yet route-inference sources.
 - Only `routeFromArgs(field)` exists.
 - `routeFromArgs(field)` requires exact string equality between
   `partitionKey` and `args[field]`.
@@ -312,11 +313,64 @@ remain separate follow-up policies.
 - Backend execution still accepts explicit `partitionKey` as the route carrier.
 - Backend route validation checks function route policy before execution.
 - `partitionBy("_id")` root-record enforcement is not implemented yet.
-- There is no static validation that colocated index reads include the
+- There is no static validation that owner-scoped index reads include the
   placement field in their range.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Implemented `partitionBy(field)` owner-field enforcement for routed
+single-shard functions.
+
+Checkpoint title: `Enforce partitionBy field ownership`
+
+Previous completed checkpoint: `9e60c33` Require colocated query placement
+equality.
+
+What changed:
+
+- Function execution routed to one partition now enforces root-table owner
+  fields for `partitionBy(field)` where `field !== "_id"`.
+- User-code DB writes, commit writes, and index queries must agree with the
+  selected partition key.
+- This extends the single-shard model beyond child tables to root tables such
+  as carts, org settings, workspaces, teams, rooms, or tenants when their owner
+  is represented as a normal field.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - backend transaction context mediates storage access.
+- `crates/database/src/committer.rs`
+  - invalid write sets are rejected before persistence.
+- `crates/database/src/reads.rs`
+  - indexed ranges become transaction read records.
+
+Cloudflare difference:
+
+- Convex does not require route/placement agreement because one logical
+  database owns all records. Flarex must require the selected `PartitionDO`,
+  document owner field, and query owner equality to agree.
+
+Remaining limitations:
+
+- `partitionBy("_id")` remains a separate ID-allocation design problem.
+- Placement metadata still does not infer function route metadata by itself.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented query-time colocated placement enforcement.
 

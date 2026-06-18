@@ -327,21 +327,21 @@ function validateQueryPlacement(
   expressions: IndexRangeExpression[],
   partitionKey: string,
 ): void {
-  if (table.placement.kind !== "colocateWith") return;
-  const placement = table.placement;
+  const placementField = ownerFieldForPlacement(table);
+  if (placementField === null) return;
   const equality = expressions.find(
-    expression => expression.field === placement.field && expression.op === "eq",
+    expression => expression.field === placementField && expression.op === "eq",
   );
   if (equality === undefined) {
     throw new HttpError(
       400,
-      `PlacementValidationError: query on ${table.name} must include q.eq("${placement.field}", partitionKey) for colocateWith("${placement.table}", "${placement.field}").`,
+      `PlacementValidationError: query on ${table.name} must include q.eq("${placementField}", partitionKey).`,
     );
   }
   if (equality.value !== partitionKey) {
     throw new HttpError(
       400,
-      `PlacementValidationError: query on ${table.name} must constrain ${placement.field} to partitionKey ${partitionKey}.`,
+      `PlacementValidationError: query on ${table.name} must constrain ${placementField} to partitionKey ${partitionKey}.`,
     );
   }
 }
@@ -519,26 +519,35 @@ function validateDocumentPlacement(
   value: Json,
   partitionKey: string,
 ): void {
-  if (table.placement.kind !== "colocateWith") return;
+  const placementField = ownerFieldForPlacement(table);
+  if (placementField === null) return;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new HttpError(
       400,
-      `PlacementValidationError: $document(${table.name}) must be an object for colocateWith("${table.placement.table}", "${table.placement.field}").`,
+      `PlacementValidationError: $document(${table.name}) must be an object for placement validation.`,
     );
   }
-  const colocatedValue = value[table.placement.field];
-  if (typeof colocatedValue !== "string" || colocatedValue.length === 0) {
+  const placementValue = value[placementField];
+  if (typeof placementValue !== "string" || placementValue.length === 0) {
     throw new HttpError(
       400,
-      `PlacementValidationError: $document(${table.name}).${table.placement.field} must be a non-empty string matching partitionKey.`,
+      `PlacementValidationError: $document(${table.name}).${placementField} must be a non-empty string matching partitionKey.`,
     );
   }
-  if (colocatedValue !== partitionKey) {
+  if (placementValue !== partitionKey) {
     throw new HttpError(
       400,
-      `PlacementValidationError: $document(${table.name}).${table.placement.field} must match partitionKey ${partitionKey}.`,
+      `PlacementValidationError: $document(${table.name}).${placementField} must match partitionKey ${partitionKey}.`,
     );
   }
+}
+
+function ownerFieldForPlacement(table: SchemaTable): string | null {
+  if (table.placement.kind === "colocateWith") return table.placement.field;
+  if (table.placement.kind === "partitionBy" && table.placement.field !== "_id") {
+    return table.placement.field;
+  }
+  return null;
 }
 
 export function validateReturn(

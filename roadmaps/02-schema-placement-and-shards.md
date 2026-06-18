@@ -58,17 +58,94 @@ cart, order, chat room, course, or tenant.
 - Unique constraints across shards need a dedicated unique-index DO later.
 - Global tables can become bottlenecks and must be limited.
 - Generated type-level enforcement is not implemented yet.
-- `colocateWith` is enforced at both the backend user-code DB boundary and the
-  `PartitionDO` commit boundary, but `partitionBy("_id")` root-record
-  enforcement is not implemented yet.
-- Colocated index queries must include an equality on the placement field that
-  matches the current partition key.
+- `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
+  at backend user-code DB, query, and `PartitionDO` commit boundaries.
+- `partitionBy("_id")` root-record enforcement is not implemented yet.
+- Owner-scoped index queries must include an equality on the placement field
+  that matches the current partition key.
 - Document IDs currently use a placeholder numeric table ID prefix
   (`{tableId}:{uuid}`) instead of Convex's encoded `DeveloperDocumentId`.
 - Schema cache sync is per-invoke/per-partition and coarse-grained: if the
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Implemented `partitionBy(field)` owner-field placement enforcement for
+`field !== "_id"`.
+
+Checkpoint title: `Enforce partitionBy field ownership`
+
+Previous completed checkpoint: `9e60c33` Require colocated query placement
+equality.
+
+What changed:
+
+- Placement validation now treats `partitionBy(field)` with `field !== "_id"`
+  as an owner-field placement rule, like `colocateWith(..., field)`.
+- Backend `ctx.db` reads and writes reject documents whose owner field does not
+  match the current partition key.
+- `PartitionDO` commit validation rejects direct writes whose owner field does
+  not match the cached partition key.
+- Indexed queries on these root tables must include
+  `q.eq(field, partitionKey)`.
+- Added tests for wrong-owner insert, owner-moving patch/replace,
+  missing-owner query, wrong-owner query, and valid owner-scoped query.
+
+Example:
+
+```ts
+cartItems: defineTable({
+  cartId: v.string(),
+  sku: v.string(),
+}).partitionBy("cartId")
+```
+
+Required query shape:
+
+```ts
+ctx.db
+  .query("cartItems")
+  .withIndex("by_cart_sku", q => q.eq("cartId", cartId).eq("sku", sku))
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final write-set validation happens at commit.
+- `crates/database/src/transaction.rs`
+  - backend transaction context mediates reads and writes.
+- `crates/database/src/reads.rs`
+  - indexed reads are structured ranges.
+
+Cloudflare difference:
+
+- Convex has no explicit per-table shard owner field because the database is
+  one logical transactional system. Flarex must validate owner fields because
+  a `PartitionDO` is only one shard.
+
+Remaining limitations:
+
+- `partitionBy("_id")` remains deferred until ID allocation/ownership is
+  designed.
+- Enforcement is runtime-only; generated query-builder types do not yet force
+  the owner equality.
+- Route inference still depends on function route metadata, not table
+  placement alone.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented query-time placement range enforcement for colocated tables.
 

@@ -79,10 +79,56 @@ a different coordinator. Flarex should not pretend otherwise.
 - OCC validation remains conservative for table scans and future query forms.
 - No retention window or out-of-retention error exists yet.
 - Transaction index reads do not yet overlay staged writes.
-- `PartitionDO` commit validates `colocateWith` placement for cached schemas,
-  but root `partitionBy("_id")` ownership is not enforced yet.
+- `PartitionDO` commit validates `colocateWith` and `partitionBy(field)`
+  owner-field placement for cached schemas when `field !== "_id"`.
+- Root `partitionBy("_id")` ownership is not enforced yet.
 
 ## Last Update
+
+Added commit-time `partitionBy(field)` owner-field validation for
+`field !== "_id"`.
+
+Checkpoint title: `Enforce partitionBy field ownership`
+
+Previous completed checkpoint: `9e60c33` Require colocated query placement
+equality.
+
+What changed:
+
+- `PartitionDO.validateWrites()` now treats `partitionBy(field)` as an owner
+  field when `field !== "_id"`.
+- Direct commits cannot insert or replace root records whose owner field points
+  outside the current partition.
+- Existing colocated commit validation is generalized through one owner-field
+  helper.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit validation remains the final storage authority.
+- `crates/database/src/transaction.rs`
+  - staged writes are validated before they become persisted documents and
+    index rows.
+
+Cloudflare difference:
+
+- Flarex's commit boundary is shard-local. Owner-field validation is required
+  so a root table record cannot be persisted into the wrong `PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Added commit-time `colocateWith` placement validation to the transaction
 commit boundary.
