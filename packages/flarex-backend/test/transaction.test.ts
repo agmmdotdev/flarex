@@ -171,4 +171,87 @@ describe("SingleShardTransaction", () => {
       },
     } satisfies Partial<PartitionRequestError>);
   });
+
+  it("enforces partitionBy field owner uniqueness at the partition commit boundary", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "teams",
+          placement: { kind: "partitionBy", field: "slug" },
+        },
+        {
+          tableId: 2,
+          name: "projects",
+          placement: { kind: "colocateWith", table: "teams", field: "teamSlug" },
+        },
+      ],
+      indexes: [],
+    };
+    await SingleShardTransaction.ensureSchema(env, "partition-owner-deployment", "acme", schema);
+
+    const first = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
+    first.insert(1, { slug: "acme", name: "Acme" }, "1:team-a");
+    await first.commit({ source: "first-team" });
+
+    const duplicate = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
+    duplicate.insert(1, { slug: "acme", name: "Other Acme" }, "1:team-b");
+    await expect(duplicate.commit({ source: "duplicate-team" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: 'UniquePartitionOwnerError: teams.slug "acme" already belongs to document 1:team-a.',
+      },
+    } satisfies Partial<PartitionRequestError>);
+
+    const updateSame = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
+    updateSame.replace(1, "1:team-a", { slug: "acme", name: "Acme Updated" });
+    await updateSame.commit({ source: "update-team" });
+
+    const colocatedChildren = await SingleShardTransaction.begin(
+      env,
+      "partition-owner-deployment",
+      "acme",
+    );
+    colocatedChildren.insert(2, { teamSlug: "acme", name: "Website" }, "2:website");
+    colocatedChildren.insert(2, { teamSlug: "acme", name: "Docs" }, "2:docs");
+    await colocatedChildren.commit({ source: "children" });
+
+    const release = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
+    release.delete(1, "1:team-a");
+    await release.commit({ source: "delete-team" });
+
+    const recreate = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
+    recreate.insert(1, { slug: "acme", name: "Acme Recreated" }, "1:team-c");
+    await recreate.commit({ source: "recreate-team" });
+  });
+
+  it("rejects multiple partitionBy field owner claims in one commit", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "teams",
+          placement: { kind: "partitionBy", field: "slug" },
+        },
+      ],
+      indexes: [],
+    };
+    await SingleShardTransaction.ensureSchema(env, "partition-owner-batch-deployment", "acme", schema);
+
+    const duplicate = await SingleShardTransaction.begin(
+      env,
+      "partition-owner-batch-deployment",
+      "acme",
+    );
+    duplicate.insert(1, { slug: "acme", name: "Acme" }, "1:team-a");
+    duplicate.insert(1, { slug: "acme", name: "Other Acme" }, "1:team-b");
+    await expect(duplicate.commit({ source: "duplicate-team-batch" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: 'UniquePartitionOwnerError: teams.slug "acme" is claimed by multiple documents in this commit.',
+      },
+    } satisfies Partial<PartitionRequestError>);
+  });
 });

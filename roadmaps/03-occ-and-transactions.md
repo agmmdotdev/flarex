@@ -87,11 +87,59 @@ single-shard.
 - `PartitionDO` commit validates `colocateWith` and `partitionBy(field)`
   owner-field placement for cached schemas when `field !== "_id"`.
 - Root `partitionBy("_id")` ownership is not enforced yet.
-- Root `partitionBy(field)` owner uniqueness is not enforced yet.
+- Root `partitionBy(field)` owner uniqueness is enforced at commit for
+  `field !== "_id"`.
 - Bounded multi-shard `atomicMutation` is documented as future work, but there
   is no coordinator, prepare protocol, or recovery path yet.
 
 ## Last Update
+
+Implemented commit-boundary uniqueness for root owner fields.
+
+Checkpoint title: `Enforce partition owner uniqueness`
+
+Previous completed checkpoint: `b39f3bc` Plan partition owner uniqueness.
+
+What changed:
+
+- Added `partition_owners` to `PartitionDO` as the current owner map for
+  `partitionBy(field)` root tables.
+- Commit now resolves document IDs before validation so owner claims are
+  checked against the same IDs that will be persisted.
+- Commit validation computes owner claims and releases before applying writes.
+- Commit application updates owner mappings in the same Durable Object storage
+  transaction as document history, current rows, index rows, and write log.
+- Duplicate root owners fail deterministically with
+  `UniquePartitionOwnerError`, separate from retryable OCC conflicts.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final validation and persistence happen at one authoritative boundary.
+- `crates/database/src/transaction.rs`
+  - function execution accumulates a write set before commit validation.
+- `crates/database/src/database.rs`
+  - retryable OCC conflicts stay distinct from deterministic validation
+    failures.
+
+Cloudflare difference:
+
+- Convex can enforce uniqueness against one logical database. Flarex enforces
+  this owner uniqueness inside one `PartitionDO` because all contenders for the
+  same `partitionBy(field)` value route to that same partition.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Update
 
 Planned commit-boundary uniqueness for root owner fields.
 

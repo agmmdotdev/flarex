@@ -305,7 +305,8 @@ remain separate follow-up policies.
   for backend DB reads/writes, index query ranges, and `PartitionDO` commit,
   but are not yet route-inference sources.
 - Generated model partition selectors such as `model.teams.bySlug("teamSlug")`
-  are not implemented yet and depend on `partitionBy(field)` owner uniqueness.
+  are not implemented yet. Backend `partitionBy(field)` owner uniqueness is now
+  in place as a prerequisite.
 - Only `routeFromArgs(field)` exists.
 - `routeFromArgs(field)` requires exact string equality between
   `partitionKey` and `args[field]`.
@@ -320,6 +321,52 @@ remain separate follow-up policies.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Recorded backend owner uniqueness as the prerequisite for generated model
+partition selectors.
+
+Checkpoint title: `Enforce partition owner uniqueness`
+
+Previous completed checkpoint: `b39f3bc` Plan partition owner uniqueness.
+
+What changed:
+
+- Backend root-owner uniqueness for `partitionBy(field)` is now implemented, so
+  future generated selectors like `model.teams.bySlug("teamSlug")` can rely on
+  one current root owner per partition value.
+- The function API direction remains `partition: model.<table>.by<Field>(...)`,
+  not `shard`.
+- Route inference and scoped `ctx.db` types remain future work; this checkpoint
+  only hardened the storage invariant they depend on.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations remain the right layer for route/partition metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files should encode schema and function analysis.
+- `npm-packages/convex/src/server/database.ts`
+  - generated `ctx.db` types should eventually narrow available tables and
+    queries.
+
+Cloudflare difference:
+
+- Convex generated functions do not need partition selectors. Flarex needs
+  them because route selection determines the `PartitionDO` and therefore the
+  transaction boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Update
 
 Planned generated model partition selectors on top of owner uniqueness.
 

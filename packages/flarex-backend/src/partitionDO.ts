@@ -55,6 +55,21 @@ type SubscriptionInvalidation = {
   invalidatedTs: number;
 };
 
+type ResolvedDocumentWrite = DocumentWrite & { id: string };
+
+type PartitionOwnerChange = {
+  tableId: number;
+  tableName: string;
+  ownerField: string;
+  ownerValue: string;
+  documentId: string;
+};
+
+type PartitionOwnerChanges = {
+  claims: PartitionOwnerChange[];
+  releases: PartitionOwnerChange[];
+};
+
 export class PartitionDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
 
@@ -99,6 +114,14 @@ export class PartitionDO extends DurableObject<Env> {
       );
       CREATE INDEX IF NOT EXISTS current_documents_by_table
         ON current_documents(table_id, id);
+      CREATE TABLE IF NOT EXISTS partition_owners (
+        table_id INTEGER NOT NULL,
+        owner_field TEXT NOT NULL,
+        owner_value TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (table_id, owner_field, owner_value)
+      );
       CREATE TABLE IF NOT EXISTS index_entries (
         index_id INTEGER NOT NULL,
         key TEXT NOT NULL,
@@ -322,17 +345,19 @@ export class PartitionDO extends DurableObject<Env> {
           `Schema version mismatch. Request has ${request.schemaVersion}, partition has ${this.schemaVersion()}.`,
         );
       }
-      this.validateWrites(request.writes);
+      const writes = request.writes.map(resolveDocumentWrite);
+      const partitionOwnerChanges = this.validateWrites(writes);
       this.validateReadSet(request.readSet ?? {}, request.beginTs, currentTs);
 
       const commitTs = currentTs + 1;
       const committedWrites: CommittedWrite[] = [];
       const indexWrites: IndexWrite[] = [];
-      for (const write of request.writes) {
+      for (const write of writes) {
         const committed = this.applyDocumentWrite(write, commitTs);
         committedWrites.push(committed.write);
         indexWrites.push(...committed.indexWrites);
       }
+      this.applyPartitionOwnerChanges(partitionOwnerChanges, commitTs);
 
       this.sql.exec(
         `
@@ -444,8 +469,10 @@ export class PartitionDO extends DurableObject<Env> {
     }));
   }
 
-  private validateWrites(writes: DocumentWrite[]): void {
-    if (this.schemaVersion() === 0) return;
+  private validateWrites(writes: ResolvedDocumentWrite[]): PartitionOwnerChanges {
+    if (this.schemaVersion() === 0) return { claims: [], releases: [] };
+    const claims = new Map<string, PartitionOwnerChange>();
+    const releases = new Map<string, PartitionOwnerChange>();
     for (const write of writes) {
       const row = this.sql
         .exec<{
@@ -460,11 +487,20 @@ export class PartitionDO extends DurableObject<Env> {
       if (!row) throw new HttpError(400, `Write references unknown table id ${write.tableId}.`);
       const placement = JSON.parse(row.partition_rule_json) as TablePlacement;
       if (write.value === null) {
-        const id = write.id;
-        if (id !== undefined) {
-          const current = this.getCurrentDocument(write.tableId, id);
-          if (current !== null) {
-            this.validateDocumentPlacement(row.table_name, placement, current.value);
+        const current = this.getCurrentDocument(write.tableId, write.id);
+        if (current !== null) {
+          this.validateDocumentPlacement(row.table_name, placement, current.value);
+          const ownerField = rootOwnerFieldForPlacement(placement);
+          if (ownerField !== null) {
+            const ownerValue = documentOwnerValue(row.table_name, ownerField, current.value);
+            const release = {
+              tableId: write.tableId,
+              tableName: row.table_name,
+              ownerField,
+              ownerValue,
+              documentId: write.id,
+            };
+            releases.set(partitionOwnerKey(release), release);
           }
         }
         continue;
@@ -483,7 +519,53 @@ export class PartitionDO extends DurableObject<Env> {
         }
       }
       this.validateDocumentPlacement(row.table_name, placement, write.value);
+      const ownerField = rootOwnerFieldForPlacement(placement);
+      if (ownerField !== null) {
+        const ownerValue = documentOwnerValue(row.table_name, ownerField, write.value);
+        const claim = {
+          tableId: write.tableId,
+          tableName: row.table_name,
+          ownerField,
+          ownerValue,
+          documentId: write.id,
+        };
+        const key = partitionOwnerKey(claim);
+        const existingClaim = claims.get(key);
+        if (existingClaim !== undefined && existingClaim.documentId !== write.id) {
+          throw new HttpError(
+            400,
+            `UniquePartitionOwnerError: ${row.table_name}.${ownerField} ${JSON.stringify(ownerValue)} is claimed by multiple documents in this commit.`,
+          );
+        }
+        claims.set(key, claim);
+      }
     }
+    for (const [key, claim] of claims) {
+      const existing = this.sql
+        .exec<{ document_id: string }>(
+          `
+          SELECT document_id
+          FROM partition_owners
+          WHERE table_id = ? AND owner_field = ? AND owner_value = ?
+          `,
+          claim.tableId,
+          claim.ownerField,
+          claim.ownerValue,
+        )
+        .toArray()[0];
+      const released = releases.get(key);
+      if (
+        existing !== undefined &&
+        existing.document_id !== claim.documentId &&
+        existing.document_id !== released?.documentId
+      ) {
+        throw new HttpError(
+          400,
+          `UniquePartitionOwnerError: ${claim.tableName}.${claim.ownerField} ${JSON.stringify(claim.ownerValue)} already belongs to document ${existing.document_id}.`,
+        );
+      }
+    }
+    return { claims: Array.from(claims.values()), releases: Array.from(releases.values()) };
   }
 
   private validateDocumentPlacement(
@@ -544,10 +626,10 @@ export class PartitionDO extends DurableObject<Env> {
   }
 
   private applyDocumentWrite(
-    write: DocumentWrite,
+    write: ResolvedDocumentWrite,
     commitTs: number,
   ): { write: CommittedWrite; indexWrites: IndexWrite[] } {
-    const id = write.id ?? encodeFlarexId(write.tableId);
+    const id = write.id;
     const previous = this.getCurrentDocument(write.tableId, id);
     const prevTs = previous?.ts ?? null;
     const indexWrites: IndexWrite[] = [];
@@ -602,6 +684,42 @@ export class PartitionDO extends DurableObject<Env> {
       },
       indexWrites,
     };
+  }
+
+  private applyPartitionOwnerChanges(changes: PartitionOwnerChanges, commitTs: number): void {
+    const claimedKeys = new Set(changes.claims.map(partitionOwnerKey));
+    for (const release of changes.releases) {
+      if (claimedKeys.has(partitionOwnerKey(release))) continue;
+      this.sql.exec(
+        `
+        DELETE FROM partition_owners
+        WHERE table_id = ?
+          AND owner_field = ?
+          AND owner_value = ?
+          AND document_id = ?
+        `,
+        release.tableId,
+        release.ownerField,
+        release.ownerValue,
+        release.documentId,
+      );
+    }
+    for (const claim of changes.claims) {
+      this.sql.exec(
+        `
+        INSERT INTO partition_owners (table_id, owner_field, owner_value, document_id, ts)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(table_id, owner_field, owner_value) DO UPDATE SET
+          document_id = excluded.document_id,
+          ts = excluded.ts
+        `,
+        claim.tableId,
+        claim.ownerField,
+        claim.ownerValue,
+        claim.documentId,
+        commitTs,
+      );
+    }
   }
 
   private validateReadSet(readSet: ReadSet, beginTs: number, currentTs: number): void {
@@ -944,12 +1062,42 @@ function requiredReadSet(body: unknown, field: string): ReadSet {
   return body[field] as ReadSet;
 }
 
+function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {
+  return { ...write, id: write.id ?? encodeFlarexId(write.tableId) };
+}
+
 function ownerFieldForPlacement(placement: TablePlacement): string | null {
   if (placement.kind === "colocateWith") return placement.field;
   if (placement.kind === "partitionBy" && placement.field !== "_id") {
     return placement.field;
   }
   return null;
+}
+
+function rootOwnerFieldForPlacement(placement: TablePlacement): string | null {
+  if (placement.kind === "partitionBy" && placement.field !== "_id") return placement.field;
+  return null;
+}
+
+function documentOwnerValue(tableName: string, ownerField: string, value: Json): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
+    );
+  }
+  const ownerValue = value[ownerField];
+  if (typeof ownerValue !== "string" || ownerValue.length === 0) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: $document(${tableName}).${ownerField} must be a non-empty string matching partitionKey.`,
+    );
+  }
+  return ownerValue;
+}
+
+function partitionOwnerKey(owner: Pick<PartitionOwnerChange, "tableId" | "ownerField" | "ownerValue">): string {
+  return `${owner.tableId}\0${owner.ownerField}\0${owner.ownerValue}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

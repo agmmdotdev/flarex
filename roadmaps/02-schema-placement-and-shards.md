@@ -61,9 +61,8 @@ cart, order, chat room, course, or tenant.
 - `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
   at backend user-code DB, query, and `PartitionDO` commit boundaries.
 - `partitionBy("_id")` root-record enforcement is not implemented yet.
-- `partitionBy(field)` owner-field uniqueness is not implemented yet. The
-  current runtime validates that `field === partitionKey`, but it does not yet
-  guarantee one root document per owner value.
+- `partitionBy(field)` owner-field uniqueness is enforced at the `PartitionDO`
+  commit boundary for `field !== "_id"`.
 - Owner-scoped index queries must include an equality on the placement field
   that matches the current partition key.
 - Document IDs currently use a placeholder numeric table ID prefix
@@ -72,6 +71,78 @@ cart, order, chat room, course, or tenant.
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Implemented root-owner uniqueness for `partitionBy(field)`.
+
+Checkpoint title: `Enforce partition owner uniqueness`
+
+Previous completed checkpoint: `b39f3bc` Plan partition owner uniqueness.
+
+What changed:
+
+- Added a shard-local `partition_owners` table inside `PartitionDO`.
+- `PartitionDO` commit validation now rejects a root table write when
+  `(table, partition field, partition value)` is already claimed by another
+  current document.
+- Root owner updates to the same document remain valid.
+- Deleting a root owner releases the owner mapping so a later root document can
+  claim the same partition value.
+- `colocateWith(table, field)` records remain non-unique; multiple child
+  records can share the same owner field inside the partition.
+
+Enforced invariant:
+
+```txt
+teams.partitionBy("slug")
+partitionKey = "acme"
+
+first write:
+  id = "1:team-a"
+  slug = "acme"
+  -> allowed
+
+second write:
+  id = "1:team-b"
+  slug = "acme"
+  -> UniquePartitionOwnerError
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final write-set validation is the authoritative place to reject invalid
+    writes.
+- `crates/database/src/transaction.rs`
+  - user execution stages writes before final validation and commit.
+- `crates/common/src/schemas/mod.rs`
+  - schema metadata participates in backend validation.
+
+Cloudflare difference:
+
+- Convex does not need a `partitionBy(field)` uniqueness primitive because it
+  owns one logical transactional database. Flarex enforces this inside the
+  selected `PartitionDO` so generated partition selectors can later identify a
+  single root owner.
+
+Remaining limitations:
+
+- `partitionBy("_id")` root-record ownership remains separate future work.
+- Generated `model.<table>.by<Field>(...)` selectors are still not implemented.
+- Existing malformed data created before this enforcement is not backfilled by
+  schema-cache installation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Update
 
 Planned root-owner uniqueness for `partitionBy(field)`.
 
