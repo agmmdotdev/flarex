@@ -2914,6 +2914,67 @@ and generated function metadata.
 
 ## Partition Metadata Runtime Binding Update
 
+## Root Model Partition Analysis Plan
+
+Checkpoint title: `Plan explicit partition table API`
+
+Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation
+types.
+
+The v1 partition API target changes analysis from selector metadata to root
+model metadata:
+
+```ts
+partition: model.documents
+```
+
+Analysis should resolve that declaration into one of these backend policies:
+
+- existing root partition: exactly one required `v.id("documents")` argument
+  exists, so the backend routes from that argument,
+- create root partition: mutation has zero required `v.id("documents")`
+  arguments, so the backend preallocates a root ID before execution,
+- invalid: query has zero root IDs, or query/mutation has multiple required
+  root IDs for the same root table.
+
+What changed:
+
+- The roadmap now treats `model.<rootTable>` as the final v1 metadata source.
+- `model.<rootTable>.byId("arg")` remains a compatibility shape from the
+  previous prototype.
+- Backend analysis must own ambiguity rejection. Generated TypeScript may help,
+  but deployment analysis is the authority.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata is durable backend state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - runtime function execution consumes analyzed deployment metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files are written from analysis results.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server APIs expose app-specific helper objects.
+
+Cloudflare difference:
+
+- Convex does not analyze shard-routing metadata because function execution
+  targets one logical deployment database. Flarex analysis must produce a
+  concrete root partition policy before invocation can start.
+
+Remaining limitations:
+
+- Current analysis extracts `exportPartition()` selector objects with
+  `argField`.
+- Active backend metadata has no create-mode partition policy yet.
+- Final codegen still emits selector-based model helpers.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
+
 ## Required Partition Metadata Runtime Update
 
 Checkpoint title: `Require partition metadata for execution`

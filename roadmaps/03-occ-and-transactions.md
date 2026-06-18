@@ -86,11 +86,65 @@ single-shard.
 - Transaction index reads do not yet overlay staged writes.
 - `PartitionDO` commit validates `colocateWith` and `partitionBy(field)`
   owner-field placement for cached schemas when `field !== "_id"`.
-- Root `partitionBy("_id")` ownership is not enforced yet.
+- Root `_id` partition creation requires backend preallocation before user code
+  starts; this is planned but not implemented yet.
 - Root `partitionBy(field)` owner uniqueness is enforced at commit for
   `field !== "_id"`.
 - Bounded multi-shard `atomicMutation` is documented as future work, but there
   is no coordinator, prepare protocol, or recovery path yet.
+
+## Root Partition Creation Plan
+
+Checkpoint title: `Plan explicit partition table API`
+
+Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation
+types.
+
+What changed:
+
+- Normal `mutation` remains single-shard.
+- The v1 root table API is `_id` partitioned only through
+  `definePartitionTable(...)`.
+- `partition: model.<rootTable>` needs two backend execution modes:
+  - existing mode: one required `v.id(rootTable)` arg routes to that partition,
+  - create mode: zero required root IDs in a mutation causes backend to
+    preallocate a new root ID and start execution in that new partition.
+- During create mode, the first `ctx.db.insert(rootTable, value)` must consume
+  the preallocated root ID. The mutation must not create multiple root
+  documents for the same root table.
+- Colocated child writes can then use the returned root ID and commit
+  atomically in the same `PartitionDO`.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - user execution accumulates writes before commit.
+- `crates/database/src/committer.rs`
+  - commit validation is the authoritative place to reject invalid write sets.
+- `crates/database/src/database.rs`
+  - Convex has ID allocation and OCC inside one logical database execution
+    path.
+
+Cloudflare difference:
+
+- Convex can generate an `_id` during user code and still commit into one
+  logical database. Flarex must know the `PartitionDO` before user code runs,
+  so create-mode root IDs must be allocated before transaction begin.
+
+Remaining limitations:
+
+- `SingleShardTransaction` currently generates document IDs at write staging
+  time without a root preallocation contract.
+- Backend execution metadata does not yet represent create-mode partition
+  scope.
+- Commit validation does not yet require exactly one root insert for
+  create-mode root partitions.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
 
 ## Last Update
 

@@ -74,19 +74,22 @@ future Dynamic Worker function registry / loader
 Flarex needs a small set of intentional API differences:
 
 ```ts
+definePartitionTable(...)
+defineColocatedTable("documents", "documentId", ...)
+defineGlobalTable(...)
+defineProjection(...)
+
+partition: model.documents
+```
+
+Legacy prototype forms remain temporarily implemented but are no longer the v1
+product target:
+
+```ts
 defineTable(...).partitionBy("_id")
 defineTable(...).colocateWith("users", "userId")
 defineTable(...).global()
-defineProjection(...)
-```
-
-Client invocation also needs shard routing until a better generated helper can
-derive it:
-
-```ts
-await client.mutation(api.lessons.complete, args, {
-  partitionKey: userId,
-});
+partition: model.documents.byId("documentId")
 ```
 
 These differences are not optional implementation details. They are how Flarex
@@ -157,17 +160,19 @@ the developer explicitly opts into workflow-style cross-shard behavior.
    hosted CLI.
 2. Port values, schema, registration, function references, and query-builder
    types first.
-3. Add Flarex placement APIs to table definitions.
-4. Replace generated transport with Flarex `/invoke`.
-5. Keep generated `_generated/api` and `_generated/server` close to Convex.
-6. Add a minimal Flarex CLI/codegen command before porting larger Convex CLI
+3. Add explicit Flarex placement constructors:
+   `definePartitionTable`, `defineColocatedTable`, and `defineGlobalTable`.
+4. Generate `model.<rootTable>` as the normal function partition API.
+5. Replace generated transport with Flarex `/invoke`.
+6. Keep generated `_generated/api` and `_generated/server` close to Convex.
+7. Add a minimal Flarex CLI/codegen command before porting larger Convex CLI
    behavior.
-7. Port the Convex sync client layering before React hooks:
+8. Port the Convex sync client layering before React hooks:
    `LocalSyncState`-style query-set bookkeeping, `BaseConvexClient`-style
    sync transport boundary, and `ConvexClient`-style public callback API.
-8. Add React/Next.js helpers after the live client exposes stable
+9. Add React/Next.js helpers after the live client exposes stable
    `onUpdate`, `watchQuery`, `mutation`, and connection-state semantics.
-9. Revisit optimistic updates, paginated sync, auth refresh, and reconnect
+10. Revisit optimistic updates, paginated sync, auth refresh, and reconnect
    polish after the first partition-aware live client is working.
 
 ## Known Limitations
@@ -178,16 +183,92 @@ the developer explicitly opts into workflow-style cross-shard behavior.
   yet generate a deployment manifest.
 - Dynamic Worker loading is not connected yet, so generated functions are not
   deployed through the new backend invoke registry.
-- Generated clients infer partition routing for functions that declare
-  `partition: model.<table>.by<Field>(...)`, but the wire protocol still
-  carries `partitionKey`.
-- Generated `_generated/server.ts` now exposes `model.<table>.by<Field>(...)`
-  partition selectors for root tables using `partitionBy(...)`.
+- Generated clients currently infer partition routing for functions that
+  declare `partition: model.<table>.by<Field>(...)`, but the v1 target is
+  `partition: model.<table>`.
+- Generated `_generated/server.ts` currently exposes
+  `model.<table>.by<Field>(...)` partition selectors. These need migration to
+  root model objects.
 - Generated `_generated/server.ts` now emits `PartitionScopes` and narrows
   `mutation` / `internalMutation` / `workflowMutation` handler write tables
   when a function declares first-class partition metadata.
 - Live sync now has an initial `packages/flarex` client-side stack, but it is
   still smaller than Convex's full browser client.
+
+## Explicit Partition API Redesign
+
+Checkpoint title: `Plan explicit partition table API`
+
+Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation
+types.
+
+What changed:
+
+- The SDK/codegen target now uses explicit table constructors:
+  `definePartitionTable`, `defineColocatedTable`, and `defineGlobalTable`.
+- Root partition tables are `_id` owned only in v1.
+- Generated `_generated/server.ts` should expose root partition model objects:
+  `model.documents`, `model.rooms`, `model.carts`.
+- Function definitions should use `partition: model.documents` for both
+  create and existing single-shard mutations; analyzer/runtime decides mode
+  from args and schema.
+- Selector methods such as `model.documents.byId("documentId")` become
+  compatibility-only implementation details until removed or demoted.
+
+Target app code:
+
+```ts
+export default defineSchema({
+  documents: definePartitionTable({
+    title: v.string(),
+  }),
+  comments: defineColocatedTable("documents", "documentId", {
+    documentId: v.id("documents"),
+    body: v.string(),
+  }).index("by_document", ["documentId"]),
+});
+
+export const addComment = mutation({
+  partition: model.documents,
+  args: { documentId: v.id("documents"), body: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("comments", args);
+  },
+});
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - schema authoring should stay compact and generated-model friendly.
+- `npm-packages/convex/src/server/registration.ts`
+  - function registration is the public layer for metadata and typed handler
+    contexts.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server files bind SDK generics to app-specific generated types.
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - data model codegen should continue to derive document/table types from the
+    developer schema.
+
+Cloudflare difference:
+
+- Convex does not need developer-visible physical placement APIs. Flarex does,
+  but the v1 API should expose one simple concept: root partition tables and
+  colocated child tables.
+
+Known limitations:
+
+- This checkpoint does not implement the constructors yet.
+- Current tests/examples still use legacy chain placement and selector model
+  APIs.
+- Backend invoke/sync still expects analyzed partition metadata with an
+  argument field. Create-mode root preallocation is a follow-up.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
 
 ## Partition-Scoped Mutation Type Update
 

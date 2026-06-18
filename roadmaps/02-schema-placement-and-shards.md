@@ -2,19 +2,53 @@
 
 ## Current Decision
 
-The v1 schema model is good enough to proceed:
+Redesign the v1 schema placement API around explicit table kinds instead of
+chainable placement methods.
 
-- `partitionBy(field)` defines a root shard owner.
-- `colocateWith(table, field)` stores child records in the same shard as the
-  owner table.
-- `global()` is allowed only for small, low-write deployment-level tables.
+The v1 public API target is:
+
+- `definePartitionTable(...)` defines a root shard table. Its shard key is
+  always the document `_id`.
+- `defineColocatedTable(rootTable, ownerField, ...)` stores child records in
+  the same shard as a root partition table.
+- `defineGlobalTable(...)` is allowed only for small, low-write
+  deployment-level tables and lookup/projection support.
 - `defineProjection(...)` is used for cross-shard read models.
+
+The v1 API should not support arbitrary root partition fields such as
+`partitionBy("slug")`. Natural-key lookups should be modeled with global lookup
+tables, projections, or a future unique-index service, then routed by root ID.
 
 Do not add `relation()` as a storage primitive yet. It may be added later as a
 type and developer-experience helper, but physical placement must remain
 explicit.
 
 ## Example
+
+```ts
+documents: definePartitionTable({
+  title: v.string(),
+})
+
+comments: defineColocatedTable("documents", "documentId", {
+  documentId: v.id("documents"),
+  body: v.string(),
+}).index("by_document", ["documentId"])
+
+appSettings: defineGlobalTable({
+  key: v.string(),
+  value: v.string(),
+})
+```
+
+The runtime maps a document ID to:
+
+```txt
+partition:{deploymentId}:{documentId}
+```
+
+Legacy prototype syntax remains in older checkpoints and may remain temporarily
+for migration tests:
 
 ```ts
 users: defineTable({
@@ -28,12 +62,6 @@ lessonProgress: defineTable({
 }).colocateWith("users", "userId")
 ```
 
-The runtime maps a user ID to:
-
-```txt
-partition:{deploymentId}:{userId}
-```
-
 ## Convex References
 
 - `crates/value/src/table_mapping.rs`
@@ -41,7 +69,8 @@ partition:{deploymentId}:{userId}
 - `crates/common/src/schemas/mod.rs`
   Database schema and table definitions.
 - `npm-packages/convex/src/server/schema.ts`
-  Developer-facing schema authoring inspiration.
+  Developer-facing schema authoring inspiration. Flarex keeps Convex-like table
+  definition ergonomics but must add explicit physical placement table kinds.
 
 ## Cloudflare Difference
 
@@ -49,27 +78,78 @@ Convex lets a mutation read/write across the deployment's database and uses OCC
 to reject conflicts. Flarex cannot provide cheap global atomic writes across
 many Durable Objects. Developers must model authoritative write ownership.
 
-For common apps, the owner is usually a user, team, workspace, org, store,
-cart, order, chat room, course, or tenant.
+For common apps, the owner is usually a document, room, cart, order, course,
+team, workspace, store, user, or tenant. The owner is not required to be a
+user.
 
 ## Known Limitations
 
-- Tables without an obvious owner need explicit design.
+- Tables without an obvious root owner need explicit design.
 - Unique constraints across shards need a dedicated unique-index DO later.
 - Global tables can become bottlenecks and must be limited.
 - Generated type-level enforcement now narrows mutation writes for functions
   that declare `partition: model.<table>.by<Field>(...)`.
-- `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
-  at backend user-code DB, query, and `PartitionDO` commit boundaries.
-- `partitionBy("_id")` root-record enforcement is not implemented yet.
-- `partitionBy(field)` owner-field uniqueness is enforced at the `PartitionDO`
-  commit boundary for `field !== "_id"`.
+- The current implementation still contains legacy
+  `defineTable(...).partitionBy(...)`, `.colocateWith(...)`, and `.global()`.
+  These should become compatibility shims after the new constructors are added.
+- `partitionBy("_id")` root-record creation/allocation is not implemented yet.
+- Legacy `partitionBy(field)` owner-field uniqueness exists for `field !==
+  "_id"`, but arbitrary partition fields are no longer the v1 product target.
 - Owner-scoped index queries must include an equality on the placement field
   that matches the current partition key.
 - Document IDs currently use a placeholder numeric table ID prefix
   (`{tableId}:{uuid}`) instead of Convex's encoded `DeveloperDocumentId`.
 - Schema cache sync is per-invoke/per-partition and coarse-grained: if the
   partition schema version differs, the full schema cache is replaced.
+
+## Explicit Table Kind Redesign
+
+Checkpoint title: `Plan explicit partition table API`
+
+Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation
+types.
+
+What changed:
+
+- The roadmap now makes explicit table constructors the v1 target:
+  `definePartitionTable`, `defineColocatedTable`, and `defineGlobalTable`.
+- Root partition tables are `_id` owned only in v1. This removes the earlier
+  arbitrary `partitionBy(field)` surface from the product target.
+- `defineColocatedTable(rootTable, ownerField, ...)` remains the way to model
+  child tables inside the same root partition.
+- Natural-key routing such as slug-based teams should use lookup/projection
+  design, not slug as the physical shard key in v1.
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - Convex keeps schema authoring compact and generated-data-model friendly.
+    Flarex should keep that feel while naming physical placement directly.
+- `crates/common/src/schemas/mod.rs`
+  - backend schema metadata is the source for validation and table state.
+- `crates/value/src/table_mapping.rs`
+  - active table mapping remains separate from user-facing schema shape.
+
+Cloudflare difference:
+
+- Convex table definitions do not expose physical shard placement because one
+  logical database owns transactions. Flarex must expose root/colocated/global
+  placement because it determines the `PartitionDO` transaction boundary.
+
+Remaining limitations:
+
+- This is a planning checkpoint only. The implementation still uses the old
+  chainable placement methods.
+- Root partition creation needs a backend preallocation path before
+  `partition: model.table` can support create mutations.
+- Existing tests and examples still need migration from
+  `partition: model.table.byId("field")` to `partition: model.table`.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
 
 ## Partition Scope Type Update
 

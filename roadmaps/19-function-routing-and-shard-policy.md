@@ -32,11 +32,11 @@ of missing platform routing metadata. It is not the final product API.
 Normal application code should look close to Convex:
 
 ```ts
-const lessons = useQuery(api.lessons.list, { courseId: "english" });
+const document = useQuery(api.documents.get, { documentId });
 
-const complete = useMutation(api.lessons.complete);
+const addComment = useMutation(api.comments.add);
 
-await complete({ lessonId: "intro" });
+await addComment({ documentId, body: "Looks good" });
 ```
 
 The app developer should not have to understand Durable Object routing for the
@@ -50,6 +50,44 @@ validate the route deterministically.
 
 Function routing must become first-class deployment metadata, similar to
 argument validators and schema metadata.
+
+The v1 product API target is one root-table marker:
+
+```ts
+export const create = mutation({
+  partition: model.documents,
+  args: { title: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("documents", { title: args.title });
+  },
+});
+
+export const addComment = mutation({
+  partition: model.documents,
+  args: { documentId: v.id("documents"), body: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("comments", {
+      documentId: args.documentId,
+      body: args.body,
+    });
+  },
+});
+```
+
+`partition: model.documents` means:
+
+```txt
+this function is single-shard around the documents root table
+```
+
+Analyzer/runtime inference:
+
+- query + zero `v.id("documents")` args: reject; queries cannot create roots
+- mutation + zero `v.id("documents")` args: create a new documents partition
+- query/mutation + one required `v.id("documents")` arg: use that existing
+  partition
+- query/mutation + multiple required `v.id("documents")` args: reject as
+  ambiguous normal single-shard work
 
 Possible route declarations:
 
@@ -79,9 +117,12 @@ export const top = query({
 });
 ```
 
-The exact API names are not final. The invariant is final: every deployed
-function needs an execution route policy unless it is explicitly declared as
-global or workflow/cross-shard.
+The older selector forms such as `model.documents.byId("documentId")` and
+`routeFromArgs("documentId")` are prototype compatibility paths, not the final
+v1 product API.
+
+The invariant is final: every deployed function needs an execution route policy
+unless it is explicitly declared as global or workflow/cross-shard.
 
 ## Relationship To Schema Placement
 
@@ -90,25 +131,24 @@ Schema placement and function routing are related but not identical.
 Schema placement says where records live:
 
 ```ts
-users: defineTable({
-  name: v.string(),
-}).partitionBy("_id")
+documents: definePartitionTable({
+  title: v.string(),
+})
 
-lessonProgress: defineTable({
-  userId: v.id("users"),
-  lessonId: v.string(),
-  completed: v.boolean(),
-}).colocateWith("users", "userId")
+comments: defineColocatedTable("documents", "documentId", {
+  documentId: v.id("documents"),
+  body: v.string(),
+})
 ```
 
 Function routing says where function execution starts:
 
 ```ts
-export const complete = mutation({
-  route: currentUser(),
-  args: { lessonId: v.string() },
+export const addComment = mutation({
+  partition: model.documents,
+  args: { documentId: v.id("documents"), body: v.string() },
   handler: async (ctx, args) => {
-    // may read/write colocated user-owned tables transactionally
+    // may read/write documents and comments transactionally
   },
 });
 ```
@@ -145,11 +185,11 @@ Generated client APIs should hide routing only when deterministic.
 Examples:
 
 ```ts
-// current-user route, derived from auth/session
-await api.lessons.complete({ lessonId: "intro" });
+// create a new root partition
+await api.documents.create({ title: "Plan" });
 
-// arg-derived route
-const profile = useQuery(api.users.profile, { userId });
+// operate on an existing root partition
+const document = useQuery(api.documents.get, { documentId });
 
 // explicit override for advanced/global/projection cases
 const top = useQuery(
@@ -224,17 +264,74 @@ if the public client API becomes Convex-like.
 
 ## Implementation Plan
 
-1. Keep current explicit `partitionKey` as the prototype route carrier.
-2. Add route policy metadata to function registration types.
-3. Include route policy in generated function metadata and deployment analysis.
-4. Teach backend invoke/sync/execution-session start to validate route policy.
-5. Add provider-level default `partitionKey` for React ergonomics.
-6. Teach generated clients to infer routes from route policy where possible.
-7. Enforce syscall shard boundaries from the bound execution session.
-8. Add cross-shard/workflow-only route declarations for functions that cannot
+1. Add explicit schema constructors and keep old chain methods as
+   compatibility shims.
+2. Generate `model.<rootTable>` as the normal partition declaration.
+3. Update analysis to infer create-vs-existing partition mode from function
+   args and root table schema.
+4. Teach generated clients to infer routing from `model.<rootTable>` metadata.
+5. Teach backend invoke/sync/execution-session start to validate or allocate
+   the route before user code runs.
+6. Enforce syscall shard boundaries from the bound execution session.
+7. Add cross-shard/workflow-only route declarations for functions that cannot
    be single-shard.
-9. Remove or demote raw client `partitionKey` from normal app APIs once
+8. Remove or demote raw client `partitionKey` from normal app APIs once
    generated inference is reliable.
+
+## Root-Model Partition API Redesign
+
+Checkpoint title: `Plan explicit partition table API`
+
+Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation
+types.
+
+What changed:
+
+- The final v1 function API target is `partition: model.<rootTable>`, not
+  `model.<rootTable>.byId("arg")` or `model.<rootTable>.new()`.
+- `model.<rootTable>` is analyzed against schema and function args to decide:
+  create mode for zero root IDs in mutations, existing mode for one root ID,
+  and analysis failure for ambiguous multiple root IDs.
+- Queries cannot create root partitions, so `query({ partition: model.table,
+  args: {} })` is invalid.
+- The existing selector metadata remains a compatibility path until the
+  implementation is migrated.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations are the right layer for args, returns, and Flarex
+    partition metadata.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server files should expose the app-specific model object.
+- `crates/database/src/transaction.rs`
+  - the transaction context must be known before user syscalls execute.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - syscalls remain the enforcement boundary once execution is bound to a
+    shard.
+
+Cloudflare difference:
+
+- Convex can allocate IDs and commit inside one logical database after user
+  code runs. Flarex must choose a `PartitionDO` before user code runs, so root
+  partition creation requires backend preallocation before the handler starts.
+
+Remaining limitations:
+
+- This is a planning checkpoint only. Current implementation still emits
+  `model.table.byId(...)` selectors and requires explicit partition arg
+  metadata.
+- Backend root-ID preallocation and root insert consumption are not
+  implemented yet.
+- Natural-key partitioning is removed from the v1 target. Slug/name lookup must
+  be handled through global lookup tables, projections, or future unique-index
+  services.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
 
 ## RouteFromArgs Implementation
 
