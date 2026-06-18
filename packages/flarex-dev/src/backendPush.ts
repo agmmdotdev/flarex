@@ -140,6 +140,7 @@ export function backendAnalysisFromCodegenAnalysis(
           args: fn.args,
           returns: fn.returns,
           route: fn.route ?? null,
+          partition: fn.partition ?? null,
           ...(fn.position === undefined ? {} : { position: fn.position }),
         })),
       ),

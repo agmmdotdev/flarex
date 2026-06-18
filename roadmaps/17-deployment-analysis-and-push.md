@@ -2909,6 +2909,70 @@ Added source-position metadata to analyzed functions and preserved it through
 local analysis, backend push state, active function metadata, codegen analysis,
 and generated function metadata.
 
+## Partition Metadata Analysis Update
+
+Checkpoint title: `Preserve partition selector metadata`
+
+Previous completed checkpoint: `63896da` Generate model partition selectors.
+
+Deployment analysis now treats function partition selectors as authoritative
+metadata, not just local codegen sugar.
+
+What changed:
+
+- Local source-package analysis reads each function's `exportPartition()`
+  marker and returns partition metadata in `DeploymentAnalysis`.
+- The embedded execution-artifact analyzer performs the same extraction inside
+  the backend-shaped isolate boundary.
+- `LocalBackendPushCoordinator` and backend analysis conversion preserve
+  partition metadata into the analyzed push request.
+- `DeploymentDO` persists `partition_json` on active functions and exposes it
+  through `/functions`, active deployment status, and push `codegenAnalysis`.
+- Backend validation cross-checks partition metadata against the analyzed
+  schema before a candidate push can be stored:
+  - target table must exist and be active,
+  - target table must use `partitionBy`,
+  - selector and partition field must match the schema placement,
+  - the referenced argument must be required,
+  - explicit `route` metadata must match the partition argument.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata is stored as backend-owned deployment state.
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+  - runtime function wrappers export validator metadata for backend analysis.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final codegen is derived from backend/analyzed metadata.
+
+Cloudflare difference:
+
+- Convex analysis validates function/module metadata but does not need to bind
+  functions to user-visible shard selectors. Flarex must validate this extra
+  partition selector because it determines which `PartitionDO` owns execution
+  and OCC.
+
+Remaining limitations:
+
+- The legacy direct `/functions` metadata route still exists for prototype
+  tests. The authoritative hosted path is analyzed push metadata.
+- Push validation proves the declared route and schema match; it does not yet
+  prove every future `ctx.db` access stays inside the scoped placement at the
+  TypeScript level.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+```
+
 ## Backend Artifact Storage Binding Update
 
 Previous completed checkpoint: `873fee7` Add R2 execution artifact store

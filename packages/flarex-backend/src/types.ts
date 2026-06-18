@@ -131,6 +131,13 @@ export type DeploymentFunctionKind =
   | "workflowMutation";
 export type FunctionVisibility = "public" | "internal";
 export type FunctionRoutePolicy = { type: "args"; field: string };
+export type FunctionPartitionPolicy = {
+  type: "partition";
+  table: string;
+  selector: string;
+  partitionField: string;
+  argField: string;
+};
 
 export type AnalyzedSourcePosition = {
   path: string;
@@ -145,6 +152,7 @@ export type DeploymentFunctionMetadata = {
   args?: ValidatorJson | null;
   returns?: ValidatorJson | null;
   route?: FunctionRoutePolicy | null;
+  partition?: FunctionPartitionPolicy | null;
   position?: AnalyzedSourcePosition;
 };
 
@@ -185,6 +193,7 @@ export type DeploymentCodegenFunction = {
   args: ValidatorJson;
   returns: ValidatorJson | null;
   route?: FunctionRoutePolicy | null;
+  partition?: FunctionPartitionPolicy | null;
   position?: AnalyzedSourcePosition;
 };
 

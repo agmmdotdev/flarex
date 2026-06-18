@@ -13,6 +13,7 @@ import type {
   DeploymentCodegenModule,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
+  FunctionPartitionPolicy,
   FunctionRoutePolicy,
   DeploymentFunctions,
   DeploymentSchema,
@@ -62,6 +63,7 @@ export class DeploymentDO extends DurableObject<Env> {
         args_json TEXT,
         returns_json TEXT,
         route_json TEXT,
+        partition_json TEXT,
         position_json TEXT
       );
       CREATE TABLE IF NOT EXISTS pushes (
@@ -78,6 +80,7 @@ export class DeploymentDO extends DurableObject<Env> {
     `);
     this.ensureFunctionPositionColumn();
     this.ensureFunctionRouteColumn();
+    this.ensureFunctionPartitionColumn();
     this.ensurePushDiagnosticsColumn();
     this.setMetaIfMissing("schema_version", "0");
   }
@@ -321,8 +324,8 @@ export class DeploymentDO extends DurableObject<Env> {
     for (const metadata of normalized.functions) {
       this.sql.exec(
         `
-        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, position_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         metadata.path,
         metadata.kind,
@@ -330,6 +333,7 @@ export class DeploymentDO extends DurableObject<Env> {
         JSON.stringify(metadata.args),
         JSON.stringify(metadata.returns),
         JSON.stringify(metadata.route ?? null),
+        JSON.stringify(metadata.partition ?? null),
         metadata.position === undefined ? null : JSON.stringify(metadata.position),
       );
     }
@@ -346,10 +350,11 @@ export class DeploymentDO extends DurableObject<Env> {
           args_json: string | null;
           returns_json: string | null;
           route_json: string | null;
+          partition_json: string | null;
           position_json: string | null;
         }>(
           `
-          SELECT function_path, kind, visibility, args_json, returns_json, route_json, position_json
+          SELECT function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json
           FROM functions
           ORDER BY function_path
           `,
@@ -368,10 +373,11 @@ export class DeploymentDO extends DurableObject<Env> {
         args_json: string | null;
         returns_json: string | null;
         route_json: string | null;
+        partition_json: string | null;
         position_json: string | null;
       }>(
         `
-        SELECT function_path, kind, visibility, args_json, returns_json, route_json, position_json
+        SELECT function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json
         FROM functions
         WHERE function_path = ?
         `,
@@ -474,6 +480,14 @@ export class DeploymentDO extends DurableObject<Env> {
       // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
     }
   }
+
+  private ensureFunctionPartitionColumn(): void {
+    try {
+      this.sql.exec("ALTER TABLE functions ADD COLUMN partition_json TEXT");
+    } catch {
+      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
+    }
+  }
 }
 
 function functionMetadataFromRow(row: {
@@ -483,6 +497,7 @@ function functionMetadataFromRow(row: {
   args_json: string | null;
   returns_json: string | null;
   route_json: string | null;
+  partition_json: string | null;
   position_json: string | null;
 }): DeploymentFunctionMetadata {
   return {
@@ -492,6 +507,7 @@ function functionMetadataFromRow(row: {
     args: JSON.parse(row.args_json ?? "null") as ValidatorJson | null,
     returns: JSON.parse(row.returns_json ?? "null") as ValidatorJson | null,
     route: JSON.parse(row.route_json ?? "null") as FunctionRoutePolicy | null,
+    partition: JSON.parse(row.partition_json ?? "null") as FunctionPartitionPolicy | null,
     ...(row.position_json === null
       ? {}
       : { position: JSON.parse(row.position_json) as AnalyzedSourcePosition }),
@@ -548,6 +564,7 @@ function codegenAnalysisFromDeploymentAnalysis(
       args: metadata.args ?? { type: "any" },
       returns: metadata.returns ?? null,
       route: metadata.route ?? null,
+      partition: metadata.partition ?? null,
       ...(metadata.position === undefined ? {} : { position: metadata.position }),
     });
     modules.set(moduleName, module);
@@ -588,9 +605,12 @@ function parsePushState(value: string): PushStatus["state"] {
 }
 
 function validateAnalysis(analysis: DeploymentAnalysis): DeploymentAnalysis {
+  const schema = validateSchema(analysis.schema);
+  const functions = validateFunctions(analysis.functions);
+  validateFunctionPartitions(functions, schema);
   return {
-    schema: validateSchema(analysis.schema),
-    functions: validateFunctions(analysis.functions),
+    schema,
+    functions,
   };
 }
 
@@ -662,6 +682,10 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
     const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
     const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
     const route = validateFunctionRoutePolicy(metadata.route, `$functions.${path}.route`);
+    const partition = validateFunctionPartitionPolicy(
+      metadata.partition,
+      `$functions.${path}.partition`,
+    );
     const position = validateSourcePosition(metadata.position, `$functions.${path}.position`);
     return {
       path,
@@ -670,10 +694,59 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
       args,
       returns,
       route,
+      partition,
       ...(position === undefined ? {} : { position }),
     };
   });
   return { functions: normalized };
+}
+
+function validateFunctionPartitions(
+  functions: DeploymentFunctions,
+  schema: DeploymentSchema,
+): void {
+  const tables = new Map(schema.tables.map(table => [table.name, table]));
+  for (const metadata of functions.functions) {
+    const partition = metadata.partition;
+    if (partition === undefined || partition === null) continue;
+    const table = tables.get(partition.table);
+    if (table === undefined || table.state === "deleted") {
+      throw new HttpError(400, `${metadata.path}.partition: Unknown partition table ${partition.table}.`);
+    }
+    if (table.placement.kind !== "partitionBy") {
+      throw new HttpError(400, `${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
+    }
+    if (table.placement.field !== partition.partitionField) {
+      throw new HttpError(
+        400,
+        `${metadata.path}.partition: Selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
+      );
+    }
+    const expectedSelector = selectorNameForPartitionField(table.placement.field);
+    if (partition.selector !== expectedSelector) {
+      throw new HttpError(
+        400,
+        `${metadata.path}.partition: Expected selector ${expectedSelector} for ${partition.table}.partitionBy(${JSON.stringify(table.placement.field)}).`,
+      );
+    }
+    if (!validatorHasRequiredField(metadata.args ?? null, partition.argField)) {
+      throw new HttpError(
+        400,
+        `${metadata.path}.partition: args.${partition.argField} is not a required argument.`,
+      );
+    }
+    if (
+      metadata.route !== null &&
+      metadata.route !== undefined &&
+      metadata.route.type === "args" &&
+      metadata.route.field !== partition.argField
+    ) {
+      throw new HttpError(
+        400,
+        `${metadata.path}.partition: partition argument ${partition.argField} must match route argument ${metadata.route.field}.`,
+      );
+    }
+  }
 }
 
 function validateSourcePosition(
@@ -722,6 +795,60 @@ function validateFunctionRoutePolicy(
     return { type: "args", field: route.field };
   }
   throw new HttpError(400, `${path}: Invalid route policy.`);
+}
+
+function validateFunctionPartitionPolicy(
+  value: unknown,
+  path: string,
+): FunctionPartitionPolicy | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, `${path}: Invalid partition policy.`);
+  }
+  const partition = value as Partial<FunctionPartitionPolicy>;
+  if (
+    partition.type === "partition" &&
+    typeof partition.table === "string" &&
+    partition.table.length > 0 &&
+    typeof partition.selector === "string" &&
+    partition.selector.length > 0 &&
+    typeof partition.partitionField === "string" &&
+    partition.partitionField.length > 0 &&
+    typeof partition.argField === "string" &&
+    partition.argField.length > 0
+  ) {
+    return {
+      type: "partition",
+      table: partition.table,
+      selector: partition.selector,
+      partitionField: partition.partitionField,
+      argField: partition.argField,
+    };
+  }
+  throw new HttpError(400, `${path}: Invalid partition policy.`);
+}
+
+function selectorNameForPartitionField(field: string): string {
+  if (field === "_id") return "byId";
+  const suffix = field
+    .split(/[^A-Za-z0-9]+/)
+    .filter(part => part.length > 0)
+    .map(capitalize)
+    .join("");
+  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+}
+
+function validatorHasRequiredField(validator: ValidatorJson | null, field: string): boolean {
+  return (
+    validator !== null &&
+    validator.type === "object" &&
+    Object.prototype.hasOwnProperty.call(validator.value, field) &&
+    validator.value[field]?.optional === false
+  );
 }
 
 function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {

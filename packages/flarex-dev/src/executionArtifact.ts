@@ -165,10 +165,13 @@ async function analyze() {
     const schemaModule = schemaImport === null
       ? { default: { tables: {} } }
       : await import(schemaImport);
+    const schema = analyzeSchema(schemaModule.default);
+    const functions = analyzeModuleExports(executionModule.default, sourcePositionResolver());
+    validateFunctionPartitions(functions, schema);
     return {
       analysis: {
-        functions: analyzeModuleExports(executionModule.default, sourcePositionResolver()),
-        schema: analyzeSchema(schemaModule.default),
+        functions,
+        schema,
       },
       diagnostics,
     };
@@ -440,8 +443,51 @@ function analyzeExport(moduleName, exportName, value, positionFor) {
     args: parseArgsValidator(value, identifier),
     returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
     route: parseRouteExport(value, identifier),
+    partition: parsePartitionExport(value, identifier),
     ...(position === undefined ? {} : { position }),
   };
+}
+
+function validateFunctionPartitions(modules, schema) {
+  const tables = new Map(schema.tables.map(table => [table.name, table]));
+  for (const module of modules) {
+    for (const fn of module.functions) {
+      const partition = fn.partition;
+      if (partition === undefined || partition === null) continue;
+      const path = \`\${module.moduleName}:\${fn.exportName}\`;
+      const table = tables.get(partition.table);
+      if (table === undefined) {
+        throw new Error(\`\${path}.partition: Unknown partition table \${partition.table}.\`);
+      }
+      if (table.placement.kind !== "partitionBy") {
+        throw new Error(\`\${path}.partition: Table \${partition.table} is not partitioned.\`);
+      }
+      if (table.placement.field !== partition.partitionField) {
+        throw new Error(
+          \`\${path}.partition: Selector \${partition.selector} targets \${partition.partitionField}, but \${partition.table} is partitioned by \${table.placement.field}.\`,
+        );
+      }
+      const expectedSelector = selectorNameForPartitionField(table.placement.field);
+      if (partition.selector !== expectedSelector) {
+        throw new Error(
+          \`\${path}.partition: Expected selector \${expectedSelector} for \${partition.table}.partitionBy(\${JSON.stringify(table.placement.field)}).\`,
+        );
+      }
+      if (!validatorHasRequiredField(fn.args, partition.argField)) {
+        throw new Error(\`\${path}.partition: args.\${partition.argField} is not a required argument.\`);
+      }
+      if (
+        fn.route !== null &&
+        fn.route !== undefined &&
+        fn.route.type === "args" &&
+        fn.route.field !== partition.argField
+      ) {
+        throw new Error(
+          \`\${path}.partition: partition argument \${partition.argField} must match route argument \${fn.route.field}.\`,
+        );
+      }
+    }
+  }
 }
 
 function sourcePositionResolver() {
@@ -607,6 +653,31 @@ function parseRouteExport(value, identifier) {
   return assertRoutePolicy(parsed, \`\${identifier}.exportRoute()\`);
 }
 
+function parsePartitionExport(value, identifier) {
+  const exporter = "exportPartition" in value ? value.exportPartition : undefined;
+  if (exporter === undefined) return null;
+  if (typeof exporter !== "function") {
+    throw new Error(\`\${identifier}.exportPartition is not a function or \\\`undefined\\\`.\`);
+  }
+
+  const serialized = exporter.call(value);
+  if (typeof serialized !== "string") {
+    throw new Error(
+      \`Invalid exportPartition return value: \${identifier}.exportPartition() didn't return a string.\`,
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch (error) {
+    throw new Error(
+      \`Invalid JSON returned from \${identifier}.exportPartition(): \${errorMessage(error)}\`,
+    );
+  }
+  return assertPartitionPolicy(parsed, \`\${identifier}.exportPartition()\`);
+}
+
 function assertRoutePolicy(value, path) {
   if (value === null) return null;
   if (!isRecord(value)) throw new Error(\`\${path}: Invalid route policy.\`);
@@ -614,6 +685,53 @@ function assertRoutePolicy(value, path) {
     return { type: "args", field: value.field };
   }
   throw new Error(\`\${path}: Invalid route policy.\`);
+}
+
+function assertPartitionPolicy(value, path) {
+  if (value === null) return null;
+  if (!isRecord(value)) throw new Error(\`\${path}: Invalid partition policy.\`);
+  if (
+    value.type === "partition" &&
+    typeof value.table === "string" &&
+    value.table.length > 0 &&
+    typeof value.selector === "string" &&
+    value.selector.length > 0 &&
+    typeof value.partitionField === "string" &&
+    value.partitionField.length > 0 &&
+    typeof value.argField === "string" &&
+    value.argField.length > 0
+  ) {
+    return {
+      type: "partition",
+      table: value.table,
+      selector: value.selector,
+      partitionField: value.partitionField,
+      argField: value.argField,
+    };
+  }
+  throw new Error(\`\${path}: Invalid partition policy.\`);
+}
+
+function selectorNameForPartitionField(field) {
+  if (field === "_id") return "byId";
+  const suffix = field
+    .split(/[^A-Za-z0-9]+/)
+    .filter(part => part.length > 0)
+    .map(capitalize)
+    .join("");
+  return suffix.length === 0 ? "byPartition" : \`by\${suffix}\`;
+}
+
+function capitalize(value) {
+  return value.length === 0 ? value : \`\${value[0].toUpperCase()}\${value.slice(1)}\`;
+}
+
+function validatorHasRequiredField(validator, field) {
+  return (
+    validator.type === "object" &&
+    Object.prototype.hasOwnProperty.call(validator.value, field) &&
+    validator.value[field]?.optional === false
+  );
 }
 
 function assertValidatorJson(value, path = "$validator") {

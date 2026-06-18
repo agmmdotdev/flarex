@@ -123,6 +123,7 @@ function functionMetadataSource(modules: AnalyzedModule[]): string {
       args: fn.args,
       returns: fn.returns,
       route: fn.route ?? null,
+      partition: fn.partition ?? null,
       ...(fn.position === undefined ? {} : { position: fn.position }),
     })),
   );
@@ -136,6 +137,13 @@ export type FunctionMetadata = {
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
   route: { type: "args"; field: string } | null;
+  partition: {
+    type: "partition";
+    table: string;
+    selector: string;
+    partitionField: string;
+    argField: string;
+  } | null;
   position?: {
     path: string;
     startLine: number;
@@ -150,20 +158,38 @@ export default functionMetadata;
 }
 
 function dynamicPartitionModelSource(): string {
-  return `const dynamicPartitionSelector = (argField: string) => routeFromArgs(argField);
-const dynamicPartitionTable = new Proxy({}, {
+  return `const partitionFieldForSelector = (selector: string) => {
+  if (selector === "byId") return "_id";
+  if (!selector.startsWith("by") || selector.length <= 2) return "partition";
+  const suffix = selector.slice(2);
+  return \`\${suffix[0].toLowerCase()}\${suffix.slice(1)}\`;
+};
+
+const dynamicPartitionTable = (table: string) => new Proxy({}, {
   get(_target, property) {
     if (typeof property !== "string") return undefined;
-    return dynamicPartitionSelector;
+    return (argField: string) => ({
+      type: "partition",
+      table,
+      selector: property,
+      partitionField: partitionFieldForSelector(property),
+      argField,
+    } as const);
   },
-}) as Record<string, typeof routeFromArgs>;
+}) as Record<string, (argField: string) => {
+  type: "partition";
+  table: string;
+  selector: string;
+  partitionField: string;
+  argField: string;
+}>;
 
 export const model = new Proxy({}, {
   get(_target, property) {
     if (typeof property !== "string") return undefined;
-    return dynamicPartitionTable;
+    return dynamicPartitionTable(property);
   },
-}) as Record<string, Record<string, typeof routeFromArgs>>;`;
+}) as Record<string, ReturnType<typeof dynamicPartitionTable>>;`;
 }
 
 function concretePartitionModelSource(schema: AnalyzedSchema): string {
@@ -172,7 +198,13 @@ function concretePartitionModelSource(schema: AnalyzedSchema): string {
       if (table.placement.kind !== "partitionBy") return [];
       const selector = selectorNameForPartitionField(table.placement.field);
       return [`  ${propertyKey(table.name)}: {
-    ${propertyKey(selector)}: routeFromArgs,
+    ${propertyKey(selector)}: (argField: string) => ({
+      type: "partition",
+      table: ${JSON.stringify(table.name)},
+      selector: ${JSON.stringify(selector)},
+      partitionField: ${JSON.stringify(table.placement.field)},
+      argField,
+    } as const),
   },`];
     });
   return `export const model = {

@@ -717,6 +717,78 @@ corepack pnpm --filter @flarex/example build
 
 ## Previous Update
 
+Preserved `partition: model.table.byField(argField)` as first-class function
+partition metadata while still lowering it to the existing route metadata for
+current runtime compatibility.
+
+Checkpoint title: `Preserve partition selector metadata`
+
+Previous completed checkpoint: `63896da` Generate model partition selectors.
+
+What changed:
+
+- `query`, `mutation`, `action`, and workflow builders now retain optional
+  `partition` metadata separately from the route used by today's invoke/sync
+  clients.
+- `FunctionReference` route inference still receives `{ type: "args", field }`
+  so current clients and React hooks keep working.
+- Generated `model.users.byId("userId")` and `model.teams.bySlug("teamSlug")`
+  now return literal partition descriptors with table, selector,
+  partition field, and argument field.
+- Local analysis, embedded execution-artifact analysis, and backend
+  `DeploymentDO` validation reject partition metadata that:
+  - references an unknown table,
+  - targets a non-partitioned table,
+  - uses a selector that does not match `partitionBy(field)`,
+  - points at a missing optional argument,
+  - disagrees with explicit route metadata.
+- Active function metadata stores `partition_json` next to `route_json`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations attach metadata to handler wrappers.
+- `npm-packages/convex/src/server/schema.ts`
+  - schema/table metadata is the source of generated developer APIs.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated files consume analyzed backend metadata.
+
+Cloudflare difference:
+
+- Convex does not need a function-level partition selector because one logical
+  backend database chooses execution and OCC scope. Flarex must preserve this
+  metadata to select and validate the `PartitionDO` boundary before user code
+  runs.
+
+Remaining limitations:
+
+- `partition` currently lowers to `routeFromArgs(argField)` for execution.
+  Scoped `ctx.db` APIs that statically expose only colocated writes are still
+  future work.
+- Cross-shard mutations remain out of normal mutation semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
+
 Implemented route-aware generated client references.
 
 Checkpoint title: `Add route-aware generated client inference`

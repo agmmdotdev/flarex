@@ -5,6 +5,13 @@ export const functionName = Symbol.for("flarex.functionName");
 export type FunctionType = "query" | "mutation" | "workflowMutation" | "action";
 export type FunctionVisibility = "public" | "internal";
 export type FunctionRoutePolicy = { type: "args"; field: string };
+export type FunctionPartitionPolicy = {
+  type: "partition";
+  table: string;
+  selector: string;
+  partitionField: string;
+  argField: string;
+};
 export type FunctionRouteMap = Record<string, FunctionRoutePolicy | null | undefined>;
 
 export type FunctionReference<

@@ -1056,6 +1056,88 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Partition Selector Metadata Update
+
+Checkpoint title: `Preserve partition selector metadata`
+
+Previous completed checkpoint: `63896da` Generate model partition selectors.
+
+Final codegen now emits Convex-style generated model helpers that preserve
+Flarex partition-selector metadata:
+
+```ts
+import { model, mutation } from "../_generated/server";
+
+export const create = mutation({
+  args: { teamSlug: v.string(), name: v.string() },
+  partition: model.teams.bySlug("teamSlug"),
+  handler: async ctx => {
+    // runs through route metadata derived from teamSlug today
+  },
+});
+```
+
+The generated helper returns:
+
+```ts
+{
+  type: "partition",
+  table: "teams",
+  selector: "bySlug",
+  partitionField: "slug",
+  argField: "teamSlug",
+}
+```
+
+What changed:
+
+- `_generated/server.ts` keeps `routeFromArgs` for compatibility and now
+  exposes `model` helpers as first-class partition metadata producers.
+- Generated selector return values use literal-preserving `as const` so
+  TypeScript accepts them as `FunctionPartitionPolicy`.
+- `functionMetadata.ts` includes both `route` and `partition`. Current
+  generated clients still use `route` for partition-key inference.
+- The dynamic initial-codegen `model` proxy uses the same metadata shape as
+  final codegen so initial bundling and final TypeScript behavior agree.
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - schema definitions drive generated types and helpers.
+- `npm-packages/convex/src/server/registration.ts`
+  - function builders own the metadata contract.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated `_generated/server` and API files are analysis-informed.
+
+Flarex difference:
+
+- Convex table helpers do not expose shard selectors because Convex functions
+  run against one logical transactional database. Flarex adds `model.table.byX`
+  to make the selected `PartitionDO` explicit while keeping the normal
+  query/mutation declaration shape familiar.
+
+Remaining SDK limitation:
+
+- The helper validates declaration metadata, but TypeScript does not yet infer
+  a scoped `ctx.db` writer surface from `partition: model.table.byX(...)`.
+- `partition` still lowers to route metadata for client calls; richer
+  generated client behavior can come after scoped execution contexts exist.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
 ## Route-Aware Generated API Update
 
 Checkpoint title: `Add route-aware generated client inference`

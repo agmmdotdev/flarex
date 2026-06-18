@@ -150,12 +150,54 @@ export const create = mutation({
 
     expect(server).toContain("export const model = {");
     expect(server).toContain("users: {");
-    expect(server).toContain("byId: routeFromArgs");
+    expect(server).toContain('selector: "byId"');
+    expect(server).toContain('partitionField: "_id"');
     expect(server).toContain("teams: {");
-    expect(server).toContain("bySlug: routeFromArgs");
+    expect(server).toContain("bySlug: (argField: string) => ({");
+    expect(server).toContain('table: "teams"');
+    expect(server).toContain('selector: "bySlug"');
+    expect(server).toContain('partitionField: "slug"');
     expect(functionMetadata).toContain('"path": "teams:create"');
     expect(functionMetadata).toContain('"route": {');
     expect(functionMetadata).toContain('"field": "teamSlug"');
+    expect(functionMetadata).toContain('"partition": {');
+    expect(functionMetadata).toContain('"table": "teams"');
+    expect(functionMetadata).toContain('"selector": "bySlug"');
+    expect(functionMetadata).toContain('"partitionField": "slug"');
+    expect(functionMetadata).toContain('"argField": "teamSlug"');
+  });
+
+  it("rejects model partition selectors that do not match schema placement", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { defineSchema, defineTable } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  teams: defineTable({
+    slug: v.string(),
+    name: v.string(),
+  }).partitionBy("slug"),
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/functions/teams.ts"),
+      `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  args: { teamId: v.id("teams"), name: v.string() },
+  partition: model.teams.byId("teamId"),
+  handler: async () => null,
+});
+`,
+    );
+
+    await expect(generateFlarex({ root })).rejects.toThrow(
+      "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug.",
+    );
   });
 
   it("guards generated internal routes when an internal token is configured", async () => {

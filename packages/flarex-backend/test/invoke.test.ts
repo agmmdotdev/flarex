@@ -360,6 +360,7 @@ describe("executeInvoke", () => {
           },
           returns: null,
           route: null,
+          partition: null,
         },
       ],
     });

@@ -135,6 +135,78 @@ describe("deployment push lifecycle", () => {
     expect(secondActive.executionArtifactRef).not.toEqual(firstActive.executionArtifactRef);
   });
 
+  it("persists partition selector metadata from analyzed push metadata", async () => {
+    const start = await startPush(
+      "push-partition-metadata",
+      analyzedPush(partitionedTeamSchema(), partitionedTeamFunctions()),
+    );
+
+    await finishPush("push-partition-metadata", start.pushId);
+
+    await expect(getFunctions("push-partition-metadata")).resolves.toEqual(
+      normalizedPartitionedTeamFunctions(),
+    );
+    await expect(getActiveDeployment("push-partition-metadata")).resolves.toMatchObject({
+      analysis: {
+        schema: normalizedPartitionedTeamSchema(),
+        functions: partitionedTeamFunctions(),
+      },
+      codegenAnalysis: partitionedTeamCodegenAnalysis(),
+    });
+  });
+
+  it("rejects partition selector metadata that disagrees with schema placement", async () => {
+    const response = await startPushResponse(
+      "push-invalid-partition-selector",
+      analyzedPush(partitionedTeamSchema(), {
+        functions: [
+          {
+            ...partitionedTeamFunctions().functions[0]!,
+            partition: {
+              type: "partition",
+              table: "teams",
+              selector: "byId",
+              partitionField: "_id",
+              argField: "teamId",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug.",
+    });
+  });
+
+  it("rejects partition metadata whose argument does not match route metadata", async () => {
+    const response = await startPushResponse(
+      "push-invalid-partition-route",
+      analyzedPush(partitionedTeamSchema(), {
+        functions: [
+          {
+            ...partitionedTeamFunctions().functions[0]!,
+            route: { type: "args", field: "differentSlug" },
+            args: {
+              type: "object",
+              value: {
+                teamSlug: { fieldType: { type: "string" }, optional: false },
+                differentSlug: { fieldType: { type: "string" }, optional: false },
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "teams:create.partition: partition argument teamSlug must match route argument differentSlug.",
+    });
+  });
+
   it("requires durable artifact storage before public finish when R2 is configured", async () => {
     const r2Harness = await createBackendHarness({ r2Buckets: ["ARTIFACTS"] });
     try {
@@ -312,6 +384,7 @@ function normalizedActiveFunctions(): DeploymentFunctions {
         args: null,
         returns: null,
         route: null,
+        partition: null,
       },
     ],
   };
@@ -327,6 +400,7 @@ function candidateFunctions(): DeploymentFunctions {
         args: { type: "object", value: {} },
         returns: { type: "array", value: { type: "string" } },
         route: null,
+        partition: null,
         position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
       },
     ],
@@ -352,7 +426,97 @@ function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
             args: { type: "object", value: {} },
             returns: { type: "array", value: { type: "string" } },
             route: null,
+            partition: null,
             position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function partitionedTeamSchema(): DeploymentSchema {
+  return {
+    version: 3,
+    tables: [
+      {
+        tableId: 1,
+        name: "teams",
+        validator: {
+          type: "object",
+          value: {
+            slug: { fieldType: { type: "string" }, optional: false },
+            name: { fieldType: { type: "string" }, optional: false },
+          },
+        },
+        placement: { kind: "partitionBy", field: "slug" },
+      },
+    ],
+    indexes: [],
+  };
+}
+
+function normalizedPartitionedTeamSchema(): DeploymentSchema {
+  return {
+    ...partitionedTeamSchema(),
+    tables: [{ ...partitionedTeamSchema().tables[0]!, state: "active" }],
+  };
+}
+
+function partitionedTeamFunctions(): DeploymentFunctions {
+  return {
+    functions: [
+      {
+        path: "teams:create",
+        kind: "mutation",
+        visibility: "public",
+        args: {
+          type: "object",
+          value: {
+            teamSlug: { fieldType: { type: "string" }, optional: false },
+            name: { fieldType: { type: "string" }, optional: false },
+          },
+        },
+        returns: null,
+        route: { type: "args", field: "teamSlug" },
+        partition: {
+          type: "partition",
+          table: "teams",
+          selector: "bySlug",
+          partitionField: "slug",
+          argField: "teamSlug",
+        },
+      },
+    ],
+  };
+}
+
+function normalizedPartitionedTeamFunctions(): DeploymentFunctions {
+  return partitionedTeamFunctions();
+}
+
+function partitionedTeamCodegenAnalysis(): PushStatus["codegenAnalysis"] {
+  return {
+    schema: normalizedPartitionedTeamSchema(),
+    functions: [
+      {
+        moduleName: "teams",
+        functions: [
+          {
+            moduleName: "teams",
+            exportName: "create",
+            kind: "mutation",
+            visibility: "public",
+            args: partitionedTeamFunctions().functions[0]!.args!,
+            returns: null,
+            route: { type: "args", field: "teamSlug" },
+            partition: {
+              type: "partition",
+              table: "teams",
+              selector: "bySlug",
+              partitionField: "slug",
+              argField: "teamSlug",
+            },
           },
         ],
       },
@@ -369,7 +533,24 @@ async function startPushWithHarness(
   deploymentId: string,
   body: AnalyzedStartPushRequest,
 ): Promise<PushStatus> {
-  const response = await target.mf.dispatchFetch(
+  const response = await startPushResponseWithHarness(target, deploymentId, body);
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<PushStatus>;
+}
+
+async function startPushResponse(
+  deploymentId: string,
+  body: AnalyzedStartPushRequest,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return startPushResponseWithHarness(harness, deploymentId, body);
+}
+
+async function startPushResponseWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+  body: AnalyzedStartPushRequest,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
@@ -377,8 +558,6 @@ async function startPushWithHarness(
       body: JSON.stringify(body),
     },
   );
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
 }
 
 async function startSourceOnlyPushResponse(

@@ -37,6 +37,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             args: { type: "object", value: {} },
             returns: null,
             route: null,
+            partition: null,
           },
           {
             moduleName: "functions",
@@ -51,6 +52,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             },
             returns: { type: "array", value: { type: "string" } },
             route: { type: "args", field: "topic" },
+            partition: null,
           },
           {
             moduleName: "functions",
@@ -60,6 +62,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             args: { type: "any" },
             returns: null,
             route: null,
+            partition: null,
           },
           {
             moduleName: "functions",
@@ -69,6 +72,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             args: { type: "object", value: {} },
             returns: null,
             route: null,
+            partition: null,
           },
         ],
       },
