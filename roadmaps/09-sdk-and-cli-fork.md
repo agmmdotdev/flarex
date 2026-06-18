@@ -179,6 +179,8 @@ the developer explicitly opts into workflow-style cross-shard behavior.
 - Dynamic Worker loading is not connected yet, so generated functions are not
   deployed through the new backend invoke registry.
 - Client-side partition routing is still explicit.
+- Generated `_generated/server.ts` now exposes `model.<table>.by<Field>(...)`
+  partition selectors for root tables using `partitionBy(...)`.
 - Live sync now has an initial `packages/flarex` client-side stack, but it is
   still smaller than Convex's full browser client.
 
@@ -320,6 +322,64 @@ corepack pnpm --filter @flarex/example build
 ```
 
 ## Last Update
+
+Added generated model partition selectors to `_generated/server.ts`.
+
+Checkpoint title: `Generate model partition selectors`
+
+Previous completed checkpoint: `d70c486` Enforce partition owner uniqueness.
+
+What changed:
+
+- `flarex/server` function builders now accept `partition` alongside `route`.
+- `packages/flarex-dev` initial codegen emits a permissive dynamic `model` so
+  source analysis can evaluate function declarations before schema analysis is
+  authoritative.
+- Final codegen emits concrete schema-derived selectors:
+  `model.users.byId(...)`, `model.teams.bySlug(...)`, and similar.
+- Selectors return the existing `FunctionRoutePolicy`, so generated API
+  references and client route inference continue using the same path as
+  `routeFromArgs(...)`.
+- Added generator coverage for `partition: model.teams.bySlug("teamSlug")`.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated SDK files are rebuilt from analyzed metadata.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server entrypoint exports typed function builders.
+- `npm-packages/convex/src/server/registration.ts`
+  - query/mutation declarations are the correct place to attach metadata.
+
+Cloudflare difference:
+
+- This is a Flarex-specific generated API because Cloudflare execution must
+  select one `PartitionDO` before the function starts. Convex has no equivalent
+  public routing selector.
+
+Remaining limitations:
+
+- The first selectors are route metadata only; they do not yet create scoped
+  `ctx.db` table surfaces.
+- The dynamic initial model is intentionally permissive until final backend
+  analysis regenerates concrete selectors.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Added `useQuery_experimental()` to the `flarex/react` entrypoint with
 Convex-style object query state:

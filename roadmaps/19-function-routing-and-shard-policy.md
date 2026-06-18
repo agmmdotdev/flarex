@@ -304,12 +304,12 @@ remain separate follow-up policies.
 - `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
   for backend DB reads/writes, index query ranges, and `PartitionDO` commit,
   but are not yet route-inference sources.
-- Generated model partition selectors such as `model.teams.bySlug("teamSlug")`
-  are not implemented yet. Backend `partitionBy(field)` owner uniqueness is now
-  in place as a prerequisite.
-- Only `routeFromArgs(field)` exists.
-- `routeFromArgs(field)` requires exact string equality between
-  `partitionKey` and `args[field]`.
+- Generated model partition selectors now exist for `partitionBy(...)` root
+  tables and lower to the existing exact arg route policy.
+- Only exact arg-field route policies exist. They can be written directly with
+  `routeFromArgs(field)` or through generated `model.<table>.by<Field>(field)`.
+- Exact arg-field routes require string equality between `partitionKey` and
+  `args[field]`.
 - Route transforms, `currentUser()`, global route declarations, projection
   route declarations, and workflow/cross-shard route declarations do not exist
   yet.
@@ -321,6 +321,80 @@ remain separate follow-up policies.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Implemented generated model partition selectors.
+
+Checkpoint title: `Generate model partition selectors`
+
+Previous completed checkpoint: `d70c486` Enforce partition owner uniqueness.
+
+What changed:
+
+- `_generated/server.ts` now exports `model`.
+- Final codegen derives model selectors from schema placement:
+  - `partitionBy("_id")` -> `model.<table>.byId(argField)`
+  - `partitionBy("slug")` -> `model.<table>.bySlug(argField)`
+- Query, mutation, action, and workflow mutation declarations now accept
+  `partition` as an alias for route metadata.
+- The first implementation intentionally lowers
+  `partition: model.<table>.by<Field>(...)` to the existing `{ type: "args",
+  field }` route policy. Backend route validation, generated API references,
+  client inference, and sync behavior therefore reuse the existing route path.
+- The example app now uses `partition: model.users.byId("userId")` instead of
+  raw `routeFromArgs("userId")`.
+
+Current API:
+
+```ts
+export const complete = mutation({
+  partition: model.users.byId("userId"),
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    // still current ctx.db surface for now
+  },
+});
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations carry metadata alongside handlers.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated server files are derived from schema/function analysis.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated `_generated/server` is the developer-facing function-definition
+    entrypoint.
+
+Cloudflare difference:
+
+- Convex does not need partition selectors because function execution is routed
+  into one logical database. Flarex uses generated selectors as a DX layer over
+  the required `PartitionDO` route.
+
+Remaining limitations:
+
+- Selectors only support exact arg-field routing; transforms, auth-derived
+  routes, global routes, and projection routes remain future work.
+- Generated `model` does not yet narrow `ctx.db` to the selected partition's
+  allowed tables.
+- Owner-scoped query builders still require explicit owner equality at runtime.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Recorded backend owner uniqueness as the prerequisite for generated model
 partition selectors.

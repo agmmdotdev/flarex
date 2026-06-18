@@ -138,6 +138,7 @@ type FunctionDefinition<Ctx> =
       args?: FunctionArgsValidator;
       returns?: DefinedReturnValidator;
       route?: FunctionRoutePolicy;
+      partition?: FunctionRoutePolicy;
       handler: (ctx: Ctx, args: DefaultFunctionArgs) => unknown;
     };
 
@@ -174,8 +175,8 @@ function exportReturns(functionDefinition: FunctionDefinition<unknown>): () => s
 function exportRoute(functionDefinition: FunctionDefinition<unknown>): () => string {
   return () => {
     const route =
-      typeof functionDefinition === "object" && functionDefinition.route !== undefined
-        ? functionDefinition.route
+      typeof functionDefinition === "object"
+        ? functionDefinition.route ?? functionDefinition.partition ?? null
         : null;
     return JSON.stringify(route, strictReplacer);
   };
@@ -219,8 +220,8 @@ function register<
       ? functionDefinition.returns
       : null;
   const route =
-    typeof functionDefinition === "object" && functionDefinition.route !== undefined
-      ? functionDefinition.route
+    typeof functionDefinition === "object"
+      ? functionDefinition.route ?? functionDefinition.partition ?? null
       : null;
   const registered = {
     __flarexFunction: true,
@@ -265,6 +266,7 @@ export type QueryBuilder<
           args?: ArgsValidator;
           returns?: ReturnsValidator;
           route?: FunctionRoutePolicy;
+          partition?: FunctionRoutePolicy;
           handler: (ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
@@ -288,6 +290,7 @@ export type MutationBuilder<
           args?: ArgsValidator;
           returns?: ReturnsValidator;
           route?: FunctionRoutePolicy;
+          partition?: FunctionRoutePolicy;
           handler: (ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
@@ -310,6 +313,7 @@ export type ActionBuilder<
           args?: ArgsValidator;
           returns?: ReturnsValidator;
           route?: FunctionRoutePolicy;
+          partition?: FunctionRoutePolicy;
           handler: (ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),

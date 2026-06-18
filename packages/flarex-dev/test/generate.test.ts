@@ -112,6 +112,52 @@ export default query({ args: {}, handler: async () => null });
     await expect(fileExists(stale)).resolves.toBe(false);
   });
 
+  it("generates model partition selectors from schema placement", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { defineSchema, defineTable } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  users: defineTable({
+    name: v.string(),
+  }).partitionBy("_id"),
+  teams: defineTable({
+    slug: v.string(),
+    name: v.string(),
+  }).partitionBy("slug"),
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/functions/teams.ts"),
+      `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  args: { teamSlug: v.string(), name: v.string() },
+  partition: model.teams.bySlug("teamSlug"),
+  handler: async () => null,
+});
+`,
+    );
+
+    await generateFlarex({ root });
+
+    const server = await readGenerated(root, "server.ts");
+    const functionMetadata = await readGenerated(root, "functionMetadata.ts");
+
+    expect(server).toContain("export const model = {");
+    expect(server).toContain("users: {");
+    expect(server).toContain("byId: routeFromArgs");
+    expect(server).toContain("teams: {");
+    expect(server).toContain("bySlug: routeFromArgs");
+    expect(functionMetadata).toContain('"path": "teams:create"');
+    expect(functionMetadata).toContain('"route": {');
+    expect(functionMetadata).toContain('"field": "teamSlug"');
+  });
+
   it("guards generated internal routes when an internal token is configured", async () => {
     const root = await createProject();
     await writeFile(
