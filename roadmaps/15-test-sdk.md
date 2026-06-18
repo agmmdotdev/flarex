@@ -99,6 +99,8 @@ must be secondary to the real-runtime test SDK.
 3. Add reset/seed APIs that clear local DO persistence between tests.
 4. Add first-party tests inside `packages/flarex-test` instead of relying only
    on the example app integration test.
+5. Add Vite dev-server browser WebSocket coverage after middleware upgrade
+   handling exists.
 
 ## Implementation Update
 
@@ -136,6 +138,80 @@ Cloudflare difference:
 - `convex-test` is a pure JS mock backend. `flarex-test` starts from a real
   Miniflare-backed Worker/DO runtime because Cloudflare routing, service
   bindings, execution sessions, and OCC are core Flarex semantics.
+
+## Sync Client Test Update
+
+Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
+
+`flarex-test` now exposes a WebSocket-capable public client for real app tests:
+
+```ts
+const client = t.client();
+
+const unsubscribe = client.onUpdate(
+  api.lessons.list,
+  { userId },
+  value => {
+    // live query result
+  },
+  error => {
+    // query failure
+  },
+  { partitionKey },
+);
+```
+
+The implementation creates a browser-like `WebSocketConstructor` backed by the
+same `createFlarexDevRuntime` Miniflare stack used for `query`, `mutation`, and
+`invokeRaw`. It connects to:
+
+```txt
+ws://flarex.test/__flarex_dev/sync
+```
+
+which the dev runtime forwards to the active backend deployment sync route.
+
+Added `apps/example/flarex/sync-e2e.test.ts`, proving the public generated API
+path end to end:
+
+```txt
+api.lessons.list
+  -> FlarexClient.onUpdate
+  -> /__flarex_dev/sync
+  -> backend /deployments/:deploymentId/sync
+  -> ConnectionDO
+  -> active execution artifact
+  -> PartitionDO/OCC
+  -> Transition.QueryUpdated back to the SDK callback
+```
+
+The test subscribes to `api.lessons.list`, observes the initial empty result,
+executes `api.lessons.complete` through sync mutation transport, and observes
+the live query refresh with the completed lesson.
+
+Convex reference:
+
+- `npm-packages/convex/src/browser/sync/client_node_test_helpers.ts`
+  - Convex tests the client with a Node `ws` WebSocket bridge.
+- `npm-packages/convex/custom-vitest-environment.ts`
+  - Convex injects a Node WebSocket implementation for browser-shaped tests.
+
+Cloudflare difference:
+
+- The Flarex helper is backed by Miniflare and real Durable Objects rather than
+  a standalone in-memory WebSocket server, because DO routing and execution
+  artifacts are part of the behavior under test.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test test
+corepack pnpm --filter flarex-test build
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example build
+```
 
 ## Verification
 

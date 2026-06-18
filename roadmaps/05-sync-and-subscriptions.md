@@ -152,8 +152,9 @@ live path, because early examples and tests still use direct `/invoke`.
 - No cross-shard subscription aggregation exists yet.
 - `partitionKey` is still required in `AddQuery` and Flarex `Mutation` messages
   until routing inference exists.
-- The client-side sync stack does not exist yet in `packages/flarex`; current
-  client calls still use direct HTTP `/invoke`.
+- The client-side sync stack exists and has real example-app E2E coverage, but
+  production reconnect/backoff, auth refresh, transition chunks, action-over-sync,
+  and paginated reactive sync are still missing.
 
 ## Client Sync SDK Update
 
@@ -208,17 +209,74 @@ Verification:
 - `corepack pnpm --filter flarex test`
 - `corepack pnpm --filter flarex build`
 
+## Real App Sync E2E Update
+
+Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
+
+Added real app sync coverage through `apps/example/flarex/sync-e2e.test.ts`.
+The test runs against `flarex-test`, which now provides a Miniflare-backed
+WebSocket constructor and `t.client()` helper.
+
+Tested path:
+
+```txt
+generated api.lessons.list
+  -> FlarexClient.onUpdate
+  -> /__flarex_dev/sync
+  -> backend /deployments/:deploymentId/sync
+  -> ConnectionDO
+  -> active execution artifact
+  -> PartitionDO read set registration
+
+generated api.lessons.complete
+  -> FlarexClient.mutation(..., { transport: "sync" })
+  -> ConnectionDO mutation queue
+  -> active execution artifact mutation
+  -> PartitionDO commit
+  -> same-partition subscribed query rerun
+  -> Transition.QueryUpdated
+```
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client_node_test_helpers.ts`
+  - SDK sync tests use a real Node WebSocket bridge and transition queue.
+- `npm-packages/convex/src/cli/lib/networkTest.ts`
+  - Convex validates real deployment WebSocket connectivity by constructing a
+    `BaseConvexClient` and subscribing to a system query.
+- `crates/sync/src/worker.rs`
+  - mutations over sync are queued and followed by transition generation.
+
+Cloudflare difference:
+
+- The Flarex example test uses Miniflare Durable Objects and the active
+  execution artifact, so it covers Cloudflare routing and source-package
+  execution instead of only protocol messages.
+- The Vite dev server middleware still needs explicit WebSocket upgrade
+  support before browser dev apps can connect through Vite itself.
+
+Verification:
+
+- `corepack pnpm --filter flarex-dev typecheck`
+- `corepack pnpm --filter flarex-test typecheck`
+- `corepack pnpm --filter @flarex/example test`
+- `corepack pnpm --filter flarex-dev test`
+- `corepack pnpm --filter flarex-dev build`
+- `corepack pnpm --filter flarex-test test`
+- `corepack pnpm --filter flarex-test build`
+- `corepack pnpm --filter @flarex/example typecheck`
+- `corepack pnpm --filter @flarex/example build`
+
 ## Last Update
 
-Implemented the first client-side sync SDK slice. The backend `/sync` protocol
-now has a package-level client counterpart that can subscribe to live queries,
-dedupe identical subscriptions, handle query updates/failures, send removes,
-and execute opt-in sync mutations.
+Added real app sync E2E coverage. `FlarexClient.onUpdate` and opt-in sync
+mutation now run through `flarex-test`, local dev sync forwarding, backend
+`ConnectionDO`, active execution artifacts, and partition-local OCC.
 
-Previous completed checkpoint: `6ca1454` Plan Convex-style sync client port.
+Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
 
 Validation:
 
-- `corepack pnpm --filter flarex typecheck`
-- `corepack pnpm --filter flarex test`
-- `corepack pnpm --filter flarex build`
+- `corepack pnpm --filter @flarex/example test`
+- `corepack pnpm --filter @flarex/example typecheck`
+- `corepack pnpm --filter @flarex/example build`

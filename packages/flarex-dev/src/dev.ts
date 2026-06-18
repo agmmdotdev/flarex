@@ -168,6 +168,14 @@ export async function createFlarexDevRuntime(
           );
         }
       }
+      if (url.pathname === "/__flarex_dev/sync") {
+        return await backend.dispatchFetch(
+          `http://flarex.backend/deployments/${deploymentId}/sync`,
+          {
+            headers: requestHeaders(request),
+          },
+        ) as unknown as Response;
+      }
 
       const forwardedPath = url.pathname.replace(/^\/__flarex_dev/, "") || "/";
       const forwardedUrl = new URL(request.url);

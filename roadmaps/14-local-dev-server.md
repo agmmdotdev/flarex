@@ -21,6 +21,7 @@ Current dev routes:
 ```txt
 GET  /__flarex_dev/health
 POST /__flarex_dev/invoke
+GET  /__flarex_dev/sync
 ```
 
 The proxy strips `/__flarex_dev` and forwards to the generated app Worker, so
@@ -70,13 +71,12 @@ target, not to every app using Flarex.
 
 ## Known Limitations
 
-- `/__flarex_dev/sync` is only structurally proxied if the generated Worker path
-  exists; WebSocket upgrade handling is not implemented in the Vite middleware
-  yet.
 - The local dev runtime uses Vite bundling on reload. It does not yet implement
   Convex's full module analysis pipeline or streamed logs.
 - WebSocket upgrade handling is not implemented in the Vite middleware yet.
-  `/__flarex_dev/sync` remains future work.
+  Programmatic dev/runtime tests can use `createFlarexDevRuntime` and
+  `flarex-test` WebSocket support today; Vite's HTTP middleware still needs
+  explicit upgrade handling for browser dev servers.
 - Test runs should use a Vitest-specific config instead of loading an app's
   Vite dev plugin. The example app now follows that rule.
 - The dev runtime persists state under `.flarex/dev` by default and removes it
@@ -866,6 +866,46 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
+```
+
+## Local Sync Forwarding Update
+
+Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
+
+`createFlarexDevRuntime` now handles:
+
+```txt
+GET /__flarex_dev/sync
+  -> backend /deployments/:deploymentId/sync
+  -> ConnectionDO
+  -> active execution artifact
+```
+
+The sync route deliberately targets the backend deployment sync endpoint instead
+of forwarding to the generated app Worker's compatibility `/sync` route. This
+keeps local dev and tests on the same backend-owned path as hosted Flarex:
+query-set state and mutation queues live in `ConnectionDO`, and function
+execution resolves through the active backend deployment/artifact runtime.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev exposes a running backend URL used by clients.
+- `crates/local_backend/src/subs/mod.rs`
+  - WebSocket upgrades route into the backend sync socket worker.
+
+Cloudflare difference: this route works inside the programmatic Miniflare dev
+runtime and `flarex-test`. Vite middleware still needs explicit WebSocket
+upgrade handling before a browser app can use `/__flarex_dev/sync` through the
+Vite dev server itself.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example test
 ```
 
 ## Verification
