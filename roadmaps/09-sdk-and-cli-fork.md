@@ -179,8 +179,8 @@ the developer explicitly opts into workflow-style cross-shard behavior.
 - Dynamic Worker loading is not connected yet, so generated functions are not
   deployed through the new backend invoke registry.
 - Client-side partition routing is still explicit.
-- Live sync is implemented on the backend side only. `packages/flarex` still
-  needs a Convex-style client-side sync stack.
+- Live sync now has an initial `packages/flarex` client-side stack, but it is
+  still smaller than Convex's full browser client.
 
 ## Sync Client Fork Plan
 
@@ -270,6 +270,46 @@ git diff --check
 ```
 
 ## Last Update
+
+Implemented the first Convex-style sync client slice in `packages/flarex`.
+This ports the browser sync layering at a small scale:
+
+- protocol mirror in `src/sync/protocol.ts`
+- query-set state in `src/sync/localState.ts`
+- base WebSocket client in `src/sync/baseClient.ts`
+- public live option/unsubscribe types in `src/sync/simpleClient.ts`
+- `FlarexClient.onUpdate(...)` in `src/client.ts`
+- opt-in sync mutation via `mutation(..., { transport: "sync" })`
+
+Previous completed checkpoint: `6ca1454` Plan Convex-style sync client port.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `npm-packages/convex/src/browser/simple_client.ts`
+
+Current differences from Convex:
+
+- Flarex still requires explicit `partitionKey` in live query and sync mutation
+  options.
+- Query tokens include the partition route.
+- HTTP `/invoke` remains the default for `client.mutation()` unless
+  `transport: "sync"` is passed. Convex sends mutations through the sync client.
+- The first base client has no auth refresh, reconnect/backoff manager,
+  optimistic updates, paginated sync, action-over-sync, transition chunks, or
+  connection-state subscriptions yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+```
+
+## Initial SDK Package Update
 
 Renamed the prototype `packages/flarex-client` package to the canonical
 `packages/flarex` SDK and switched application imports to Convex-style package

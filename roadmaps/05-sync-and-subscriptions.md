@@ -155,15 +155,70 @@ live path, because early examples and tests still use direct `/invoke`.
 - The client-side sync stack does not exist yet in `packages/flarex`; current
   client calls still use direct HTTP `/invoke`.
 
+## Client Sync SDK Update
+
+Previous completed checkpoint: `6ca1454` Plan Convex-style sync client port.
+
+Implemented the first client-side live sync slice in `packages/flarex`:
+
+- `src/sync/protocol.ts`
+  - client-side mirror of Flarex `/sync` messages using Convex names:
+    `ModifyQuerySet`, `Add`, `Remove`, `Transition`, `QueryUpdated`,
+    `QueryFailed`, `QueryRemoved`, `Mutation`, and `MutationResponse`
+- `src/sync/localState.ts`
+  - Convex-style local query-set state with query IDs, query tokens,
+    query-set version increments, subscription deduplication, and final
+    subscriber `Remove`
+- `src/sync/baseClient.ts`
+  - minimal WebSocket base client that sends query-set modifications and sync
+    mutations, ingests transitions, stores local query results/errors, and
+    resolves mutation responses
+- `src/sync/simpleClient.ts`
+  - public live-query option and unsubscribe shapes
+- `src/client.ts`
+  - `FlarexClient.onUpdate(...)` live query API
+  - opt-in `mutation(..., { transport: "sync" })` path while the existing
+    HTTP `/invoke` mutation default remains in place
+
+Convex references used:
+
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `npm-packages/convex/src/browser/simple_client.ts`
+
+Cloudflare and Flarex differences:
+
+- Query tokens include `partitionKey` because Flarex subscriptions are
+  partition-routed for now.
+- The live client connects to the Flarex deployment sync URL, not Convex's
+  `/api/{version}/sync`.
+- `packages/flarex` mirrors protocol types locally instead of importing
+  backend-only `packages/flarex-backend` code.
+- The base client intentionally does not yet port Convex auth refresh,
+  component paths, reconnect/backoff, transition chunks, optimistic updates,
+  or paginated reactive sync.
+- Public `mutation()` still defaults to HTTP `/invoke`; sync mutation is
+  currently opt-in with `transport: "sync"` until the SDK migration can switch
+  defaults without breaking existing examples.
+
+Verification:
+
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex test`
+- `corepack pnpm --filter flarex build`
+
 ## Last Update
 
-Recorded the client-side sync fork/refactor plan. The next code slice should
-port Convex's `LocalSyncState`, base sync client, and simple public client
-shape into `packages/flarex`, while adapting URL routing, `partitionKey`, and
-unsupported Convex features for Flarex.
+Implemented the first client-side sync SDK slice. The backend `/sync` protocol
+now has a package-level client counterpart that can subscribe to live queries,
+dedupe identical subscriptions, handle query updates/failures, send removes,
+and execute opt-in sync mutations.
 
-Previous completed checkpoint: `dbac8a6` Add mutation execution over sync.
+Previous completed checkpoint: `6ca1454` Plan Convex-style sync client port.
 
 Validation:
 
-- `git diff --check`
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex test`
+- `corepack pnpm --filter flarex build`

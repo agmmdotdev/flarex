@@ -6,3 +6,5 @@ export * from "./query";
 export * from "./server";
 export * from "./values";
 export * from "./validation";
+export type { WebSocketConstructor, WebSocketLike } from "./sync/baseClient";
+export type { OnUpdateOptions, Unsubscribe } from "./sync/simpleClient";
