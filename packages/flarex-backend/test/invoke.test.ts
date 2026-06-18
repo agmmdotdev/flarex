@@ -30,6 +30,11 @@ describe("executeInvoke", () => {
           name: "lessonProgress",
           placement: { kind: "colocateWith", table: "users", field: "userId" },
         },
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
       ],
       indexes: [
         {
@@ -44,6 +49,7 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "lessons:complete": {
         kind: "mutation",
+        partition: userPartition(),
         handler: async (ctx, args) => {
           const input = args as { userId: string; lessonId: string };
           const id = await ctx.db.insert(
@@ -61,6 +67,7 @@ describe("executeInvoke", () => {
       },
       "lessons:byUserLesson": {
         kind: "query",
+        partition: userPartition(),
         handler: async (ctx, args) => {
           const input = args as { userId: string; lessonId: string };
           return ctx.db
@@ -73,6 +80,7 @@ describe("executeInvoke", () => {
       },
       "lessons:byUser": {
         kind: "query",
+        partition: userPartition(),
         handler: async (ctx, args) => {
           const input = args as { userId: string };
           return ctx.db
@@ -83,6 +91,7 @@ describe("executeInvoke", () => {
       },
       "lessons:range": {
         kind: "query",
+        partition: userPartition(),
         handler: async (ctx, args) => {
           const input = args as { userId: string; from: string; to: string };
           return ctx.db
@@ -226,6 +235,7 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "users:get": {
         kind: "query",
+        partition: userPartition(),
         handler: ctx => ctx.db.get("1:user"),
       },
     };
@@ -237,7 +247,7 @@ describe("executeInvoke", () => {
         path: "users:get",
         kind: "query",
         partitionKey: "user:u1",
-        args: null,
+        args: { userId: "user:u1" },
       },
       functions,
     );
@@ -366,7 +376,7 @@ describe("executeInvoke", () => {
     });
   });
 
-  it("rejects invoke routes that do not match routeFromArgs metadata", async () => {
+  it("rejects invoke functions without partition metadata", async () => {
     await putSchema("invoke-route-policy-deployment", {
       version: 1,
       tables: [
@@ -400,7 +410,7 @@ describe("executeInvoke", () => {
         functions,
       ),
     ).rejects.toThrow(
-      "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+      "PartitionValidationError: function lessons:list must declare partition metadata.",
     );
   });
 
@@ -481,6 +491,11 @@ describe("executeInvoke", () => {
       version: 1,
       tables: [
         {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
           tableId: 1,
           name: "scores",
           placement: { kind: "colocateWith", table: "users", field: "userId" },
@@ -501,10 +516,12 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "scores:insertWrongOwner": {
         kind: "mutation",
+        partition: userPartition(),
         handler: ctx => ctx.db.insert("scores", { userId: "u2", score: 1 }, "1:wrong"),
       },
       "scores:moveOwner": {
         kind: "mutation",
+        partition: userPartition(),
         handler: async ctx => {
           await ctx.db.patch("1:score", { userId: "u2" });
           return null;
@@ -512,6 +529,7 @@ describe("executeInvoke", () => {
       },
       "scores:readMisplaced": {
         kind: "query",
+        partition: userPartition(),
         handler: ctx => ctx.db.get("1:misplaced"),
       },
     };
@@ -525,7 +543,7 @@ describe("executeInvoke", () => {
             path,
             kind: path === "scores:readMisplaced" ? "query" : "mutation",
             partitionKey: "u1",
-            args: null,
+            args: { userId: "u1" },
           },
           functions,
         ),
@@ -551,6 +569,11 @@ describe("executeInvoke", () => {
       version: 1,
       tables: [
         {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
           tableId: 1,
           name: "scores",
           placement: { kind: "colocateWith", table: "users", field: "userId" },
@@ -570,16 +593,19 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "scores:missingOwner": {
         kind: "query",
+        partition: userPartition(),
         handler: ctx =>
           ctx.db.query("scores").withIndex("by_score", q => q.eq("score", 10)).collect(),
       },
       "scores:wrongOwner": {
         kind: "query",
+        partition: userPartition(),
         handler: ctx =>
           ctx.db.query("scores").withIndex("by_user_score", q => q.eq("userId", "u2")).collect(),
       },
       "scores:validOwner": {
         kind: "query",
+        partition: userPartition(),
         handler: ctx =>
           ctx.db
             .query("scores")
@@ -596,7 +622,7 @@ describe("executeInvoke", () => {
           path: "scores:missingOwner",
           kind: "query",
           partitionKey: "u1",
-          args: null,
+          args: { userId: "u1" },
         },
         functions,
       ),
@@ -613,7 +639,7 @@ describe("executeInvoke", () => {
           path: "scores:wrongOwner",
           kind: "query",
           partitionKey: "u1",
-          args: null,
+          args: { userId: "u1" },
         },
         functions,
       ),
@@ -630,7 +656,7 @@ describe("executeInvoke", () => {
           path: "scores:validOwner",
           kind: "query",
           partitionKey: "u1",
-          args: null,
+          args: { userId: "u1" },
         },
         functions,
       ),
@@ -663,6 +689,7 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "cartItems:insertWrongCart": {
         kind: "mutation",
+        partition: cartPartition(),
         handler: ctx =>
           ctx.db.insert(
             "cartItems",
@@ -672,6 +699,7 @@ describe("executeInvoke", () => {
       },
       "cartItems:moveCart": {
         kind: "mutation",
+        partition: cartPartition(),
         handler: async ctx => {
           await ctx.db.patch("1:tea", { cartId: "cart:2" });
           return null;
@@ -679,16 +707,19 @@ describe("executeInvoke", () => {
       },
       "cartItems:missingCartQuery": {
         kind: "query",
+        partition: cartPartition(),
         handler: ctx =>
           ctx.db.query("cartItems").withIndex("by_sku", q => q.eq("sku", "tea")).collect(),
       },
       "cartItems:wrongCartQuery": {
         kind: "query",
+        partition: cartPartition(),
         handler: ctx =>
           ctx.db.query("cartItems").withIndex("by_cart_sku", q => q.eq("cartId", "cart:2")).collect(),
       },
       "cartItems:validCartQuery": {
         kind: "query",
+        partition: cartPartition(),
         handler: ctx =>
           ctx.db
             .query("cartItems")
@@ -711,7 +742,7 @@ describe("executeInvoke", () => {
             path,
             kind: path.endsWith("Query") ? "query" : "mutation",
             partitionKey: "cart:1",
-            args: null,
+            args: { cartId: "cart:1" },
           },
           functions,
         ),
@@ -727,10 +758,10 @@ describe("executeInvoke", () => {
         "partition-field-deployment",
         {
           path: "cartItems:validCartQuery",
-          kind: "query",
-          partitionKey: "cart:1",
-          args: null,
-        },
+        kind: "query",
+        partitionKey: "cart:1",
+        args: { cartId: "cart:1" },
+      },
         functions,
       ),
     ).resolves.toMatchObject({
@@ -773,6 +804,7 @@ describe("executeInvoke", () => {
             },
           },
           returns: { type: "id", tableName: "users" },
+          partition: userPartition(),
         },
       ],
     });
@@ -791,7 +823,7 @@ describe("executeInvoke", () => {
         {
           path: "users:byId",
           kind: "query",
-          partitionKey: "user:ada",
+          partitionKey: "1:ada",
           args: { userId: "2:team-core" },
         },
         functions,
@@ -808,7 +840,7 @@ describe("executeInvoke", () => {
         {
           path: "users:byId",
           kind: "query",
-          partitionKey: "user:ada",
+          partitionKey: "1:ada",
           args: { userId: "1:ada" },
         },
         functions,
@@ -818,7 +850,7 @@ describe("executeInvoke", () => {
     const badWrite = await SingleShardTransaction.begin(
       env,
       "id-validation-deployment",
-      "user:ada",
+      "1:ada",
     );
     badWrite.insert(1, { bestFriendId: "2:team-core" }, "1:ada");
     await expect(badWrite.commit({ source: "bad-id-write" })).rejects.toMatchObject({
@@ -847,12 +879,26 @@ describe("executeInvoke", () => {
         {
           path: "users:queryBadReturn",
           kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
           returns: { type: "string" },
+          partition: userPartition(),
         },
         {
           path: "users:mutationBadReturn",
           kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
           returns: { type: "string" },
+          partition: userPartition(),
         },
       ],
     });
@@ -879,7 +925,7 @@ describe("executeInvoke", () => {
           path: "users:queryBadReturn",
           kind: "query",
           partitionKey: "user:ada",
-          args: null,
+          args: { userId: "user:ada" },
         },
         functions,
       ),
@@ -896,7 +942,7 @@ describe("executeInvoke", () => {
           path: "users:mutationBadReturn",
           kind: "mutation",
           partitionKey: "user:ada",
-          args: null,
+          args: { userId: "user:ada" },
         },
         functions,
       ),
@@ -976,10 +1022,12 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "users:insertInvalid": {
         kind: "mutation",
+        partition: userPartition(),
         handler: ctx => ctx.db.insert("users", { name: "Ada", age: "old" }, "1:ada"),
       },
       "users:patchInvalid": {
         kind: "mutation",
+        partition: userPartition(),
         handler: async ctx => {
           await ctx.db.patch("1:ada", { age: "old" });
           return null;
@@ -995,7 +1043,7 @@ describe("executeInvoke", () => {
           path: "users:insertInvalid",
           kind: "mutation",
           partitionKey: "user:ada",
-          args: null,
+          args: { userId: "user:ada" },
         },
         functions,
       ),
@@ -1033,7 +1081,7 @@ describe("executeInvoke", () => {
           path: "users:patchInvalid",
           kind: "mutation",
           partitionKey: "user:ada",
-          args: null,
+          args: { userId: "user:ada" },
         },
         functions,
       ),
@@ -1048,6 +1096,11 @@ describe("executeInvoke", () => {
       version: 1,
       tables: [
         {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
           tableId: 1,
           name: "scores",
           placement: { kind: "colocateWith", table: "users", field: "userId" },
@@ -1059,6 +1112,7 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "scores:staleMutation": {
         kind: "mutation",
+        partition: userPartition(),
         handler: async ctx => {
           await ctx.db
             .query("scores")
@@ -1087,7 +1141,7 @@ describe("executeInvoke", () => {
           path: "scores:staleMutation",
           kind: "mutation",
           partitionKey: "u1",
-          args: null,
+          args: { userId: "u1" },
         },
         functions,
       ),
@@ -1101,6 +1155,11 @@ describe("executeInvoke", () => {
     const schema: DeploymentSchema = {
       version: 1,
       tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
         {
           tableId: 1,
           name: "scores",
@@ -1121,6 +1180,7 @@ describe("executeInvoke", () => {
     const functions: BackendFunctionRegistry = {
       "scores:page": {
         kind: "query",
+        partition: userPartition(),
         handler: (ctx, args) => {
           const input = args as {
             cursor: string | null;
@@ -1213,6 +1273,26 @@ async function putFunctions(
   expect(response.ok).toBe(true);
 }
 
+function userPartition() {
+  return {
+    type: "partition" as const,
+    table: "users",
+    selector: "byId",
+    partitionField: "_id",
+    argField: "userId",
+  };
+}
+
+function cartPartition() {
+  return {
+    type: "partition" as const,
+    table: "cartItems",
+    selector: "byCartId",
+    partitionField: "cartId",
+    argField: "cartId",
+  };
+}
+
 function pageScores(
   functions: BackendFunctionRegistry,
   order: "asc" | "desc",
@@ -1225,7 +1305,7 @@ function pageScores(
       path: "scores:page",
       kind: "query",
       partitionKey: "u1",
-      args: { order, cursor },
+      args: { userId: "u1", order, cursor },
     },
     functions,
   );

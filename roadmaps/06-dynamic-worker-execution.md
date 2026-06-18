@@ -113,6 +113,59 @@ analysis, candidate push, and activation lifecycle.
 
 ## Partition Scope Runtime Update
 
+## Required Partition Scope Update
+
+Checkpoint title: `Require partition metadata for execution`
+
+Previous completed checkpoint: `7673d45` Bind execution sessions to partition
+metadata.
+
+`ExecutionDO` sessions now require partition metadata before user-code syscalls
+can run.
+
+What changed:
+
+- Removed the route-only and explicit `partitionKey` fallback execution scopes.
+- `ExecutionDO.start()` fails with `PartitionValidationError` if the active
+  function metadata has no `partition`.
+- Session tests now declare `partition: users.byId("userId")` and pass the
+  owner argument, matching the future generated handler model.
+
+Convex references:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code gets syscalls after the backend establishes its execution
+    context.
+- `crates/function_runner/src/server.rs`
+  - execution is created by the backend runner, not by user-selected storage.
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment metadata is part of the execution boundary.
+
+Cloudflare difference:
+
+- The dynamic execution session must know the exact `PartitionDO` before any
+  syscall can touch storage. Raw client-provided partition keys are transport
+  data only.
+
+Remaining limitations:
+
+- Generated Worker transport still includes `partitionKey`; the backend now
+  verifies it from partition metadata.
+- There is no explicit non-partition execution policy yet for future global,
+  projection, or workflow functions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Partition Scope Runtime Update
+
 Bound `ExecutionDO` sessions to function partition metadata before user-code
 syscalls can run.
 

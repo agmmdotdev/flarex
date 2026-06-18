@@ -49,6 +49,7 @@ describe("ExecutionDO sessions", () => {
               ok: { fieldType: { type: "boolean" }, optional: false },
             },
           },
+          partition: lessonPartition(),
         },
       ],
     });
@@ -108,6 +109,13 @@ describe("ExecutionDO sessions", () => {
               ok: { fieldType: { type: "boolean" }, optional: false },
             },
           },
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
         },
       ],
     });
@@ -116,7 +124,7 @@ describe("ExecutionDO sessions", () => {
       path: "lessons:badReturn",
       kind: "mutation",
       partitionKey: "u1",
-      args: null,
+      args: { userId: "u1" },
     });
     await syscall("execution-return-deployment", start.sessionId, {
       op: "insert",
@@ -145,7 +153,19 @@ describe("ExecutionDO sessions", () => {
   it("serves indexed query syscalls from a session snapshot", async () => {
     const schema = lessonSchema();
     await activateDeployment("execution-query-deployment", schema, {
-      functions: [{ path: "lessons:list", kind: "query" }],
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
     });
     await SingleShardTransaction.ensureSchema(env, "execution-query-deployment", "u1", schema);
     const seed = await SingleShardTransaction.begin(env, "execution-query-deployment", "u1");
@@ -156,7 +176,7 @@ describe("ExecutionDO sessions", () => {
       path: "lessons:list",
       kind: "query",
       partitionKey: "u1",
-      args: null,
+      args: { userId: "u1" },
     });
     const queryResult = await syscall("execution-query-deployment", start.sessionId, {
       op: "query",
@@ -214,7 +234,7 @@ describe("ExecutionDO sessions", () => {
     });
   });
 
-  it("rejects execution sessions whose route does not match routeFromArgs metadata", async () => {
+  it("rejects execution sessions without partition metadata", async () => {
     await activateDeployment("execution-route-policy-deployment", lessonSchema(), {
       functions: [
         {
@@ -234,7 +254,7 @@ describe("ExecutionDO sessions", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+      error: "PartitionValidationError: function lessons:list must declare partition metadata.",
     });
   });
 
@@ -284,6 +304,11 @@ function lessonSchema(): DeploymentSchema {
         name: "lessonProgress",
         placement: { kind: "colocateWith", table: "users", field: "userId" },
       },
+      {
+        tableId: 2,
+        name: "users",
+        placement: { kind: "partitionBy", field: "_id" },
+      },
     ],
     indexes: [
       {
@@ -293,6 +318,16 @@ function lessonSchema(): DeploymentSchema {
         fields: ["userId", "lessonId"],
       },
     ],
+  };
+}
+
+function lessonPartition() {
+  return {
+    type: "partition" as const,
+    table: "users",
+    selector: "byId",
+    partitionField: "_id",
+    argField: "userId",
   };
 }
 

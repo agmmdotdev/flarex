@@ -717,6 +717,64 @@ corepack pnpm --filter @flarex/example build
 
 ## Previous Update
 
+Removed route-only and raw `partitionKey` fallback authorization from normal
+backend execution.
+
+Checkpoint title: `Require partition metadata for execution`
+
+Previous completed checkpoint: `7673d45` Bind execution sessions to partition
+metadata.
+
+What changed:
+
+- `FunctionExecutionScope` now has only the partition-backed shape. The old
+  `route` and `explicit` execution-scope variants were removed.
+- `/invoke` and `ExecutionDO` now reject normal query/mutation execution unless
+  function metadata declares `partition`.
+- `routeFromArgs` metadata may still exist for generated-client transport
+  compatibility, but it no longer authorizes backend execution by itself.
+- Raw `partitionKey` remains a wire value that must match the declared
+  partition argument. It is no longer accepted as an authority fallback.
+- Removed route-only authorization tests and converted fixtures to declare
+  partition metadata.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - execution is created from backend-owned function metadata and transaction
+    state before user code runs.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code cannot choose storage authority directly; it uses backend
+    syscalls.
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+  - function registration metadata is the durable source for function
+    behavior.
+
+Cloudflare difference:
+
+- Convex has no developer-visible shard selector because one logical database
+  owns transaction routing. Flarex must require `partition: model.table.byX`
+  until explicit global/projection/workflow policies exist.
+
+Remaining limitations:
+
+- Generated clients still send `partitionKey` as transport. The backend now
+  validates it from `partition`, but the protocol field has not been removed.
+- Non-sharded/global/projection execution policies are not implemented, so
+  every normal query/mutation currently needs `partition`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Update
+
 Bound backend execution to stored partition metadata.
 
 Checkpoint title: `Bind execution sessions to partition metadata`
@@ -759,8 +817,8 @@ Remaining limitations:
 - Scoped TypeScript `ctx.db` surfaces are still future work. Runtime now has a
   `FunctionExecutionScope`, but generated handler types do not yet narrow
   allowed writes from `partition: model.table.byX(...)`.
-- The explicit `partitionKey` fallback still exists for prototype/unrouted
-  functions.
+- The explicit `partitionKey` fallback existed at this checkpoint, then was
+  removed by `Require partition metadata for execution`.
 
 Verification:
 

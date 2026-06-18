@@ -1810,6 +1810,9 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
 ```
 
 ### Phase 5 Step 1 Implementation Update
@@ -2908,6 +2911,59 @@ the backend stores it.
 Added source-position metadata to analyzed functions and preserved it through
 local analysis, backend push state, active function metadata, codegen analysis,
 and generated function metadata.
+
+## Partition Metadata Runtime Binding Update
+
+## Required Partition Metadata Runtime Update
+
+Checkpoint title: `Require partition metadata for execution`
+
+Previous completed checkpoint: `7673d45` Bind execution sessions to partition
+metadata.
+
+The analyzed `partition` field is now required for normal backend execution.
+Route metadata and raw `partitionKey` are no longer accepted as fallback
+authority paths.
+
+What changed:
+
+- Backend execution rejects active query/mutation metadata without
+  `partition`.
+- Route metadata remains stored and propagated for compatibility, but runtime
+  scope resolution does not use it unless a partition descriptor is already
+  present and needs consistency checking.
+- Direct legacy test fixtures were updated to include partition metadata and
+  owner tables where colocated tables need a partition root.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - deployment metadata is the backend-owned function authority.
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment metadata selects the function execution context.
+- `crates/function_runner/src/lib.rs`
+  - backend-owned transaction state, not client input, determines execution.
+
+Cloudflare difference:
+
+- Flarex's deployment metadata must include enough information to choose a
+  concrete `PartitionDO`. Convex does not store this extra partition selector
+  because its backend database is logically global.
+
+Remaining limitations:
+
+- The legacy direct `/functions` metadata route can still store functions
+  without partition metadata, but those functions cannot execute through
+  normal invoke/session paths.
+- Future global/projection/workflow metadata should add explicit non-partition
+  policies instead of reintroducing raw `partitionKey` authority.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
 
 ## Partition Metadata Runtime Binding Update
 

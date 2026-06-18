@@ -140,20 +140,14 @@ export type FunctionPartitionPolicy = {
 };
 
 export type FunctionExecutionScope =
-  | {
-      kind: "partition";
-      table: string;
-      selector: string;
-      partitionField: string;
-      argField: string;
-      partitionKey: string;
-    }
-  | {
-      kind: "route";
-      field: string;
-      partitionKey: string;
-    }
-  | { kind: "explicit"; partitionKey: string };
+  {
+    kind: "partition";
+    table: string;
+    selector: string;
+    partitionField: string;
+    argField: string;
+    partitionKey: string;
+  };
 
 export type AnalyzedSourcePosition = {
   path: string;

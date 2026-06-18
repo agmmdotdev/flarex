@@ -181,82 +181,49 @@ export async function executeInvoke(
   };
 }
 
-export function validateInvokeRoute(
-  route: FunctionRoutePolicy | null | undefined,
-  request: Pick<InvokeRequest, "path" | "args" | "partitionKey">,
-): void {
-  if (route === undefined || route === null) return;
-  if (route.type === "args") {
-    if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
-      throw new HttpError(
-        400,
-        `RouteValidationError: ${request.path} routeFromArgs("${route.field}") requires object arguments.`,
-      );
-    }
-    const value = request.args[route.field];
-    if (typeof value !== "string" || value.length === 0) {
-      throw new HttpError(
-        400,
-        `RouteValidationError: ${request.path} routeFromArgs("${route.field}") requires a non-empty string argument.`,
-      );
-    }
-    if (request.partitionKey !== value) {
-      throw new HttpError(
-        400,
-        `RouteValidationError: partitionKey must match args.${route.field} for ${request.path}.`,
-      );
-    }
-    return;
-  }
-}
-
 export function resolveFunctionExecutionScope(
   partition: FunctionPartitionPolicy | null | undefined,
   route: FunctionRoutePolicy | null | undefined,
   request: Pick<InvokeRequest, "path" | "args" | "partitionKey">,
   schema: DeploymentSchema,
 ): FunctionExecutionScope {
-  if (partition !== undefined && partition !== null) {
-    validatePartitionPolicyAgainstSchema(partition, request.path, schema);
-    if (
-      route !== null &&
-      route !== undefined &&
-      route.type === "args" &&
-      route.field !== partition.argField
-    ) {
-      throw new HttpError(
-        400,
-        `PartitionValidationError: ${request.path} partition argument ${partition.argField} must match route argument ${route.field}.`,
-      );
-    }
-    const partitionKey = partitionKeyFromArgs(
-      request,
-      partition.argField,
-      `partition ${partition.table}.${partition.selector}`,
-      "PartitionValidationError",
+  if (partition === undefined || partition === null) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: function ${request.path} must declare partition metadata.`,
     );
-    if (request.partitionKey !== partitionKey) {
-      throw new HttpError(
-        400,
-        `PartitionValidationError: partitionKey must match args.${partition.argField} for ${request.path}.`,
-      );
-    }
-    return {
-      kind: "partition",
-      table: partition.table,
-      selector: partition.selector,
-      partitionField: partition.partitionField,
-      argField: partition.argField,
-      partitionKey,
-    };
   }
-
-  if (route !== undefined && route !== null) {
-    validateInvokeRoute(route, request);
-    return { kind: "route", field: route.field, partitionKey: request.partitionKey };
+  validatePartitionPolicyAgainstSchema(partition, request.path, schema);
+  if (
+    route !== null &&
+    route !== undefined &&
+    route.type === "args" &&
+    route.field !== partition.argField
+  ) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${request.path} partition argument ${partition.argField} must match route argument ${route.field}.`,
+    );
   }
-
-  return { kind: "explicit", partitionKey: request.partitionKey };
+  const partitionKey = partitionKeyFromArgs(
+    request,
+    partition.argField,
+    `partition ${partition.table}.${partition.selector}`,
+  );
+  if (request.partitionKey !== partitionKey) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: partitionKey must match args.${partition.argField} for ${request.path}.`,
+    );
+  }
+  return {
+    kind: "partition",
+    table: partition.table,
+    selector: partition.selector,
+    partitionField: partition.partitionField,
+    argField: partition.argField,
+    partitionKey,
+  };
 }
 
 function validatePartitionPolicyAgainstSchema(
@@ -290,19 +257,18 @@ function partitionKeyFromArgs(
   request: Pick<InvokeRequest, "path" | "args">,
   field: string,
   label: string,
-  errorPrefix: "RouteValidationError" | "PartitionValidationError",
 ): string {
   if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
     throw new HttpError(
       400,
-      `${errorPrefix}: ${request.path} ${label} requires object arguments.`,
+      `PartitionValidationError: ${request.path} ${label} requires object arguments.`,
     );
   }
   const value = request.args[field];
   if (typeof value !== "string" || value.length === 0) {
     throw new HttpError(
       400,
-      `${errorPrefix}: ${request.path} ${label} requires a non-empty string argument.`,
+      `PartitionValidationError: ${request.path} ${label} requires a non-empty string argument.`,
     );
   }
   return value;
