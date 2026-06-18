@@ -321,12 +321,38 @@ corepack pnpm --filter @flarex/example build
 
 ## Last Update
 
-Added Convex-style `watchQuery()` as the primitive live-query API and refactored
-`FlarexClient.onUpdate(...)` to wrap it. This prepares the SDK for React hooks
-without adding a separate subscription model.
+Added the first Convex-style React client slice through the new `flarex/react`
+entrypoint:
 
-Previous completed checkpoint: `04fc3cb` Default client mutations to sync
-transport.
+- `FlarexReactClient`
+- `FlarexProvider`
+- `useFlarex`
+- `useQuery`
+- `useQueries`
+- `useMutation`
+
+Previous completed checkpoint: `e349214` Add Convex-style watch query client
+API.
+
+This builds directly on `FlarexClient.watchQuery()` and the sync mutation path.
+It does not introduce a separate React-specific transport.
+
+Convex references:
+
+- `npm-packages/convex/src/react/client.ts`
+- `npm-packages/convex/src/react/use_queries.ts`
+- `npm-packages/convex/src/react/queries_observer.ts`
+- `npm-packages/convex/src/react/use_subscription.ts`
+
+Current differences from Convex:
+
+- `useQuery()` requires `{ partitionKey }` as the hook options argument.
+- Returned `useMutation()` functions accept `(args, { partitionKey })`.
+- `useAction`, pagination, optimistic updates, auth helpers, connection state,
+  hydration, and Next.js helpers are still pending.
+
+Detailed notes are recorded in
+[`18-react-client-hooks.md`](./18-react-client-hooks.md).
 
 Validation:
 
@@ -334,9 +360,9 @@ Validation:
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test
 corepack pnpm --filter flarex build
-corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example build
+corepack pnpm --filter @flarex/example test
 ```
 
 ## Initial Sync Client Slice

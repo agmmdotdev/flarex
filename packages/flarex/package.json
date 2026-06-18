@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./browser": "./src/client.ts",
     "./client": "./src/client.ts",
+    "./react": "./src/react.ts",
     "./artifacts": "./src/artifacts.ts",
     "./ids": "./src/ids.ts",
     "./server": "./src/server.ts",
@@ -17,5 +18,14 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-test-renderer": "^19.1.0",
+    "react": "^19.2.7",
+    "react-test-renderer": "^19.2.7"
+  },
+  "peerDependencies": {
+    "react": "^19.2.7"
   }
 }
