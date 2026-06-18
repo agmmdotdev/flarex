@@ -72,6 +72,11 @@ the DO itself is the local serialization and storage boundary.
 Cross-shard OCC cannot be made equivalent to Convex mutation semantics without
 a different coordinator. Flarex should not pretend otherwise.
 
+Future bounded cross-shard atomicity belongs in a separate `atomicMutation`
+layer with a `TransactionCoordinatorDO` and participant prepare/commit/abort
+protocol. It must not change the meaning of normal `mutation`, which remains
+single-shard.
+
 ## Known Limitations
 
 - There is no executor retry loop yet.
@@ -82,8 +87,48 @@ a different coordinator. Flarex should not pretend otherwise.
 - `PartitionDO` commit validates `colocateWith` and `partitionBy(field)`
   owner-field placement for cached schemas when `field !== "_id"`.
 - Root `partitionBy("_id")` ownership is not enforced yet.
+- Bounded multi-shard `atomicMutation` is documented as future work, but there
+  is no coordinator, prepare protocol, or recovery path yet.
 
 ## Last Update
+
+Recorded the boundary between current single-shard OCC and a future bounded
+multi-shard `atomicMutation` layer.
+
+Checkpoint title: `Document atomicMutation as future layer`
+
+Previous completed checkpoint: `ea69fc5` Enforce partitionBy field ownership.
+
+What changed:
+
+- Clarified that normal `mutation` remains the only implemented atomic path,
+  and it is still single-shard.
+- Documented that any future all-or-nothing multi-shard operation needs a
+  separate coordinator protocol instead of extending `SingleShardTransaction`
+  silently.
+- Cross-linked the transaction model to the future `atomicMutation` design in
+  `roadmaps/07-cross-shard-workflows.md`.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - all-or-nothing commit semantics remain the target.
+- `crates/database/src/database.rs`
+  - OCC retry behavior remains the inspiration for conflict retries.
+
+Cloudflare difference:
+
+- Convex commits against one logical deployment database. Flarex single-shard
+  OCC commits inside one `PartitionDO`; any multi-shard atomic path needs an
+  explicit coordinator.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Previous Update
 
 Added commit-time `partitionBy(field)` owner-field validation for
 `field !== "_id"`.
