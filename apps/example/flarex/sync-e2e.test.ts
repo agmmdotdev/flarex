@@ -42,7 +42,7 @@ describe("Flarex sync client", () => {
     await client.mutation(
       api.lessons.complete,
       { userId, lessonId: "intro" },
-      { partitionKey, transport: "sync" },
+      { partitionKey },
     );
 
     await waitFor(() => updates.length === 2);

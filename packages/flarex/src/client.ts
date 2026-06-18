@@ -63,14 +63,14 @@ export class FlarexClient {
     args: FunctionArgs<Reference>,
     options: InvokeOptions,
   ): Promise<FunctionReturnType<Reference>> {
-    if (options.transport === "sync") {
-      return this.ensureSyncClient().mutation(
-        getFunctionName(reference),
-        args as Record<string, unknown>,
-        options,
-      ) as Promise<FunctionReturnType<Reference>>;
+    if (options.transport === "http") {
+      return this.invoke(reference, args, options) as Promise<FunctionReturnType<Reference>>;
     }
-    return this.invoke(reference, args, options) as Promise<FunctionReturnType<Reference>>;
+    return this.ensureSyncClient().mutation(
+      getFunctionName(reference),
+      args as Record<string, unknown>,
+      options,
+    ) as Promise<FunctionReturnType<Reference>>;
   }
 
   onUpdate<Query extends FunctionReference<"query">>(

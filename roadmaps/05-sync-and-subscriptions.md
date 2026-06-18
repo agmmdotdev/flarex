@@ -125,8 +125,8 @@ const result = await client.mutation(api.lessons.complete, args, {
 });
 ```
 
-Keep the existing HTTP `query()` and `mutation()` invoke path while adding this
-live path, because early examples and tests still use direct `/invoke`.
+Keep the existing HTTP `query()` invoke path and an explicit HTTP mutation
+escape hatch while adding this live path.
 
 ### Tests For The First Slice
 
@@ -178,8 +178,8 @@ Implemented the first client-side live sync slice in `packages/flarex`:
   - public live-query option and unsubscribe shapes
 - `src/client.ts`
   - `FlarexClient.onUpdate(...)` live query API
-  - opt-in `mutation(..., { transport: "sync" })` path while the existing
-    HTTP `/invoke` mutation default remains in place
+  - initial opt-in `mutation(..., { transport: "sync" })` path, later promoted
+    to the default mutation transport in the next checkpoint
 
 Convex references used:
 
@@ -199,9 +199,9 @@ Cloudflare and Flarex differences:
 - The base client intentionally does not yet port Convex auth refresh,
   component paths, reconnect/backoff, transition chunks, optimistic updates,
   or paginated reactive sync.
-- Public `mutation()` still defaults to HTTP `/invoke`; sync mutation is
-  currently opt-in with `transport: "sync"` until the SDK migration can switch
-  defaults without breaking existing examples.
+- Public `mutation()` now defaults to sync transport. HTTP `/invoke` remains
+  available through `transport: "http"` for direct one-shot tests and
+  compatibility paths.
 
 Verification:
 
@@ -229,7 +229,7 @@ generated api.lessons.list
   -> PartitionDO read set registration
 
 generated api.lessons.complete
-  -> FlarexClient.mutation(..., { transport: "sync" })
+  -> FlarexClient.mutation(...)
   -> ConnectionDO mutation queue
   -> active execution artifact mutation
   -> PartitionDO commit
@@ -267,16 +267,68 @@ Verification:
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`
 
+## Sync Mutation Default Update
+
+Previous completed checkpoint: `8d500ed` Add real app sync E2E coverage.
+
+`FlarexClient.mutation()` now follows Convex's public client behavior more
+closely: mutations go through the sync client by default.
+
+```ts
+await client.mutation(api.lessons.complete, args, {
+  partitionKey,
+});
+```
+
+The direct HTTP invoke path is still available as an explicit escape hatch:
+
+```ts
+await client.mutation(api.lessons.complete, args, {
+  partitionKey,
+  transport: "http",
+});
+```
+
+`query()` remains HTTP one-shot for now. Live queries continue to use
+`onUpdate(...)`.
+
+Convex reference:
+
+- `npm-packages/convex/src/browser/simple_client.ts`
+  - `ConvexClient.mutation()` delegates to the base sync client.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - `BaseConvexClient.mutation()` enqueues a sync `Mutation` message.
+
+Cloudflare difference:
+
+- Flarex still requires explicit `partitionKey` for mutation routing.
+- The HTTP mutation path remains public because it is useful for tests,
+  tooling, and compatibility while sync reconnect/auth semantics are still
+  incomplete.
+
+Verification:
+
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex test`
+- `corepack pnpm --filter @flarex/example test`
+- `corepack pnpm --filter flarex build`
+- `corepack pnpm --filter @flarex/example typecheck`
+- `corepack pnpm --filter @flarex/example build`
+
 ## Last Update
 
-Added real app sync E2E coverage. `FlarexClient.onUpdate` and opt-in sync
-mutation now run through `flarex-test`, local dev sync forwarding, backend
-`ConnectionDO`, active execution artifacts, and partition-local OCC.
+Changed public client mutation default to sync transport. `FlarexClient.onUpdate`
+and default `mutation()` now run through `flarex-test`, local dev sync
+forwarding, backend `ConnectionDO`, active execution artifacts, and
+partition-local OCC in the example E2E path.
 
-Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
+Previous completed checkpoint: `8d500ed` Add real app sync E2E coverage.
 
 Validation:
 
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex test`
 - `corepack pnpm --filter @flarex/example test`
+- `corepack pnpm --filter flarex build`
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`

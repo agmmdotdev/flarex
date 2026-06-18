@@ -271,6 +271,59 @@ git diff --check
 
 ## Last Update
 
+Changed `FlarexClient.mutation()` to default to sync transport, matching
+Convex's public client behavior more closely:
+
+```ts
+await client.mutation(api.lessons.complete, args, {
+  partitionKey,
+});
+```
+
+HTTP mutation remains available explicitly:
+
+```ts
+await client.mutation(api.lessons.complete, args, {
+  partitionKey,
+  transport: "http",
+});
+```
+
+Previous completed checkpoint: `8d500ed` Add real app sync E2E coverage.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/simple_client.ts`
+  - public `ConvexClient.mutation()` routes to the sync client.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - base client enqueues `Mutation` messages and resolves from
+    `MutationResponse`.
+
+Current differences from Convex:
+
+- Flarex still requires explicit `partitionKey` in live query and mutation
+  options.
+- Query tokens include the partition route.
+- `client.query()` remains HTTP one-shot while `client.onUpdate()` handles live
+  query subscriptions.
+- HTTP mutation is still exposed as `transport: "http"` for tooling and tests.
+- The first base client has no auth refresh, reconnect/backoff manager,
+  optimistic updates, paginated sync, action-over-sync, transition chunks, or
+  connection-state subscriptions yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter flarex build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example build
+```
+
+## Initial Sync Client Slice
+
 Implemented the first Convex-style sync client slice in `packages/flarex`.
 This ports the browser sync layering at a small scale:
 
@@ -279,7 +332,8 @@ This ports the browser sync layering at a small scale:
 - base WebSocket client in `src/sync/baseClient.ts`
 - public live option/unsubscribe types in `src/sync/simpleClient.ts`
 - `FlarexClient.onUpdate(...)` in `src/client.ts`
-- opt-in sync mutation via `mutation(..., { transport: "sync" })`
+- initial opt-in sync mutation via `mutation(..., { transport: "sync" })`,
+  promoted to the default mutation transport in the following checkpoint
 
 Previous completed checkpoint: `6ca1454` Plan Convex-style sync client port.
 
@@ -295,8 +349,8 @@ Current differences from Convex:
 - Flarex still requires explicit `partitionKey` in live query and sync mutation
   options.
 - Query tokens include the partition route.
-- HTTP `/invoke` remains the default for `client.mutation()` unless
-  `transport: "sync"` is passed. Convex sends mutations through the sync client.
+- HTTP `/invoke` remained the default for `client.mutation()` in this initial
+  slice. The next checkpoint changed the default to sync transport.
 - The first base client has no auth refresh, reconnect/backoff manager,
   optimistic updates, paginated sync, action-over-sync, transition chunks, or
   connection-state subscriptions yet.

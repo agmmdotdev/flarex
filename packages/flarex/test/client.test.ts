@@ -45,7 +45,7 @@ describe("FlarexClient", () => {
       client.mutation(
         { _path: "lessons:complete", _kind: "mutation" },
         { lessonId: "intro" },
-        { partitionKey: "user-1" },
+        { partitionKey: "user-1", transport: "http" },
       ),
     ).resolves.toEqual({ completed: true });
 
@@ -206,7 +206,7 @@ describe("FlarexClient", () => {
     expect(onError.mock.calls[0]![0].message).toBe("boom");
   });
 
-  it("can execute mutations over sync when requested", async () => {
+  it("executes mutations over sync by default", async () => {
     FakeWebSocket.instances = [];
     const client = new FlarexClient("https://example.test/deployments/app", {
       webSocketConstructor: FakeWebSocket,
@@ -215,7 +215,7 @@ describe("FlarexClient", () => {
     const result = client.mutation(
       { _path: "lessons:complete", _kind: "mutation" },
       { lessonId: "intro" },
-      { partitionKey: "user-1", transport: "sync" },
+      { partitionKey: "user-1" },
     );
     const ws = FakeWebSocket.instances[0]!;
     expect(JSON.parse(ws.sent[0]!)).toEqual({
