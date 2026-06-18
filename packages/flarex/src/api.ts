@@ -13,6 +13,14 @@ export type FunctionPartitionPolicy = {
   argField: string;
 };
 export type FunctionRouteMap = Record<string, FunctionRoutePolicy | null | undefined>;
+export type FunctionReferenceMetadata = {
+  route?: FunctionRoutePolicy | null;
+  partition?: FunctionPartitionPolicy | null;
+};
+export type FunctionReferenceMetadataMap = Record<
+  string,
+  FunctionRoutePolicy | FunctionReferenceMetadata | null | undefined
+>;
 
 export type FunctionReference<
   Type extends FunctionType = FunctionType,
@@ -24,6 +32,7 @@ export type FunctionReference<
   readonly _kind?: Type;
   readonly _visibility?: Visibility;
   readonly _route?: FunctionRoutePolicy | null;
+  readonly _partition?: FunctionPartitionPolicy | null;
   readonly [functionName]?: string;
   readonly __args?: Args;
   readonly __returnType?: ReturnType;
@@ -52,11 +61,13 @@ export function makeFunctionReference<
   name: string,
   kind?: Type,
   route?: FunctionRoutePolicy | null,
+  partition?: FunctionPartitionPolicy | null,
 ): FunctionReference<Type, "public", Args, ReturnType> {
   return {
     _path: name,
     ...(kind === undefined ? {} : { _kind: kind }),
     ...(route === undefined ? {} : { _route: route }),
+    ...(partition === undefined ? {} : { _partition: partition }),
     [functionName]: name,
   } as FunctionReference<Type, "public", Args, ReturnType>;
 }
@@ -98,17 +109,23 @@ export type ApiFromModules<Modules extends Record<string, Record<string, unknown
 type AnyApiNode = { [name: string]: AnyApiNode } & AnyFunctionReference;
 export type AnyApi = Record<string, AnyApiNode>;
 
-export function createApi(routeByPath: FunctionRouteMap = {}, path: string[] = []): AnyApiNode {
+export function createApi(
+  metadataByPath: FunctionReferenceMetadataMap = {},
+  path: string[] = [],
+): AnyApiNode {
   return new Proxy({} as AnyApiNode, {
     get(_, property: string | symbol) {
       if (property === functionName || property === "_path") {
         return functionPath(path);
       }
       if (property === "_route") {
-        return routeByPath[functionPath(path)] ?? null;
+        return metadataForPath(metadataByPath, functionPath(path)).route;
+      }
+      if (property === "_partition") {
+        return metadataForPath(metadataByPath, functionPath(path)).partition;
       }
       if (property === Symbol.toStringTag) return "FunctionReference";
-      if (typeof property === "string") return createApi(routeByPath, [...path, property]);
+      if (typeof property === "string") return createApi(metadataByPath, [...path, property]);
       return undefined;
     },
   });
@@ -123,4 +140,25 @@ function functionPath(path: string[]): string {
   const exportName = path.at(-1)!;
   const moduleName = path.slice(0, -1).join("/");
   return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
+}
+
+function metadataForPath(
+  metadataByPath: FunctionReferenceMetadataMap,
+  path: string,
+): Required<FunctionReferenceMetadata> {
+  const metadata = metadataByPath[path];
+  if (metadata === undefined || metadata === null) return { route: null, partition: null };
+  if (isFunctionRoutePolicy(metadata)) {
+    return { route: metadata, partition: null };
+  }
+  return {
+    route: metadata.route ?? null,
+    partition: metadata.partition ?? null,
+  };
+}
+
+function isFunctionRoutePolicy(
+  metadata: FunctionRoutePolicy | FunctionReferenceMetadata,
+): metadata is FunctionRoutePolicy {
+  return "type" in metadata && metadata.type === "args";
 }

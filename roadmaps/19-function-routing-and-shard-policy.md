@@ -717,6 +717,65 @@ corepack pnpm --filter @flarex/example build
 
 ## Previous Update
 
+Moved generated-client inference from `_route` to `_partition`.
+
+Checkpoint title: `Infer client partition keys from partition metadata`
+
+Previous completed checkpoint: `79d11ce` Require partition metadata for
+execution.
+
+What changed:
+
+- Generated function references now expose `_partition` from analyzed
+  `partition: model.table.byX(...)` declarations.
+- SDK partition-key inference uses `_partition.argField` as the normal path.
+- `_route` is retained for compatibility and consistency checks, but route-only
+  metadata no longer drives automatic client inference.
+- Tests cover route-only references requiring explicit routing and
+  partition-backed references working for HTTP invoke, sync mutation, live
+  query subscription, React hooks, and `flarex-test`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/api.ts`
+  - generated function references are the app-facing capability.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - API generation consumes analyzed function metadata.
+- `npm-packages/convex/src/react/client.ts`
+  - hooks call through the client/watch layer.
+
+Cloudflare difference:
+
+- Convex references do not encode shard placement. Flarex references now encode
+  `_partition` so the client can send the correct `PartitionDO` key while the
+  backend revalidates it.
+
+Remaining limitations:
+
+- The wire protocol still carries `partitionKey`. This is transport, not
+  authority.
+- Non-partition policies such as global/projection/workflow are still future
+  explicit metadata, not route fallbacks.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test test
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
+
 Removed route-only and raw `partitionKey` fallback authorization from normal
 backend execution.
 

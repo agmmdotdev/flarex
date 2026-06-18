@@ -92,18 +92,18 @@ describe("runtime materializer", () => {
       path: "messages:create",
       kind: "mutation",
       partitionKey: "lesson:1",
-      args: { text: "hello" },
+      args: { lessonId: "lesson:1", text: "hello" },
     });
     const createBody = await created.json() as {
       value: { id: string };
       committedTs: number;
-      writes: Array<{ value: { text: string; done: boolean } }>;
+      writes: Array<{ value: { lessonId: string; text: string; done: boolean } }>;
     };
     expect({ status: created.status, body: createBody }).toMatchObject({ status: 200 });
     expect(createBody.value.id).toMatch(/^1:/);
     expect(createBody.writes).toEqual([
       expect.objectContaining({
-        value: { text: "hello", done: true },
+        value: { lessonId: "lesson:1", text: "hello", done: true },
       }),
     ]);
 
@@ -111,7 +111,7 @@ describe("runtime materializer", () => {
       path: "messages:list",
       kind: "query",
       partitionKey: "lesson:1",
-      args: {},
+      args: { lessonId: "lesson:1" },
     });
     const listBody = await listed.json();
     expect({ status: listed.status, body: listBody }).toMatchObject({ status: 200 });
@@ -119,6 +119,7 @@ describe("runtime materializer", () => {
       value: [
         {
           _id: createBody.value.id,
+          lessonId: "lesson:1",
           text: "hello",
           done: true,
         },
@@ -138,31 +139,34 @@ import { v } from "flarex/values";
 
 export default defineSchema({
   messages: defineTable({
+    lessonId: v.string(),
     text: v.string(),
     done: v.boolean(),
-  }).index("by_text", ["text"]).partitionBy("_id"),
+  }).index("by_lesson_text", ["lessonId", "text"]).partitionBy("lessonId"),
 });
 `,
   );
   await writeFile(
     path.join(root, "flarex/functions/messages.ts"),
-    `import { mutation, query } from "../_generated/server";
+    `import { model, mutation, query } from "../_generated/server";
 import { v } from "flarex/values";
 
 export const create = mutation({
-  args: { text: v.string() },
+  partition: model.messages.byLessonId("lessonId"),
+  args: { lessonId: v.string(), text: v.string() },
   returns: v.object({ id: v.id("messages") }),
   handler: async (ctx, args) => {
-    const id = await ctx.db.insert("messages", { text: args.text, done: false });
+    const id = await ctx.db.insert("messages", { lessonId: args.lessonId, text: args.text, done: false });
     await ctx.db.patch(id, { done: true });
     return { id };
   },
 });
 
 export const list = query({
-  args: {},
-  handler: async ctx => {
-    return await ctx.db.query("messages").withIndex("by_text", q => q.eq("text", "hello")).collect();
+  partition: model.messages.byLessonId("lessonId"),
+  args: { lessonId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("messages").withIndex("by_lesson_text", q => q.eq("lessonId", args.lessonId).eq("text", "hello")).collect();
   },
 });
 `,

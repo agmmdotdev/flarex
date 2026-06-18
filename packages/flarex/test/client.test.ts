@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { FlarexClient } from "../src/client";
 
+const userPartition = {
+  type: "partition" as const,
+  table: "users",
+  selector: "byId",
+  partitionField: "_id",
+  argField: "userId",
+};
+
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
@@ -61,13 +69,13 @@ describe("FlarexClient", () => {
     );
   });
 
-  it("infers invoke partitions from generated route metadata", async () => {
+  it("infers invoke partitions from generated partition metadata", async () => {
     const fetch = vi.fn(async () => Response.json({ value: { completed: true } }));
     const client = new FlarexClient("https://example.test", { fetch });
 
     await expect(
       client.query(
-        { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+        { _path: "lessons:list", _kind: "query", _partition: userPartition },
         { userId: "user-1" },
       ),
     ).resolves.toEqual({ completed: true });
@@ -84,6 +92,21 @@ describe("FlarexClient", () => {
     );
   });
 
+  it("does not infer invoke partitions from route-only metadata", async () => {
+    const client = new FlarexClient("https://example.test", {
+      fetch: async () => Response.json({ value: null }),
+    });
+
+    expect(() =>
+      client.query(
+        { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+        { userId: "user-1" },
+      ),
+    ).toThrow(
+      "partitionKey is required for lessons:list. Add partition: model.table.byX(...) to the function or pass { partitionKey }.",
+    );
+  });
+
   it("subscribes to live queries with Convex-style query-set messages", () => {
     FakeWebSocket.instances = [];
     const callback = vi.fn();
@@ -92,7 +115,7 @@ describe("FlarexClient", () => {
     });
 
     const unsubscribe = client.onUpdate(
-      { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
       { courseId: "english", userId: "user-1" },
       callback,
     );
@@ -359,7 +382,7 @@ describe("FlarexClient", () => {
     });
 
     const result = client.mutation(
-      { _path: "lessons:complete", _kind: "mutation", _route: { type: "args", field: "userId" } },
+      { _path: "lessons:complete", _kind: "mutation", _partition: userPartition },
       { userId: "user-1", lessonId: "intro" },
     );
     const ws = FakeWebSocket.instances[0]!;

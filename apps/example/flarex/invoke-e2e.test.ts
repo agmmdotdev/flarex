@@ -70,13 +70,13 @@ describe("Flarex invoke", () => {
     });
   });
 
-  it("rejects route mismatches before execution", async () => {
+  it("rejects partition mismatches before execution", async () => {
     await expect(
       t.invokeRaw(api.lessons.list, { userId }, { partitionKey: "2:other-user" }),
     ).rejects.toMatchObject({
       status: 400,
       body: {
-        error: "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+        error: "PartitionValidationError: partitionKey must match args.userId for lessons:list.",
       },
     } satisfies Partial<FlarexTestInvocationError>);
   });

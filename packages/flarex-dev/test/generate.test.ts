@@ -61,6 +61,7 @@ export const helper = "not a function";
     expect(api).toContain('import type * as module1 from "../functions/reexports"');
     expect(api).toContain('createApi({');
     expect(api).toContain('"messages:list": {');
+    expect(api).toContain('"route": {');
     expect(api).toContain('"field": "topic"');
     expect(dataModel).toContain("DataModelFromSchemaDefinition<typeof schema>");
     expect(server).toContain('QueryBuilder<DataModel, "public">');
@@ -146,6 +147,7 @@ export const create = mutation({
     await generateFlarex({ root });
 
     const server = await readGenerated(root, "server.ts");
+    const api = await readGenerated(root, "api.ts");
     const functionMetadata = await readGenerated(root, "functionMetadata.ts");
 
     expect(server).toContain("export const model = {");
@@ -165,6 +167,12 @@ export const create = mutation({
     expect(functionMetadata).toContain('"selector": "bySlug"');
     expect(functionMetadata).toContain('"partitionField": "slug"');
     expect(functionMetadata).toContain('"argField": "teamSlug"');
+    expect(api).toContain('"teams:create": {');
+    expect(api).toContain('"partition": {');
+    expect(api).toContain('"table": "teams"');
+    expect(api).toContain('"selector": "bySlug"');
+    expect(api).toContain('"partitionField": "slug"');
+    expect(api).toContain('"argField": "teamSlug"');
   });
 
   it("rejects model partition selectors that do not match schema placement", async () => {

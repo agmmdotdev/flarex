@@ -228,22 +228,24 @@ export function resolvePartitionKey(
     }
     return options.partitionKey;
   }
-  const route = reference._route;
+  const partition = reference._partition;
   const name = getFunctionName(reference);
-  if (route?.type === "args") {
+  if (partition?.type === "partition") {
     if (typeof args !== "object" || args === null || Array.isArray(args)) {
-      throw new Error(`partitionKey for ${name} must be inferred from object args.${route.field}.`);
+      throw new Error(
+        `partitionKey for ${name} must be inferred from object args.${partition.argField}.`,
+      );
     }
-    const value = (args as Record<string, unknown>)[route.field];
+    const value = (args as Record<string, unknown>)[partition.argField];
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(
-        `partitionKey for ${name} must be inferred from non-empty string args.${route.field}.`,
+        `partitionKey for ${name} must be inferred from non-empty string args.${partition.argField}.`,
       );
     }
     return value;
   }
   throw new Error(
-    `partitionKey is required for ${name}. Add routeFromArgs(...) to the function or pass { partitionKey }.`,
+    `partitionKey is required for ${name}. Add partition: model.table.byX(...) to the function or pass { partitionKey }.`,
   );
 }
 

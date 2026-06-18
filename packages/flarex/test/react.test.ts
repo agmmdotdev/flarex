@@ -14,6 +14,14 @@ import type { FunctionReference } from "../src/api";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const userPartition = {
+  type: "partition" as const,
+  table: "users",
+  selector: "byId",
+  partitionField: "_id",
+  argField: "userId",
+};
+
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
@@ -52,7 +60,7 @@ class FakeWebSocket {
 const listLessons = {
   _path: "lessons:list",
   _kind: "query",
-  _route: { type: "args", field: "userId" },
+  _partition: userPartition,
 } as FunctionReference<
   "query",
   "public",
@@ -63,7 +71,7 @@ const listLessons = {
 const completeLesson = {
   _path: "lessons:complete",
   _kind: "mutation",
-  _route: { type: "args", field: "userId" },
+  _partition: userPartition,
 } as FunctionReference<
   "mutation",
   "public",

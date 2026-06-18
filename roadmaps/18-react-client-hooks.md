@@ -198,9 +198,11 @@ Tests now cover pending-to-success, default error-result mode, and
 - Optimistic updates are not implemented.
 - Auth helpers, connection state hooks, hydration helpers, and Next.js helpers
   remain future work.
-- Hooks infer `partitionKey` from generated `_route` metadata for functions
-  declared with `routeFromArgs(field)`.
-- `partitionKey` is still required in hook options for unrouted functions.
+- Hooks infer `partitionKey` from generated `_partition` metadata for functions
+  declared with `partition: model.table.byX(argField)`.
+- `partitionKey` is still required in hook options for references without
+  `_partition`, but backend execution now requires active partition metadata
+  for normal functions.
 - Provider-level default routing remains future work for app-wide auth/current
   user routing, but it is no longer the only way to remove repetitive
   partition options.
@@ -217,6 +219,49 @@ corepack pnpm --filter flarex build
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example build
 corepack pnpm --filter @flarex/example test
+```
+
+## Partition-Aware Hook Update
+
+Checkpoint title: `Infer client partition keys from partition metadata`
+
+Previous completed checkpoint: `79d11ce` Require partition metadata for
+execution.
+
+React hooks now follow the partition-aware `FlarexClient` path:
+
+```ts
+const lessons = useQuery(api.lessons.list, { userId });
+const complete = useMutation(api.lessons.complete);
+await complete({ userId, lessonId: "intro" });
+```
+
+The generated function reference supplies `_partition` from
+`partition: model.users.byId("userId")`, and the client sends
+`partitionKey: args.userId` on the sync/invoke protocol.
+
+Convex reference:
+
+- `npm-packages/convex/src/react/client.ts`
+  - hooks delegate to the client/watch layer and keep call sites compact.
+- `npm-packages/convex/src/react/use_queries.ts`
+  - query subscriptions are managed by function reference and args.
+
+Cloudflare difference:
+
+- Flarex still sends a `partitionKey` transport field because Durable Objects
+  require a concrete object name. The hook no longer exposes that for normal
+  generated partition-backed calls.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
 ```
 
 ## Route-Aware Hook Update

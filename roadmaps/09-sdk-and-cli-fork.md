@@ -1056,6 +1056,70 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Partition-Aware Generated API Update
+
+Checkpoint title: `Infer client partition keys from partition metadata`
+
+Previous completed checkpoint: `79d11ce` Require partition metadata for
+execution.
+
+Generated API references now carry partition metadata directly and SDK
+partition-key inference uses `_partition`, not `_route`.
+
+What changed:
+
+- `FunctionReference` now includes optional `_partition` metadata.
+- `createApi()` accepts analysis-derived reference metadata with both `route`
+  and `partition`, while still reading old route-map values for compatibility.
+- Final codegen writes `{ route, partition }` entries into `_generated/api.ts`.
+- `FlarexClient`, React hooks, and `flarex-test` all use
+  `reference._partition.argField` to derive the wire `partitionKey`.
+- Route-only generated references no longer infer automatically. They require
+  an explicit `{ partitionKey }`, and the backend will still require active
+  partition metadata for normal execution.
+- Example E2E now proves generated refs call without explicit partition
+  options and report partition-validation errors for mismatched overrides.
+
+Convex references:
+
+- `npm-packages/convex/src/server/api.ts`
+  - generated function references are the client-facing API handle.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated API files are based on analyzed function metadata.
+- `npm-packages/convex/src/react/client.ts`
+  - React hooks delegate routing/invocation to the client layer.
+
+Flarex difference:
+
+- Convex references do not need shard metadata. Flarex references carry
+  `_partition` so the SDK can compute the `PartitionDO` transport key while the
+  backend remains the authority.
+
+Remaining SDK limitation:
+
+- `_route` still exists as compatibility metadata and for old generated files,
+  but it is no longer used for automatic partition inference.
+- Explicit `{ partitionKey }` remains a low-level override, primarily for tests
+  and future non-partition policies. Normal generated app calls should use
+  `_partition`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test test
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
 ## Partition Selector Metadata Update
 
 Checkpoint title: `Preserve partition selector metadata`

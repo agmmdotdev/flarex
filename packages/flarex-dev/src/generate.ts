@@ -28,7 +28,7 @@ export type FlarexGenerationContext = {
   functionModules: FunctionModule[];
 };
 
-function typedApi(modules: string[], routeByPath: Record<string, unknown> = {}): string {
+function typedApi(modules: string[], metadataByPath: Record<string, unknown> = {}): string {
   const imports = modules
     .map(
       (moduleName, index) =>
@@ -43,7 +43,7 @@ function typedApi(modules: string[], routeByPath: Record<string, unknown> = {}):
 import { createApi, type ApiFromModules } from "flarex/server";
 ${imports}
 
-export const api = createApi(${JSON.stringify(routeByPath, null, 2)}) as unknown as ApiFromModules<{
+export const api = createApi(${JSON.stringify(metadataByPath, null, 2)}) as unknown as ApiFromModules<{
 ${moduleTypes}
 }>;
 `;
@@ -544,7 +544,7 @@ export async function finalCodegen(
   await writeFile(path.join(generatedDir, "server.ts"), serverSource(analysis.schema));
   await writeFile(
     path.join(generatedDir, "api.ts"),
-    typedApi(functions.map(module => module.moduleName), routeMapSource(functions)),
+    typedApi(functions.map(module => module.moduleName), referenceMetadataMapSource(functions)),
   );
   await writeFile(path.join(generatedDir, "functionRegistry.ts"), functionRegistrySource(functions));
   await writeFile(path.join(generatedDir, "functionMetadata.ts"), functionMetadataSource(functions));
@@ -565,12 +565,23 @@ function functionPath(fn: AnalyzedFunction): string {
   return fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`;
 }
 
-function routeMapSource(modules: AnalyzedModule[]): Record<string, unknown> {
+function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, unknown> {
   return Object.fromEntries(
     modules.flatMap(module =>
       module.functions.flatMap(fn => {
-        if (fn.route === null || fn.route === undefined) return [];
-        return [[functionPath(fn), fn.route]];
+        if (
+          (fn.route === null || fn.route === undefined) &&
+          (fn.partition === null || fn.partition === undefined)
+        ) {
+          return [];
+        }
+        return [[
+          functionPath(fn),
+          {
+            route: fn.route ?? null,
+            partition: fn.partition ?? null,
+          },
+        ]];
       }),
     ),
   );
