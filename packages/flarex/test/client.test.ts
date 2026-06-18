@@ -121,6 +121,64 @@ describe("FlarexClient", () => {
     });
   });
 
+  it("watches queries with Convex-style local result reads", () => {
+    FakeWebSocket.instances = [];
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    const watch = client.watchQuery(
+      { _path: "lessons:list", _kind: "query" },
+      { courseId: "english" },
+      { partitionKey: "user-1" },
+    );
+    expect(watch.localQueryResult()).toBeUndefined();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    const unsubscribe = watch.onUpdate(callback);
+    const ws = FakeWebSocket.instances[0]!;
+    expect(ws.sent.map(message => JSON.parse(message))).toEqual([
+      expect.objectContaining({
+        type: "ModifyQuerySet",
+        modifications: [
+          expect.objectContaining({
+            type: "Add",
+            queryId: 0,
+            udfPath: "lessons:list",
+            partitionKey: "user-1",
+          }),
+        ],
+      }),
+    ]);
+
+    ws.receive({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 0,
+          value: [{ title: "Intro" }],
+          logLines: [],
+          journal: null,
+        },
+      ],
+    });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(watch.localQueryResult()).toEqual([{ title: "Intro" }]);
+
+    unsubscribe();
+    expect(JSON.parse(ws.sent.at(-1)!)).toEqual({
+      type: "ModifyQuerySet",
+      baseVersion: 1,
+      newVersion: 2,
+      modifications: [{ type: "Remove", queryId: 0 }],
+    });
+  });
+
   it("deduplicates identical live query subscriptions", () => {
     FakeWebSocket.instances = [];
     const first = vi.fn();
@@ -170,10 +228,63 @@ describe("FlarexClient", () => {
     });
   });
 
-  it("routes query failures to the live query error callback", () => {
+  it("deduplicates identical watch subscriptions", () => {
+    FakeWebSocket.instances = [];
+    const first = vi.fn();
+    const second = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    const firstWatch = client.watchQuery(
+      { _path: "lessons:list", _kind: "query" },
+      { courseId: "english" },
+      { partitionKey: "user-1" },
+    );
+    const secondWatch = client.watchQuery(
+      { _path: "lessons:list", _kind: "query" },
+      { courseId: "english" },
+      { partitionKey: "user-1" },
+    );
+
+    const firstUnsubscribe = firstWatch.onUpdate(first);
+    const secondUnsubscribe = secondWatch.onUpdate(second);
+    const ws = FakeWebSocket.instances[0]!;
+    expect(ws.sent).toHaveLength(1);
+
+    ws.receive({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 0,
+          value: ["Intro"],
+          logLines: [],
+          journal: null,
+        },
+      ],
+    });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(firstWatch.localQueryResult()).toEqual(["Intro"]);
+    expect(secondWatch.localQueryResult()).toEqual(["Intro"]);
+
+    firstUnsubscribe();
+    expect(ws.sent).toHaveLength(1);
+    secondUnsubscribe();
+    expect(JSON.parse(ws.sent.at(-1)!)).toMatchObject({
+      type: "ModifyQuerySet",
+      modifications: [{ type: "Remove", queryId: 0 }],
+    });
+  });
+
+  it("routes query failures to the live query error callback", async () => {
     FakeWebSocket.instances = [];
     const callback = vi.fn();
     const onError = vi.fn();
+    const secondOnError = vi.fn();
     const client = new FlarexClient("https://example.test/deployments/app", {
       webSocketConstructor: FakeWebSocket,
     });
@@ -204,6 +315,19 @@ describe("FlarexClient", () => {
     expect(callback).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(onError.mock.calls[0]![0].message).toBe("boom");
+
+    expect(() =>
+      client.onUpdate(
+        { _path: "lessons:list", _kind: "query" },
+        {},
+        callback,
+        secondOnError,
+        { partitionKey: "user-1" },
+      ),
+    ).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(secondOnError).toHaveBeenCalledWith(expect.any(Error));
+    expect(secondOnError.mock.calls[0]![0].message).toBe("boom");
   });
 
   it("executes mutations over sync by default", async () => {

@@ -269,55 +269,72 @@ Verification:
 git diff --check
 ```
 
-## Last Update
+## Watch Query API Update
 
-Changed `FlarexClient.mutation()` to default to sync transport, matching
-Convex's public client behavior more closely:
+Previous completed checkpoint: `04fc3cb` Default client mutations to sync
+transport.
+
+Added `FlarexClient.watchQuery()` as the primitive live-query API, matching
+Convex's public watch shape:
 
 ```ts
-await client.mutation(api.lessons.complete, args, {
-  partitionKey,
+const watch = client.watchQuery(api.lessons.list, { userId }, { partitionKey });
+
+const unsubscribe = watch.onUpdate(() => {
+  const result = watch.localQueryResult();
 });
 ```
 
-HTTP mutation remains available explicitly:
-
-```ts
-await client.mutation(api.lessons.complete, args, {
-  partitionKey,
-  transport: "http",
-});
-```
-
-Previous completed checkpoint: `8d500ed` Add real app sync E2E coverage.
+`watchQuery()` is inert until `watch.onUpdate()` is called, so creating a watch
+does not open a WebSocket or modify the backend query set. The existing
+value-callback `FlarexClient.onUpdate(...)` API now wraps `watchQuery()` instead
+of owning separate subscription state.
 
 Convex references:
 
-- `npm-packages/convex/src/browser/simple_client.ts`
-  - public `ConvexClient.mutation()` routes to the sync client.
+- `npm-packages/convex/src/react/client.ts`
+  - public `watchQuery()` returns a watch with `onUpdate()` and
+    `localQueryResult()`.
 - `npm-packages/convex/src/browser/sync/client.ts`
-  - base client enqueues `Mutation` messages and resolves from
-    `MutationResponse`.
+  - base sync client owns subscription registration and local query-result
+    lookup.
 
 Current differences from Convex:
 
-- Flarex still requires explicit `partitionKey` in live query and mutation
-  options.
-- Query tokens include the partition route.
-- `client.query()` remains HTTP one-shot while `client.onUpdate()` handles live
-  query subscriptions.
-- HTTP mutation is still exposed as `transport: "http"` for tooling and tests.
-- The first base client has no auth refresh, reconnect/backoff manager,
-  optimistic updates, paginated sync, action-over-sync, transition chunks, or
-  connection-state subscriptions yet.
+- Flarex still requires explicit `partitionKey` in `watchQuery()` options until
+  generated routing metadata can infer the shard route.
+- Query tokens still include the partition route.
+- `localQueryLogs()` is not implemented yet.
+- React hooks are still pending; this checkpoint only adds the client primitive
+  they can build on.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test
-corepack pnpm --filter @flarex/example test
 corepack pnpm --filter flarex build
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example build
+```
+
+## Last Update
+
+Added Convex-style `watchQuery()` as the primitive live-query API and refactored
+`FlarexClient.onUpdate(...)` to wrap it. This prepares the SDK for React hooks
+without adding a separate subscription model.
+
+Previous completed checkpoint: `04fc3cb` Default client mutations to sync
+transport.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example build
 ```

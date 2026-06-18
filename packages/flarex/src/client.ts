@@ -5,8 +5,9 @@ import {
   type FunctionReturnType,
 } from "./api";
 import { BaseFlarexClient, type WebSocketConstructor } from "./sync/baseClient";
+import { serializePathArgsAndPartition } from "./sync/localState";
 import type { QueryToken } from "./sync/protocol";
-import type { OnUpdateOptions, Unsubscribe } from "./sync/simpleClient";
+import type { OnUpdateOptions, Unsubscribe, Watch } from "./sync/simpleClient";
 
 export type FlarexClientOptions = {
   fetch?: typeof globalThis.fetch;
@@ -16,13 +17,6 @@ export type FlarexClientOptions = {
 export type InvokeOptions = {
   partitionKey: string;
   transport?: "http" | "sync";
-};
-
-type QueryInfo<Query extends FunctionReference<"query"> = FunctionReference<"query">> = {
-  queryToken: QueryToken;
-  callback: (result: FunctionReturnType<Query>) => unknown;
-  onError?: (error: Error) => unknown;
-  unsubscribe: () => void;
 };
 
 export class FlarexInvocationError extends Error {
@@ -39,7 +33,7 @@ export class FlarexClient {
   private readonly fetch: typeof globalThis.fetch;
   private readonly webSocketConstructor: WebSocketConstructor | undefined;
   private syncClient: BaseFlarexClient | undefined;
-  private readonly listeners = new Set<QueryInfo>();
+  private readonly listeners = new Map<QueryToken, Set<() => void>>();
   private closed = false;
 
   constructor(
@@ -73,6 +67,46 @@ export class FlarexClient {
     ) as Promise<FunctionReturnType<Reference>>;
   }
 
+  watchQuery<Query extends FunctionReference<"query">>(
+    query: Query,
+    args: FunctionArgs<Query>,
+    options: OnUpdateOptions,
+  ): Watch<FunctionReturnType<Query>> {
+    const name = getFunctionName(query);
+    return {
+      onUpdate: callback => {
+        if (this.closed) return () => undefined;
+        const sync = this.ensureSyncClient();
+        const { queryToken, unsubscribe } = sync.subscribe(
+          name,
+          args as Record<string, unknown>,
+          options,
+        );
+        const currentListeners = this.listeners.get(queryToken);
+        if (currentListeners !== undefined) {
+          currentListeners.add(callback);
+        } else {
+          this.listeners.set(queryToken, new Set([callback]));
+        }
+        return () => {
+          if (this.closed) return;
+          const listeners = this.listeners.get(queryToken);
+          if (listeners !== undefined) {
+            listeners.delete(callback);
+            if (listeners.size === 0) this.listeners.delete(queryToken);
+          }
+          unsubscribe();
+        };
+      },
+      localQueryResult: () => {
+        if (this.syncClient === undefined) return undefined;
+        return this.syncClient.localQueryResultByToken(
+          serializePathArgsAndPartition(name, args as Record<string, unknown>, options.partitionKey),
+        ) as FunctionReturnType<Query> | undefined;
+      },
+    };
+  }
+
   onUpdate<Query extends FunctionReference<"query">>(
     query: Query,
     args: FunctionArgs<Query>,
@@ -97,31 +131,17 @@ export class FlarexClient {
     const onError = typeof onErrorOrOptions === "function" ? onErrorOrOptions : undefined;
     const options = typeof onErrorOrOptions === "function" ? maybeOptions : onErrorOrOptions;
     if (options === undefined) throw new Error("partitionKey is required for Flarex live queries.");
-    const sync = this.ensureSyncClient();
-    const { queryToken, unsubscribe } = sync.subscribe(
-      getFunctionName(query),
-      args as Record<string, unknown>,
-      options,
-    );
-    const queryInfo: QueryInfo<Query> = {
-      queryToken,
-      callback,
-      ...(onError === undefined ? {} : { onError }),
-      unsubscribe,
-    };
-    this.listeners.add(queryInfo as QueryInfo);
-    if (sync.hasLocalQueryResultByToken(queryToken)) {
-      setTimeout(() => this.callListener(queryInfo), 0);
-    }
+    const watch = this.watchQuery(query, args, options);
+    const handleUpdate = () => callValueCallback(watch, callback, onError);
+    const unsubscribe = watch.onUpdate(handleUpdate);
+    scheduleExistingLocalResult(watch, handleUpdate);
 
     const unsubscribeProps = {
       unsubscribe: () => {
         if (this.closed) return;
-        this.listeners.delete(queryInfo as QueryInfo);
         unsubscribe();
       },
-      getCurrentValue: () =>
-        sync.localQueryResultByToken(queryToken) as FunctionReturnType<Query> | undefined,
+      getCurrentValue: () => watch.localQueryResult(),
     };
     const ret = unsubscribeProps.unsubscribe as Unsubscribe<FunctionReturnType<Query>>;
     Object.assign(ret, unsubscribeProps);
@@ -169,25 +189,38 @@ export class FlarexClient {
   }
 
   private handleSyncTransition(updatedQueries: QueryToken[]): void {
-    const updated = new Set(updatedQueries);
-    for (const listener of this.listeners) {
-      if (updated.has(listener.queryToken)) this.callListener(listener);
+    for (const queryToken of updatedQueries) {
+      for (const callback of this.listeners.get(queryToken) ?? []) {
+        callback();
+      }
     }
   }
+}
 
-  private callListener<Query extends FunctionReference<"query">>(listener: QueryInfo<Query>): void {
-    try {
-      const value = this.syncClient?.localQueryResultByToken(listener.queryToken);
-      if (value !== undefined) listener.callback(value as FunctionReturnType<Query>);
-    } catch (error) {
-      const resolvedError = error instanceof Error ? error : new Error(String(error));
-      if (listener.onError !== undefined) {
-        listener.onError(resolvedError);
-      } else {
-        setTimeout(() => {
-          throw resolvedError;
-        }, 0);
-      }
+function scheduleExistingLocalResult(watch: Watch<unknown>, callback: () => void): void {
+  try {
+    if (watch.localQueryResult() !== undefined) setTimeout(callback, 0);
+  } catch {
+    setTimeout(callback, 0);
+  }
+}
+
+function callValueCallback<Query extends FunctionReference<"query">>(
+  watch: Watch<FunctionReturnType<Query>>,
+  callback: (result: FunctionReturnType<Query>) => unknown,
+  onError: ((error: Error) => unknown) | undefined,
+): void {
+  try {
+    const value = watch.localQueryResult();
+    if (value !== undefined) callback(value);
+  } catch (error) {
+    const resolvedError = error instanceof Error ? error : new Error(String(error));
+    if (onError !== undefined) {
+      onError(resolvedError);
+    } else {
+      setTimeout(() => {
+        throw resolvedError;
+      }, 0);
     }
   }
 }

@@ -315,20 +315,71 @@ Verification:
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`
 
+## Watch Query API Update
+
+Previous completed checkpoint: `04fc3cb` Default client mutations to sync
+transport.
+
+`FlarexClient` now exposes a Convex-style `watchQuery()` primitive:
+
+```ts
+const watch = client.watchQuery(api.lessons.list, { userId }, { partitionKey });
+
+const unsubscribe = watch.onUpdate(() => {
+  const result = watch.localQueryResult();
+});
+```
+
+`watchQuery()` is inert until `watch.onUpdate()` is called, matching Convex's
+public watch semantics. The existing value-callback `client.onUpdate(...)`
+method now wraps `watchQuery()` instead of managing its own subscription state.
+
+The SDK tests now cover:
+
+- watch creation does not open a WebSocket or subscribe
+- `watch.onUpdate()` sends `ModifyQuerySet Add`
+- `watch.localQueryResult()` reads the cached result after `QueryUpdated`
+- watch unsubscribe sends `Remove`
+- duplicate watch subscriptions dedupe into one backend query
+
+Convex references:
+
+- `npm-packages/convex/src/react/client.ts`
+  - `watchQuery()` returns a stateless watch with `onUpdate()` and
+    `localQueryResult()`.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - the base sync client owns subscribe and local query result lookup.
+
+Cloudflare difference:
+
+- `partitionKey` remains required on `watchQuery()` options until routing can
+  be inferred from generated schema placement metadata.
+- `localQueryLogs()` is not implemented yet because the first Flarex sync
+  client stores result/error state but not query logs.
+
+Verification:
+
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex test`
+- `corepack pnpm --filter flarex build`
+- `corepack pnpm --filter @flarex/example test`
+- `corepack pnpm --filter @flarex/example typecheck`
+- `corepack pnpm --filter @flarex/example build`
+
 ## Last Update
 
-Changed public client mutation default to sync transport. `FlarexClient.onUpdate`
-and default `mutation()` now run through `flarex-test`, local dev sync
-forwarding, backend `ConnectionDO`, active execution artifacts, and
-partition-local OCC in the example E2E path.
+Added Convex-style `watchQuery()` as the primitive live-query API and refactored
+`FlarexClient.onUpdate(...)` to wrap it. This prepares the SDK for React hooks
+without adding a separate subscription model.
 
-Previous completed checkpoint: `8d500ed` Add real app sync E2E coverage.
+Previous completed checkpoint: `04fc3cb` Default client mutations to sync
+transport.
 
 Validation:
 
 - `corepack pnpm --filter flarex typecheck`
 - `corepack pnpm --filter flarex test`
-- `corepack pnpm --filter @flarex/example test`
 - `corepack pnpm --filter flarex build`
+- `corepack pnpm --filter @flarex/example test`
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`
