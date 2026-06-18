@@ -321,33 +321,34 @@ corepack pnpm --filter @flarex/example build
 
 ## Last Update
 
-Added the first Convex-style React client slice through the new `flarex/react`
-entrypoint:
+Added `useQuery_experimental()` to the `flarex/react` entrypoint with
+Convex-style object query state:
 
-- `FlarexReactClient`
-- `FlarexProvider`
-- `useFlarex`
-- `useQuery`
-- `useQueries`
-- `useMutation`
+```ts
+const lessons = useQuery_experimental({
+  query: api.lessons.list,
+  args: { courseId: "english" },
+  partitionKey: userId,
+});
+```
 
-Previous completed checkpoint: `e349214` Add Convex-style watch query client
-API.
+It returns `pending`, `success`, or `error` states and supports
+`throwOnError: true`.
 
-This builds directly on `FlarexClient.watchQuery()` and the sync mutation path.
-It does not introduce a separate React-specific transport.
+Previous completed checkpoint: `81850e6` Add Convex-style React client hooks.
 
 Convex references:
 
 - `npm-packages/convex/src/react/client.ts`
-- `npm-packages/convex/src/react/use_queries.ts`
-- `npm-packages/convex/src/react/queries_observer.ts`
-- `npm-packages/convex/src/react/use_subscription.ts`
+  - `useQuery_experimental()` object-result contract and `throwOnError`
+    behavior.
 
 Current differences from Convex:
 
-- `useQuery()` requires `{ partitionKey }` as the hook options argument.
-- Returned `useMutation()` functions accept `(args, { partitionKey })`.
+- `useQuery_experimental()` requires top-level `partitionKey` unless `args` is
+  `"skip"`.
+- It also accepts optional `journal` because Flarex watch options are
+  explicitly routed for now.
 - `useAction`, pagination, optimistic updates, auth helpers, connection state,
   hydration, and Next.js helpers are still pending.
 

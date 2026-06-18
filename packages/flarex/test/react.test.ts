@@ -5,8 +5,10 @@ import {
   FlarexProvider,
   FlarexReactClient,
   type ReactMutation,
+  type UseQueryResult,
   useMutation,
   useQuery,
+  useQuery_experimental,
 } from "../src/react";
 import type { FunctionReference } from "../src/api";
 
@@ -167,6 +169,158 @@ describe("flarex/react", () => {
     });
 
     await expect(result).resolves.toEqual({ completed: true });
+  });
+
+  it("returns object query states from useQuery_experimental", async () => {
+    FakeWebSocket.instances = [];
+    let rendered: UseQueryResult<Array<{ title: string }>> | undefined;
+    const client = new FlarexReactClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    function Lessons(): null {
+      rendered = useQuery_experimental({
+        query: listLessons,
+        args: { courseId: "english" },
+        partitionKey: "user-1",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      create(
+        React.createElement(
+          FlarexProvider,
+          { client },
+          React.createElement(Lessons),
+        ),
+      );
+    });
+
+    expect(rendered).toEqual({ status: "pending" });
+    const ws = FakeWebSocket.instances[0]!;
+
+    await act(async () => {
+      ws.receive({
+        type: "Transition",
+        startVersion: { querySet: 0, ts: 0, identity: 0 },
+        endVersion: { querySet: 1, ts: 1, identity: 0 },
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 0,
+            value: [{ title: "Intro" }],
+            logLines: [],
+            journal: null,
+          },
+        ],
+      });
+    });
+
+    expect(rendered).toEqual({
+      status: "success",
+      data: [{ title: "Intro" }],
+    });
+  });
+
+  it("returns query errors from useQuery_experimental by default", async () => {
+    FakeWebSocket.instances = [];
+    let rendered: UseQueryResult<Array<{ title: string }>> | undefined;
+    const client = new FlarexReactClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    function Lessons(): null {
+      rendered = useQuery_experimental({
+        query: listLessons,
+        args: { courseId: "english" },
+        partitionKey: "user-1",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      create(
+        React.createElement(
+          FlarexProvider,
+          { client },
+          React.createElement(Lessons),
+        ),
+      );
+    });
+
+    await act(async () => {
+      FakeWebSocket.instances[0]!.receive({
+        type: "Transition",
+        startVersion: { querySet: 0, ts: 0, identity: 0 },
+        endVersion: { querySet: 1, ts: 1, identity: 0 },
+        modifications: [
+          {
+            type: "QueryFailed",
+            queryId: 0,
+            errorMessage: "boom",
+            logLines: [],
+            errorData: null,
+            journal: null,
+          },
+        ],
+      });
+    });
+
+    expect(rendered?.status).toBe("error");
+    expect(rendered).toMatchObject({
+      status: "error",
+      error: expect.any(Error),
+    });
+  });
+
+  it("throws query errors from useQuery_experimental when requested", async () => {
+    FakeWebSocket.instances = [];
+    let rendered: UseQueryResult<Array<{ title: string }>, true> | undefined;
+    const client = new FlarexReactClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    function Lessons(): null {
+      rendered = useQuery_experimental({
+        query: listLessons,
+        args: { courseId: "english" },
+        partitionKey: "user-1",
+        throwOnError: true,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      create(
+        React.createElement(
+          FlarexProvider,
+          { client },
+          React.createElement(Lessons),
+        ),
+      );
+    });
+    expect(rendered).toEqual({ status: "pending" });
+
+    await expect(
+      act(async () => {
+        FakeWebSocket.instances[0]!.receive({
+          type: "Transition",
+          startVersion: { querySet: 0, ts: 0, identity: 0 },
+          endVersion: { querySet: 1, ts: 1, identity: 0 },
+          modifications: [
+            {
+              type: "QueryFailed",
+              queryId: 0,
+              errorMessage: "boom",
+              logLines: [],
+              errorData: null,
+              journal: null,
+            },
+          ],
+        });
+      }),
+    ).rejects.toThrow("boom");
   });
 
   it("rejects direct React event objects passed to mutations", async () => {

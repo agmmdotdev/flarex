@@ -76,11 +76,55 @@ The hook layer uses `watchQuery()` for live queries. `useQuery()` memoizes
 arguments and options by serialized JSON so object literals do not cause
 render-loop resubscriptions.
 
+## Object Query State Update
+
+Previous completed checkpoint: `81850e6` Add Convex-style React client hooks.
+
+Added `useQuery_experimental()` to match Convex's object-result query hook
+shape:
+
+```ts
+const lessons = useQuery_experimental({
+  query: api.lessons.list,
+  args: { courseId: "english" },
+  partitionKey: userId,
+});
+
+if (lessons.status === "pending") {
+  // loading
+}
+if (lessons.status === "error") {
+  // lessons.error
+}
+if (lessons.status === "success") {
+  // lessons.data
+}
+```
+
+The hook also supports `throwOnError: true`, matching Convex's behavior for
+callers that want query failures to flow through React error boundaries.
+
+Convex reference:
+
+- `npm-packages/convex/src/react/client.ts`
+  - `useQuery_experimental()` returns `{ status: "pending" }`,
+    `{ status: "success", data }`, or `{ status: "error", error }`, and throws
+    when `throwOnError` is enabled.
+
+Cloudflare difference:
+
+- Flarex adds top-level `partitionKey` and optional `journal` fields to the
+  object options because query watches are still explicitly shard-routed.
+- Convex's object form only needs `{ query, args, throwOnError }` because the
+  hosted backend owns routing.
+
+Tests now cover pending-to-success, default error-result mode, and
+`throwOnError` behavior.
+
 ## Known Limitations
 
 - `useAction` is not implemented yet because action-over-sync is not connected.
 - `usePaginatedQuery` is not implemented yet.
-- `useQuery_experimental` object-return form is not implemented yet.
 - Optimistic updates are not implemented.
 - Auth helpers, connection state hooks, hydration helpers, and Next.js helpers
   remain future work.

@@ -47,6 +47,22 @@ export type ReactMutation<Mutation extends FunctionReference<"mutation">> = (
   options: InvokeOptions,
 ) => Promise<FunctionReturnType<Mutation>>;
 
+export type UseQueryResult<QueryResult, ThrowOnError extends boolean = false> =
+  | { status: "pending" }
+  | { status: "success"; data: QueryResult }
+  | (ThrowOnError extends true ? never : { status: "error"; error: Error });
+
+type UseQueryOptions<
+  Query extends FunctionReference<"query">,
+  ThrowOnError extends boolean,
+> = {
+  query: Query;
+  args: FunctionArgs<Query> | "skip";
+  partitionKey?: string;
+  journal?: string | null;
+  throwOnError?: ThrowOnError;
+};
+
 export function useQuery<Query extends FunctionReference<"query">>(
   query: Query,
   ...argsAndOptions: OptionalRestArgsOrSkip<Query>
@@ -84,6 +100,67 @@ export function useQuery<Query extends FunctionReference<"query">>(
   const result = results["query"];
   if (result instanceof Error) throw result;
   return result as FunctionReturnType<Query> | undefined;
+}
+
+export function useQuery_experimental<
+  Query extends FunctionReference<"query">,
+  ThrowOnError extends boolean = false,
+>(
+  options: UseQueryOptions<Query, ThrowOnError>,
+): UseQueryResult<FunctionReturnType<Query>, ThrowOnError>;
+
+export function useQuery_experimental<
+  Query extends FunctionReference<"query">,
+  ThrowOnError extends boolean = false,
+>(
+  options: UseQueryOptions<Query, ThrowOnError>,
+): UseQueryResult<FunctionReturnType<Query>, false> {
+  const throwOnError = options.throwOnError ?? false;
+  const queryReference =
+    typeof options.query === "string"
+      ? makeFunctionReference<"query", FunctionArgs<Query>, FunctionReturnType<Query>>(
+          options.query,
+        )
+      : options.query;
+  const skip = options.args === "skip";
+  if (!skip && options.partitionKey === undefined) {
+    throw new Error("partitionKey is required for Flarex useQuery_experimental.");
+  }
+
+  const args = skip ? {} : options.args;
+  const queryName = getFunctionName(queryReference);
+  const argsKey = JSON.stringify(args);
+  const watchOptions: OnUpdateOptions | undefined = skip
+    ? undefined
+    : {
+        partitionKey: options.partitionKey!,
+        ...(options.journal === undefined ? {} : { journal: options.journal }),
+      };
+  const watchOptionsKey = JSON.stringify(watchOptions ?? {});
+
+  const queries = useMemo<RequestForQueries>(
+    () =>
+      skip
+        ? {}
+        : {
+            query: {
+              query: queryReference,
+              args: args as Record<string, unknown>,
+              options: watchOptions!,
+            },
+          },
+    [argsKey, queryName, queryReference, skip, watchOptionsKey],
+  );
+
+  const results = useQueries(queries);
+  const result = results["query"];
+
+  if (result instanceof Error) {
+    if (throwOnError) throw result;
+    return { status: "error", error: result };
+  }
+  if (result === undefined) return { status: "pending" };
+  return { status: "success", data: result as FunctionReturnType<Query> };
 }
 
 export function useQueries(
