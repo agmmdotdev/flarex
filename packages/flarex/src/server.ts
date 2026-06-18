@@ -63,12 +63,61 @@ export type DatabaseWriter<DataModel extends GenericDataModel = AnyDataModel> =
   delete<Table extends TableNamesInDataModel<DataModel>>(id: Id<Table>): Promise<void>;
 };
 
+export type DatabaseWriterForTables<
+  DataModel extends GenericDataModel = AnyDataModel,
+  WritableTables extends TableNamesInDataModel<DataModel> =
+    TableNamesInDataModel<DataModel>,
+> =
+  DatabaseReader<DataModel> & {
+  insert<Table extends WritableTables>(
+    table: Table,
+    value: WithoutSystemFields<DocumentByName<DataModel, Table>>,
+  ): Promise<Id<Table>>;
+  patch<Table extends WritableTables>(
+    id: Id<Table>,
+    value: Partial<WithoutSystemFields<DocumentByName<DataModel, Table>>>,
+  ): Promise<void>;
+  delete<Table extends WritableTables>(id: Id<Table>): Promise<void>;
+};
+
+export type PartitionScopeMap<DataModel extends GenericDataModel> = Partial<
+  Record<TableNamesInDataModel<DataModel>, TableNamesInDataModel<DataModel>>
+>;
+export type DefaultPartitionScopeMap<DataModel extends GenericDataModel> = Record<
+  TableNamesInDataModel<DataModel>,
+  TableNamesInDataModel<DataModel>
+>;
+type WritableTablesForPartition<
+  DataModel extends GenericDataModel,
+  Scopes extends PartitionScopeMap<DataModel>,
+  Partition,
+> = Partition extends { type: "partition"; table: infer Table }
+  ? Table extends keyof Scopes
+    ? Extract<Scopes[Table], TableNamesInDataModel<DataModel>>
+    : TableNamesInDataModel<DataModel>
+  : TableNamesInDataModel<DataModel>;
+
 export type QueryCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseReader<DataModel>;
 };
 export type MutationCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseWriter<DataModel>;
 };
+export type MutationCtxForTables<
+  DataModel extends GenericDataModel = AnyDataModel,
+  WritableTables extends TableNamesInDataModel<DataModel> =
+    TableNamesInDataModel<DataModel>,
+> = {
+  db: DatabaseWriterForTables<DataModel, WritableTables>;
+};
+export type MutationCtxForPartition<
+  DataModel extends GenericDataModel,
+  Scopes extends PartitionScopeMap<DataModel>,
+  Partition,
+> = MutationCtxForTables<
+  DataModel,
+  WritableTablesForPartition<DataModel, Scopes, Partition>
+>;
 export type ActionCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   runQuery: (reference: AnyFunctionReference, args: unknown) => Promise<unknown>;
   runMutation: (reference: AnyFunctionReference, args: unknown) => Promise<unknown>;
@@ -310,7 +359,27 @@ export type MutationBuilder<
   DataModel extends GenericDataModel,
   Visibility extends FunctionVisibility,
   Kind extends "mutation" | "workflowMutation" = "mutation",
+  Scopes extends PartitionScopeMap<DataModel> = DefaultPartitionScopeMap<DataModel>,
 > = {
+  <
+    ArgsValidator extends FunctionArgsValidator | void,
+    ReturnsValidator extends DefinedReturnValidator | void,
+    Partition extends FunctionPartitionPolicy,
+    ReturnValue extends MaybePromise<ReturnValueForOptionalValidator<ReturnsValidator>> = any,
+    OneOrZeroArgs extends ArgsArrayForOptionalValidator<ArgsValidator> =
+      DefaultArgsForOptionalValidator<ArgsValidator>,
+  >(
+    mutation: {
+      args?: ArgsValidator;
+      returns?: ReturnsValidator;
+      route?: FunctionRoutePolicy;
+      partition: Partition;
+      handler: (
+        ctx: MutationCtxForPartition<DataModel, Scopes, Partition>,
+        ...args: OneOrZeroArgs
+      ) => ReturnValue;
+    },
+  ): RegisteredFunction<Kind, Visibility, ArgsArrayToObject<OneOrZeroArgs>, ReturnValue>;
   <
     ArgsValidator extends FunctionArgsValidator | void,
     ReturnsValidator extends DefinedReturnValidator | void,
@@ -323,7 +392,7 @@ export type MutationBuilder<
           args?: ArgsValidator;
           returns?: ReturnsValidator;
           route?: FunctionRoutePolicy;
-          partition?: FunctionPartitionInput;
+          partition?: FunctionRoutePolicy | undefined;
           handler: (ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),

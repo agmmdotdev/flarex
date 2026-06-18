@@ -8,8 +8,60 @@ import {
   query,
   workflowMutation,
   type DefaultFunctionArgs,
+  type MutationBuilder,
 } from "../src/server";
-import { v } from "../src/values";
+import { v, type Id } from "../src/values";
+
+type ScopedTestDataModel = {
+  users: {
+    document: {
+      _id: Id<"users">;
+      _creationTime: number;
+      name: string;
+    };
+    fieldPaths: "_id" | "_creationTime" | "name";
+    indexes: {};
+  };
+  lessonProgress: {
+    document: {
+      _id: Id<"lessonProgress">;
+      _creationTime: number;
+      userId: Id<"users">;
+      lessonId: string;
+    };
+    fieldPaths: "_id" | "_creationTime" | "userId" | "lessonId";
+    indexes: {};
+  };
+  leaderboard: {
+    document: {
+      _id: Id<"leaderboard">;
+      _creationTime: number;
+      userId: Id<"users">;
+      score: number;
+    };
+    fieldPaths: "_id" | "_creationTime" | "userId" | "score";
+    indexes: {};
+  };
+};
+
+type ScopedTestPartitionScopes = {
+  users: "users" | "lessonProgress";
+};
+
+const scopedMutation = mutation as unknown as MutationBuilder<
+  ScopedTestDataModel,
+  "public",
+  "mutation",
+  ScopedTestPartitionScopes
+>;
+
+const userPartition = {
+  type: "partition",
+  table: "users",
+  selector: "byId",
+  partitionField: "_id",
+  argField: "userId",
+} as const;
 
 describe("Convex-style function registration", () => {
   it("attaches exclusive function kind and visibility markers", () => {
@@ -98,5 +150,23 @@ describe("Convex-style function registration", () => {
     expect(() => badReturns.exportReturns()).toThrowError(
       'A validator is undefined for field "fieldType".',
     );
+  });
+
+  it("narrows mutation writer tables from partition scope metadata", () => {
+    const fn = scopedMutation({
+      partition: userPartition,
+      args: { userId: v.id("users"), lessonId: v.string() },
+      handler: async (ctx, args) => {
+        await ctx.db.insert("lessonProgress", {
+          userId: args.userId,
+          lessonId: args.lessonId,
+        });
+        await ctx.db.insert("users", { name: "Ada" });
+        // @ts-expect-error leaderboard is not colocated with the users partition scope.
+        await ctx.db.insert("leaderboard", { userId: args.userId, score: 1 });
+      },
+    });
+
+    expect(fn.partition).toEqual(userPartition);
   });
 });

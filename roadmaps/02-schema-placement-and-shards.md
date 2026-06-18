@@ -57,7 +57,8 @@ cart, order, chat room, course, or tenant.
 - Tables without an obvious owner need explicit design.
 - Unique constraints across shards need a dedicated unique-index DO later.
 - Global tables can become bottlenecks and must be limited.
-- Generated type-level enforcement is not implemented yet.
+- Generated type-level enforcement now narrows mutation writes for functions
+  that declare `partition: model.<table>.by<Field>(...)`.
 - `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
   at backend user-code DB, query, and `PartitionDO` commit boundaries.
 - `partitionBy("_id")` root-record enforcement is not implemented yet.
@@ -69,6 +70,72 @@ cart, order, chat room, course, or tenant.
   (`{tableId}:{uuid}`) instead of Convex's encoded `DeveloperDocumentId`.
 - Schema cache sync is per-invoke/per-partition and coarse-grained: if the
   partition schema version differs, the full schema cache is replaced.
+
+## Partition Scope Type Update
+
+Checkpoint title: `Generate partition-scoped mutation types`
+
+Previous completed checkpoint: `d3ef699` Infer client partition keys from
+partition metadata.
+
+What changed:
+
+- Schema placement now feeds generated mutation types.
+- `flarex-dev` walks `partitionBy(...)` roots and `colocateWith(...)` chains to
+  emit a `PartitionScopes` type in `_generated/server.ts`.
+- A partitioned mutation handler receives write methods limited to the root
+  table and colocated child tables for that root.
+- `global()` tables are intentionally excluded from normal single-partition
+  mutation write scopes.
+
+Example:
+
+```ts
+users.partitionBy("_id")
+lessonProgress.colocateWith("users", "userId")
+
+// generated:
+export type PartitionScopes = {
+  users: "lessonProgress" | "users";
+};
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - developer-facing schema authoring remains the source for generated data
+    model types.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server files bind app-specific schema knowledge into function
+    builders.
+- `npm-packages/convex/src/server/registration.ts`
+  - mutation context typing is specialized through generated builders.
+
+Cloudflare difference:
+
+- Convex schema placement is not developer-visible shard placement. Flarex
+  placement determines the `PartitionDO` transaction boundary, so generated
+  types must expose enough of that boundary to prevent obvious cross-shard
+  writes during development.
+
+Remaining limitations:
+
+- Runtime placement checks remain authoritative.
+- Reads are not narrowed yet.
+- `partitionBy("_id")` root-record creation/allocation is still future backend
+  work.
+- Cross-shard writes still require future workflow or `atomicMutation`
+  semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- --run packages/flarex-dev/test/generate.test.ts
+corepack pnpm --filter @flarex/example typecheck
+```
 
 ## Last Update
 

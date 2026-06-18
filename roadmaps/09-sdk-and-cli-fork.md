@@ -178,11 +178,91 @@ the developer explicitly opts into workflow-style cross-shard behavior.
   yet generate a deployment manifest.
 - Dynamic Worker loading is not connected yet, so generated functions are not
   deployed through the new backend invoke registry.
-- Client-side partition routing is still explicit.
+- Generated clients infer partition routing for functions that declare
+  `partition: model.<table>.by<Field>(...)`, but the wire protocol still
+  carries `partitionKey`.
 - Generated `_generated/server.ts` now exposes `model.<table>.by<Field>(...)`
   partition selectors for root tables using `partitionBy(...)`.
+- Generated `_generated/server.ts` now emits `PartitionScopes` and narrows
+  `mutation` / `internalMutation` / `workflowMutation` handler write tables
+  when a function declares first-class partition metadata.
 - Live sync now has an initial `packages/flarex` client-side stack, but it is
   still smaller than Convex's full browser client.
+
+## Partition-Scoped Mutation Type Update
+
+Checkpoint title: `Generate partition-scoped mutation types`
+
+Previous completed checkpoint: `d3ef699` Infer client partition keys from
+partition metadata.
+
+What changed:
+
+- `packages/flarex` now exports `DatabaseWriterForTables`,
+  `MutationCtxForTables`, `MutationCtxForPartition`, and `PartitionScopeMap`.
+- `MutationBuilder` accepts generated partition scopes as an extra type
+  parameter. Object-form mutations with
+  `partition: model.<table>.by<Field>(...)` receive a handler `ctx.db` whose
+  write methods are narrowed to the root table and colocated tables for that
+  partition root.
+- `packages/flarex-dev` derives `PartitionScopes` from analyzed schema
+  placement and emits it into `_generated/server.ts`.
+- Generated `mutation`, `internalMutation`, and `workflowMutation` are now
+  bound as `MutationBuilder<DataModel, ..., PartitionScopes>`.
+- Direct handlers and legacy `partition: routeFromArgs(...)` definitions keep
+  the full `MutationCtx<DataModel>` type. They are not the final normal path,
+  but this preserves compatibility while partition metadata becomes mandatory
+  at runtime.
+
+Example generated scope:
+
+```ts
+export type PartitionScopes = {
+  users: "lessonProgress" | "users";
+};
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - Convex `MutationBuilder` gives generated mutation handlers a
+    `GenericMutationCtx<DataModel>`.
+  - `GenericMutationCtxWithTable` shows the existing pattern of specializing
+    the mutation context by replacing `db`.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated `_generated/server` binds generic builders to the app
+    `DataModel`.
+- `npm-packages/convex/src/server/data_model.ts`
+  - data model table-name and document typing remain the foundation for
+    typed `ctx.db`.
+
+Cloudflare difference:
+
+- Convex can expose a full `GenericDatabaseWriter<DataModel>` because one
+  logical deployment database owns mutation atomicity. Flarex must narrow
+  normal partitioned mutation writes because the runtime transaction is owned
+  by one `PartitionDO`.
+
+Known limitations:
+
+- This is compile-time DX only. Runtime placement validation in backend
+  syscalls and `PartitionDO` commit remains authoritative.
+- Reads are intentionally not narrowed yet; cross-partition reads still need a
+  clearer query/projection policy before static enforcement.
+- The scope computation follows `colocateWith(...)` chains to a partition root
+  and excludes `global()` tables from normal partitioned mutation writes.
+- Cross-shard writes remain future `atomicMutation` or workflow work, not
+  normal `mutation` semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- --run packages/flarex-dev/test/generate.test.ts
+corepack pnpm --filter @flarex/example typecheck
+```
 
 ## Sync Client Fork Plan
 

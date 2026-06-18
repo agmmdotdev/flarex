@@ -128,6 +128,13 @@ export default defineSchema({
     slug: v.string(),
     name: v.string(),
   }).partitionBy("slug"),
+  teamMembers: defineTable({
+    teamSlug: v.string(),
+    userId: v.id("users"),
+  }).colocateWith("teams", "teamSlug"),
+  auditLog: defineTable({
+    message: v.string(),
+  }).global(),
 });
 `,
     );
@@ -159,6 +166,11 @@ export const create = mutation({
     expect(server).toContain('table: "teams"');
     expect(server).toContain('selector: "bySlug"');
     expect(server).toContain('partitionField: "slug"');
+    expect(server).toContain("export type PartitionScopes = {");
+    expect(server).toContain('users: "users";');
+    expect(server).toContain('teams: "teamMembers" | "teams";');
+    expect(server).not.toContain('auditLog: "auditLog";');
+    expect(server).toContain('MutationBuilder<DataModel, "public", "mutation", PartitionScopes>');
     expect(functionMetadata).toContain('"path": "teams:create"');
     expect(functionMetadata).toContain('"route": {');
     expect(functionMetadata).toContain('"field": "teamSlug"');

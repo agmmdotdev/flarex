@@ -375,9 +375,82 @@ Remaining limitations:
 
 - Selectors only support exact arg-field routing; transforms, auth-derived
   routes, global routes, and projection routes remain future work.
-- Generated `model` does not yet narrow `ctx.db` to the selected partition's
-  allowed tables.
+- Generated `model` now narrows mutation write tables through generated
+  `PartitionScopes` when functions declare
+  `partition: model.<table>.by<Field>(...)`.
 - Owner-scoped query builders still require explicit owner equality at runtime.
+
+## Partition-Scoped Mutation Type Update
+
+Checkpoint title: `Generate partition-scoped mutation types`
+
+Previous completed checkpoint: `d3ef699` Infer client partition keys from
+partition metadata.
+
+What changed:
+
+- Function partition metadata now affects generated handler types, not only
+  client routing and backend validation.
+- `flarex-dev` computes partition write scopes from schema placement:
+  - root `partitionBy(...)` tables can write themselves,
+  - tables colocated with that root through `colocateWith(...)` are also
+    writable,
+  - `global()` tables are not included in normal partitioned mutation scopes.
+- Generated `_generated/server.ts` binds mutation builders to those scopes so
+  `ctx.db.insert`, `patch`, and `delete` are type-limited for partitioned
+  mutation handlers.
+- Route-only or direct-handler definitions keep the old wide context type.
+  Backend execution already rejects normal query/mutation execution without
+  first-class `partition` metadata, so this type behavior points developers
+  toward the supported path.
+
+Example:
+
+```ts
+export const complete = mutation({
+  partition: model.users.byId("userId"),
+  args: { userId: v.id("users"), lessonId: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("lessonProgress", {
+      userId: args.userId,
+      lessonId: args.lessonId,
+      completed: true,
+    });
+
+    // Type error unless leaderboard is colocated with users.
+    await ctx.db.insert("leaderboard", { userId: args.userId, score: 1 });
+  },
+});
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - Convex's generated mutation builder receives a `GenericMutationCtx` typed
+    by the app `DataModel`.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - Convex generated server files are the right place to specialize builder
+    types for one app.
+- `npm-packages/convex/src/server/data_model.ts`
+  - table-name and document typing are reused as the basis for restricted
+    writer methods.
+
+Cloudflare difference:
+
+- Convex mutations keep one full database writer because the backend can make
+  the whole deployment transactionally consistent. Flarex normal mutations are
+  single-`PartitionDO`, so the generated type layer must make that write
+  boundary visible before runtime.
+
+Remaining limitations:
+
+- This does not replace backend enforcement. It is a compile-time guard only.
+- Read methods are still wide at the type level. Runtime already enforces
+  colocated query placement for owner-scoped tables.
+- `partitionBy("_id")` root-record ownership is still a separate backend
+  allocation/enforcement problem.
+- Cross-shard mutation ergonomics are still future `atomicMutation` or
+  workflow design.
 
 Verification:
 
