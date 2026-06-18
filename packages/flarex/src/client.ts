@@ -15,9 +15,11 @@ export type FlarexClientOptions = {
 };
 
 export type InvokeOptions = {
-  partitionKey: string;
+  partitionKey?: string;
   transport?: "http" | "sync";
 };
+
+type ResolvedInvokeOptions = InvokeOptions & { partitionKey: string };
 
 export class FlarexInvocationError extends Error {
   constructor(
@@ -47,32 +49,36 @@ export class FlarexClient {
   query<Reference extends FunctionReference<"query">>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: InvokeOptions,
+    options: InvokeOptions = {},
   ): Promise<FunctionReturnType<Reference>> {
-    return this.invoke(reference, args, options) as Promise<FunctionReturnType<Reference>>;
+    return this.invoke(reference, args, resolveInvokeOptions(reference, args, options)) as Promise<
+      FunctionReturnType<Reference>
+    >;
   }
 
   mutation<Reference extends FunctionReference<"mutation">>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: InvokeOptions,
+    options: InvokeOptions = {},
   ): Promise<FunctionReturnType<Reference>> {
-    if (options.transport === "http") {
-      return this.invoke(reference, args, options) as Promise<FunctionReturnType<Reference>>;
+    const resolvedOptions = resolveInvokeOptions(reference, args, options);
+    if (resolvedOptions.transport === "http") {
+      return this.invoke(reference, args, resolvedOptions) as Promise<FunctionReturnType<Reference>>;
     }
     return this.ensureSyncClient().mutation(
       getFunctionName(reference),
       args as Record<string, unknown>,
-      options,
+      resolvedOptions,
     ) as Promise<FunctionReturnType<Reference>>;
   }
 
   watchQuery<Query extends FunctionReference<"query">>(
     query: Query,
     args: FunctionArgs<Query>,
-    options: OnUpdateOptions,
+    options: OnUpdateOptions = {},
   ): Watch<FunctionReturnType<Query>> {
     const name = getFunctionName(query);
+    const resolvedOptions = resolveOnUpdateOptions(query, args, options);
     return {
       onUpdate: callback => {
         if (this.closed) return () => undefined;
@@ -80,7 +86,7 @@ export class FlarexClient {
         const { queryToken, unsubscribe } = sync.subscribe(
           name,
           args as Record<string, unknown>,
-          options,
+          resolvedOptions,
         );
         const currentListeners = this.listeners.get(queryToken);
         if (currentListeners !== undefined) {
@@ -101,7 +107,11 @@ export class FlarexClient {
       localQueryResult: () => {
         if (this.syncClient === undefined) return undefined;
         return this.syncClient.localQueryResultByToken(
-          serializePathArgsAndPartition(name, args as Record<string, unknown>, options.partitionKey),
+          serializePathArgsAndPartition(
+            name,
+            args as Record<string, unknown>,
+            resolvedOptions.partitionKey,
+          ),
         ) as FunctionReturnType<Query> | undefined;
       },
     };
@@ -111,7 +121,18 @@ export class FlarexClient {
     query: Query,
     args: FunctionArgs<Query>,
     callback: (result: FunctionReturnType<Query>) => unknown,
+  ): Unsubscribe<FunctionReturnType<Query>>;
+  onUpdate<Query extends FunctionReference<"query">>(
+    query: Query,
+    args: FunctionArgs<Query>,
+    callback: (result: FunctionReturnType<Query>) => unknown,
     options: OnUpdateOptions,
+  ): Unsubscribe<FunctionReturnType<Query>>;
+  onUpdate<Query extends FunctionReference<"query">>(
+    query: Query,
+    args: FunctionArgs<Query>,
+    callback: (result: FunctionReturnType<Query>) => unknown,
+    onError: (error: Error) => unknown,
   ): Unsubscribe<FunctionReturnType<Query>>;
   onUpdate<Query extends FunctionReference<"query">>(
     query: Query,
@@ -124,13 +145,12 @@ export class FlarexClient {
     query: Query,
     args: FunctionArgs<Query>,
     callback: (result: FunctionReturnType<Query>) => unknown,
-    onErrorOrOptions: ((error: Error) => unknown) | OnUpdateOptions,
+    onErrorOrOptions?: ((error: Error) => unknown) | OnUpdateOptions,
     maybeOptions?: OnUpdateOptions,
   ): Unsubscribe<FunctionReturnType<Query>> {
     if (this.closed) throw new Error("FlarexClient has already been closed.");
     const onError = typeof onErrorOrOptions === "function" ? onErrorOrOptions : undefined;
-    const options = typeof onErrorOrOptions === "function" ? maybeOptions : onErrorOrOptions;
-    if (options === undefined) throw new Error("partitionKey is required for Flarex live queries.");
+    const options = (typeof onErrorOrOptions === "function" ? maybeOptions : onErrorOrOptions) ?? {};
     const watch = this.watchQuery(query, args, options);
     const handleUpdate = () => callValueCallback(watch, callback, onError);
     const unsubscribe = watch.onUpdate(handleUpdate);
@@ -158,7 +178,7 @@ export class FlarexClient {
   private async invoke(
     reference: FunctionReference,
     args: unknown,
-    options: InvokeOptions,
+    options: ResolvedInvokeOptions,
   ): Promise<unknown> {
     const response = await this.fetch(new URL("/invoke", this.deploymentUrl), {
       method: "POST",
@@ -195,6 +215,52 @@ export class FlarexClient {
       }
     }
   }
+}
+
+export function resolvePartitionKey(
+  reference: FunctionReference,
+  args: unknown,
+  options: { partitionKey?: string } = {},
+): string {
+  if (options.partitionKey !== undefined) {
+    if (options.partitionKey.length === 0) {
+      throw new Error("partitionKey must be a non-empty string.");
+    }
+    return options.partitionKey;
+  }
+  const route = reference._route;
+  const name = getFunctionName(reference);
+  if (route?.type === "args") {
+    if (typeof args !== "object" || args === null || Array.isArray(args)) {
+      throw new Error(`partitionKey for ${name} must be inferred from object args.${route.field}.`);
+    }
+    const value = (args as Record<string, unknown>)[route.field];
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error(
+        `partitionKey for ${name} must be inferred from non-empty string args.${route.field}.`,
+      );
+    }
+    return value;
+  }
+  throw new Error(
+    `partitionKey is required for ${name}. Add routeFromArgs(...) to the function or pass { partitionKey }.`,
+  );
+}
+
+function resolveInvokeOptions(
+  reference: FunctionReference,
+  args: unknown,
+  options: InvokeOptions,
+): ResolvedInvokeOptions {
+  return { ...options, partitionKey: resolvePartitionKey(reference, args, options) };
+}
+
+function resolveOnUpdateOptions<Query extends FunctionReference<"query">>(
+  query: Query,
+  args: FunctionArgs<Query>,
+  options: OnUpdateOptions,
+): OnUpdateOptions & { partitionKey: string } {
+  return { ...options, partitionKey: resolvePartitionKey(query, args, options) };
 }
 
 function scheduleExistingLocalResult(watch: Watch<unknown>, callback: () => void): void {

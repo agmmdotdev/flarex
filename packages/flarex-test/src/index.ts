@@ -2,6 +2,7 @@ import { createFlarexDevRuntime, type FlarexDevRuntime } from "flarex-dev";
 import {
   FlarexClient,
   getFunctionName,
+  resolvePartitionKey,
   type AnyFunctionReference,
   type FunctionArgs,
   type FunctionReference,
@@ -19,7 +20,7 @@ export type FlarexTestOptions = {
 };
 
 export type FlarexTestInvokeOptions = {
-  partitionKey: string;
+  partitionKey?: string;
   idempotencyKey?: string;
 };
 
@@ -34,22 +35,22 @@ export type FlarexTest = {
   query<Reference extends FunctionReference<"query">>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: FlarexTestInvokeOptions,
+    options?: FlarexTestInvokeOptions,
   ): Promise<FunctionReturnType<Reference>>;
   mutation<Reference extends FunctionReference<"mutation">>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: FlarexTestInvokeOptions,
+    options?: FlarexTestInvokeOptions,
   ): Promise<FunctionReturnType<Reference>>;
   action<Reference extends FunctionReference<"action">>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: FlarexTestInvokeOptions,
+    options?: FlarexTestInvokeOptions,
   ): Promise<FunctionReturnType<Reference>>;
   invokeRaw<Reference extends AnyFunctionReference>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: FlarexTestInvokeOptions,
+    options?: FlarexTestInvokeOptions,
   ): Promise<FlarexTestRawResult<Reference>>;
   client(): FlarexClient;
   webSocketConstructor: WebSocketConstructor;
@@ -87,12 +88,13 @@ function createTestClient(runtime: FlarexDevRuntime): FlarexTest {
   async function invokeRaw<Reference extends AnyFunctionReference>(
     reference: Reference,
     args: FunctionArgs<Reference>,
-    options: FlarexTestInvokeOptions,
+    options: FlarexTestInvokeOptions = {},
   ): Promise<FlarexTestRawResult<Reference>> {
+    const partitionKey = resolvePartitionKey(reference, args, options);
     const body = {
       path: getFunctionName(reference),
       args,
-      partitionKey: options.partitionKey,
+      partitionKey,
       ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
     };
     const response = await runtime.fetch(

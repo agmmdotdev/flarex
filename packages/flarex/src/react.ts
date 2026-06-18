@@ -40,11 +40,11 @@ export function useFlarex(): FlarexReactClient {
 export type OptionalRestArgsOrSkip<Query extends FunctionReference<"query">> =
   FunctionArgs<Query> extends Record<string, never>
     ? [args?: FunctionArgs<Query> | "skip", options?: OnUpdateOptions]
-    : [args: FunctionArgs<Query> | "skip", options: OnUpdateOptions];
+    : [args: FunctionArgs<Query> | "skip", options?: OnUpdateOptions];
 
 export type ReactMutation<Mutation extends FunctionReference<"mutation">> = (
   args: FunctionArgs<Mutation>,
-  options: InvokeOptions,
+  options?: InvokeOptions,
 ) => Promise<FunctionReturnType<Mutation>>;
 
 export type UseQueryResult<QueryResult, ThrowOnError extends boolean = false> =
@@ -69,10 +69,7 @@ export function useQuery<Query extends FunctionReference<"query">>(
 ): FunctionReturnType<Query> | undefined {
   const skip = argsAndOptions[0] === "skip";
   const args = skip ? {} : ((argsAndOptions[0] ?? {}) as FunctionArgs<Query>);
-  const options = argsAndOptions[1];
-  if (!skip && options === undefined) {
-    throw new Error("partitionKey is required for Flarex useQuery.");
-  }
+  const options = argsAndOptions[1] ?? {};
 
   const queryReference =
     typeof query === "string"
@@ -90,7 +87,7 @@ export function useQuery<Query extends FunctionReference<"query">>(
             query: {
               query: queryReference,
               args: args as Record<string, unknown>,
-              options: options!,
+              options,
             },
           },
     [argsKey, optionsKey, queryName, queryReference, skip],
@@ -123,20 +120,15 @@ export function useQuery_experimental<
         )
       : options.query;
   const skip = options.args === "skip";
-  if (!skip && options.partitionKey === undefined) {
-    throw new Error("partitionKey is required for Flarex useQuery_experimental.");
-  }
 
   const args = skip ? {} : options.args;
   const queryName = getFunctionName(queryReference);
   const argsKey = JSON.stringify(args);
-  const watchOptions: OnUpdateOptions | undefined = skip
-    ? undefined
-    : {
-        partitionKey: options.partitionKey!,
-        ...(options.journal === undefined ? {} : { journal: options.journal }),
-      };
-  const watchOptionsKey = JSON.stringify(watchOptions ?? {});
+  const watchOptions: OnUpdateOptions = {
+    ...(options.partitionKey === undefined ? {} : { partitionKey: options.partitionKey }),
+    ...(options.journal === undefined ? {} : { journal: options.journal }),
+  };
+  const watchOptionsKey = JSON.stringify(watchOptions);
 
   const queries = useMemo<RequestForQueries>(
     () =>
@@ -146,7 +138,7 @@ export function useQuery_experimental<
             query: {
               query: queryReference,
               args: args as Record<string, unknown>,
-              options: watchOptions!,
+              options: watchOptions,
             },
           },
     [argsKey, queryName, queryReference, skip, watchOptionsKey],
@@ -211,7 +203,7 @@ export function useMutation<Mutation extends FunctionReference<"mutation">>(
 
   return useMemo(
     () =>
-      ((args: FunctionArgs<Mutation>, options: InvokeOptions) => {
+      ((args: FunctionArgs<Mutation>, options: InvokeOptions = {}) => {
         assertNotAccidentalArgument(args);
         return client.mutation(mutationReference, args, options);
       }) as ReactMutation<Mutation>,

@@ -198,10 +198,12 @@ Tests now cover pending-to-success, default error-result mode, and
 - Optimistic updates are not implemented.
 - Auth helpers, connection state hooks, hydration helpers, and Next.js helpers
   remain future work.
-- `partitionKey` is still required in hook options until provider-level default
-  routing is implemented.
-- Full generated partition inference remains future work after provider default
-  routing.
+- Hooks infer `partitionKey` from generated `_route` metadata for functions
+  declared with `routeFromArgs(field)`.
+- `partitionKey` is still required in hook options for unrouted functions.
+- Provider-level default routing remains future work for app-wide auth/current
+  user routing, but it is no longer the only way to remove repetitive
+  partition options.
 - The first hook tests use `react-test-renderer`, which React now marks as
   deprecated. Keep the tests small until the app-level React test environment
   is introduced.
@@ -216,3 +218,20 @@ corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example build
 corepack pnpm --filter @flarex/example test
 ```
+
+## Route-Aware Hook Update
+
+Checkpoint title: `Add route-aware generated client inference`
+
+React hooks now follow the route-aware `FlarexClient` path:
+
+```ts
+const lessons = useQuery(api.lessons.list, { userId });
+const complete = useMutation(api.lessons.complete);
+await complete({ userId, lessonId: "intro" });
+```
+
+The generated function reference supplies `_route: routeFromArgs("userId")`,
+and the client sends `partitionKey: userId` on the sync/invoke protocol. This
+is closer to Convex hook ergonomics while keeping Flarex's shard routing
+explicit in generated metadata.

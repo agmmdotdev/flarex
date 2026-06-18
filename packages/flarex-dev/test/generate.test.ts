@@ -59,6 +59,9 @@ export const helper = "not a function";
 
     expect(api).toContain('import type * as module0 from "../functions/messages"');
     expect(api).toContain('import type * as module1 from "../functions/reexports"');
+    expect(api).toContain('createApi({');
+    expect(api).toContain('"messages:list": {');
+    expect(api).toContain('"field": "topic"');
     expect(dataModel).toContain("DataModelFromSchemaDefinition<typeof schema>");
     expect(server).toContain('QueryBuilder<DataModel, "public">');
     expect(registry).toContain('"messages:list": module0.list');

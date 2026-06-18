@@ -1,5 +1,5 @@
 export type OnUpdateOptions = {
-  partitionKey: string;
+  partitionKey?: string;
   journal?: string | null;
 };
 

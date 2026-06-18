@@ -61,6 +61,29 @@ describe("FlarexClient", () => {
     );
   });
 
+  it("infers invoke partitions from generated route metadata", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: { completed: true } }));
+    const client = new FlarexClient("https://example.test", { fetch });
+
+    await expect(
+      client.query(
+        { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+        { userId: "user-1" },
+      ),
+    ).resolves.toEqual({ completed: true });
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        body: JSON.stringify({
+          path: "lessons:list",
+          args: { userId: "user-1" },
+          partitionKey: "user-1",
+        }),
+      }),
+    );
+  });
+
   it("subscribes to live queries with Convex-style query-set messages", () => {
     FakeWebSocket.instances = [];
     const callback = vi.fn();
@@ -69,10 +92,9 @@ describe("FlarexClient", () => {
     });
 
     const unsubscribe = client.onUpdate(
-      { _path: "lessons:list", _kind: "query" },
-      { courseId: "english" },
+      { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+      { courseId: "english", userId: "user-1" },
       callback,
-      { partitionKey: "user-1" },
     );
 
     const ws = FakeWebSocket.instances[0]!;
@@ -87,7 +109,7 @@ describe("FlarexClient", () => {
             type: "Add",
             queryId: 0,
             udfPath: "lessons:list",
-            args: [{ courseId: "english" }],
+            args: [{ courseId: "english", userId: "user-1" }],
             partitionKey: "user-1",
           },
         ],
@@ -337,16 +359,15 @@ describe("FlarexClient", () => {
     });
 
     const result = client.mutation(
-      { _path: "lessons:complete", _kind: "mutation" },
-      { lessonId: "intro" },
-      { partitionKey: "user-1" },
+      { _path: "lessons:complete", _kind: "mutation", _route: { type: "args", field: "userId" } },
+      { userId: "user-1", lessonId: "intro" },
     );
     const ws = FakeWebSocket.instances[0]!;
     expect(JSON.parse(ws.sent[0]!)).toEqual({
       type: "Mutation",
       requestId: 0,
       udfPath: "lessons:complete",
-      args: [{ lessonId: "intro" }],
+      args: [{ userId: "user-1", lessonId: "intro" }],
       partitionKey: "user-1",
     });
 

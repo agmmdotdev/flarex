@@ -19,6 +19,7 @@ import type { QueryInitializer } from "./query";
 import type {
   AnyFunctionReference,
   FunctionReference,
+  FunctionRoutePolicy,
   FunctionType,
   FunctionVisibility,
 } from "./api";
@@ -29,7 +30,6 @@ export type FunctionArgsValidator =
   | FunctionValidators;
 export type FunctionKind = FunctionType;
 export type DefaultFunctionArgs = Record<string, unknown>;
-export type FunctionRoutePolicy = { type: "args"; field: string };
 
 export function routeFromArgs(field: string): FunctionRoutePolicy {
   if (field.length === 0) throw new Error("routeFromArgs field must be non-empty.");
@@ -352,6 +352,7 @@ export const internalAction = internalActionGeneric;
 
 export {
   anyApi,
+  createApi,
   functionName,
   getFunctionName,
   makeFunctionReference,
@@ -382,6 +383,8 @@ export type {
   FunctionReference,
   FunctionReferenceFromExport,
   FunctionArgs,
+  FunctionRouteMap,
+  FunctionRoutePolicy,
   FunctionReturnType,
   FunctionType,
   FunctionVisibility,

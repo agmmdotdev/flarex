@@ -8,7 +8,6 @@ let t: FlarexTest;
 
 const deploymentId = "example-e2e";
 const userId = "2:u1" as Id<"users">;
-const partitionKey = userId;
 
 beforeAll(async () => {
   t = await flarexTest({
@@ -29,7 +28,6 @@ describe("Flarex invoke", () => {
         userId,
         lessonId: "intro",
       },
-      { partitionKey },
     );
     expect(complete).toMatchObject({ committedTs: 1 });
     expect(complete.writes).toHaveLength(1);
@@ -38,7 +36,7 @@ describe("Flarex invoke", () => {
       value: { userId: "2:u1", lessonId: "intro", completed: true },
     });
 
-    const list = await t.invokeRaw(api.lessons.list, { userId }, { partitionKey });
+    const list = await t.invokeRaw(api.lessons.list, { userId });
     expect(list.value).toEqual([
       expect.objectContaining({
         userId: "2:u1",
@@ -61,7 +59,7 @@ describe("Flarex invoke", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         path: "lessons:list",
-        partitionKey,
+        partitionKey: userId,
         args: { userId: "1:not-a-user" },
       }),
     });

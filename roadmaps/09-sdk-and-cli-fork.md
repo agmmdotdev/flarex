@@ -996,6 +996,52 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 ```
 
+## Route-Aware Generated API Update
+
+Checkpoint title: `Add route-aware generated client inference`
+
+Final codegen now emits generated API references through
+`createApi(routeByPath)` instead of plain `anyApi`. The route map comes from
+analyzed function metadata, so SDK calls can infer the partition key for
+functions declared with:
+
+```ts
+export const list = query({
+  args: { userId: v.id("users") },
+  route: routeFromArgs("userId"),
+  handler: async ctx => {
+    // ...
+  },
+});
+```
+
+Normal client/test/React calls can now omit the explicit partition option:
+
+```ts
+await client.mutation(api.lessons.complete, { userId, lessonId: "intro" });
+const lessons = useQuery(api.lessons.list, { userId });
+await t.invokeRaw(api.lessons.list, { userId });
+```
+
+Convex reference:
+
+- `npm-packages/convex/src/server/api.ts`
+  - generated function references are the stable client-facing API surface.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated files consume analysis output rather than only filesystem
+    shape.
+
+Flarex difference:
+
+- `_route` is Flarex-specific metadata needed to select a `PartitionDO`.
+  Convex generated refs do not expose shard placement because Convex routes
+  through one logical backend database.
+
+Remaining SDK limitation:
+
+- `anyApi` remains route-less and still requires explicit `{ partitionKey }`.
+- Only exact `routeFromArgs(field)` inference is implemented.
+
 ## Implementation Checkpoints
 
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen

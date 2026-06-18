@@ -52,12 +52,24 @@ class FakeWebSocket {
 const listLessons = {
   _path: "lessons:list",
   _kind: "query",
-} as FunctionReference<"query", "public", { courseId: string }, Array<{ title: string }>>;
+  _route: { type: "args", field: "userId" },
+} as FunctionReference<
+  "query",
+  "public",
+  { courseId: string; userId: string },
+  Array<{ title: string }>
+>;
 
 const completeLesson = {
   _path: "lessons:complete",
   _kind: "mutation",
-} as FunctionReference<"mutation", "public", { lessonId: string }, { completed: boolean }>;
+  _route: { type: "args", field: "userId" },
+} as FunctionReference<
+  "mutation",
+  "public",
+  { lessonId: string; userId: string },
+  { completed: boolean }
+>;
 
 describe("flarex/react", () => {
   it("subscribes to queries through FlarexProvider", async () => {
@@ -71,8 +83,7 @@ describe("flarex/react", () => {
     function Lessons(): null {
       rendered = useQuery(
         listLessons,
-        { courseId: "english" },
-        { partitionKey: "user-1" },
+        { courseId: "english", userId: "user-1" },
       );
       return null;
     }
@@ -150,13 +161,13 @@ describe("flarex/react", () => {
       );
     });
 
-    const result = complete!({ lessonId: "intro" }, { partitionKey: "user-1" });
+    const result = complete!({ lessonId: "intro", userId: "user-1" });
     const ws = FakeWebSocket.instances[0]!;
     expect(JSON.parse(ws.sent[0]!)).toEqual({
       type: "Mutation",
       requestId: 0,
       udfPath: "lessons:complete",
-      args: [{ lessonId: "intro" }],
+      args: [{ lessonId: "intro", userId: "user-1" }],
       partitionKey: "user-1",
     });
 
@@ -181,8 +192,7 @@ describe("flarex/react", () => {
     function Lessons(): null {
       rendered = useQuery_experimental({
         query: listLessons,
-        args: { courseId: "english" },
-        partitionKey: "user-1",
+        args: { courseId: "english", userId: "user-1" },
       });
       return null;
     }
@@ -233,8 +243,7 @@ describe("flarex/react", () => {
     function Lessons(): null {
       rendered = useQuery_experimental({
         query: listLessons,
-        args: { courseId: "english" },
-        partitionKey: "user-1",
+        args: { courseId: "english", userId: "user-1" },
       });
       return null;
     }
@@ -284,8 +293,7 @@ describe("flarex/react", () => {
     function Lessons(): null {
       rendered = useQuery_experimental({
         query: listLessons,
-        args: { courseId: "english" },
-        partitionKey: "user-1",
+        args: { courseId: "english", userId: "user-1" },
         throwOnError: true,
       });
       return null;

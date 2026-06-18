@@ -8,7 +8,6 @@ let t: FlarexTest;
 
 const deploymentId = "example-sync-e2e";
 const userId = "2:u1" as Id<"users">;
-const partitionKey = userId;
 
 beforeAll(async () => {
   t = await flarexTest({
@@ -32,7 +31,6 @@ describe("Flarex sync client", () => {
       { userId },
       value => updates.push(value),
       error => errors.push(error),
-      { partitionKey },
     );
 
     await waitFor(() => updates.length === 1);
@@ -42,7 +40,6 @@ describe("Flarex sync client", () => {
     await client.mutation(
       api.lessons.complete,
       { userId, lessonId: "intro" },
-      { partitionKey },
     );
 
     await waitFor(() => updates.length === 2);

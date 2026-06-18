@@ -310,13 +310,82 @@ remain separate follow-up policies.
   route declarations, and workflow/cross-shard route declarations do not exist
   yet.
 - Backend execution still accepts explicit `partitionKey` as the route carrier.
-- Backend route validation checks function route policy before execution, but
-  generated clients do not infer or hide routes yet.
+- Backend route validation checks function route policy before execution.
 - There is no static or runtime validation that every read/write matches schema
   placement beyond the fact that execution happens inside one `PartitionDO`.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Implemented route-aware generated client references.
+
+Checkpoint title: `Add route-aware generated client inference`
+
+Previous completed checkpoint: `a9ab4bf` Implement routeFromArgs shard policy.
+
+What changed:
+
+- `FunctionReference` now carries optional `_route` metadata.
+- `createApi(routeByPath)` creates generated API references whose `_route`
+  comes from deployment analysis.
+- Final codegen writes analyzed route policies into `_generated/api.ts`.
+- `FlarexClient.query()`, `mutation()`, `watchQuery()`, and `onUpdate()` infer
+  `partitionKey` from `routeFromArgs(field)` when explicit options omit it.
+- `flarex-test` uses the same route inference before posting to the dev
+  backend.
+- React hooks no longer require `partitionKey` in normal routed calls.
+- Example invoke and sync E2E now use generated refs without repeated
+  `{ partitionKey }`, while the mismatch test still passes an explicit wrong
+  partition to prove backend rejection.
+
+Convex references:
+
+- `npm-packages/convex/src/server/api.ts`
+  - generated `api` references are ordinary function references used by client
+    calls.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated API files are derived from analyzed function/module
+    metadata.
+- `npm-packages/convex/src/react/client.ts`
+  - hooks delegate to the client/watch layer instead of requiring callers to
+    supply routing infrastructure.
+
+Cloudflare difference:
+
+- Convex references do not need route metadata because the backend routes into
+  one logical database. Flarex references carry `_route` only to derive the
+  `PartitionDO` key before sending `/invoke` or `/sync` messages.
+- Backend validation still owns correctness. Client inference is a DX layer,
+  not an authority boundary.
+
+Remaining limitations:
+
+- Inference only supports exact `routeFromArgs(field)`.
+- Unrouted functions still require explicit `{ partitionKey }`.
+- Direct raw backend requests still need a concrete `partitionKey`; generated
+  clients/test SDK infer before calling the backend.
+- No static placement validation exists yet for reads and writes inside the
+  selected partition.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test test
+corepack pnpm --filter flarex-test build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented `routeFromArgs(field)` as the first real function route policy and
 enforced it at backend execution boundaries.

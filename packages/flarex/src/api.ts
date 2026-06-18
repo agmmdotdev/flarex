@@ -4,6 +4,8 @@ export const functionName = Symbol.for("flarex.functionName");
 
 export type FunctionType = "query" | "mutation" | "workflowMutation" | "action";
 export type FunctionVisibility = "public" | "internal";
+export type FunctionRoutePolicy = { type: "args"; field: string };
+export type FunctionRouteMap = Record<string, FunctionRoutePolicy | null | undefined>;
 
 export type FunctionReference<
   Type extends FunctionType = FunctionType,
@@ -14,6 +16,7 @@ export type FunctionReference<
   readonly _path: string;
   readonly _kind?: Type;
   readonly _visibility?: Visibility;
+  readonly _route?: FunctionRoutePolicy | null;
   readonly [functionName]?: string;
   readonly __args?: Args;
   readonly __returnType?: ReturnType;
@@ -38,10 +41,15 @@ export function makeFunctionReference<
   Type extends FunctionType,
   Args extends Record<string, unknown> = Record<string, unknown>,
   ReturnType = unknown,
->(name: string, kind?: Type): FunctionReference<Type, "public", Args, ReturnType> {
+>(
+  name: string,
+  kind?: Type,
+  route?: FunctionRoutePolicy | null,
+): FunctionReference<Type, "public", Args, ReturnType> {
   return {
     _path: name,
     ...(kind === undefined ? {} : { _kind: kind }),
+    ...(route === undefined ? {} : { _route: route }),
     [functionName]: name,
   } as FunctionReference<Type, "public", Args, ReturnType>;
 }
@@ -83,22 +91,29 @@ export type ApiFromModules<Modules extends Record<string, Record<string, unknown
 type AnyApiNode = { [name: string]: AnyApiNode } & AnyFunctionReference;
 export type AnyApi = Record<string, AnyApiNode>;
 
-function createApi(path: string[] = []): AnyApiNode {
+export function createApi(routeByPath: FunctionRouteMap = {}, path: string[] = []): AnyApiNode {
   return new Proxy({} as AnyApiNode, {
     get(_, property: string | symbol) {
       if (property === functionName || property === "_path") {
-        if (path.length < 2) {
-          throw new Error("Function references must have the form api.module.function.");
-        }
-        const exportName = path.at(-1)!;
-        const moduleName = path.slice(0, -1).join("/");
-        return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
+        return functionPath(path);
+      }
+      if (property === "_route") {
+        return routeByPath[functionPath(path)] ?? null;
       }
       if (property === Symbol.toStringTag) return "FunctionReference";
-      if (typeof property === "string") return createApi([...path, property]);
+      if (typeof property === "string") return createApi(routeByPath, [...path, property]);
       return undefined;
     },
   });
 }
 
 export const anyApi: AnyApi = createApi() as AnyApi;
+
+function functionPath(path: string[]): string {
+  if (path.length < 2) {
+    throw new Error("Function references must have the form api.module.function.");
+  }
+  const exportName = path.at(-1)!;
+  const moduleName = path.slice(0, -1).join("/");
+  return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
+}

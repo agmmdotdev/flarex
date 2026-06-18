@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   anyApi,
+  createApi,
   getFunctionName,
   makeFunctionReference,
   mutation,
@@ -43,11 +44,22 @@ describe("Convex-compatible function references", () => {
   });
 
   it("builds standalone serializable references", () => {
-    const reference = makeFunctionReference<"mutation">("lessons:complete", "mutation");
+    const reference = makeFunctionReference<"mutation">(
+      "lessons:complete",
+      "mutation",
+      { type: "args", field: "userId" },
+    );
     expect(reference).toMatchObject({
       _path: "lessons:complete",
       _kind: "mutation",
+      _route: { type: "args", field: "userId" },
     });
+  });
+
+  it("attaches generated route metadata to api references", () => {
+    const api = createApi({ "lessons:complete": { type: "args", field: "userId" } });
+    expect(api.lessons.complete._route).toEqual({ type: "args", field: "userId" });
+    expect(api.lessons.list._route).toBeNull();
   });
 
   it("derives generated reference argument and return types", () => {
