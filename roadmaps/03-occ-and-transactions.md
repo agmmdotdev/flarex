@@ -87,10 +87,69 @@ single-shard.
 - `PartitionDO` commit validates `colocateWith` and `partitionBy(field)`
   owner-field placement for cached schemas when `field !== "_id"`.
 - Root `partitionBy("_id")` ownership is not enforced yet.
+- Root `partitionBy(field)` owner uniqueness is not enforced yet.
 - Bounded multi-shard `atomicMutation` is documented as future work, but there
   is no coordinator, prepare protocol, or recovery path yet.
 
 ## Last Update
+
+Planned commit-boundary uniqueness for root owner fields.
+
+Checkpoint title: `Plan partition owner uniqueness`
+
+Previous completed checkpoint: `88c0535` Document atomicMutation as future
+layer.
+
+What changed:
+
+- Added `partitionBy(field)` owner uniqueness as a single-shard hardening
+  requirement.
+- Defined the authoritative enforcement point as `PartitionDO` commit, not
+  generated TypeScript alone.
+- Planned a shard-local `partition_owners` table so concurrent creates for the
+  same owner value serialize in the same `PartitionDO`.
+- Kept this separate from global unique constraints. `partitionBy(field)` is
+  local to the owner partition because the owner value is the partition key.
+
+Planned commit algorithm:
+
+```txt
+for each non-delete write:
+  if table.placement = partitionBy(field) and field != "_id":
+    require document[field] == current partitionKey
+    require partition_owners(table_id, field, document[field]) is empty
+      or points at this document id
+
+after validation succeeds:
+  apply document history/current rows
+  apply index rows
+  upsert partition_owners entry for root owner writes
+  append write_log
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit validation is the final authority before persistence.
+- `crates/database/src/transaction.rs`
+  - user execution stages writes before final validation.
+- `crates/database/src/database.rs`
+  - OCC retry behavior remains separate from deterministic validation errors.
+
+Cloudflare difference:
+
+- Convex can validate application-level uniqueness against a single logical
+  database/index. Flarex can enforce `partitionBy(field)` owner uniqueness
+  inside one `PartitionDO` because all contenders for the same owner value
+  route to the same partition.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Previous Update
 
 Recorded the boundary between current single-shard OCC and a future bounded
 multi-shard `atomicMutation` layer.

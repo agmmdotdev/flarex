@@ -61,6 +61,9 @@ cart, order, chat room, course, or tenant.
 - `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
   at backend user-code DB, query, and `PartitionDO` commit boundaries.
 - `partitionBy("_id")` root-record enforcement is not implemented yet.
+- `partitionBy(field)` owner-field uniqueness is not implemented yet. The
+  current runtime validates that `field === partitionKey`, but it does not yet
+  guarantee one root document per owner value.
 - Owner-scoped index queries must include an equality on the placement field
   that matches the current partition key.
 - Document IDs currently use a placeholder numeric table ID prefix
@@ -69,6 +72,74 @@ cart, order, chat room, course, or tenant.
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Planned root-owner uniqueness for `partitionBy(field)`.
+
+Checkpoint title: `Plan partition owner uniqueness`
+
+Previous completed checkpoint: `ea69fc5` Enforce partitionBy field ownership.
+
+What changed:
+
+- Clarified that `partitionBy(field)` means the field is not only placement
+  metadata; it is the root owner identity for that table.
+- Documented that root tables using `partitionBy(field)` need an authoritative
+  uniqueness guarantee for `(table, field, value)`.
+- Kept `colocateWith(table, field)` non-unique. Child records may share the
+  same owner field.
+- Established that generated selectors such as `model.teams.bySlug("teamSlug")`
+  depend on this uniqueness guarantee before they can be trusted as a safe DX
+  layer.
+
+Planned invariant:
+
+```txt
+teams.partitionBy("slug")
+partitionKey = "acme"
+
+Allowed:
+  one current teams document with slug = "acme"
+
+Rejected:
+  a second current teams document with slug = "acme"
+```
+
+First implementation step:
+
+1. Add a `partition_owners` table inside `PartitionDO` with a uniqueness
+   constraint over `(table_id, owner_field, owner_value)`.
+2. During commit validation, for `partitionBy(field)` where `field !== "_id"`,
+   ensure the owner value matches the partition key and is either unclaimed or
+   already claimed by the same document.
+3. During commit application, update the owner mapping atomically with document
+   history/current rows and index rows.
+4. Reject duplicate owners with a structured `UniquePartitionOwnerError`.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final commit validation is the authoritative place to reject invalid write
+    sets.
+- `crates/common/src/schemas/mod.rs`
+  - schema metadata participates in database validation.
+- `npm-packages/convex/src/server/schema.ts`
+  - developer-facing schema API remains the inspiration, even though
+    `partitionBy` is Flarex-specific.
+
+Cloudflare difference:
+
+- Convex does not need a `partitionBy(field)` owner uniqueness rule because it
+  stores documents in one logical transactional database. Flarex needs it so a
+  generated partition selector like `model.teams.bySlug(...)` identifies one
+  root owner inside one `PartitionDO`.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Previous Update
 
 Implemented `partitionBy(field)` owner-field placement enforcement for
 `field !== "_id"`.

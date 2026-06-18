@@ -304,6 +304,8 @@ remain separate follow-up policies.
 - `colocateWith` and `partitionBy(field)` for `field !== "_id"` are enforced
   for backend DB reads/writes, index query ranges, and `PartitionDO` commit,
   but are not yet route-inference sources.
+- Generated model partition selectors such as `model.teams.bySlug("teamSlug")`
+  are not implemented yet and depend on `partitionBy(field)` owner uniqueness.
 - Only `routeFromArgs(field)` exists.
 - `routeFromArgs(field)` requires exact string equality between
   `partitionKey` and `args[field]`.
@@ -318,6 +320,71 @@ remain separate follow-up policies.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Planned generated model partition selectors on top of owner uniqueness.
+
+Checkpoint title: `Plan partition owner uniqueness`
+
+Previous completed checkpoint: `ea69fc5` Enforce partitionBy field ownership.
+
+What changed:
+
+- Kept public wording consistent: function APIs should use `partition`, not
+  `shard`, because schema APIs already use `partitionBy`.
+- Planned generated model selectors from schema placement:
+  - `partitionBy("_id")` -> `model.<table>.byId(argField)`
+  - `partitionBy("slug")` -> `model.<table>.bySlug(argField)`
+  - `partitionBy("clerkId")` -> `model.<table>.byClerkId(argField)`
+- Clarified that these selectors should infer function routing and narrow
+  `ctx.db` to the selected partition's allowed tables, instead of making
+  developers repeat raw `routeFromArgs(...)`, owner-field writes, and owner
+  equality in every query.
+- Deferred implementation until the backend enforces root-owner uniqueness for
+  `partitionBy(field)`.
+
+Desired API direction:
+
+```ts
+export const createProject = mutation({
+  args: {
+    teamSlug: v.string(),
+    name: v.string(),
+  },
+
+  partition: model.teams.bySlug("teamSlug"),
+
+  handler: async (ctx, args) => {
+    await ctx.db.projects.insert({ name: args.name });
+  },
+});
+```
+
+The generated selector is safe only if `teams.partitionBy("slug")` guarantees
+one current `teams` root document for `slug = args.teamSlug`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations carry metadata alongside handlers.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated server/client files can encode analysis and schema-derived
+    metadata.
+- `npm-packages/convex/src/server/database.ts`
+  - generated `ctx.db` types should narrow the developer's database surface.
+
+Cloudflare difference:
+
+- Convex does not need generated partition selectors because route selection is
+  not part of the public database model. Flarex needs generated selectors to
+  make the single-`PartitionDO` execution boundary type-directed and ergonomic.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Previous Update
 
 Implemented `partitionBy(field)` owner-field enforcement for routed
 single-shard functions.
