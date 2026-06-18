@@ -473,6 +473,99 @@ describe("executeInvoke", () => {
     });
   });
 
+  it("requires colocated index queries to constrain the placement field", async () => {
+    const schema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "scores",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+      ],
+      indexes: [
+        { indexId: 1, tableId: 1, name: "by_user_score", fields: ["userId", "score"] },
+        { indexId: 2, tableId: 1, name: "by_score", fields: ["score"] },
+      ],
+    } satisfies DeploymentSchema;
+    await putSchema("placement-query-deployment", schema);
+    await SingleShardTransaction.ensureSchema(env, "placement-query-deployment", "u1", schema);
+    const seed = await SingleShardTransaction.begin(env, "placement-query-deployment", "u1");
+    seed.insert(1, { userId: "u1", score: 10 }, "1:u1-score");
+    await seed.commit({ source: "seed" });
+
+    const functions: BackendFunctionRegistry = {
+      "scores:missingOwner": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db.query("scores").withIndex("by_score", q => q.eq("score", 10)).collect(),
+      },
+      "scores:wrongOwner": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db.query("scores").withIndex("by_user_score", q => q.eq("userId", "u2")).collect(),
+      },
+      "scores:validOwner": {
+        kind: "query",
+        handler: ctx =>
+          ctx.db
+            .query("scores")
+            .withIndex("by_user_score", q => q.eq("userId", "u1").eq("score", 10))
+            .collect(),
+      },
+    };
+
+    await expect(
+      executeInvoke(
+        env,
+        "placement-query-deployment",
+        {
+          path: "scores:missingOwner",
+          kind: "query",
+          partitionKey: "u1",
+          args: null,
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'PlacementValidationError: query on scores must include q.eq("userId", partitionKey) for colocateWith("users", "userId").',
+    });
+
+    await expect(
+      executeInvoke(
+        env,
+        "placement-query-deployment",
+        {
+          path: "scores:wrongOwner",
+          kind: "query",
+          partitionKey: "u1",
+          args: null,
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "PlacementValidationError: query on scores must constrain userId to partitionKey u1.",
+    });
+
+    await expect(
+      executeInvoke(
+        env,
+        "placement-query-deployment",
+        {
+          path: "scores:validOwner",
+          kind: "query",
+          partitionKey: "u1",
+          args: null,
+        },
+        functions,
+      ),
+    ).resolves.toMatchObject({
+      value: [{ _id: "1:u1-score", userId: "u1", score: 10 }],
+    });
+  });
+
   it("validates ID validators against deployment table mappings", async () => {
     await putSchema("id-validation-deployment", {
       version: 1,

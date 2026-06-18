@@ -98,6 +98,68 @@ Convex references:
 - `crates/database/src/reads.rs`
 - `crates/database/src/transaction.rs`
 
+## Colocated Query Placement Update
+
+Colocated table index reads now require a placement-field equality before the
+query reaches `PartitionDO`.
+
+Checkpoint title: `Require colocated query placement equality`
+
+Previous completed checkpoint: `3326e3f` Enforce colocated placement at
+commit.
+
+For a table declared as:
+
+```ts
+scores: defineTable({
+  userId: v.id("users"),
+  score: v.number(),
+}).colocateWith("users", "userId")
+```
+
+this is valid inside a transaction routed to `partitionKey === userId`:
+
+```ts
+ctx.db
+  .query("scores")
+  .withIndex("by_user_score", q => q.eq("userId", userId).eq("score", 10))
+  .collect();
+```
+
+These are rejected:
+
+```ts
+ctx.db.query("scores").withIndex("by_score", q => q.eq("score", 10));
+ctx.db.query("scores").withIndex("by_user_score", q => q.eq("userId", otherUserId));
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/index_range_builder.ts`
+  - range builders preserve equality/inequality expression structure.
+- `crates/common/src/query.rs`
+  - index ranges are compiled from structured equality prefixes.
+- `crates/database/src/reads.rs`
+  - read sets track indexed intervals for transaction validation.
+
+Cloudflare difference:
+
+- Convex index reads are deployment-wide. Flarex colocated index reads must be
+  owner-scoped because the target `PartitionDO` represents only one shard.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
 Cloudflare difference: Flarex resolves names at the Worker/invoke boundary,
 then sends the numeric index ID and encoded range to the target `PartitionDO`.
 The generated standalone Worker currently scans its local SQLite table as a

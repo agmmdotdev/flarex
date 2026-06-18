@@ -318,6 +318,57 @@ remain separate follow-up policies.
 
 ## Last Update
 
+Implemented query-time colocated placement enforcement.
+
+Checkpoint title: `Require colocated query placement equality`
+
+Previous completed checkpoint: `3326e3f` Enforce colocated placement at
+commit.
+
+What changed:
+
+- Backend query execution now rejects colocated table index reads that do not
+  constrain the colocated field to the current partition.
+- This closes the gap where a function could route to one shard but issue a
+  broad child-table query that was not explicitly scoped to that shard owner.
+- The valid Convex-like single-shard pattern is now explicit:
+  `routeFromArgs("userId")` plus `q.eq("userId", args.userId)`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/query.ts`
+  - client-side query-builder calls are structured rather than raw SQL.
+- `crates/database/src/reads.rs`
+  - indexed reads are represented as structured ranges for transaction
+    validation.
+
+Cloudflare difference:
+
+- Convex does not require a shard-owner equality in the query range because it
+  has one logical database. Flarex requires it for colocated tables so the
+  selected `PartitionDO` and query range describe the same owner slice.
+
+Remaining limitations:
+
+- This is runtime validation only; generated TypeScript query builders do not
+  yet encode required colocated equality.
+- `colocateWith` still does not automatically infer a function route.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
+
 Implemented commit-time colocated placement validation in `PartitionDO`.
 
 Checkpoint title: `Enforce colocated placement at commit`

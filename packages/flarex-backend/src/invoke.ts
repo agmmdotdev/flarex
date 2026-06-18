@@ -247,7 +247,8 @@ function backendQuery(
     if (index === undefined) {
       throw new HttpError(400, "Flarex table scans are not implemented. Use withIndex().");
     }
-    const tableId = tableIdForName(schema, table);
+    const tableMetadata = tableForName(schema, table);
+    const tableId = tableMetadata.tableId;
     const metadata = schema.indexes.find(
       candidate =>
         candidate.tableId === tableId &&
@@ -257,6 +258,7 @@ function backendQuery(
     if (!metadata) throw new HttpError(400, `Unknown index ${table}.${index}.`);
 
     const expressions = range?.expressions ?? [];
+    validateQueryPlacement(tableMetadata, expressions, tx.partitionKey);
     let bounds: { lower?: string; upper?: string };
     try {
       bounds = indexBoundsForExpressions(metadata.fields, expressions);
@@ -278,7 +280,7 @@ function backendQuery(
       order,
     });
     const documents = result.documents.map(document => {
-      validateDocumentPlacement(tableForName(schema, table), document.value, tx.partitionKey);
+      validateDocumentPlacement(tableMetadata, document.value, tx.partitionKey);
       return documentValue(document.id, document.value);
     });
     return {
@@ -318,6 +320,30 @@ function backendRangeBuilder(
     lt: (field, value) => backendRangeBuilder([...expressions, { op: "lt", field, value }]),
     lte: (field, value) => backendRangeBuilder([...expressions, { op: "lte", field, value }]),
   };
+}
+
+function validateQueryPlacement(
+  table: SchemaTable,
+  expressions: IndexRangeExpression[],
+  partitionKey: string,
+): void {
+  if (table.placement.kind !== "colocateWith") return;
+  const placement = table.placement;
+  const equality = expressions.find(
+    expression => expression.field === placement.field && expression.op === "eq",
+  );
+  if (equality === undefined) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: query on ${table.name} must include q.eq("${placement.field}", partitionKey) for colocateWith("${placement.table}", "${placement.field}").`,
+    );
+  }
+  if (equality.value !== partitionKey) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: query on ${table.name} must constrain ${placement.field} to partitionKey ${partitionKey}.`,
+    );
+  }
 }
 
 export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {

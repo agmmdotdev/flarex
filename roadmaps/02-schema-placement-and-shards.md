@@ -61,14 +61,86 @@ cart, order, chat room, course, or tenant.
 - `colocateWith` is enforced at both the backend user-code DB boundary and the
   `PartitionDO` commit boundary, but `partitionBy("_id")` root-record
   enforcement is not implemented yet.
-- Index queries validate returned colocated documents, but Flarex does not yet
-  statically require colocated index ranges to include the placement field.
+- Colocated index queries must include an equality on the placement field that
+  matches the current partition key.
 - Document IDs currently use a placeholder numeric table ID prefix
   (`{tableId}:{uuid}`) instead of Convex's encoded `DeveloperDocumentId`.
 - Schema cache sync is per-invoke/per-partition and coarse-grained: if the
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Implemented query-time placement range enforcement for colocated tables.
+
+Checkpoint title: `Require colocated query placement equality`
+
+Previous completed checkpoint: `3326e3f` Enforce colocated placement at
+commit.
+
+What changed:
+
+- Backend indexed query execution now inspects table placement before querying
+  `PartitionDO`.
+- For `colocateWith("users", "userId")`, the index range must include
+  `q.eq("userId", partitionKey)`.
+- Missing placement equality and wrong-owner equality fail with
+  `PlacementValidationError`.
+- Valid colocated equality queries continue to read the target partition and
+  return normal results.
+
+Enforced query invariant:
+
+```txt
+session.partitionKey = "2:u1"
+lessonProgress.colocateWith("users", "userId")
+
+q.eq("userId", "2:u1")
+  -> allowed
+
+q.eq("lessonId", "intro")
+  -> rejected
+
+q.eq("userId", "2:u2")
+  -> rejected
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/query.ts`
+  - query builders preserve structured range expressions.
+- `crates/database/src/reads.rs`
+  - indexed reads become structured read-set intervals.
+- `crates/database/src/transaction.rs`
+  - backend transaction reads are mediated before execution continues.
+
+Cloudflare difference:
+
+- Convex can query any indexed slice inside one logical database and rely on
+  global OCC. Flarex must restrict colocated table reads to the current
+  partition-owned slice because each `PartitionDO` only stores one shard.
+
+Remaining limitations:
+
+- This is runtime enforcement, not TypeScript-level query-builder enforcement
+  yet.
+- Root `partitionBy("_id")` read/write enforcement remains future work.
+- Route inference still depends on function route metadata, not schema
+  placement alone.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented commit-time `colocateWith` placement validation inside
 `PartitionDO`.
