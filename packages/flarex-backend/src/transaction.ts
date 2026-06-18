@@ -39,6 +39,7 @@ export class SingleShardTransaction {
 
   private constructor(
     private readonly partition: DurableObjectStub,
+    readonly partitionKey: string,
     readonly beginTs: number,
     readonly schemaVersion: number,
   ) {}
@@ -52,7 +53,7 @@ export class SingleShardTransaction {
     const begin = await fetchJson<BeginResponse>(
       partition.fetch("https://flarex.internal/begin", { method: "POST" }),
     );
-    return new SingleShardTransaction(partition, begin.beginTs, begin.schemaVersion);
+    return new SingleShardTransaction(partition, partitionKey, begin.beginTs, begin.schemaVersion);
   }
 
   static async ensureSchema(

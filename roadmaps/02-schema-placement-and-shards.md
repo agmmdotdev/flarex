@@ -58,14 +58,90 @@ cart, order, chat room, course, or tenant.
 - Unique constraints across shards need a dedicated unique-index DO later.
 - Global tables can become bottlenecks and must be limited.
 - Generated type-level enforcement is not implemented yet.
-- Invoke resolves table names through `DeploymentDO`, but partition selection
-  is still supplied explicitly as `partitionKey`.
+- `colocateWith` is enforced at the backend user-code DB boundary for
+  document reads and writes, but `partitionBy("_id")` root-record enforcement
+  is not implemented yet.
+- Index queries validate returned colocated documents, but Flarex does not yet
+  statically require colocated index ranges to include the placement field.
 - Document IDs currently use a placeholder numeric table ID prefix
   (`{tableId}:{uuid}`) instead of Convex's encoded `DeveloperDocumentId`.
 - Schema cache sync is per-invoke/per-partition and coarse-grained: if the
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Implemented first backend `colocateWith` placement enforcement.
+
+Checkpoint title: `Enforce colocated document placement`
+
+Previous completed checkpoint: `c7f8f7d` Add route-aware generated client
+inference.
+
+What changed:
+
+- `SingleShardTransaction` now records the concrete `partitionKey`.
+- Backend `ctx.db` read paths validate colocated documents before returning
+  them to user code.
+- Backend `ctx.db` write paths validate colocated inserts, replaces, patches,
+  and deletes against the current transaction partition.
+- Mutations cannot insert a colocated child record whose placement field points
+  at a different shard.
+- Patches cannot move a colocated document to another owner by changing its
+  placement field.
+- Tests now cover wrong-owner inserts, owner-moving patches, and reads of
+  misplaced colocated data.
+
+Enforced invariant:
+
+```txt
+table.placement = colocateWith("users", "userId")
+session.partitionKey = "2:u1"
+document.userId = "2:u1"
+  -> allowed
+
+document.userId = "2:u2"
+  -> PlacementValidationError
+```
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction reads and writes are validated at the backend transaction
+    boundary before commit.
+- `crates/common/src/schemas/mod.rs`
+  - schema metadata is part of backend validation, not only SDK typing.
+- `crates/value/src/document_id.rs`
+  - document identity carries table information used by backend validation.
+
+Cloudflare difference:
+
+- Convex does not need `colocateWith`; one logical database plus OCC can
+  validate global read/write conflicts. Flarex must enforce child-record
+  ownership because a `PartitionDO` is only one shard's authoritative database.
+
+Remaining limitations:
+
+- Root `partitionBy("_id")` enforcement is still not implemented because
+  create-time root IDs need a dedicated owner allocation story.
+- Direct low-level `SingleShardTransaction` test helpers can still seed
+  malformed data; user-code DB syscalls reject it when read or written.
+- Index queries validate returned documents but do not yet require the query
+  range to constrain the colocated field.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Added invoke-time schema cache sync from `DeploymentDO` to the target
 `PartitionDO`. `DeploymentDO` remains the source of truth for table and index

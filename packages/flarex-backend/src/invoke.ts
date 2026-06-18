@@ -217,7 +217,9 @@ export function invokeErrorResponse(error: unknown): Response {
 export function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseReader {
   return {
     get: async id => {
-      const document = await tx.get(tableIdFromDocumentId(id, schema), id);
+      const metadata = tableFromDocumentId(id, schema);
+      const document = await tx.get(metadata.tableId, id);
+      if (document !== null) validateDocumentPlacement(metadata, document.value, tx.partitionKey);
       return document === null ? null : documentValue(document.id, document.value);
     },
     query: table => backendQuery(tx, schema, table),
@@ -275,8 +277,12 @@ function backendQuery(
       ...(resolvedCursor === undefined ? {} : { cursor: resolvedCursor }),
       order,
     });
+    const documents = result.documents.map(document => {
+      validateDocumentPlacement(tableForName(schema, table), document.value, tx.partitionKey);
+      return documentValue(document.id, document.value);
+    });
     return {
-      page: result.documents.map(document => documentValue(document.id, document.value)),
+      page: documents,
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     };
@@ -320,6 +326,7 @@ export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
     insert: async (table, value, id) => {
       const metadata = tableForName(schema, table);
       validateDocument(metadata, value, schema);
+      validateDocumentPlacement(metadata, value, tx.partitionKey);
       const tableId = metadata.tableId;
       if (id !== undefined) validateDocumentIdTable(id, tableId);
       return tx.insert(tableId, value, id);
@@ -327,6 +334,7 @@ export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
     replace: async (id, value) => {
       const metadata = tableFromDocumentId(id, schema);
       validateDocument(metadata, value, schema);
+      validateDocumentPlacement(metadata, value, tx.partitionKey);
       tx.replace(metadata.tableId, id, value);
     },
     patch: async (id, value) => {
@@ -335,10 +343,14 @@ export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
       if (current === null) throw new HttpError(404, `Document not found: ${id}`);
       const next = { ...(current.value as Record<string, Json>), ...value };
       validateDocument(metadata, next, schema);
+      validateDocumentPlacement(metadata, next, tx.partitionKey);
       await tx.patch(metadata.tableId, id, value);
     },
     delete: async id => {
-      tx.delete(tableIdFromDocumentId(id, schema), id);
+      const metadata = tableFromDocumentId(id, schema);
+      const current = await tx.get(metadata.tableId, id);
+      if (current !== null) validateDocumentPlacement(metadata, current.value, tx.partitionKey);
+      tx.delete(metadata.tableId, id);
     },
   };
 }
@@ -473,6 +485,33 @@ function validateDocument(table: SchemaTable, value: Json, schema?: DeploymentSc
       throw new HttpError(400, `DocumentValidationError: ${error.message}`);
     }
     throw error;
+  }
+}
+
+function validateDocumentPlacement(
+  table: SchemaTable,
+  value: Json,
+  partitionKey: string,
+): void {
+  if (table.placement.kind !== "colocateWith") return;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: $document(${table.name}) must be an object for colocateWith("${table.placement.table}", "${table.placement.field}").`,
+    );
+  }
+  const colocatedValue = value[table.placement.field];
+  if (typeof colocatedValue !== "string" || colocatedValue.length === 0) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: $document(${table.name}).${table.placement.field} must be a non-empty string matching partitionKey.`,
+    );
+  }
+  if (colocatedValue !== partitionKey) {
+    throw new HttpError(
+      400,
+      `PlacementValidationError: $document(${table.name}).${table.placement.field} must match partitionKey ${partitionKey}.`,
+    );
   }
 }
 

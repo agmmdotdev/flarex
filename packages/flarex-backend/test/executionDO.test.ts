@@ -56,7 +56,7 @@ describe("ExecutionDO sessions", () => {
     const start = await startExecution("execution-mutation-deployment", {
       path: "lessons:complete",
       kind: "mutation",
-      partitionKey: "user:u1",
+      partitionKey: "u1",
       args: { userId: "u1", lessonId: "intro" },
     });
 
@@ -71,7 +71,7 @@ describe("ExecutionDO sessions", () => {
     const beforeFinish = await SingleShardTransaction.begin(
       env,
       "execution-mutation-deployment",
-      "user:u1",
+      "u1",
     );
     await expect(beforeFinish.get(1, "1:progress-intro")).resolves.toBeNull();
 
@@ -115,7 +115,7 @@ describe("ExecutionDO sessions", () => {
     const start = await startExecution("execution-return-deployment", {
       path: "lessons:badReturn",
       kind: "mutation",
-      partitionKey: "user:u1",
+      partitionKey: "u1",
       args: null,
     });
     await syscall("execution-return-deployment", start.sessionId, {
@@ -138,7 +138,7 @@ describe("ExecutionDO sessions", () => {
       error: "ReturnValidationError: $return.ok: Expected a boolean.",
     });
 
-    const tx = await SingleShardTransaction.begin(env, "execution-return-deployment", "user:u1");
+    const tx = await SingleShardTransaction.begin(env, "execution-return-deployment", "u1");
     await expect(tx.get(1, "1:bad-return")).resolves.toBeNull();
   });
 
@@ -147,15 +147,15 @@ describe("ExecutionDO sessions", () => {
     await activateDeployment("execution-query-deployment", schema, {
       functions: [{ path: "lessons:list", kind: "query" }],
     });
-    await SingleShardTransaction.ensureSchema(env, "execution-query-deployment", "user:u1", schema);
-    const seed = await SingleShardTransaction.begin(env, "execution-query-deployment", "user:u1");
+    await SingleShardTransaction.ensureSchema(env, "execution-query-deployment", "u1", schema);
+    const seed = await SingleShardTransaction.begin(env, "execution-query-deployment", "u1");
     seed.insert(1, { userId: "u1", lessonId: "intro", completed: true }, "1:intro");
     await seed.commit({ source: "seed" });
 
     const start = await startExecution("execution-query-deployment", {
       path: "lessons:list",
       kind: "query",
-      partitionKey: "user:u1",
+      partitionKey: "u1",
       args: null,
     });
     const queryResult = await syscall("execution-query-deployment", start.sessionId, {

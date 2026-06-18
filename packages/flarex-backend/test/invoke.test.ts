@@ -101,7 +101,7 @@ describe("executeInvoke", () => {
       {
         path: "lessons:complete",
         kind: "mutation",
-        partitionKey: "user:u1",
+        partitionKey: "u1",
         idempotencyKey: "complete-once",
         args: { userId: "u1", lessonId: "lesson-1" },
       },
@@ -117,7 +117,7 @@ describe("executeInvoke", () => {
       completed: true,
     });
 
-    const tx = await SingleShardTransaction.begin(env, "invoke-deployment", "user:u1");
+    const tx = await SingleShardTransaction.begin(env, "invoke-deployment", "u1");
     await expect(tx.get(1, "1:progress-lesson-1")).resolves.toMatchObject({
       value: {
         userId: "u1",
@@ -132,7 +132,7 @@ describe("executeInvoke", () => {
       {
         path: "lessons:byUserLesson",
         kind: "query",
-        partitionKey: "user:u1",
+        partitionKey: "u1",
         args: { userId: "u1", lessonId: "lesson-1" },
       },
       functions,
@@ -162,7 +162,7 @@ describe("executeInvoke", () => {
       {
         path: "lessons:byUser",
         kind: "query",
-        partitionKey: "user:u1",
+        partitionKey: "u1",
         args: { userId: "u1" },
       },
       functions,
@@ -185,7 +185,7 @@ describe("executeInvoke", () => {
       {
         path: "lessons:complete",
         kind: "mutation",
-        partitionKey: "user:u1",
+        partitionKey: "u1",
         args: { userId: "u1", lessonId: "lesson-2" },
       },
       functions,
@@ -196,7 +196,7 @@ describe("executeInvoke", () => {
       {
         path: "lessons:range",
         kind: "query",
-        partitionKey: "user:u1",
+        partitionKey: "u1",
         args: { userId: "u1", from: "lesson-2", to: "lesson-3" },
       },
       functions,
@@ -401,6 +401,76 @@ describe("executeInvoke", () => {
     ).rejects.toThrow(
       "RouteValidationError: partitionKey must match args.userId for lessons:list.",
     );
+  });
+
+  it("enforces colocateWith placement on user-code reads and writes", async () => {
+    await putSchema("placement-validation-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "scores",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+      ],
+      indexes: [],
+    });
+
+    const seed = await SingleShardTransaction.begin(
+      env,
+      "placement-validation-deployment",
+      "u1",
+    );
+    seed.insert(1, { userId: "u1", score: 10 }, "1:score");
+    seed.insert(1, { userId: "u2", score: 99 }, "1:misplaced");
+    await seed.commit({ source: "seed" });
+
+    const functions: BackendFunctionRegistry = {
+      "scores:insertWrongOwner": {
+        kind: "mutation",
+        handler: ctx => ctx.db.insert("scores", { userId: "u2", score: 1 }, "1:wrong"),
+      },
+      "scores:moveOwner": {
+        kind: "mutation",
+        handler: async ctx => {
+          await ctx.db.patch("1:score", { userId: "u2" });
+          return null;
+        },
+      },
+      "scores:readMisplaced": {
+        kind: "query",
+        handler: ctx => ctx.db.get("1:misplaced"),
+      },
+    };
+
+    for (const path of ["scores:insertWrongOwner", "scores:moveOwner", "scores:readMisplaced"]) {
+      await expect(
+        executeInvoke(
+          env,
+          "placement-validation-deployment",
+          {
+            path,
+            kind: path === "scores:readMisplaced" ? "query" : "mutation",
+            partitionKey: "u1",
+            args: null,
+          },
+          functions,
+        ),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining("PlacementValidationError"),
+      });
+    }
+
+    const check = await SingleShardTransaction.begin(
+      env,
+      "placement-validation-deployment",
+      "u1",
+    );
+    await expect(check.get(1, "1:wrong")).resolves.toBeNull();
+    await expect(check.get(1, "1:score")).resolves.toMatchObject({
+      value: { userId: "u1", score: 10 },
+    });
   });
 
   it("validates ID validators against deployment table mappings", async () => {
@@ -733,12 +803,12 @@ describe("executeInvoke", () => {
           const concurrent = await SingleShardTransaction.begin(
             env,
             "range-conflict-deployment",
-            "user:u1",
+            "u1",
           );
           concurrent.insert(1, { userId: "u1", score: 10 }, "1:concurrent");
           await concurrent.commit({ source: "concurrent" });
 
-          await ctx.db.insert("scores", { userId: "u2", score: 1 }, "1:outer");
+          await ctx.db.insert("scores", { userId: "u1", score: 1 }, "1:outer");
           return null;
         },
       },
@@ -751,7 +821,7 @@ describe("executeInvoke", () => {
         {
           path: "scores:staleMutation",
           kind: "mutation",
-          partitionKey: "user:u1",
+          partitionKey: "u1",
           args: null,
         },
         functions,
@@ -775,9 +845,9 @@ describe("executeInvoke", () => {
       indexes: [{ indexId: 1, tableId: 1, name: "by_user_score", fields: ["userId", "score"] }],
     };
     await putSchema("pagination-deployment", schema);
-    await SingleShardTransaction.ensureSchema(env, "pagination-deployment", "user:u1", schema);
+    await SingleShardTransaction.ensureSchema(env, "pagination-deployment", "u1", schema);
 
-    const seed = await SingleShardTransaction.begin(env, "pagination-deployment", "user:u1");
+    const seed = await SingleShardTransaction.begin(env, "pagination-deployment", "u1");
     for (const id of ["1:a", "1:b", "1:c"]) {
       seed.insert(1, { userId: "u1", score: 10 }, id);
     }
@@ -828,7 +898,7 @@ describe("executeInvoke", () => {
         body: JSON.stringify({
           path: "missing:function",
           kind: "mutation",
-          partitionKey: "user:u1",
+          partitionKey: "u1",
           args: null,
         }),
       },
@@ -888,7 +958,7 @@ function pageScores(
     {
       path: "scores:page",
       kind: "query",
-      partitionKey: "user:u1",
+      partitionKey: "u1",
       args: { order, cursor },
     },
     functions,

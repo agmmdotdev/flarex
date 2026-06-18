@@ -301,8 +301,8 @@ remain separate follow-up policies.
 
 ## Known Limitations
 
-- `colocateWith` exists in the roadmap design but is not yet fully enforced as
-  a route-inference source.
+- `colocateWith` is enforced for backend DB reads and writes, but is not yet a
+  route-inference source.
 - Only `routeFromArgs(field)` exists.
 - `routeFromArgs(field)` requires exact string equality between
   `partitionKey` and `args[field]`.
@@ -311,11 +311,69 @@ remain separate follow-up policies.
   yet.
 - Backend execution still accepts explicit `partitionKey` as the route carrier.
 - Backend route validation checks function route policy before execution.
-- There is no static or runtime validation that every read/write matches schema
-  placement beyond the fact that execution happens inside one `PartitionDO`.
+- `partitionBy("_id")` root-record enforcement is not implemented yet.
+- There is no static validation that colocated index reads include the
+  placement field in their range.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Implemented backend colocated document placement enforcement.
+
+Checkpoint title: `Enforce colocated document placement`
+
+Previous completed checkpoint: `c7f8f7d` Add route-aware generated client
+inference.
+
+What changed:
+
+- Route-selected execution sessions now pass their concrete partition key down
+  into backend DB validation.
+- `ctx.db.insert`, `replace`, `patch`, and `delete` validate
+  `colocateWith(..., field)` documents against the current partition.
+- `ctx.db.get` and index query results validate colocated documents before
+  returning them to user code.
+- The route-selected shard and the schema placement rule now agree for the
+  common single-owner case.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - backend transactions mediate reads/writes and commit validation.
+- `crates/common/src/schemas/mod.rs`
+  - schema metadata participates in backend behavior.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code reaches storage through a backend-controlled syscall boundary.
+
+Cloudflare difference:
+
+- Convex does not need a placement check for `colocateWith`, because Convex
+  does not expose table-to-shard placement. Flarex must verify that a function
+  routed to one `PartitionDO` does not write child records owned by another
+  shard.
+
+Remaining limitations:
+
+- `routeFromArgs(field)` is still the only function route policy.
+- `colocateWith` does not yet automatically infer the function route.
+- `partitionBy("_id")` root owner enforcement needs a separate root document
+  creation/allocation design.
+- Cross-shard workflows and projection routes remain explicit future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented route-aware generated client references.
 
