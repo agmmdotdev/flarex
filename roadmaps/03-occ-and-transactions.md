@@ -79,8 +79,56 @@ a different coordinator. Flarex should not pretend otherwise.
 - OCC validation remains conservative for table scans and future query forms.
 - No retention window or out-of-retention error exists yet.
 - Transaction index reads do not yet overlay staged writes.
+- `PartitionDO` commit validates `colocateWith` placement for cached schemas,
+  but root `partitionBy("_id")` ownership is not enforced yet.
 
 ## Last Update
+
+Added commit-time `colocateWith` placement validation to the transaction
+commit boundary.
+
+Checkpoint title: `Enforce colocated placement at commit`
+
+Previous completed checkpoint: `51d840a` Enforce colocated document placement.
+
+What changed:
+
+- `PartitionDO` stores the selected shard key in local metadata during schema
+  cache installation.
+- `PartitionDO.validateWrites()` now checks colocated document placement before
+  read-set validation proceeds to persistence.
+- Direct `SingleShardTransaction.commit()` attempts with a wrong colocated
+  owner fail with `PlacementValidationError`.
+- Existing OCC behavior remains intact; the new validation runs as another
+  commit precondition before document/index rows are written.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final commit validation is authoritative and rejects invalid write sets.
+- `crates/database/src/transaction.rs`
+  - function execution accumulates writes before final validation/commit.
+
+Cloudflare difference:
+
+- Convex validates against a global transactional database. Flarex validates
+  against the selected `PartitionDO`, so placement is part of the local commit
+  precondition.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Added `SingleShardTransaction`, an executor-facing wrapper that turns future
 `ctx.db` syscalls into `PartitionDO` begin/read/commit calls. It records read

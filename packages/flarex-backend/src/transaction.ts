@@ -63,16 +63,16 @@ export class SingleShardTransaction {
     schema: DeploymentSchema,
   ): Promise<void> {
     const partition = env.PARTITIONS.getByName(partitionObjectName(deploymentId, partitionKey));
-    const health = await fetchJson<{ schemaVersion: number }>(
+    const health = await fetchJson<{ schemaVersion: number; partitionKey?: string | null }>(
       partition.fetch("https://flarex.internal/health"),
     );
-    if (health.schemaVersion === schema.version) return;
+    if (health.schemaVersion === schema.version && health.partitionKey === partitionKey) return;
 
     await fetchJson<{ schemaVersion: number }>(
       partition.fetch("https://flarex.internal/schema-cache", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(schema),
+        body: JSON.stringify({ partitionKey, schema }),
       }),
     );
   }

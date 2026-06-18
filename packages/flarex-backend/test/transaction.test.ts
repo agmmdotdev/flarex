@@ -3,7 +3,7 @@ import {
   PartitionRequestError,
   SingleShardTransaction,
 } from "../src/transaction";
-import type { Env } from "../src/types";
+import type { DeploymentSchema, Env } from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
 let harness: BackendHarness;
@@ -74,6 +74,51 @@ describe("SingleShardTransaction", () => {
       body: {
         code: "OCC_CONFLICT",
         conflictingTs: concurrentCommit.committedTs,
+      },
+    } satisfies Partial<PartitionRequestError>);
+  });
+
+  it("rejects colocated writes at the partition commit boundary", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "scores",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+      ],
+      indexes: [],
+    };
+    await SingleShardTransaction.ensureSchema(env, "placement-commit-deployment", "u1", schema);
+
+    const wrongInsert = await SingleShardTransaction.begin(
+      env,
+      "placement-commit-deployment",
+      "u1",
+    );
+    wrongInsert.insert(1, { userId: "u2", score: 1 }, "1:wrong");
+    await expect(wrongInsert.commit({ source: "wrong-insert" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: "PlacementValidationError: $document(scores).userId must match partitionKey u1.",
+      },
+    } satisfies Partial<PartitionRequestError>);
+
+    const valid = await SingleShardTransaction.begin(env, "placement-commit-deployment", "u1");
+    valid.insert(1, { userId: "u1", score: 1 }, "1:score");
+    await valid.commit({ source: "valid" });
+
+    const wrongReplace = await SingleShardTransaction.begin(
+      env,
+      "placement-commit-deployment",
+      "u1",
+    );
+    wrongReplace.replace(1, "1:score", { userId: "u2", score: 2 });
+    await expect(wrongReplace.commit({ source: "wrong-replace" })).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: "PlacementValidationError: $document(scores).userId must match partitionKey u1.",
       },
     } satisfies Partial<PartitionRequestError>);
   });

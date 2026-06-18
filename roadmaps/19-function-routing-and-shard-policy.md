@@ -301,8 +301,8 @@ remain separate follow-up policies.
 
 ## Known Limitations
 
-- `colocateWith` is enforced for backend DB reads and writes, but is not yet a
-  route-inference source.
+- `colocateWith` is enforced for backend DB reads/writes and at
+  `PartitionDO` commit, but is not yet a route-inference source.
 - Only `routeFromArgs(field)` exists.
 - `routeFromArgs(field)` requires exact string equality between
   `partitionKey` and `args[field]`.
@@ -317,6 +317,55 @@ remain separate follow-up policies.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
+
+Implemented commit-time colocated placement validation in `PartitionDO`.
+
+Checkpoint title: `Enforce colocated placement at commit`
+
+Previous completed checkpoint: `51d840a` Enforce colocated document placement.
+
+What changed:
+
+- The route-selected partition stores its concrete partition key with schema
+  cache metadata.
+- The authoritative commit path validates colocated writes against that stored
+  partition key.
+- Direct commits that bypass generated clients and `ctx.db` syscall validation
+  are rejected when they attempt to write child records for another owner.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit validation is the final storage authority.
+- `crates/database/src/transaction.rs`
+  - write sets are validated after function execution and before persistence.
+
+Cloudflare difference:
+
+- Convex does not route documents into per-owner Durable Objects, so it has no
+  equivalent placement key. Flarex must carry the selected shard identity into
+  the commit boundary and reject cross-owner child writes there.
+
+Remaining limitations:
+
+- `colocateWith` still does not infer function routes by itself.
+- `partitionBy("_id")` root ownership still needs a dedicated creation and ID
+  allocation policy.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented backend colocated document placement enforcement.
 

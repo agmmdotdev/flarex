@@ -16,6 +16,7 @@ import type {
   Json,
   ReadSet,
   SchemaIndex,
+  TablePlacement,
   StoredDocument,
   ValidatorJson,
 } from "./types";
@@ -148,6 +149,7 @@ export class PartitionDO extends DurableObject<Env> {
           status: "ok",
           currentTs: this.currentTs(),
           schemaVersion: this.schemaVersion(),
+          partitionKey: this.partitionKey(),
         });
       }
       if (url.pathname === "/schema-cache" && request.method === "PUT") {
@@ -211,16 +213,34 @@ export class PartitionDO extends DurableObject<Env> {
     return { beginTs: this.currentTs(), schemaVersion: this.schemaVersion() };
   }
 
-  private async putSchemaCache(schema: {
-    version: number;
-    tables: Array<{
+  private async putSchemaCache(body: {
+    partitionKey?: string;
+    schema?: {
+      version: number;
+      tables: Array<{
+        tableId: number;
+        name: string;
+        state?: string;
+        validator?: Json;
+        placement: Json;
+      }>;
+      indexes: Array<{
+        indexId: number;
+        tableId: number;
+        name: string;
+        fields: string[];
+        state?: string;
+      }>;
+    };
+    version?: number;
+    tables?: Array<{
       tableId: number;
       name: string;
       state?: string;
       validator?: Json;
       placement: Json;
     }>;
-    indexes: Array<{
+    indexes?: Array<{
       indexId: number;
       tableId: number;
       name: string;
@@ -228,6 +248,23 @@ export class PartitionDO extends DurableObject<Env> {
       state?: string;
     }>;
   }): Promise<{ schemaVersion: number }> {
+    const schemaCandidate = body.schema ?? body;
+    const partitionKey = body.partitionKey;
+    if (typeof partitionKey !== "string" || partitionKey.length === 0) {
+      throw new HttpError(400, "partitionKey must be provided with schema-cache.");
+    }
+    if (
+      typeof schemaCandidate.version !== "number" ||
+      !Array.isArray(schemaCandidate.tables) ||
+      !Array.isArray(schemaCandidate.indexes)
+    ) {
+      throw new HttpError(400, "schema-cache requires a deployment schema.");
+    }
+    const schema = {
+      version: schemaCandidate.version,
+      tables: schemaCandidate.tables,
+      indexes: schemaCandidate.indexes,
+    };
     return this.ctx.storage.transaction(async () => {
       this.sql.exec("DELETE FROM indexes");
       this.sql.exec("DELETE FROM tables");
@@ -258,6 +295,7 @@ export class PartitionDO extends DurableObject<Env> {
         );
       }
       this.setMeta("schema_version", String(schema.version));
+      this.setMeta("partition_key", partitionKey);
       return { schemaVersion: schema.version };
     });
   }
@@ -410,25 +448,72 @@ export class PartitionDO extends DurableObject<Env> {
     if (this.schemaVersion() === 0) return;
     for (const write of writes) {
       const row = this.sql
-        .exec<{ table_name: string; schema_json: string | null }>(
-          "SELECT table_name, schema_json FROM tables WHERE table_id = ? AND state != 'deleted'",
+        .exec<{
+          table_name: string;
+          schema_json: string | null;
+          partition_rule_json: string;
+        }>(
+          "SELECT table_name, schema_json, partition_rule_json FROM tables WHERE table_id = ? AND state != 'deleted'",
           write.tableId,
         )
         .toArray()[0];
       if (!row) throw new HttpError(400, `Write references unknown table id ${write.tableId}.`);
-      if (write.value === null) continue;
-      const validator = JSON.parse(row.schema_json ?? "null") as ValidatorJson | null;
-      if (validator === null) continue;
-      try {
-        validateJsonValue(validator, write.value, `$document(${row.table_name})`, {
-          validateId: this.validateId.bind(this),
-        });
-      } catch (error) {
-        if (error instanceof BackendValidationError) {
-          throw new HttpError(400, `DocumentValidationError: ${error.message}`);
+      const placement = JSON.parse(row.partition_rule_json) as TablePlacement;
+      if (write.value === null) {
+        const id = write.id;
+        if (id !== undefined) {
+          const current = this.getCurrentDocument(write.tableId, id);
+          if (current !== null) {
+            this.validateDocumentPlacement(row.table_name, placement, current.value);
+          }
         }
-        throw error;
+        continue;
       }
+      const validator = JSON.parse(row.schema_json ?? "null") as ValidatorJson | null;
+      if (validator !== null) {
+        try {
+          validateJsonValue(validator, write.value, `$document(${row.table_name})`, {
+            validateId: this.validateId.bind(this),
+          });
+        } catch (error) {
+          if (error instanceof BackendValidationError) {
+            throw new HttpError(400, `DocumentValidationError: ${error.message}`);
+          }
+          throw error;
+        }
+      }
+      this.validateDocumentPlacement(row.table_name, placement, write.value);
+    }
+  }
+
+  private validateDocumentPlacement(
+    tableName: string,
+    placement: TablePlacement,
+    value: Json,
+  ): void {
+    if (placement.kind !== "colocateWith") return;
+    const partitionKey = this.partitionKey();
+    if (partitionKey === null) {
+      throw new HttpError(400, "Partition placement validation requires a cached partitionKey.");
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new HttpError(
+        400,
+        `PlacementValidationError: $document(${tableName}) must be an object for colocateWith("${placement.table}", "${placement.field}").`,
+      );
+    }
+    const colocatedValue = value[placement.field];
+    if (typeof colocatedValue !== "string" || colocatedValue.length === 0) {
+      throw new HttpError(
+        400,
+        `PlacementValidationError: $document(${tableName}).${placement.field} must be a non-empty string matching partitionKey.`,
+      );
+    }
+    if (colocatedValue !== partitionKey) {
+      throw new HttpError(
+        400,
+        `PlacementValidationError: $document(${tableName}).${placement.field} must match partitionKey ${partitionKey}.`,
+      );
     }
   }
 
@@ -792,6 +877,10 @@ export class PartitionDO extends DurableObject<Env> {
 
   private schemaVersion(): number {
     return Number(this.getMeta("schema_version") ?? "0");
+  }
+
+  private partitionKey(): string | null {
+    return this.getMeta("partition_key");
   }
 
   private setMetaIfMissing(key: string, value: string): void {

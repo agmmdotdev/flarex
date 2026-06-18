@@ -387,7 +387,7 @@ async function routePartition(
     return partition.fetch("https://flarex.internal/schema-cache", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(schema),
+      body: JSON.stringify({ partitionKey, schema }),
     });
   }
   if (action === "document" && request.method === "GET") {

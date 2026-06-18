@@ -58,9 +58,9 @@ cart, order, chat room, course, or tenant.
 - Unique constraints across shards need a dedicated unique-index DO later.
 - Global tables can become bottlenecks and must be limited.
 - Generated type-level enforcement is not implemented yet.
-- `colocateWith` is enforced at the backend user-code DB boundary for
-  document reads and writes, but `partitionBy("_id")` root-record enforcement
-  is not implemented yet.
+- `colocateWith` is enforced at both the backend user-code DB boundary and the
+  `PartitionDO` commit boundary, but `partitionBy("_id")` root-record
+  enforcement is not implemented yet.
 - Index queries validate returned colocated documents, but Flarex does not yet
   statically require colocated index ranges to include the placement field.
 - Document IDs currently use a placeholder numeric table ID prefix
@@ -69,6 +69,78 @@ cart, order, chat room, course, or tenant.
   partition schema version differs, the full schema cache is replaced.
 
 ## Last Update
+
+Implemented commit-time `colocateWith` placement validation inside
+`PartitionDO`.
+
+Checkpoint title: `Enforce colocated placement at commit`
+
+Previous completed checkpoint: `51d840a` Enforce colocated document placement.
+
+What changed:
+
+- `PartitionDO` now stores the concrete `partitionKey` alongside its schema
+  cache.
+- `SingleShardTransaction.ensureSchema()` and raw partition `schema-cache`
+  routing pass the partition key when installing schema metadata.
+- `PartitionDO.validateWrites()` validates each non-null colocated write
+  against the cached partition key before persistence/index maintenance.
+- Delete writes validate the existing document placement when a current
+  document exists.
+- Direct low-level `SingleShardTransaction.commit()` can no longer bypass
+  colocated placement after schema cache is installed.
+- Added tests for wrong-owner direct insert and owner-moving direct replace at
+  commit time.
+
+Authoritative invariant:
+
+```txt
+PartitionDO.partitionKey = "2:u1"
+write.table = lessonProgress
+table.placement = colocateWith("users", "userId")
+write.value.userId = "2:u2"
+  -> commit rejects before storing documents or indexes
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit validation is the authoritative storage boundary.
+- `crates/database/src/transaction.rs`
+  - function execution produces a final write set that is validated before
+    commit.
+- `crates/common/src/schemas/mod.rs`
+  - schema metadata constrains persisted documents.
+
+Cloudflare difference:
+
+- Convex has no colocated-shard placement rule. Flarex uses commit-time
+  placement validation because each `PartitionDO` owns only one shard, and the
+  shard database must reject writes for another owner even if they bypass the
+  normal `ctx.db` syscall layer.
+
+Remaining limitations:
+
+- Placement validation only runs after schema cache is installed. Partitions
+  with schema version `0` remain unrestricted test/bootstrap storage.
+- Root `partitionBy("_id")` enforcement remains separate follow-up work.
+- Index queries still validate returned colocated documents but do not
+  statically require the range to include the placement field.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
+## Previous Update
 
 Implemented first backend `colocateWith` placement enforcement.
 
