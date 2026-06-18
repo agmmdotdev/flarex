@@ -39,3 +39,4 @@ Start with:
 - [16-package-boundaries.md](./16-package-boundaries.md)
 - [17-deployment-analysis-and-push.md](./17-deployment-analysis-and-push.md)
 - [18-react-client-hooks.md](./18-react-client-hooks.md)
+- [19-function-routing-and-shard-policy.md](./19-function-routing-and-shard-policy.md)

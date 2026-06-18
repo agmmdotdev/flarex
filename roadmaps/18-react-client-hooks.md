@@ -59,6 +59,10 @@ tables and common app patterns.
 
 ## Partition Routing Ergonomics Plan
 
+The full backend/platform routing invariant is recorded in
+[`19-function-routing-and-shard-policy.md`](./19-function-routing-and-shard-policy.md).
+This section only covers the React ergonomics bridge.
+
 Do this in stages instead of jumping directly to full generated inference.
 
 ### Stage 1: Provider Default Partition
