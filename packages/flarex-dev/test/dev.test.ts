@@ -97,7 +97,7 @@ describe("Flarex dev runtime", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           path: "lessons:complete",
-          partitionKey: "user:2:u1",
+          partitionKey: "2:u1",
           args: { userId: "2:u1", lessonId: "dev-runtime" },
         }),
       }),

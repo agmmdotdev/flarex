@@ -225,40 +225,136 @@ if the public client API becomes Convex-like.
 ## Implementation Plan
 
 1. Keep current explicit `partitionKey` as the prototype route carrier.
-2. Add provider-level default `partitionKey` for React ergonomics.
-3. Add route policy metadata to function registration types.
-4. Include route policy in generated function metadata and deployment analysis.
-5. Teach generated clients to infer routes from route policy where possible.
-6. Teach backend invoke/sync/execution-session start to validate route policy.
+2. Add route policy metadata to function registration types.
+3. Include route policy in generated function metadata and deployment analysis.
+4. Teach backend invoke/sync/execution-session start to validate route policy.
+5. Add provider-level default `partitionKey` for React ergonomics.
+6. Teach generated clients to infer routes from route policy where possible.
 7. Enforce syscall shard boundaries from the bound execution session.
 8. Add cross-shard/workflow-only route declarations for functions that cannot
    be single-shard.
 9. Remove or demote raw client `partitionKey` from normal app APIs once
    generated inference is reliable.
 
+## RouteFromArgs Implementation
+
+Previous completed checkpoint: `d6b4712` Document function routing shard
+policy.
+
+Implemented the first platform route policy:
+
+```ts
+export const list = query({
+  route: routeFromArgs("userId"),
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    // runs only when partitionKey === args.userId
+  },
+});
+```
+
+What changed:
+
+- `flarex/server`
+  - Added `FunctionRoutePolicy`.
+  - Added `routeFromArgs(field)`.
+  - Added optional `route` to query, mutation, workflow mutation, and action
+    registration object forms.
+  - Registered functions now expose `route` and `exportRoute()` for analysis.
+- `flarex-dev`
+  - Local module analysis reads `exportRoute()`.
+  - Execution-artifact analysis reads `exportRoute()` inside the analysis
+    Worker template.
+  - Generated `functionMetadata.ts` includes `route`.
+  - Generated `_generated/server.ts` re-exports `routeFromArgs`.
+  - Local backend push preserves route metadata when converting codegen
+    analysis into backend deployment analysis.
+- `flarex-backend`
+  - `DeploymentFunctionMetadata` includes `route`.
+  - `DeploymentDO` stores route metadata in `functions.route_json`.
+  - `executeInvoke()` validates route policy before schema sync, transaction
+    begin, or handler execution.
+  - `ExecutionDO.start()` validates route policy before creating an execution
+    session.
+- `apps/example`
+  - `lessons:list` and `lessons:complete` declare `routeFromArgs("userId")`.
+  - Invoke and sync E2E use `partitionKey = userId`.
+  - Invoke E2E verifies a mismatched route is rejected before execution.
+
+Current validation behavior:
+
+```txt
+route: routeFromArgs("userId")
+args.userId = "2:u1"
+partitionKey = "2:u1"
+  -> allowed
+
+route: routeFromArgs("userId")
+args.userId = "2:u1"
+partitionKey = "2:other-user"
+  -> 400 RouteValidationError
+```
+
+This is intentionally exact matching only. Prefix/transform routes such as
+`user:${args.userId}`, auth-derived routes, global routes, and workflow routes
+remain separate follow-up policies.
+
 ## Known Limitations
 
 - `colocateWith` exists in the roadmap design but is not yet fully enforced as
   a route-inference source.
-- Function route policy APIs do not exist yet.
-- Generated function metadata does not yet include route policy.
+- Only `routeFromArgs(field)` exists.
+- `routeFromArgs(field)` requires exact string equality between
+  `partitionKey` and `args[field]`.
+- Route transforms, `currentUser()`, global route declarations, projection
+  route declarations, and workflow/cross-shard route declarations do not exist
+  yet.
 - Backend execution still accepts explicit `partitionKey` as the route carrier.
-- There is no backend validation that a function's reads/writes match its route
-  policy beyond the fact that execution happens inside one `PartitionDO`.
+- Backend route validation checks function route policy before execution, but
+  generated clients do not infer or hide routes yet.
+- There is no static or runtime validation that every read/write matches schema
+  placement beyond the fact that execution happens inside one `PartitionDO`.
 - Provider-level default routing is a convenience, not a correctness boundary.
 
 ## Last Update
 
-Previous completed checkpoint: `48c6e3d` Document provider partition routing
-plan.
+Implemented `routeFromArgs(field)` as the first real function route policy and
+enforced it at backend execution boundaries.
 
-Recorded function routing as a fundamental Flarex backend/platform design
-issue. The document clarifies that `partitionKey` is not an app-domain concern
-and not the final API. It is the temporary visible form of missing function
-route metadata and backend route validation.
+Previous completed checkpoint: `d6b4712` Document function routing shard
+policy.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations carry metadata alongside handlers.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files preserve analysis-derived function metadata.
+- `crates/function_runner/src/lib.rs`
+  - user functions execute through a backend-controlled boundary.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - storage access is mediated after the backend establishes the function
+    execution context.
+
+Cloudflare difference:
+
+- Flarex route metadata selects the `PartitionDO` execution boundary before
+  OCC begins. Convex does not need this user-visible route policy because its
+  backend presents one logical transactional database.
 
 Verification:
 
 ```sh
-git diff --check
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example build
 ```

@@ -7,11 +7,12 @@ import { analyzeFunctionModules, listFunctionModules } from "../src/analyze";
 describe("analyzeFunctionModules", () => {
   it("uses Convex-style markers and returns validator metadata", async () => {
     const functionsDir = await createFunctions({
-      "functions.ts": `import { internalAction, mutation, query, workflowMutation } from "flarex/server";
+      "functions.ts": `import { internalAction, mutation, query, routeFromArgs, workflowMutation } from "flarex/server";
 import { v } from "flarex/values";
 const list = query({
   args: { topic: v.string() },
   returns: v.array(v.string()),
+  route: routeFromArgs("topic"),
   handler: async () => [],
 });
 Object.assign(list, { kind: "mutation", visibility: "internal" });
@@ -35,6 +36,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             visibility: "internal",
             args: { type: "object", value: {} },
             returns: null,
+            route: null,
           },
           {
             moduleName: "functions",
@@ -48,6 +50,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
               },
             },
             returns: { type: "array", value: { type: "string" } },
+            route: { type: "args", field: "topic" },
           },
           {
             moduleName: "functions",
@@ -56,6 +59,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             visibility: "public",
             args: { type: "any" },
             returns: null,
+            route: null,
           },
           {
             moduleName: "functions",
@@ -64,6 +68,7 @@ export const hidden = internalAction({ args: {}, handler: async () => null });
             visibility: "public",
             args: { type: "object", value: {} },
             returns: null,
+            route: null,
           },
         ],
       },

@@ -12,11 +12,12 @@ describe("generateFlarex", () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/functions/messages.ts"),
-      `import { internalQuery, mutation, query } from "../_generated/server";
+      `import { internalQuery, mutation, query, routeFromArgs } from "../_generated/server";
 import { v } from "flarex/values";
 const listImpl = query({
   args: { topic: v.string() },
   returns: v.array(v.string()),
+  route: routeFromArgs("topic"),
   handler: async () => [],
 });
 Object.assign(listImpl, {
@@ -74,6 +75,8 @@ export const helper = "not a function";
     expect(functionMetadata).toContain('"kind": "query"');
     expect(functionMetadata).toContain('"visibility": "public"');
     expect(functionMetadata).toContain('"topic"');
+    expect(functionMetadata).toContain('"route": {');
+    expect(functionMetadata).toContain('"field": "topic"');
     expect(functionMetadata).toContain('"type": "array"');
     expect(functionMetadata).not.toContain("spoofed");
     expect(deploymentSchema).toContain("export const deploymentSchema");

@@ -13,6 +13,7 @@ import type {
   DeploymentCodegenModule,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
+  FunctionRoutePolicy,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
@@ -60,6 +61,7 @@ export class DeploymentDO extends DurableObject<Env> {
         visibility TEXT NOT NULL,
         args_json TEXT,
         returns_json TEXT,
+        route_json TEXT,
         position_json TEXT
       );
       CREATE TABLE IF NOT EXISTS pushes (
@@ -75,6 +77,7 @@ export class DeploymentDO extends DurableObject<Env> {
       );
     `);
     this.ensureFunctionPositionColumn();
+    this.ensureFunctionRouteColumn();
     this.ensurePushDiagnosticsColumn();
     this.setMetaIfMissing("schema_version", "0");
   }
@@ -318,14 +321,15 @@ export class DeploymentDO extends DurableObject<Env> {
     for (const metadata of normalized.functions) {
       this.sql.exec(
         `
-        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, position_json)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, position_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
         metadata.path,
         metadata.kind,
         metadata.visibility,
         JSON.stringify(metadata.args),
         JSON.stringify(metadata.returns),
+        JSON.stringify(metadata.route ?? null),
         metadata.position === undefined ? null : JSON.stringify(metadata.position),
       );
     }
@@ -341,10 +345,11 @@ export class DeploymentDO extends DurableObject<Env> {
           visibility: string;
           args_json: string | null;
           returns_json: string | null;
+          route_json: string | null;
           position_json: string | null;
         }>(
           `
-          SELECT function_path, kind, visibility, args_json, returns_json, position_json
+          SELECT function_path, kind, visibility, args_json, returns_json, route_json, position_json
           FROM functions
           ORDER BY function_path
           `,
@@ -362,10 +367,11 @@ export class DeploymentDO extends DurableObject<Env> {
         visibility: string;
         args_json: string | null;
         returns_json: string | null;
+        route_json: string | null;
         position_json: string | null;
       }>(
         `
-        SELECT function_path, kind, visibility, args_json, returns_json, position_json
+        SELECT function_path, kind, visibility, args_json, returns_json, route_json, position_json
         FROM functions
         WHERE function_path = ?
         `,
@@ -460,6 +466,14 @@ export class DeploymentDO extends DurableObject<Env> {
       // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
     }
   }
+
+  private ensureFunctionRouteColumn(): void {
+    try {
+      this.sql.exec("ALTER TABLE functions ADD COLUMN route_json TEXT");
+    } catch {
+      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
+    }
+  }
 }
 
 function functionMetadataFromRow(row: {
@@ -468,6 +482,7 @@ function functionMetadataFromRow(row: {
   visibility: string;
   args_json: string | null;
   returns_json: string | null;
+  route_json: string | null;
   position_json: string | null;
 }): DeploymentFunctionMetadata {
   return {
@@ -476,6 +491,7 @@ function functionMetadataFromRow(row: {
     visibility: row.visibility as FunctionVisibility,
     args: JSON.parse(row.args_json ?? "null") as ValidatorJson | null,
     returns: JSON.parse(row.returns_json ?? "null") as ValidatorJson | null,
+    route: JSON.parse(row.route_json ?? "null") as FunctionRoutePolicy | null,
     ...(row.position_json === null
       ? {}
       : { position: JSON.parse(row.position_json) as AnalyzedSourcePosition }),
@@ -531,6 +547,7 @@ function codegenAnalysisFromDeploymentAnalysis(
       visibility: metadata.visibility ?? "public",
       args: metadata.args ?? { type: "any" },
       returns: metadata.returns ?? null,
+      route: metadata.route ?? null,
       ...(metadata.position === undefined ? {} : { position: metadata.position }),
     });
     modules.set(moduleName, module);
@@ -644,6 +661,7 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
     const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
     const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
     const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
+    const route = validateFunctionRoutePolicy(metadata.route, `$functions.${path}.route`);
     const position = validateSourcePosition(metadata.position, `$functions.${path}.position`);
     return {
       path,
@@ -651,6 +669,7 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
       visibility,
       args,
       returns,
+      route,
       ...(position === undefined ? {} : { position }),
     };
   });
@@ -688,6 +707,21 @@ function validateSourcePosition(
     startLine: position.startLine,
     startColumn: position.startColumn,
   };
+}
+
+function validateFunctionRoutePolicy(
+  value: unknown,
+  path: string,
+): FunctionRoutePolicy | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, `${path}: Invalid route policy.`);
+  }
+  const route = value as Partial<FunctionRoutePolicy>;
+  if (route.type === "args" && typeof route.field === "string" && route.field.length > 0) {
+    return { type: "args", field: route.field };
+  }
+  throw new HttpError(400, `${path}: Invalid route policy.`);
 }
 
 function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {

@@ -308,6 +308,7 @@ describe("executeInvoke", () => {
             },
           },
           returns: null,
+          route: null,
         },
       ],
     });
@@ -358,9 +359,48 @@ describe("executeInvoke", () => {
             },
           },
           returns: null,
+          route: null,
         },
       ],
     });
+  });
+
+  it("rejects invoke routes that do not match routeFromArgs metadata", async () => {
+    await putSchema("invoke-route-policy-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "lessonProgress",
+          placement: { kind: "partitionBy", field: "userId" },
+        },
+      ],
+      indexes: [],
+    });
+
+    const functions: BackendFunctionRegistry = {
+      "lessons:list": {
+        kind: "query",
+        route: { type: "args", field: "userId" },
+        handler: async () => [],
+      },
+    };
+
+    await expect(
+      executeInvoke(
+        env,
+        "invoke-route-policy-deployment",
+        {
+          path: "lessons:list",
+          kind: "query",
+          partitionKey: "user:wrong",
+          args: { userId: "user:right" },
+        },
+        functions,
+      ),
+    ).rejects.toThrow(
+      "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+    );
   });
 
   it("validates ID validators against deployment table mappings", async () => {
@@ -822,6 +862,7 @@ async function putFunctions(
       visibility?: string;
       args?: unknown;
       returns?: unknown;
+      route?: unknown;
     }>;
   },
 ): Promise<void> {

@@ -213,6 +213,30 @@ describe("ExecutionDO sessions", () => {
       error: "Unknown active Flarex function metadata: lessons:stale",
     });
   });
+
+  it("rejects execution sessions whose route does not match routeFromArgs metadata", async () => {
+    await activateDeployment("execution-route-policy-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          route: { type: "args", field: "userId" },
+        },
+      ],
+    });
+
+    const response = await startExecutionResponse("execution-route-policy-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "user:wrong",
+      args: { userId: "user:right" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {

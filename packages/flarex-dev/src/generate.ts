@@ -73,6 +73,7 @@ import {
   internalQueryGeneric,
   mutationGeneric,
   queryGeneric,
+  routeFromArgs,
   workflowMutationGeneric,
   type ActionBuilder,
   type ActionCtx as GenericActionCtx,
@@ -99,6 +100,7 @@ export const workflowMutation: MutationBuilder<
   "workflowMutation"
 >;
 export const action = actionGeneric as unknown as ActionBuilder<DataModel, "public">;
+export { routeFromArgs };
 
 export type { DataModel } from "./dataModel";
 export type QueryCtx = GenericQueryCtx<DataModel>;
@@ -115,6 +117,7 @@ function functionMetadataSource(modules: AnalyzedModule[]): string {
       visibility: fn.visibility,
       args: fn.args,
       returns: fn.returns,
+      route: fn.route ?? null,
       ...(fn.position === undefined ? {} : { position: fn.position }),
     })),
   );
@@ -127,6 +130,7 @@ export type FunctionMetadata = {
   visibility: "public" | "internal";
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
+  route: { type: "args"; field: string } | null;
   position?: {
     path: string;
     startLine: number;

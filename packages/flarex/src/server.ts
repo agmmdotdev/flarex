@@ -29,6 +29,12 @@ export type FunctionArgsValidator =
   | FunctionValidators;
 export type FunctionKind = FunctionType;
 export type DefaultFunctionArgs = Record<string, unknown>;
+export type FunctionRoutePolicy = { type: "args"; field: string };
+
+export function routeFromArgs(field: string): FunctionRoutePolicy {
+  if (field.length === 0) throw new Error("routeFromArgs field must be non-empty.");
+  return { type: "args", field };
+}
 
 type TableFromId<Identifier> = Identifier extends Id<infer Table> ? Table : never;
 
@@ -77,9 +83,11 @@ export type RegisteredFunction<
   readonly visibility: Visibility;
   readonly args: FunctionArgsValidator;
   readonly returns: DefinedReturnValidator | null;
+  readonly route: FunctionRoutePolicy | null;
   readonly handler: (ctx: never, args: never) => ReturnType;
   readonly exportArgs: () => string;
   readonly exportReturns: () => string;
+  readonly exportRoute: () => string;
   readonly _handler: (ctx: never, args: never) => ReturnType;
   readonly __args?: Args;
 } & KindProperties<Kind> & VisibilityProperties<Visibility>;
@@ -129,6 +137,7 @@ type FunctionDefinition<Ctx> =
   | {
       args?: FunctionArgsValidator;
       returns?: DefinedReturnValidator;
+      route?: FunctionRoutePolicy;
       handler: (ctx: Ctx, args: DefaultFunctionArgs) => unknown;
     };
 
@@ -159,6 +168,16 @@ function exportReturns(functionDefinition: FunctionDefinition<unknown>): () => s
         ? validatorJson(functionDefinition.returns)
         : null;
     return JSON.stringify(returns, strictReplacer);
+  };
+}
+
+function exportRoute(functionDefinition: FunctionDefinition<unknown>): () => string {
+  return () => {
+    const route =
+      typeof functionDefinition === "object" && functionDefinition.route !== undefined
+        ? functionDefinition.route
+        : null;
+    return JSON.stringify(route, strictReplacer);
   };
 }
 
@@ -199,6 +218,10 @@ function register<
     typeof functionDefinition === "object" && functionDefinition.returns !== undefined
       ? functionDefinition.returns
       : null;
+  const route =
+    typeof functionDefinition === "object" && functionDefinition.route !== undefined
+      ? functionDefinition.route
+      : null;
   const registered = {
     __flarexFunction: true,
     isFlarexFunction: true,
@@ -206,10 +229,12 @@ function register<
     visibility,
     args,
     returns,
+    route,
     handler,
     _handler: handler,
     exportArgs: exportArgs(functionDefinition as FunctionDefinition<unknown>),
     exportReturns: exportReturns(functionDefinition as FunctionDefinition<unknown>),
+    exportRoute: exportRoute(functionDefinition as FunctionDefinition<unknown>),
     ...(kind === "query" ? { isQuery: true } : {}),
     ...(kind === "mutation" ? { isMutation: true } : {}),
     ...(kind === "workflowMutation" ? { isWorkflowMutation: true } : {}),
@@ -239,6 +264,7 @@ export type QueryBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
+          route?: FunctionRoutePolicy;
           handler: (ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
@@ -261,6 +287,7 @@ export type MutationBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
+          route?: FunctionRoutePolicy;
           handler: (ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
@@ -282,6 +309,7 @@ export type ActionBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
+          route?: FunctionRoutePolicy;
           handler: (ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),

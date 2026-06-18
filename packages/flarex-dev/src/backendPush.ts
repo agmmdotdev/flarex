@@ -139,6 +139,7 @@ export function backendAnalysisFromCodegenAnalysis(
           visibility: fn.visibility,
           args: fn.args,
           returns: fn.returns,
+          route: fn.route ?? null,
           ...(fn.position === undefined ? {} : { position: fn.position }),
         })),
       ),

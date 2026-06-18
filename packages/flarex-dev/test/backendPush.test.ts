@@ -81,6 +81,7 @@ describe("backend push coordinator", () => {
               visibility: "public",
               args: { type: "object", value: {} },
               returns: null,
+              route: null,
               position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
             },
           ],

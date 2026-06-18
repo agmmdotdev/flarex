@@ -6,6 +6,7 @@ import {
   isInvokableKind,
   loadActiveFunctionMetadata,
   readerFor,
+  validateInvokeRoute,
   validateReturn,
   writerFor,
 } from "./invoke";
@@ -90,6 +91,7 @@ export class ExecutionDO extends DurableObject<Env> {
       }
       throw error;
     }
+    validateInvokeRoute(metadata.route, request);
 
     await SingleShardTransaction.ensureSchema(
       this.env,

@@ -17,6 +17,7 @@ import type {
   DeploymentSchema,
   DeploymentFunctionKind,
   Env,
+  FunctionRoutePolicy,
   InvokeRequest,
   InvokeResponse,
   Json,
@@ -89,12 +90,14 @@ export type BackendRegisteredFunction =
       kind: "query";
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
+      route?: FunctionRoutePolicy | null;
       handler: (ctx: BackendQueryCtx, args: Json) => Promise<Json> | Json;
     }
   | {
       kind: "mutation";
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
+      route?: FunctionRoutePolicy | null;
       handler: (ctx: BackendMutationCtx, args: Json) => Promise<Json> | Json;
     };
 
@@ -148,6 +151,7 @@ export async function executeInvoke(
     }
     throw error;
   }
+  validateInvokeRoute(metadata?.route ?? fn.route ?? null, request);
   await SingleShardTransaction.ensureSchema(env, deploymentId, request.partitionKey, schema);
   const tx = await SingleShardTransaction.begin(env, deploymentId, request.partitionKey);
   const value =
@@ -166,6 +170,35 @@ export async function executeInvoke(
     committedTs: commit.committedTs,
     writes: commit.writes,
   };
+}
+
+export function validateInvokeRoute(
+  route: FunctionRoutePolicy | null | undefined,
+  request: Pick<InvokeRequest, "path" | "args" | "partitionKey">,
+): void {
+  if (route === undefined || route === null) return;
+  if (route.type === "args") {
+    if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
+      throw new HttpError(
+        400,
+        `RouteValidationError: ${request.path} routeFromArgs("${route.field}") requires object arguments.`,
+      );
+    }
+    const value = request.args[route.field];
+    if (typeof value !== "string" || value.length === 0) {
+      throw new HttpError(
+        400,
+        `RouteValidationError: ${request.path} routeFromArgs("${route.field}") requires a non-empty string argument.`,
+      );
+    }
+    if (request.partitionKey !== value) {
+      throw new HttpError(
+        400,
+        `RouteValidationError: partitionKey must match args.${route.field} for ${request.path}.`,
+      );
+    }
+    return;
+  }
 }
 
 export function invokeErrorResponse(error: unknown): Response {

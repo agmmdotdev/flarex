@@ -19,8 +19,11 @@ export type AnalyzedFunction = {
   visibility: "public" | "internal";
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
+  route?: AnalyzedFunctionRoutePolicy | null;
   position?: AnalyzedSourcePosition;
 };
+
+export type AnalyzedFunctionRoutePolicy = { type: "args"; field: string };
 
 export type AnalyzedModule = {
   moduleName: string;
@@ -308,6 +311,7 @@ function analyzeExport(
     visibility,
     args: parseArgsValidator(value, identifier),
     returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
+    route: parseRouteExport(value, identifier),
     ...(position === undefined ? {} : { position }),
   };
 }
@@ -467,6 +471,41 @@ function parseArgsValidator(value: RuntimeFunction, identifier: string): Validat
     throw new Error(`Invalid validator returned from ${identifier}.exportArgs(): Validator is required.`);
   }
   return validator;
+}
+
+function parseRouteExport(value: RuntimeFunction, identifier: string): AnalyzedFunctionRoutePolicy | null {
+  const candidate = value as Record<string, unknown>;
+  const exporter = "exportRoute" in candidate ? candidate.exportRoute : undefined;
+  if (exporter === undefined) return null;
+  if (typeof exporter !== "function") {
+    throw new Error(`${identifier}.exportRoute is not a function or \`undefined\`.`);
+  }
+
+  const serialized = exporter.call(value);
+  if (typeof serialized !== "string") {
+    throw new Error(
+      `Invalid exportRoute return value: ${identifier}.exportRoute() didn't return a string.`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON returned from ${identifier}.exportRoute(): ${errorMessage(error)}`,
+    );
+  }
+  return assertRoutePolicy(parsed, `${identifier}.exportRoute()`);
+}
+
+function assertRoutePolicy(value: unknown, path: string): AnalyzedFunctionRoutePolicy | null {
+  if (value === null) return null;
+  if (!isRecord(value)) throw new Error(`${path}: Invalid route policy.`);
+  if (value.type === "args" && typeof value.field === "string" && value.field.length > 0) {
+    return { type: "args", field: value.field };
+  }
+  throw new Error(`${path}: Invalid route policy.`);
 }
 
 function errorMessage(error: unknown): string {

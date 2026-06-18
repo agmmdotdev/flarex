@@ -1,14 +1,14 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { flarexTest, type FlarexTest } from "flarex-test";
+import { flarexTest, type FlarexTest, type FlarexTestInvocationError } from "flarex-test";
 import type { Id } from "flarex/values";
 import { api } from "./_generated/api";
 
 let t: FlarexTest;
 
 const deploymentId = "example-e2e";
-const partitionKey = "user:2:u1";
 const userId = "2:u1" as Id<"users">;
+const partitionKey = userId;
 
 beforeAll(async () => {
   t = await flarexTest({
@@ -70,5 +70,16 @@ describe("Flarex invoke", () => {
       error:
         "ArgumentValidationError: $args.userId: Expected an ID for table users, got an ID for table lessonProgress.",
     });
+  });
+
+  it("rejects route mismatches before execution", async () => {
+    await expect(
+      t.invokeRaw(api.lessons.list, { userId }, { partitionKey: "2:other-user" }),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: "RouteValidationError: partitionKey must match args.userId for lessons:list.",
+      },
+    } satisfies Partial<FlarexTestInvocationError>);
   });
 });

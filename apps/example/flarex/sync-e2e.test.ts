@@ -7,8 +7,8 @@ import { api } from "./_generated/api";
 let t: FlarexTest;
 
 const deploymentId = "example-sync-e2e";
-const partitionKey = "user:2:u1";
 const userId = "2:u1" as Id<"users">;
+const partitionKey = userId;
 
 beforeAll(async () => {
   t = await flarexTest({
