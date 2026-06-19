@@ -1112,6 +1112,64 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Executor Test Layout
+
+Previous completed checkpoint: `7029b9b` Split executor entrypoint into domain
+modules.
+
+What changed:
+
+- Split executor tests to match executor source domains:
+  - `test/health.test.ts`
+    - health behavior only.
+  - `test/deployments.test.ts`
+    - `ensureDeployment(...)` behavior.
+  - `test/helpers/persistence.ts`
+    - shared in-memory persistence fake and deployment metadata fixture.
+
+Why it changed:
+
+After splitting `@flarex/executor/src/index.ts`, leaving all tests in
+`health.test.ts` would recreate the same growth problem in the test suite. The
+executor package should add one focused test file per behavior domain so package
+activation, execution sessions, syscall handling, and OCC tests can be added
+without turning a single test file into an implementation log.
+
+Convex references:
+
+- `crates/application` and `crates/database`
+  - behavior tests are grouped around the domain being exercised, not around a
+    crate entrypoint.
+- `crates/function_runner`
+  - runner tests keep dependency fakes close to the runner boundary rather than
+    mixing them into unrelated behavior checks.
+
+Flarex differences:
+
+- Flarex uses TypeScript/Vitest and small in-memory persistence fakes for
+  executor behavior tests. PGlite remains the persistence package's local
+  adapter test lane.
+- The Nitro adapter tests keep their own minimal fake because
+  `@flarex/executor-nitro` should depend on `@flarex/executor`, not directly on
+  `@flarex/persistence-postgres`.
+
+Known limitations:
+
+- The in-memory fake currently models only the metadata methods needed by
+  health and `ensureDeployment(...)`.
+- Future executor domains may need a richer helper or domain-specific fakes
+  instead of continuing to extend one generic fake indefinitely.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
