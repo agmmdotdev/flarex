@@ -114,11 +114,12 @@ export async function executeInvoke(
   request: InvokeRequest,
   functions: BackendFunctionRegistry,
 ): Promise<InvokeResponse> {
-  const activeDeployment = await loadOptionalActiveDeployment(env, deploymentId);
-  const activeMetadata = activeDeployment?.analysis.functions.functions.find(
+  const activeDeployment = await loadActiveDeployment(env, deploymentId);
+  const activeFunctions = activeDeployment.analysis.functions.functions;
+  const activeMetadata = activeFunctions.find(
     candidate => candidate.path === request.path,
   );
-  if (activeDeployment !== null && activeMetadata === undefined) {
+  if (activeFunctions.length > 0 && activeMetadata === undefined) {
     throw new HttpError(404, `Unknown active Flarex function metadata: ${request.path}`);
   }
 
@@ -126,7 +127,7 @@ export async function executeInvoke(
   if (!fn) {
     throw new HttpError(404, `Unknown Flarex function: ${request.path}`);
   }
-  const metadata = activeMetadata ?? await loadFunctionMetadata(env, deploymentId, request.path);
+  const metadata = activeMetadata;
   const declaredKind = metadata?.kind ?? fn.kind;
   if (!isInvokableKind(declaredKind)) {
     throw new HttpError(400, `${declaredKind} execution is not implemented by /invoke.`);
@@ -144,7 +145,7 @@ export async function executeInvoke(
       `Function kind mismatch. Request has ${request.kind}, function is ${declaredKind}.`,
     );
   }
-  const schema = activeDeployment?.analysis.schema ?? await loadSchema(env, deploymentId);
+  const schema = activeDeployment.analysis.schema;
   try {
     const args = metadata?.args ?? fn.args;
     if (args !== undefined && args !== null) {
@@ -547,15 +548,6 @@ function commitMutation(
   });
 }
 
-export async function loadSchema(env: InvokeEnv, deploymentId: string): Promise<DeploymentSchema> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  const response = await deployment.fetch("https://flarex.internal/schema");
-  if (!response.ok) {
-    throw new HttpError(response.status, `Failed to load schema for deployment ${deploymentId}.`);
-  }
-  return response.json() as Promise<DeploymentSchema>;
-}
-
 export async function loadActiveDeployment(
   env: InvokeEnv,
   deploymentId: string,
@@ -566,18 +558,6 @@ export async function loadActiveDeployment(
     throw new HttpError(response.status, `Failed to load active deployment ${deploymentId}.`);
   }
   return response.json() as Promise<ActiveDeploymentStatus>;
-}
-
-async function loadOptionalActiveDeployment(
-  env: InvokeEnv,
-  deploymentId: string,
-): Promise<ActiveDeploymentStatus | null> {
-  try {
-    return await loadActiveDeployment(env, deploymentId);
-  } catch (error) {
-    if (error instanceof HttpError && error.status === 404) return null;
-    throw error;
-  }
 }
 
 export async function loadActiveFunctionMetadata(
@@ -591,25 +571,6 @@ export async function loadActiveFunctionMetadata(
     throw new HttpError(404, `Unknown active Flarex function metadata: ${path}`);
   }
   return { deployment, metadata };
-}
-
-export async function loadFunctionMetadata(
-  env: InvokeEnv,
-  deploymentId: string,
-  path: string,
-): Promise<DeploymentFunctionMetadata | null> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  const response = await deployment.fetch(
-    `https://flarex.internal/function?path=${encodeURIComponent(path)}`,
-  );
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new HttpError(
-      response.status,
-      `Failed to load function metadata for ${deploymentId}:${path}.`,
-    );
-  }
-  return response.json() as Promise<DeploymentFunctionMetadata>;
 }
 
 export function isInvokableKind(kind: DeploymentFunctionKind): kind is BackendFunctionKind {

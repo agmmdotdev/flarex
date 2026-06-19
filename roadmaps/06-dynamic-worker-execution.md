@@ -454,6 +454,45 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Active Deployment Required For Invoke
+
+Previous completed checkpoint: `63637f9` Harden create-root sync docs and
+tests.
+
+Backend invoke no longer falls back to directly replaced schema/function
+metadata when no active deployment exists. The execution boundary now starts
+from active push analysis:
+
+```txt
+/invoke or /deployments/:id/invoke
+  -> load active deployment
+  -> validate active function metadata
+  -> artifact runtime or backend execution session
+```
+
+This aligns the dynamic-worker plan with the source-package bundle model: user
+code is not a Worker app and runtime metadata comes from the pushed `flarex/`
+package analysis.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves deployment/package metadata before invoking user code.
+- `crates/model/src/source_packages/mod.rs`
+  - code identity is durable source-package metadata.
+
+Cloudflare difference: Flarex may still run direct in-memory handlers in unit
+tests, but those handlers now require an active deployment schema created by
+push activation. The public runtime path no longer has direct schema/functions
+metadata replacement routes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/executionDO.test.ts --maxWorkers=1
+```
+
 ## Generated Create-Root Artifact Execution
 
 Previous completed checkpoint: `10c02a4` Run create-root execution sessions.

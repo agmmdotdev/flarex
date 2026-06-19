@@ -1226,11 +1226,10 @@ Intentional and temporary differences:
 - Flarex stores source package contents inline in Durable Object SQLite for the
   prototype. Hosted production should store large immutable artifacts outside
   `DeploymentDO` and keep hashes/references there.
-- Direct schema/functions PUT routes remain for existing tests and dev runtime.
-  They are now legacy helpers, not the target deploy path.
-- Local dev runtime still calls direct PUT after reading generated Worker
-  metadata. Moving it to `push/start` and `push/finish` is the next local-dev
-  orchestration step.
+- Historical note: direct schema/functions PUT routes existed at this
+  checkpoint for tests and dev runtime. They were later removed from the
+  public backend route surface after tests/dev moved to push activation.
+- Local dev runtime later moved to `push/start` and `push/finish`.
 - No push race token, schema diff, wait-for-schema, index backfill, or
   execution-artifact pointer is enforced yet.
 
@@ -3057,7 +3056,8 @@ activated.
 ### `7abaa43` Use backend push lifecycle in local dev
 
 Changed local dev reload to start and finish backend candidate pushes instead
-of deploying schema/functions through legacy direct metadata routes.
+of deploying schema/functions through the legacy direct metadata routes that
+existed at that checkpoint.
 
 ### `27bb9f5` Analyze source packages in execution artifact
 
@@ -3277,8 +3277,9 @@ What changed:
 - Direct `/invoke` and `ExecutionDO` both prefer stored partition metadata over
   route metadata when validating the target shard.
 - The backend rechecks that the partition descriptor still matches the active
-  schema before opening a `PartitionDO` transaction. This keeps runtime safe for
-  legacy direct metadata routes and stale metadata during prototype tests.
+  schema before opening a `PartitionDO` transaction. At this checkpoint that
+  also protected prototype direct metadata routes; those public routes were
+  later removed.
 - Added regression coverage for stored metadata in the direct invoke and
   execution-session paths.
 
@@ -3360,8 +3361,6 @@ Cloudflare difference:
 
 Remaining limitations:
 
-- The legacy direct `/functions` metadata route still exists for prototype
-  tests. The authoritative hosted path is analyzed push metadata.
 - Push validation proves the declared route and schema match; it does not yet
   prove every future `ctx.db` access stays inside the scoped placement at the
   TypeScript level.
@@ -3456,4 +3455,64 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
+```
+
+## Remove Direct Metadata Routes
+
+Previous completed checkpoint: `63637f9` Harden create-root sync docs and
+tests.
+
+The public legacy metadata mutation routes are removed:
+
+```txt
+PUT /deployments/:deploymentId/schema     -> 404
+GET /deployments/:deploymentId/schema     -> 404
+PUT /deployments/:deploymentId/functions  -> 404
+GET /deployments/:deploymentId/functions  -> 404
+```
+
+Runtime invocation now requires an active deployment created by the push flow.
+`executeInvoke()` loads `/deployment`, uses active analyzed schema, and treats
+active function metadata as authoritative when it exists. Tests that used old
+schema/function writes now activate analyzed pushes through:
+
+```txt
+POST /deployments/:deploymentId/push/start-analyzed
+POST /deployments/:deploymentId/push/:pushId/finish
+```
+
+What changed:
+
+- Removed public Worker routing for direct schema/functions metadata.
+- Removed `DeploymentDO` direct `PUT /schema`, `GET /schema`, `PUT /functions`,
+  and `GET /functions` handlers.
+- Removed invoke fallback helpers that loaded mutable schema/function metadata
+  outside the active deployment record.
+- Migrated backend invoke, execution, and push tests to push-activated
+  deployment metadata.
+- Added a regression that direct schema/functions metadata routes return 404.
+
+Convex references:
+
+- `crates/application/src/deploy_config.rs`
+  - deployment changes are applied through push/finish, not arbitrary metadata
+    replacement routes.
+- `crates/model/src/modules/mod.rs`
+  - analyzed module/function metadata is durable deployment state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves the active deployment/package metadata before running
+    user code.
+
+Cloudflare difference: Flarex still has `/push/start-analyzed` for local dev
+and tests because the hosted Dynamic Worker analyzer is not the only analyzer
+yet. The removed routes were more dangerous because they bypassed source
+package identity entirely.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts test/invoke.test.ts test/executionDO.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run --maxWorkers=1
+corepack pnpm --filter flarex-backend build
 ```

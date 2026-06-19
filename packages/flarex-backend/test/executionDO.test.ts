@@ -335,12 +335,9 @@ describe("ExecutionDO sessions", () => {
     });
   });
 
-  it("resolves function metadata from the active deployment, not the mutable function table", async () => {
+  it("resolves function metadata from the active deployment", async () => {
     await activateDeployment("execution-active-deployment", lessonSchema(), {
       functions: [{ path: "lessons:list", kind: "query" }],
-    });
-    await putFunctions("execution-active-deployment", {
-      functions: [{ path: "lessons:stale", kind: "query" }],
     });
 
     const response = await startExecutionResponse("execution-active-deployment", {
@@ -545,21 +542,6 @@ function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStar
     schema: "__flarex_schema.js",
     execution: "__flarex_execution.js",
   };
-}
-
-async function putFunctions(
-  deploymentId: string,
-  functions: { functions: Array<{ path: string; kind: string; args?: unknown; returns?: unknown }> },
-): Promise<void> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/functions`,
-    {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(functions),
-    },
-  );
-  expect(response.ok).toBe(true);
 }
 
 async function startExecution(

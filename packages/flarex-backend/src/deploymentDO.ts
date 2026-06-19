@@ -26,7 +26,6 @@ import type {
   PushDiagnostic,
   PushSourcePackage,
   PushStatus,
-  SchemaIndex,
   SchemaTable,
   ValidatorJson,
 } from "./types";
@@ -96,25 +95,6 @@ export class DeploymentDO extends DurableObject<Env> {
         const active = this.getActiveDeployment();
         if (!active) throw new HttpError(404, "No active deployment.");
         return json(active);
-      }
-      if (url.pathname === "/schema" && request.method === "PUT") {
-        return json(await this.putSchema(await readJson<DeploymentSchema>(request)));
-      }
-      if (url.pathname === "/schema" && request.method === "GET") {
-        return json(this.getSchema());
-      }
-      if (url.pathname === "/functions" && request.method === "PUT") {
-        return json(await this.putFunctions(await readJson<DeploymentFunctions>(request)));
-      }
-      if (url.pathname === "/functions" && request.method === "GET") {
-        return json(this.getFunctions());
-      }
-      if (url.pathname === "/function" && request.method === "GET") {
-        const path = url.searchParams.get("path");
-        if (!path) throw new HttpError(400, "Missing function path.");
-        const metadata = this.getFunction(path);
-        if (!metadata) throw new HttpError(404, `Unknown Flarex function metadata: ${path}`);
-        return json(metadata);
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
         return json(await this.startPush(await readJson<AnalyzedStartPushRequest>(request)));
@@ -272,18 +252,6 @@ export class DeploymentDO extends DurableObject<Env> {
     return pushStatusFromRow(row);
   }
 
-  private async putSchema(schema: DeploymentSchema): Promise<DeploymentSchema> {
-    return this.ctx.storage.transaction(async () => {
-      return this.applySchema(schema);
-    });
-  }
-
-  private async putFunctions(functions: DeploymentFunctions): Promise<DeploymentFunctions> {
-    return this.ctx.storage.transaction(async () => {
-      return this.applyFunctions(functions);
-    });
-  }
-
   private applySchema(schema: DeploymentSchema): DeploymentSchema {
     const normalized = validateSchema(schema);
     this.sql.exec("DELETE FROM indexes");
@@ -341,105 +309,6 @@ export class DeploymentDO extends DurableObject<Env> {
     return normalized;
   }
 
-  private getFunctions(): DeploymentFunctions {
-    return {
-      functions: this.sql
-        .exec<{
-          function_path: string;
-          kind: string;
-          visibility: string;
-          args_json: string | null;
-          returns_json: string | null;
-          route_json: string | null;
-          partition_json: string | null;
-          position_json: string | null;
-        }>(
-          `
-          SELECT function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json
-          FROM functions
-          ORDER BY function_path
-          `,
-        )
-        .toArray()
-        .map(row => functionMetadataFromRow(row)),
-    };
-  }
-
-  private getFunction(path: string): DeploymentFunctionMetadata | null {
-    const row = this.sql
-      .exec<{
-        function_path: string;
-        kind: string;
-        visibility: string;
-        args_json: string | null;
-        returns_json: string | null;
-        route_json: string | null;
-        partition_json: string | null;
-        position_json: string | null;
-      }>(
-        `
-        SELECT function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json
-        FROM functions
-        WHERE function_path = ?
-        `,
-        path,
-      )
-      .toArray()[0];
-    return row ? functionMetadataFromRow(row) : null;
-  }
-
-  private getSchema(): DeploymentSchema {
-    const tables = this.sql
-      .exec<{
-        table_id: number;
-        table_name: string;
-        state: string;
-        schema_json: string | null;
-        partition_rule_json: string;
-      }>(
-        `
-        SELECT table_id, table_name, state, schema_json, partition_rule_json
-        FROM tables
-        ORDER BY table_id
-        `,
-      )
-      .toArray()
-      .map(row => ({
-        tableId: row.table_id,
-        name: row.table_name,
-        state: row.state as NonNullable<SchemaTable["state"]>,
-        validator: JSON.parse(row.schema_json ?? "null"),
-        placement: JSON.parse(row.partition_rule_json),
-      }));
-    const indexes = this.sql
-      .exec<{
-        index_id: number;
-        table_id: number;
-        index_name: string;
-        fields_json: string;
-        state: string;
-      }>(
-        `
-        SELECT index_id, table_id, index_name, fields_json, state
-        FROM indexes
-        ORDER BY index_id
-        `,
-      )
-      .toArray()
-      .map(row => ({
-        indexId: row.index_id,
-        tableId: row.table_id,
-        name: row.index_name,
-        fields: JSON.parse(row.fields_json) as string[],
-        state: row.state as NonNullable<SchemaIndex["state"]>,
-      }));
-    return {
-      version: Number(this.getMeta("schema_version") ?? "0"),
-      tables,
-      indexes,
-    };
-  }
-
   private setMetaIfMissing(key: string, value: string): void {
     this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", key, value);
   }
@@ -489,30 +358,6 @@ export class DeploymentDO extends DurableObject<Env> {
       // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
     }
   }
-}
-
-function functionMetadataFromRow(row: {
-  function_path: string;
-  kind: string;
-  visibility: string;
-  args_json: string | null;
-  returns_json: string | null;
-  route_json: string | null;
-  partition_json: string | null;
-  position_json: string | null;
-}): DeploymentFunctionMetadata {
-  return {
-    path: row.function_path,
-    kind: row.kind as DeploymentFunctionKind,
-    visibility: row.visibility as FunctionVisibility,
-    args: JSON.parse(row.args_json ?? "null") as ValidatorJson | null,
-    returns: JSON.parse(row.returns_json ?? "null") as ValidatorJson | null,
-    route: JSON.parse(row.route_json ?? "null") as FunctionRoutePolicy | null,
-    partition: JSON.parse(row.partition_json ?? "null") as FunctionPartitionPolicy | null,
-    ...(row.position_json === null
-      ? {}
-      : { position: JSON.parse(row.position_json) as AnalyzedSourcePosition }),
-  };
 }
 
 function pushStatusFromRow(row: {

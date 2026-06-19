@@ -6,11 +6,19 @@ import {
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
 import { SingleShardTransaction } from "../src/transaction";
-import type { DeploymentSchema, Env } from "../src/types";
+import type {
+  AnalyzedStartPushRequest,
+  DeploymentFunctions,
+  DeploymentSchema,
+  Env,
+  PushStatus,
+} from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
 let harness: BackendHarness;
 let env: Env;
+const testDeploymentSchemas = new Map<string, DeploymentSchema>();
+const testDeploymentFunctions = new Map<string, DeploymentFunctions>();
 
 beforeAll(async () => {
   harness = await createBackendHarness();
@@ -609,26 +617,30 @@ describe("executeInvoke", () => {
     expect(executed).toBe(false);
 
     const response = await harness.mf.dispatchFetch(
-      "http://flarex.test/deployments/function-metadata-deployment/functions",
+      "http://flarex.test/deployments/function-metadata-deployment/deployment",
     );
     expect(response.ok).toBe(true);
-    await expect(response.json()).resolves.toEqual({
-      functions: [
-        {
-          path: "users:greet",
-          kind: "query",
-          visibility: "public",
-          args: {
-            type: "object",
-            value: {
-              name: { fieldType: { type: "string" }, optional: false },
+    await expect(response.json()).resolves.toMatchObject({
+      analysis: {
+        functions: {
+          functions: [
+            {
+              path: "users:greet",
+              kind: "query",
+              visibility: "public",
+              args: {
+                type: "object",
+                value: {
+                  name: { fieldType: { type: "string" }, optional: false },
+                },
+              },
+              returns: null,
+              route: null,
+              partition: null,
             },
-          },
-          returns: null,
-          route: null,
-          partition: null,
+          ],
         },
-      ],
+      },
     });
   });
 
@@ -1216,41 +1228,53 @@ describe("executeInvoke", () => {
   });
 
   it("rejects malformed validator metadata at deployment time", async () => {
-    const schemaResponse = await harness.mf.dispatchFetch(
-      "http://flarex.test/deployments/invalid-validator-deployment/schema",
+    const schemaResponse = await startPushResponse(
+      "invalid-validator-deployment-schema",
       {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          version: 1,
-          tables: [
-            {
-              tableId: 1,
-              name: "users",
-              validator: { type: "object", value: { name: { optional: false } } },
-              placement: { kind: "partitionBy", field: "_id" },
-            },
-          ],
-          indexes: [],
-        }),
+        sourcePackage: sourcePackageForFunctions({ functions: [] }),
+        analysis: {
+          schema: {
+            version: 1,
+            tables: [
+              {
+                tableId: 1,
+                name: "users",
+                validator: { type: "object", value: { name: { optional: false } } } as never,
+                placement: { kind: "partitionBy", field: "_id" },
+              },
+            ],
+            indexes: [],
+          },
+          functions: { functions: [] },
+        },
       },
     );
     expect(schemaResponse.status).toBe(400);
 
-    const functionsResponse = await harness.mf.dispatchFetch(
-      "http://flarex.test/deployments/invalid-validator-deployment/functions",
+    const functionsResponse = await startPushResponse(
+      "invalid-validator-deployment-functions",
       {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+        sourcePackage: sourcePackageForFunctions({
           functions: [
             {
               path: "users:get",
               kind: "query",
-              args: { type: "nope" },
+              args: { type: "nope" } as never,
             },
           ],
         }),
+        analysis: {
+          schema: { version: 1, tables: [], indexes: [] },
+          functions: {
+            functions: [
+              {
+                path: "users:get",
+                kind: "query",
+                args: { type: "nope" } as never,
+              },
+            ],
+          },
+        },
       },
     );
     expect(functionsResponse.status).toBe(400);
@@ -1471,6 +1495,8 @@ describe("executeInvoke", () => {
   });
 
   it("exposes the Worker invoke route and reports unknown functions", async () => {
+    await putSchema("route-deployment", { version: 1, tables: [], indexes: [] });
+
     const response = await harness.mf.dispatchFetch(
       "http://flarex.test/deployments/route-deployment/invoke",
       {
@@ -1493,40 +1519,79 @@ describe("executeInvoke", () => {
 });
 
 async function putSchema(deploymentId: string, schema: DeploymentSchema): Promise<void> {
+  testDeploymentSchemas.set(deploymentId, schema);
+  await activateTestDeployment(deploymentId);
+}
+
+async function putFunctions(
+  deploymentId: string,
+  functions: DeploymentFunctions,
+): Promise<void> {
+  testDeploymentFunctions.set(deploymentId, functions);
+  await activateTestDeployment(deploymentId);
+}
+
+async function activateTestDeployment(deploymentId: string): Promise<void> {
+  const schema = testDeploymentSchemas.get(deploymentId) ?? {
+    version: 1,
+    tables: [],
+    indexes: [],
+  };
+  const functions = testDeploymentFunctions.get(deploymentId) ?? { functions: [] };
+  const start = await startPush(deploymentId, {
+    sourcePackage: sourcePackageForFunctions(functions),
+    analysis: { schema, functions },
+  });
   const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/schema`,
+    `http://flarex.test/deployments/${deploymentId}/push/${start.pushId}/finish`,
     {
-      method: "PUT",
+      method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(schema),
+      body: JSON.stringify({}),
     },
   );
   expect(response.ok).toBe(true);
 }
 
-async function putFunctions(
+async function startPush(
   deploymentId: string,
-  functions: {
-    functions: Array<{
-      path: string;
-      kind: string;
-      visibility?: string;
-      args?: unknown;
-      returns?: unknown;
-      route?: unknown;
-      partition?: unknown;
-    }>;
-  },
-): Promise<void> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/functions`,
+  body: AnalyzedStartPushRequest,
+): Promise<PushStatus> {
+  const response = await startPushResponse(deploymentId, body);
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<PushStatus>;
+}
+
+async function startPushResponse(
+  deploymentId: string,
+  body: AnalyzedStartPushRequest,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
-      method: "PUT",
+      method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(functions),
+      body: JSON.stringify(body),
     },
   );
-  expect(response.ok).toBe(true);
+}
+
+function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStartPushRequest["sourcePackage"] {
+  const functionModules = [
+    ...new Set(functions.functions.map(fn => `${fn.path.split(":")[0]}.js`)),
+  ].sort();
+  const modules = ["_flarex/execution.js", "_flarex/schema.js", ...functionModules].map(path => ({
+    path,
+    environment: "isolate" as const,
+    sha256: "0".repeat(64),
+    source: "export default {};",
+  }));
+  return {
+    modules,
+    functions: functionModules,
+    schema: "_flarex/schema.js",
+    execution: "_flarex/execution.js",
+  };
 }
 
 function userPartition() {

@@ -14,6 +14,8 @@ import type {
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
 let harness: BackendHarness;
+const testDeploymentSchemas = new Map<string, DeploymentSchema>();
+const testDeploymentFunctions = new Map<string, DeploymentFunctions>();
 
 beforeAll(async () => {
   harness = await createBackendHarness();
@@ -37,8 +39,9 @@ describe("deployment push lifecycle", () => {
 
     await expect(getSchema("push-activation")).resolves.toEqual(normalizedActiveSchema());
     await expect(getFunctions("push-activation")).resolves.toEqual(normalizedActiveFunctions());
-    await expect(getActiveDeploymentResponse("push-activation")).resolves.toMatchObject({
-      status: 404,
+    await expect(getActiveDeployment("push-activation")).resolves.toMatchObject({
+      schemaVersion: 1,
+      analysis: { schema: normalizedActiveSchema(), functions: normalizedActiveFunctions() },
     });
 
     const status = await getPush("push-activation", start.pushId);
@@ -73,6 +76,21 @@ describe("deployment push lifecycle", () => {
       error:
         "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
     });
+  });
+
+  it("does not expose legacy direct schema or functions metadata routes", async () => {
+    for (const path of ["schema", "functions"]) {
+      const response = await harness.mf.dispatchFetch(
+        `http://flarex.test/deployments/no-direct-metadata/${path}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: "Not found." });
+    }
   });
 
   it("supersedes previous pending or analyzed pushes", async () => {
@@ -647,41 +665,30 @@ async function finishPushResponseWithHarness(
 }
 
 async function putSchema(deploymentId: string, schema: DeploymentSchema): Promise<void> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/schema`,
-    {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(schema),
-    },
-  );
-  expect(response.ok).toBe(true);
+  testDeploymentSchemas.set(deploymentId, schema);
+  await activateTestDeployment(deploymentId);
 }
 
 async function putFunctions(deploymentId: string, functions: DeploymentFunctions): Promise<void> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/functions`,
-    {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(functions),
-    },
-  );
-  expect(response.ok).toBe(true);
+  testDeploymentFunctions.set(deploymentId, functions);
+  await activateTestDeployment(deploymentId);
 }
 
 async function getSchema(deploymentId: string): Promise<DeploymentSchema> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/schema`,
-  );
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<DeploymentSchema>;
+  return (await getActiveDeployment(deploymentId)).analysis.schema;
 }
 
 async function getFunctions(deploymentId: string): Promise<DeploymentFunctions> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/functions`,
-  );
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<DeploymentFunctions>;
+  return (await getActiveDeployment(deploymentId)).analysis.functions;
+}
+
+async function activateTestDeployment(deploymentId: string): Promise<void> {
+  const schema = testDeploymentSchemas.get(deploymentId) ?? {
+    version: 1,
+    tables: [],
+    indexes: [],
+  };
+  const functions = testDeploymentFunctions.get(deploymentId) ?? { functions: [] };
+  const start = await startPush(deploymentId, analyzedPush(schema, functions));
+  await finishPush(deploymentId, start.pushId);
 }

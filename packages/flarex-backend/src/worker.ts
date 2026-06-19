@@ -32,7 +32,6 @@ import type {
   AnalyzedStartPushRequest,
   AnalyzeSourcePackageResponse,
   CommitRequest,
-  DeploymentFunctions,
   DeploymentSchema,
   Env,
   FinishPushRequest,
@@ -78,12 +77,6 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (parts[0] === "deployments") {
     const deploymentId = required(parts[1], "deployment id");
-    if (parts[2] === "schema") {
-      return routeDeploymentSchema(request, env, deploymentId);
-    }
-    if (parts[2] === "functions") {
-      return routeDeploymentFunctions(request, env, deploymentId);
-    }
     if (parts[2] === "push") {
       return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
     }
@@ -282,24 +275,6 @@ async function routeExecution(
   return json({ error: "Execution route not found." }, { status: 404 });
 }
 
-async function routeDeploymentFunctions(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-): Promise<Response> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  if (request.method === "GET") return deployment.fetch("https://flarex.internal/functions");
-  if (request.method === "PUT") {
-    const functions = await readJson<DeploymentFunctions>(request);
-    return deployment.fetch("https://flarex.internal/functions", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(functions),
-    });
-  }
-  return json({ error: "Method not allowed." }, { status: 405 });
-}
-
 async function routeInvoke(
   env: Env,
   deploymentId: string,
@@ -342,24 +317,6 @@ function artifactRuntimeFromEnv(
       ? {}
       : { capabilityToken: env.FLAREX_ARTIFACT_RUNTIME_TOKEN }),
   });
-}
-
-async function routeDeploymentSchema(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-): Promise<Response> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  if (request.method === "GET") return deployment.fetch("https://flarex.internal/schema");
-  if (request.method === "PUT") {
-    const schema = await readJson<DeploymentSchema>(request);
-    return deployment.fetch("https://flarex.internal/schema", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(schema),
-    });
-  }
-  return json({ error: "Method not allowed." }, { status: 405 });
 }
 
 async function routePartition(

@@ -22,7 +22,8 @@ function metadata.
 It stores source package metadata, analyzed schema, analyzed functions, state,
 failure errors, and timestamps. `finish` activates a candidate by applying its
 schema/functions in one Durable Object storage transaction through the same
-validation path as the legacy direct replacement routes.
+validation path that used to back the now-removed legacy direct replacement
+routes.
 
 This is the first step toward a Convex-style deployment activation boundary.
 The current prototype still stores source package contents inline and does not
@@ -562,8 +563,8 @@ the active push's analyzed deployment payload instead of trusting the mutable
 `functions` table alone.
 
 `DeploymentDO` still materializes the active schema/functions into tables for
-legacy reads and partition schema sync, but the execution start path now treats
-the active push analysis as authoritative:
+partition schema sync, but the execution start path now treats the active push
+analysis as authoritative:
 
 ```txt
 active_push_id -> pushes.analysis -> schema/functions -> ExecutionDO.start
@@ -588,4 +589,43 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
+```
+
+## Direct Metadata Route Removal
+
+Previous completed checkpoint: `63637f9` Harden create-root sync docs and
+tests.
+
+The backend data model no longer exposes direct public schema/function
+replacement routes. `DeploymentDO` still stores normalized tables, indexes, and
+functions after `finish_push`, but the only public activation path is analyzed
+push state.
+
+Current authority chain:
+
+```txt
+source package
+  -> analyzed push
+  -> finish_push
+  -> active_push_id
+  -> active deployment analysis
+  -> invoke/sync/execution session
+```
+
+Convex reference:
+
+- `crates/application/src/deploy_config.rs`
+  - push/finish owns deployment activation.
+- `crates/model/src/modules/mod.rs`
+  - module/function metadata belongs to deployment state.
+
+Cloudflare difference: Flarex still has materialized SQLite tables inside the
+DeploymentDO because partitions need compact schema sync. Those tables are no
+longer publicly writable metadata authority.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run --maxWorkers=1
 ```
