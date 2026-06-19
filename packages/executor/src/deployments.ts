@@ -85,7 +85,7 @@ export async function ensureDeployment(
   }
 }
 
-function assertDeploymentProject(
+export function assertDeploymentProject(
   deployment: DeploymentMetadataRecord,
   input: EnsureDeploymentInput,
 ): DeploymentMetadataRecord {

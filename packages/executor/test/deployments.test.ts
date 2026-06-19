@@ -5,7 +5,9 @@ import {
 } from "flarex/artifacts";
 
 import {
+  DeploymentNotFoundError,
   DeploymentPackageMismatchError,
+  DeploymentPackageNotActivatedError,
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
   createFlarexExecutor,
@@ -214,6 +216,112 @@ describe("executor deployment behavior", () => {
         schemaVersion: 4,
       }),
     ).rejects.toThrow(DeploymentProjectMismatchError);
+  });
+
+  it("resolves the active deployment package", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_active_package",
+      projectId: "project_active_package",
+      sourcePackage: sourcePackage(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_active_package",
+      projectId: "project_active_package",
+      packageId: registered.package.packageId,
+      schemaVersion: 7,
+    });
+
+    await expect(
+      executor.getActiveDeploymentPackage({
+        deploymentId: "deployment_active_package",
+        projectId: "project_active_package",
+      }),
+    ).resolves.toMatchObject({
+      deployment: {
+        deploymentId: "deployment_active_package",
+        projectId: "project_active_package",
+        activePackageId: registered.package.packageId,
+        activeSchemaVersion: 7,
+      },
+      package: {
+        deploymentId: "deployment_active_package",
+        packageId: registered.package.packageId,
+      },
+    });
+  });
+
+  it("rejects active package resolution for a missing deployment", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+    });
+
+    await expect(
+      executor.getActiveDeploymentPackage({
+        deploymentId: "deployment_missing",
+        projectId: "project_active_package",
+      }),
+    ).rejects.toThrow(DeploymentNotFoundError);
+  });
+
+  it("rejects active package resolution for a deployment in another project", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_active_package",
+          projectId: "project_a",
+          activePackageId: "package_active",
+          activeSchemaVersion: 7,
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.getActiveDeploymentPackage({
+        deploymentId: "deployment_active_package",
+        projectId: "project_b",
+      }),
+    ).rejects.toThrow(DeploymentProjectMismatchError);
+  });
+
+  it("rejects active package resolution before activation", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_active_package",
+          projectId: "project_active_package",
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.getActiveDeploymentPackage({
+        deploymentId: "deployment_active_package",
+        projectId: "project_active_package",
+      }),
+    ).rejects.toThrow(DeploymentPackageNotActivatedError);
+  });
+
+  it("rejects active package resolution when the active package row is missing", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_active_package",
+          projectId: "project_active_package",
+          activePackageId: "package_missing",
+          activeSchemaVersion: 7,
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.getActiveDeploymentPackage({
+        deploymentId: "deployment_active_package",
+        projectId: "project_active_package",
+      }),
+    ).rejects.toThrow(DeploymentPackageNotFoundError);
   });
 
   it("creates missing deployment metadata", async () => {

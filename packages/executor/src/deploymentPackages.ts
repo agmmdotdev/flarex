@@ -4,10 +4,17 @@ import {
 } from "@flarex/persistence-postgres";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 
-import { DeploymentPackageMismatchError } from "./errors";
-import { ensureDeployment } from "./deployments";
+import {
+  DeploymentNotFoundError,
+  DeploymentPackageMismatchError,
+  DeploymentPackageNotActivatedError,
+  DeploymentPackageNotFoundError,
+} from "./errors";
+import { assertDeploymentProject, ensureDeployment } from "./deployments";
 import type {
   FlarexExecutorPersistence,
+  GetActiveDeploymentPackageInput,
+  GetActiveDeploymentPackageResult,
   RegisterDeploymentPackageInput,
   RegisterDeploymentPackageResult,
 } from "./types";
@@ -69,6 +76,37 @@ export async function registerDeploymentPackage(
       createdPackage: false,
     };
   }
+}
+
+export async function getActiveDeploymentPackage(
+  persistence: FlarexExecutorPersistence,
+  input: GetActiveDeploymentPackageInput,
+): Promise<GetActiveDeploymentPackageResult> {
+  const deployment = await persistence.getDeploymentMetadata(input.deploymentId);
+  if (deployment === null) {
+    throw new DeploymentNotFoundError(input.deploymentId);
+  }
+
+  const ownedDeployment = assertDeploymentProject(deployment, input);
+  if (ownedDeployment.activePackageId === null) {
+    throw new DeploymentPackageNotActivatedError(input.deploymentId);
+  }
+
+  const deploymentPackage = await persistence.getDeploymentPackageMetadata(
+    input.deploymentId,
+    ownedDeployment.activePackageId,
+  );
+  if (deploymentPackage === null) {
+    throw new DeploymentPackageNotFoundError(
+      input.deploymentId,
+      ownedDeployment.activePackageId,
+    );
+  }
+
+  return {
+    deployment: ownedDeployment,
+    package: deploymentPackage,
+  };
 }
 
 function assertDeploymentPackageMatches(

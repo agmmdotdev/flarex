@@ -22,6 +22,9 @@ export interface FlarexExecutor {
     input: ActivateDeploymentPackageInput,
   ): Promise<ActivateDeploymentPackageResult>;
   ensureDeployment(input: EnsureDeploymentInput): Promise<EnsureDeploymentResult>;
+  getActiveDeploymentPackage(
+    input: GetActiveDeploymentPackageInput,
+  ): Promise<GetActiveDeploymentPackageResult>;
   registerDeploymentPackage(
     input: RegisterDeploymentPackageInput,
   ): Promise<RegisterDeploymentPackageResult>;
@@ -72,6 +75,16 @@ export interface RegisterDeploymentPackageResult {
   package: DeploymentPackageMetadataRecord;
   createdDeployment: boolean;
   createdPackage: boolean;
+}
+
+export interface GetActiveDeploymentPackageInput {
+  deploymentId: string;
+  projectId: string;
+}
+
+export interface GetActiveDeploymentPackageResult {
+  deployment: DeploymentMetadataRecord;
+  package: DeploymentPackageMetadataRecord;
 }
 
 export interface EnsureDeploymentInput {

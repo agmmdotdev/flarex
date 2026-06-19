@@ -1418,6 +1418,73 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Active Package Resolution
+
+Previous completed checkpoint: `221642f` Derive package identity from source
+packages.
+
+What changed:
+
+- Added `executor.getActiveDeploymentPackage({ deploymentId, projectId })`.
+- The resolver loads deployment metadata, validates project ownership, requires
+  an active package ID, loads the matching immutable package row, and returns
+  both records.
+- Added explicit executor errors for read-side activation failures:
+  - `DeploymentNotFoundError`
+  - `DeploymentPackageNotActivatedError`
+  - existing `DeploymentPackageNotFoundError` for a dangling active package
+    pointer.
+- Reused the same project ownership guard as `ensureDeployment(...)` and
+  `activateDeploymentPackage(...)`.
+- Added executor tests for successful resolution, missing deployment, project
+  mismatch, missing activation, and missing active package row.
+
+Why it changed:
+
+Invoke routing needs a single backend-owned answer to "what code is active for
+this deployment?" before it can load module/function metadata. Activation
+already writes `deployments.activePackageId`; this slice makes that state
+consumable without letting adapters inspect persistence details directly.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves the current application/function metadata before
+    running user code.
+- `crates/model/src/source_packages/mod.rs`
+  - package lookup is backend model behavior, not caller-owned identity.
+- `crates/model/src/modules/types.rs`
+  - module metadata references source package identity and ties active code to
+    durable package state.
+
+Flarex differences:
+
+- Convex has richer module/function tables and deployment config state. Flarex
+  currently resolves only the active source package row.
+- Flarex keeps package JSON in Postgres for this slice. Convex production code
+  separates durable metadata from source package storage.
+- Flarex exposes the resolver as framework-neutral executor core behavior so
+  Nitro, tests, and local adapters can share it.
+
+Known limitations:
+
+- No function route table exists yet, so invoke cannot resolve
+  `api.file.function` after loading the active package.
+- No package status machine exists yet, so resolution does not distinguish
+  analyzed, failed, uploaded, or ready packages.
+- No auth boundary exists yet. The current ownership check is project ID based
+  and assumes the caller is already trusted.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

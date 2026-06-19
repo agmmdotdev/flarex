@@ -23,6 +23,20 @@ export class DeploymentPackageMismatchError extends Error {
   }
 }
 
+export class DeploymentNotFoundError extends Error {
+  constructor(readonly deploymentId: string) {
+    super(`Deployment metadata not found: ${deploymentId}`);
+    this.name = "DeploymentNotFoundError";
+  }
+}
+
+export class DeploymentPackageNotActivatedError extends Error {
+  constructor(readonly deploymentId: string) {
+    super(`Deployment has no active package: ${deploymentId}`);
+    this.name = "DeploymentPackageNotActivatedError";
+  }
+}
+
 export class DeploymentPackageNotFoundError extends Error {
   constructor(
     readonly deploymentId: string,
