@@ -49,6 +49,7 @@ describe("createFlarexNitroHandler", () => {
       executor: createFlarexExecutor({
         clock: { now: () => new Date("2026-06-19T00:00:00.000Z") },
         persistence: {
+          ...healthyPersistence(),
           async check() {
             throw new Error("database unavailable");
           },
@@ -77,6 +78,23 @@ function healthyPersistence() {
   return {
     async check() {
       return { status: "ok" as const };
+    },
+    async getDeploymentMetadata() {
+      return null;
+    },
+    async insertDeploymentMetadata(input: {
+      deploymentId: string;
+      projectId: string;
+      activePackageId?: string | null;
+      activeSchemaVersion?: number;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        projectId: input.projectId,
+        activePackageId: input.activePackageId ?? null,
+        activeSchemaVersion: input.activeSchemaVersion ?? 0,
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
     },
   };
 }

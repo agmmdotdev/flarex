@@ -974,6 +974,78 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 corepack pnpm --filter @flarex/executor-nitro test
 ```
 
+## Executor Ensure Deployment Behavior
+
+Previous completed checkpoint: `d1405d1` Use scoped executor package names.
+
+What changed:
+
+- Added `ensureDeployment(...)` to `@flarex/executor`.
+- Added executor-level types:
+  - `EnsureDeploymentInput`
+  - `EnsureDeploymentResult`
+  - `DeploymentProjectMismatchError`
+- Extended the executor's injected persistence interface with only the
+  deployment metadata methods it needs:
+  - `getDeploymentMetadata(...)`
+  - `insertDeploymentMetadata(...)`
+- Implemented idempotent deployment ensure semantics:
+  - read existing deployment metadata first,
+  - insert metadata if missing,
+  - if insertion loses a concurrent race, re-read and return the existing row,
+  - reject if the deployment already belongs to a different project.
+- Added executor tests for creation, idempotent existing reads, duplicate-race
+  recovery, and project mismatch rejection.
+- Updated Nitro adapter tests to satisfy the wider executor persistence
+  contract without importing `@flarex/persistence-postgres` directly.
+
+Why it changed:
+
+This proves the boundary between persistence and platform behavior. The
+Postgres persistence package inserts and reads metadata rows. The executor
+decides what it means to ensure a deployment, including idempotency and
+project ownership validation.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - deployment/function routing is backend-owned behavior, not user code.
+- `crates/function_runner/src/lib.rs`
+  - execution depends on backend-provided interfaces.
+- `crates/database/src/committer.rs`
+  - backend commit paths validate state before accepting writes; this same
+    pattern will later apply to package activation and OCC commits.
+
+Flarex differences:
+
+- Convex does not expose this exact `ensureDeployment(...)` API because hosted
+  deployment provisioning is part of Convex's own backend. Flarex needs the API
+  in the framework-neutral executor so Nitro, local tests, and future platform
+  control-plane code can share the same behavior.
+- The Nitro adapter still only exposes health routes. It receives an executor
+  instance and should not import Postgres persistence directly.
+
+Known limitations:
+
+- `ensureDeployment(...)` is a direct executor method only; no HTTP/Nitro route
+  exists yet.
+- It creates deployment metadata only. It does not create projects, activate
+  source packages, run migrations, or validate auth.
+- The race recovery depends on the persistence adapter converting primary-key
+  conflicts into `DeploymentMetadataAlreadyExistsError`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

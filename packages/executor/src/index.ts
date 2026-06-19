@@ -1,4 +1,9 @@
-import type { FlarexPersistenceCheck } from "@flarex/persistence-postgres";
+import {
+  DeploymentMetadataAlreadyExistsError,
+  type DeploymentMetadataRecord,
+  type FlarexPersistenceCheck,
+  type InsertDeploymentMetadataInput,
+} from "@flarex/persistence-postgres";
 
 export interface Clock {
   now(): Date;
@@ -10,11 +15,41 @@ export interface FlarexExecutorConfig {
 }
 
 export interface FlarexExecutor {
+  ensureDeployment(input: EnsureDeploymentInput): Promise<EnsureDeploymentResult>;
   health(): Promise<FlarexHealth>;
 }
 
 export interface FlarexExecutorPersistence {
   check(): Promise<FlarexPersistenceCheck>;
+  getDeploymentMetadata(
+    deploymentId: string,
+  ): Promise<DeploymentMetadataRecord | null>;
+  insertDeploymentMetadata(
+    input: InsertDeploymentMetadataInput,
+  ): Promise<DeploymentMetadataRecord>;
+}
+
+export interface EnsureDeploymentInput {
+  deploymentId: string;
+  projectId: string;
+}
+
+export interface EnsureDeploymentResult {
+  deployment: DeploymentMetadataRecord;
+  created: boolean;
+}
+
+export class DeploymentProjectMismatchError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly expectedProjectId: string,
+    readonly actualProjectId: string,
+  ) {
+    super(
+      `Deployment ${deploymentId} belongs to project ${actualProjectId}, not ${expectedProjectId}`,
+    );
+    this.name = "DeploymentProjectMismatchError";
+  }
 }
 
 export interface FlarexHealth {
@@ -42,6 +77,39 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   const persistence = config.persistence;
 
   return {
+    async ensureDeployment(input) {
+      const existingDeployment = await persistence.getDeploymentMetadata(
+        input.deploymentId,
+      );
+      if (existingDeployment !== null) {
+        return {
+          deployment: assertDeploymentProject(existingDeployment, input),
+          created: false,
+        };
+      }
+
+      try {
+        const deployment = await persistence.insertDeploymentMetadata(input);
+        return { deployment, created: true };
+      } catch (error) {
+        if (!(error instanceof DeploymentMetadataAlreadyExistsError)) {
+          throw error;
+        }
+
+        const racedDeployment = await persistence.getDeploymentMetadata(
+          input.deploymentId,
+        );
+        if (racedDeployment === null) {
+          throw error;
+        }
+
+        return {
+          deployment: assertDeploymentProject(racedDeployment, input),
+          created: false,
+        };
+      }
+    },
+
     async health() {
       const persistenceHealth = await checkPersistence(persistence);
 
@@ -67,4 +135,19 @@ async function checkPersistence(
       message: error instanceof Error ? error.message : "Unknown persistence error",
     };
   }
+}
+
+function assertDeploymentProject(
+  deployment: DeploymentMetadataRecord,
+  input: EnsureDeploymentInput,
+): DeploymentMetadataRecord {
+  if (deployment.projectId !== input.projectId) {
+    throw new DeploymentProjectMismatchError(
+      deployment.deploymentId,
+      input.projectId,
+      deployment.projectId,
+    );
+  }
+
+  return deployment;
 }
