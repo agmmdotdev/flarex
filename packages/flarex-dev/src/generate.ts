@@ -185,9 +185,30 @@ function dynamicPartitionModelSource(): string {
   return \`\${suffix[0].toLowerCase()}\${suffix.slice(1)}\`;
 };
 
-const dynamicPartitionTable = (table: string) => new Proxy({}, {
+type DynamicPartitionSelector = (argField: string) => {
+  type: "partition";
+  table: string;
+  selector: string;
+  partitionField: string;
+  argField: string;
+};
+
+type DynamicPartitionRoot = {
+  type: "partitionRoot";
+  table: string;
+  partitionField: "_id";
+} & Record<string, DynamicPartitionSelector>;
+
+const dynamicPartitionTable = (table: string) => new Proxy({
+  type: "partitionRoot",
+  table,
+  partitionField: "_id",
+} as DynamicPartitionRoot, {
   get(_target, property) {
     if (typeof property !== "string") return undefined;
+    if (property === "type") return "partitionRoot";
+    if (property === "table") return table;
+    if (property === "partitionField") return "_id";
     return (argField: string) => ({
       type: "partition",
       table,
@@ -196,13 +217,7 @@ const dynamicPartitionTable = (table: string) => new Proxy({}, {
       argField,
     } as const);
   },
-}) as Record<string, (argField: string) => {
-  type: "partition";
-  table: string;
-  selector: string;
-  partitionField: string;
-  argField: string;
-}>;
+}) as DynamicPartitionRoot;
 
 export const model = new Proxy({}, {
   get(_target, property) {
@@ -218,6 +233,9 @@ function concretePartitionModelSource(schema: AnalyzedSchema): string {
       if (table.placement.kind !== "partitionBy") return [];
       const selector = selectorNameForPartitionField(table.placement.field);
       return [`  ${propertyKey(table.name)}: {
+    type: "partitionRoot",
+    table: ${JSON.stringify(table.name)},
+    partitionField: ${JSON.stringify(table.placement.field)},
     ${propertyKey(selector)}: (argField: string) => ({
       type: "partition",
       table: ${JSON.stringify(table.name)},

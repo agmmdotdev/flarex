@@ -159,11 +159,13 @@ export const create = mutation({
 
     expect(server).toContain("export const model = {");
     expect(server).toContain("users: {");
+    expect(server).toContain('type: "partitionRoot"');
+    expect(server).toContain('table: "users"');
     expect(server).toContain('selector: "byId"');
     expect(server).toContain('partitionField: "_id"');
     expect(server).toContain("teams: {");
-    expect(server).toContain("bySlug: (argField: string) => ({");
     expect(server).toContain('table: "teams"');
+    expect(server).toContain("bySlug: (argField: string) => ({");
     expect(server).toContain('selector: "bySlug"');
     expect(server).toContain('partitionField: "slug"');
     expect(server).toContain("export type PartitionScopes = {");

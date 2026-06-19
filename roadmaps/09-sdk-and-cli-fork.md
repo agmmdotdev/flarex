@@ -373,6 +373,64 @@ Verification:
 Documentation-only change; no runtime validation required.
 ```
 
+## Generated Root Model Object Update
+
+Checkpoint title: `Generate root model objects`
+
+Previous completed checkpoint: `c469473` Document root model migration order.
+
+What changed:
+
+- Final `_generated/server.ts` now emits each partition root model entry as a
+  root metadata object:
+
+  ```ts
+  model.users.type === "partitionRoot"
+  model.users.table === "users"
+  model.users.partitionField === "_id"
+  ```
+
+- Existing selector methods remain on the same object:
+
+  ```ts
+  model.users.byId("userId")
+  ```
+
+- Initial dynamic codegen mirrors the same shape so imports can resolve before
+  authoritative backend analysis completes.
+- Generator tests now assert that root metadata and legacy selector metadata
+  are both emitted.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server helpers are the stable app-facing surface.
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations consume generated helper metadata.
+
+Cloudflare difference:
+
+- Convex generated server helpers do not need physical shard metadata. Flarex
+  root model objects carry the table identity needed for future
+  existing-root/create-root analysis.
+
+Known limitations:
+
+- `partition: model.table` is generated but not yet accepted as executable
+  backend partition metadata.
+- `model.table.byId(...)` remains required for current invoke, sync, generated
+  client inference, and examples.
+- Root create-mode analysis and backend preallocation remain follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- --run packages/flarex-dev/test/generate.test.ts
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+```
+
 ## Partition-Scoped Mutation Type Update
 
 Checkpoint title: `Generate partition-scoped mutation types`

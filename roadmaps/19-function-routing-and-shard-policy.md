@@ -382,6 +382,53 @@ Verification:
 Documentation-only change; no runtime validation required.
 ```
 
+## Generated Root Model Object Update
+
+Checkpoint title: `Generate root model objects`
+
+Previous completed checkpoint: `c469473` Document root model migration order.
+
+What changed:
+
+- Generated `model.<rootTable>` entries now exist as concrete root metadata
+  objects.
+- The root object records:
+  - `type: "partitionRoot"`
+  - `table`
+  - `partitionField`
+- Legacy selector methods such as `model.<rootTable>.byId("arg")` remain on
+  the same object and continue to produce the current executable partition
+  metadata.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server files expose app-specific helpers.
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations consume generated metadata objects.
+
+Cloudflare difference:
+
+- Flarex needs generated root table metadata so later analysis can decide
+  existing-root versus create-root Durable Object routing. Convex has no
+  equivalent shard-routing helper.
+
+Remaining limitations:
+
+- Root model objects are not executable partition metadata yet.
+- Backend validation still requires selector metadata with an `argField`.
+- The next implementation slice should update analysis to recognize root model
+  metadata and fail clearly until backend runtime policy support exists.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- --run packages/flarex-dev/test/generate.test.ts
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+```
+
 ## RouteFromArgs Implementation
 
 Previous completed checkpoint: `d6b4712` Document function routing shard
