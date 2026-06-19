@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { sql } from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
 
@@ -74,6 +75,36 @@ describe("createPGlitePersistence", () => {
       ["deployment_a"],
     );
     expect(rows.rows).toEqual([]);
+  });
+
+  it("executes Drizzle raw SQL on persistence and transaction clients", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.execute(sql`
+      insert into deployments (deployment_id, project_id)
+      values ('deployment_c', 'project_c')
+    `);
+
+    await persistence.transaction(async (tx) => {
+      await tx.execute(sql`
+        insert into deployments (deployment_id, project_id)
+        values ('deployment_d', 'project_d')
+      `);
+    });
+
+    await expect(
+      persistence.execute<{ deployment_id: string }>(sql`
+        select deployment_id
+        from deployments
+        order by deployment_id
+      `),
+    ).resolves.toMatchObject({
+      rows: [
+        { deployment_id: "deployment_c" },
+        { deployment_id: "deployment_d" },
+      ],
+    });
   });
 
   it("exposes Drizzle for typed metadata access", async () => {

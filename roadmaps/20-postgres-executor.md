@@ -723,6 +723,57 @@ corepack pnpm test
 git diff --check
 ```
 
+## Drizzle Raw SQL Persistence Interface
+
+Previous completed checkpoint: `481dd5d` Use package-local Drizzle Kit
+migrations.
+
+What changed:
+
+- Updated `FlarexSqlClient` so persistence and transaction clients expose:
+  `execute(query: SQLWrapper | string)`.
+- Re-exported Drizzle's `sql` helper from `flarex-postgres`.
+- Added PGlite adapter support for executing Drizzle raw SQL on both the root
+  persistence client and transaction client.
+- Added a test proving `persistence.execute(sql``...``)` and
+  `tx.execute(sql``...``)` both work.
+
+Why it changed:
+
+The engine paths should use Drizzle's typed SQL objects instead of ad hoc
+string-only interfaces. This gives us a consistent raw SQL contract for
+Convex-style hot paths while keeping Drizzle as the schema/query framework.
+
+Convex references:
+
+- `crates/postgres/src/sql.rs`
+  - Convex keeps hot document/index SQL explicit and deliberate.
+- `crates/database/src/committer.rs`
+  - future OCC checks need explicit read/write validation queries.
+
+Flarex differences:
+
+- Convex's SQL is Rust string constants. Flarex should express equivalent hot
+  SQL through Drizzle `sql``...`` objects where possible.
+- Plain string `exec/query` remains in the interface for adapter plumbing and
+  PGlite compatibility, but new engine code should prefer `execute(sql``...``)`.
+
+Known limitations:
+
+- The interface currently returns a Postgres-like `QueryResult<Row>` instead of
+  the exact Drizzle driver result type because future PGlite and real Postgres
+  adapters should share a stable persistence contract.
+- No actual document/index hot-path query methods exist yet.
+
+Verification:
+
+```sh
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm db:check
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

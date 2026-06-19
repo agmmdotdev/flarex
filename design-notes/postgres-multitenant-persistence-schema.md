@@ -173,6 +173,7 @@ Use Drizzle for:
 
 - table definitions,
 - typed platform metadata access,
+- typed raw SQL expressions via Drizzle `sql`,
 - package-local migration generation and tracking,
 - local/test PGlite wiring,
 - future drizzle-kit generated migrations for non-hot-path tables.
@@ -180,13 +181,16 @@ Use Drizzle for:
 Keep explicit SQL for:
 
 - exact Convex-style `documents` and `indexes` DDL,
-- hot read/index scan queries,
-- batch document/index writes,
-- OCC conflict checks,
+- hot read/index scan queries expressed as Drizzle `sql` objects,
+- batch document/index writes expressed as Drizzle `sql` objects,
+- OCC conflict checks expressed as Drizzle `sql` objects,
 - any query where the specific plan or index order is part of correctness.
 
 This split avoids raw ad hoc SQL for ordinary metadata while preserving full
-control over the storage-engine paths that need to mimic Convex.
+control over the storage-engine paths that need to mimic Convex. The
+`flarex-postgres` persistence interface exposes `execute(sql``...``)` for these
+engine paths and keeps plain string `exec/query` only as a lower-level adapter
+escape hatch.
 
 ## Logical Data Model
 

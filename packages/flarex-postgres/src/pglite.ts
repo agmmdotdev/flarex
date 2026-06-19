@@ -52,6 +52,8 @@ export async function createPGlitePersistence(
 
   return {
     drizzle: drizzleDb,
+    execute: (query) =>
+      drizzleDb.execute(query) as unknown as Promise<QueryResult<never>>,
     exec: (sql) => db.exec(sql),
     query: (sql, params) => db.query(sql, params),
 
@@ -65,7 +67,18 @@ export async function createPGlitePersistence(
     },
 
     transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T> {
-      return db.transaction((tx) => fn(tx));
+      return db.transaction((tx) => {
+        const txDrizzle = drizzle({
+          client: tx as unknown as PGlite,
+          schema: flarexSchema,
+        });
+        return fn({
+          execute: (query) =>
+            txDrizzle.execute(query) as unknown as Promise<QueryResult<never>>,
+          exec: (sql) => tx.exec(sql),
+          query: (sql, params) => tx.query(sql, params),
+        });
+      });
     },
   };
 }
