@@ -1642,6 +1642,90 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Nitro Invoke Prepare Adapter
+
+Previous completed checkpoint: `1f6ec62` Prepare executor invokes.
+
+What changed:
+
+- Added a Nitro adapter route:
+
+  ```http
+  POST /invoke/prepare
+  ```
+
+- The route parses `deploymentId`, `projectId`, `path`, and optional
+  `kind`, then calls `executor.prepareInvoke(...)`.
+- The route returns a minimal response:
+  - `deploymentId`
+  - `packageId`
+  - `path`
+  - `kind`
+  - `schemaVersion`
+  - `executionModule`
+- Added request validation for malformed JSON, missing string fields, invalid
+  `kind`, and non-POST method usage.
+- Added stable HTTP error mapping for known executor errors:
+  - `404` for missing deployment/package/function.
+  - `403` for project mismatch.
+  - `400` for kind mismatch and non-invokable function kind.
+  - `409` for inactive deployment or missing/malformed active metadata.
+- Added Nitro adapter tests with a fake executor so adapter behavior stays
+  separate from executor persistence behavior.
+
+Why it changed:
+
+This is the first concrete Nitro HTTP route over the new Postgres executor
+core. It proves the intended adapter boundary: Nitro owns HTTP parsing,
+serialization, and status-code mapping, while executor core owns active package,
+function, schema, and invoke semantics.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution enters through application-level routing that resolves
+    function metadata before runner execution.
+- `crates/local_backend/src/lib.rs`
+  - local backend exposes HTTP-ish endpoints as adapter surfaces over backend
+    application behavior.
+
+Flarex references:
+
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy invoke path maps active function lookup and invoke validation into
+    HTTP responses.
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy execution session start uses active function metadata before
+    opening transaction state.
+
+Flarex differences:
+
+- Convex does not expose a separate `/invoke/prepare` public API in this shape.
+  Flarex adds it now as an internal development adapter milestone before real
+  execution sessions exist.
+- The adapter intentionally does not return raw schema, package JSON, or
+  analysis JSON. Those remain executor-owned until the execution layer needs
+  them.
+- The route accepts `projectId` directly for now. Future platform auth should
+  derive project ownership from credentials instead of trusting the body.
+
+Known limitations:
+
+- `/invoke/prepare` does not execute user code.
+- It does not begin a transaction or create an execution session.
+- It does not validate arguments or resolve partition scope yet.
+- It is currently an adapter test route, not a final public client protocol.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
