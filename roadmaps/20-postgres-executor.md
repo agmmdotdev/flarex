@@ -833,6 +833,70 @@ corepack pnpm --filter flarex-postgres typecheck
 git diff --check
 ```
 
+## Deployment Metadata Helpers
+
+Previous completed checkpoint: `20d5de3` Wire executor health to persistence.
+
+What changed:
+
+- Added typed deployment metadata helpers in `flarex-postgres`:
+  `createDeployment(...)` and `getDeployment(...)`.
+- Added `DeploymentRecord`, `CreateDeploymentInput`, and
+  `DeploymentAlreadyExistsError`.
+- Exposed deployment helpers through the framework-neutral
+  `FlarexPersistence` interface.
+- Wired the PGlite adapter to use the same Drizzle-backed helper functions.
+- Added tests for create/read, missing deployment lookup, and duplicate
+  deployment rejection.
+
+Why it changed:
+
+Deployment metadata is platform state. It should move into the Postgres
+persistence package instead of living in the legacy `DeploymentDO` prototype or
+being accessed through unstructured Drizzle calls from executor code.
+
+The create path uses the database primary key with `onConflictDoNothing(...)`
+and converts the empty insert result into a Flarex-specific duplicate error.
+That is the right first shape for hosted metadata under concurrent project or
+deployment creation.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned deployment/function routing stays outside user code.
+- `crates/function_runner/src/lib.rs`
+  - execution depends on injected backend interfaces rather than direct user
+    access to persistence internals.
+- `crates/postgres/src/lib.rs`
+  - persistence is initialized per backend instance and hides the database
+    implementation behind a backend-owned abstraction.
+
+Flarex differences:
+
+- Convex does not store this exact hosted-platform `deployments` table in the
+  Postgres schema copied here. Flarex needs it because the platform has
+  projects, deployed source packages, and Cloudflare execution artifacts.
+- The old Flarex Cloudflare prototype kept deployment metadata near
+  `DeploymentDO`. The Postgres executor path keeps authoritative deployment
+  metadata in Postgres and may later mirror/cache it in Cloudflare DOs only for
+  routing and freshness.
+
+Known limitations:
+
+- `active_package_id` and `active_schema_version` are stored but not yet driven
+  by the deployment push/analyze/activate flow.
+- No project creation API exists yet.
+- No real Postgres adapter exists yet; the helper is currently verified through
+  PGlite.
+- Executor startup does not yet ensure deployments or run migrations.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-postgres typecheck
+corepack pnpm --filter flarex-postgres test
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

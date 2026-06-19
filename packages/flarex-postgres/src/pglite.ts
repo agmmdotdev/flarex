@@ -10,6 +10,10 @@ import type {
   FlarexPersistenceTx,
   QueryResult,
 } from "./index";
+import {
+  createDeployment as createDeploymentWithDb,
+  getDeployment as getDeploymentWithDb,
+} from "./deployments";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -61,6 +65,10 @@ export async function createPGlitePersistence(
       await db.query("select 1 as ok");
       return { status: "ok" };
     },
+
+    createDeployment: (input) => createDeploymentWithDb(drizzleDb, input),
+    getDeployment: (deploymentId) =>
+      getDeploymentWithDb(drizzleDb, deploymentId),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

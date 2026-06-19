@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sql } from "../src";
+import { DeploymentAlreadyExistsError, sql } from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
 
@@ -125,5 +125,58 @@ describe("createPGlitePersistence", () => {
         activeSchemaVersion: 0,
       },
     ]);
+  });
+
+  it("creates and reads deployment metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const created = await persistence.createDeployment({
+      deploymentId: "deployment_meta",
+      projectId: "project_meta",
+      activePackageId: "package_meta",
+      activeSchemaVersion: 2,
+    });
+
+    expect(created).toMatchObject({
+      deploymentId: "deployment_meta",
+      projectId: "project_meta",
+      activePackageId: "package_meta",
+      activeSchemaVersion: 2,
+    });
+    expect(created.createdAt).toBeInstanceOf(Date);
+
+    await expect(
+      persistence.getDeployment("deployment_meta"),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_meta",
+      projectId: "project_meta",
+      activePackageId: "package_meta",
+      activeSchemaVersion: 2,
+    });
+  });
+
+  it("returns null for missing deployment metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(persistence.getDeployment("missing")).resolves.toBeNull();
+  });
+
+  it("rejects duplicate deployment metadata clearly", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.createDeployment({
+      deploymentId: "deployment_dup",
+      projectId: "project_dup",
+    });
+
+    await expect(
+      persistence.createDeployment({
+        deploymentId: "deployment_dup",
+        projectId: "project_dup",
+      }),
+    ).rejects.toThrow(DeploymentAlreadyExistsError);
   });
 });
