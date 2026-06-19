@@ -597,6 +597,68 @@ corepack pnpm --filter flarex-executor-nitro typecheck
 git diff --check
 ```
 
+## Drizzle Schema And Metadata Boundary
+
+Previous completed checkpoint: `5874332` Add Convex-style Postgres
+persistence package.
+
+What changed:
+
+- Added Drizzle ORM to `packages/flarex-postgres`.
+- Added `src/schema.ts` with Drizzle `pgTable` definitions for all current
+  persistence tables.
+- Added a custom Drizzle `bytea` column helper so Convex-style binary document
+  and index values stay represented in the typed schema.
+- Updated the PGlite adapter to create and expose a Drizzle database handle.
+- Moved migration tracking in the PGlite path to Drizzle
+  `select`/`insert` calls.
+- Added a typed metadata test that inserts and reads `deployments` through
+  Drizzle.
+
+Why it changed:
+
+Using only raw SQL would make the TypeScript persistence layer drift quickly as
+platform metadata grows. Drizzle gives us typed table definitions and normal
+metadata queries while still allowing exact SQL for Convex's hot document/index
+paths.
+
+Convex references:
+
+- `crates/postgres/src/sql.rs`
+  - still the source for the exact `documents` and `indexes` physical shape.
+- `crates/postgres/src/lib.rs`
+  - still the reference for multitenant persistence initialization.
+
+Drizzle references:
+
+- Official Drizzle PGlite docs show wrapping a PGlite client with
+  `drizzle({ client })`.
+- Official PGlite ORM support docs list Drizzle as a supported ORM with
+  schema/query/migration support.
+
+Flarex differences:
+
+- Convex is Rust and hand-written SQL. Flarex is TypeScript, so Drizzle is a
+  good fit for schema definitions, local PGlite wiring, and platform metadata.
+- We are not replacing Convex's hand-tuned engine SQL with ORM query builder
+  calls. The engine paths remain explicit SQL until proven safe to abstract.
+
+Known limitations:
+
+- No drizzle-kit generated migration files yet.
+- The first migration still uses explicit SQL strings.
+- The real Postgres adapter is not implemented yet.
+- Drizzle is only exercised for migration tracking and deployment metadata so
+  far.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-postgres typecheck
+corepack pnpm --filter flarex-postgres test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

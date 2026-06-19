@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
 
 describe("createPGlitePersistence", () => {
@@ -58,5 +59,25 @@ describe("createPGlitePersistence", () => {
       ["deployment_a"],
     );
     expect(rows.rows).toEqual([]);
+  });
+
+  it("exposes Drizzle for typed metadata access", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.drizzle.insert(deployments).values({
+      deploymentId: "deployment_b",
+      projectId: "project_b",
+    });
+
+    await expect(
+      persistence.drizzle.select().from(deployments),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_b",
+        projectId: "project_b",
+        activeSchemaVersion: 0,
+      },
+    ]);
   });
 });

@@ -74,6 +74,11 @@ The authoritative document and index payload columns are byte-encoded so the
 future value codec can stay Convex-compatible instead of locking the storage
 layer to JSONB too early.
 
+The TypeScript source of truth for this schema now lives in Drizzle table
+definitions under `packages/flarex-postgres/src/schema.ts`. The migration SQL
+still remains explicit for the Convex engine tables because their physical
+shape and indexes need to match Convex's deliberate query paths closely.
+
 ```sql
 deployments (
   deployment_id text primary key,
@@ -155,6 +160,27 @@ sketch is deferred. Convex stores much of this as system metadata rather than
 SQL-native app tables. Flarex should avoid adding these until the source
 package/deployment metadata model proves which parts need SQL tables versus
 versioned system documents or `persistence_globals`.
+
+## Drizzle Boundary
+
+Use Drizzle for:
+
+- table definitions,
+- typed platform metadata access,
+- migration tracking,
+- local/test PGlite wiring,
+- future drizzle-kit generated migrations for non-hot-path tables.
+
+Keep explicit SQL for:
+
+- exact Convex-style `documents` and `indexes` DDL,
+- hot read/index scan queries,
+- batch document/index writes,
+- OCC conflict checks,
+- any query where the specific plan or index order is part of correctness.
+
+This split avoids raw ad hoc SQL for ordinary metadata while preserving full
+control over the storage-engine paths that need to mimic Convex.
 
 ## Logical Data Model
 

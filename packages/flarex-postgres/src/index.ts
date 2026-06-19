@@ -32,6 +32,9 @@ export interface FlarexMigrationResult {
   applied: FlarexMigration[];
 }
 
+export { flarexSchema } from "./schema";
+export * from "./schema";
+
 export const FLAREX_MIGRATIONS: readonly FlarexMigration[] = [
   {
     version: 1,
