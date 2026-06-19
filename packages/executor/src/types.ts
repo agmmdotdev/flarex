@@ -4,6 +4,8 @@ import type {
   FlarexPersistenceCheck,
   InsertDeploymentPackageMetadataInput,
   InsertDeploymentMetadataInput,
+  InsertInvokeSessionMetadataInput,
+  InvokeSessionMetadataRecord,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -12,8 +14,13 @@ export interface Clock {
   now(): Date;
 }
 
+export interface IdGenerator {
+  nextId(): string;
+}
+
 export interface FlarexExecutorConfig {
   clock?: Clock;
+  ids?: IdGenerator;
   persistence: FlarexExecutorPersistence;
 }
 
@@ -28,6 +35,9 @@ export interface FlarexExecutor {
   getActiveDeploymentPackage(
     input: GetActiveDeploymentPackageInput,
   ): Promise<GetActiveDeploymentPackageResult>;
+  beginInvokeSession(
+    input: BeginInvokeSessionInput,
+  ): Promise<BeginInvokeSessionResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
     input: RegisterDeploymentPackageInput,
@@ -53,6 +63,13 @@ export interface FlarexExecutorPersistence {
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
+  insertInvokeSessionMetadata(
+    input: InsertInvokeSessionMetadataInput,
+  ): Promise<InvokeSessionMetadataRecord>;
+  getInvokeSessionMetadata(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionMetadataRecord | null>;
 }
 
 export interface ActivateDeploymentPackageInput {
@@ -209,6 +226,22 @@ export interface PrepareInvokeResult {
   package: DeploymentPackageMetadataRecord;
   function: DeploymentFunctionMetadata & { kind: InvokableFunctionKind };
   schema: DeploymentSchemaMetadata;
+  scope: FunctionExecutionScope;
+  executionModule: string;
+}
+
+export interface BeginInvokeSessionInput extends PrepareInvokeInput {
+  idempotencyKey?: string;
+}
+
+export interface BeginInvokeSessionResult {
+  sessionId: string;
+  beginTs: number;
+  schemaVersion: number;
+  function: {
+    path: string;
+    kind: InvokableFunctionKind;
+  };
   scope: FunctionExecutionScope;
   executionModule: string;
 }

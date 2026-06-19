@@ -6,6 +6,7 @@ import {
 import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
+import { beginInvokeSession, defaultIds } from "./sessions";
 import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
 
 export {
@@ -24,6 +25,8 @@ export {
 export type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,
+  BeginInvokeSessionInput,
+  BeginInvokeSessionResult,
   Clock,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
@@ -35,6 +38,7 @@ export type {
   FlarexExecutorDependencyHealth,
   FlarexExecutorPersistence,
   FlarexHealth,
+  IdGenerator,
   FunctionVisibility,
   FunctionExecutionScope,
   FunctionPartitionCreateRootPolicy,
@@ -58,6 +62,7 @@ export type {
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {
   const clock = config.clock ?? defaultClock;
+  const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
 
   return {
@@ -67,6 +72,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     getActiveFunction: (input) => getActiveFunction(persistence, input),
     getActiveDeploymentPackage: (input) =>
       getActiveDeploymentPackage(persistence, input),
+    beginInvokeSession: (input) =>
+      beginInvokeSession(persistence, clock, ids, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),

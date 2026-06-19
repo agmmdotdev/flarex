@@ -391,6 +391,44 @@ function healthyPersistence() {
         createdAt: new Date("2026-06-19T00:00:00.000Z"),
       };
     },
+    async insertInvokeSessionMetadata(input: {
+      deploymentId: string;
+      sessionId: string;
+      projectId: string;
+      packageId: string;
+      functionPath: string;
+      functionKind: "query" | "mutation";
+      partitionKey: string;
+      scopeJson: Record<string, unknown>;
+      argsJson: unknown;
+      idempotencyKey?: string | null;
+      state?: "active" | "finished" | "aborted";
+      beginTs: number;
+      schemaVersion: number;
+      executionModule: string;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        packageId: input.packageId,
+        functionPath: input.functionPath,
+        functionKind: input.functionKind,
+        partitionKey: input.partitionKey,
+        scopeJson: input.scopeJson,
+        argsJson: input.argsJson,
+        idempotencyKey: input.idempotencyKey ?? null,
+        state: input.state ?? "active",
+        beginTs: input.beginTs,
+        schemaVersion: input.schemaVersion,
+        executionModule: input.executionModule,
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        finishedAt: null,
+      };
+    },
+    async getInvokeSessionMetadata() {
+      return null;
+    },
   };
 }
 
@@ -411,6 +449,9 @@ function fakeExecutor(
       throw new Error(
         "getActiveDeploymentPackage is not implemented by test fake",
       );
+    },
+    async beginInvokeSession() {
+      throw new Error("beginInvokeSession is not implemented by test fake");
     },
     async prepareInvoke(input) {
       return preparedInvokeResult({

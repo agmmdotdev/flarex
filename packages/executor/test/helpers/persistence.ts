@@ -5,6 +5,9 @@ import {
   type DeploymentMetadataRecord,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
+  type InsertInvokeSessionMetadataInput,
+  InvokeSessionMetadataAlreadyExistsError,
+  type InvokeSessionMetadataRecord,
   type UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 
@@ -17,6 +20,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
 export function memoryPersistence(
   initialDeployments: DeploymentMetadataRecord[] = [],
   initialPackages: DeploymentPackageMetadataRecord[] = [],
+  initialInvokeSessions: InvokeSessionMetadataRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -28,6 +32,12 @@ export function memoryPersistence(
     initialPackages.map((deploymentPackage) => [
       packageKey(deploymentPackage.deploymentId, deploymentPackage.packageId),
       deploymentPackage,
+    ]),
+  );
+  const invokeSessions = new Map<string, InvokeSessionMetadataRecord>(
+    initialInvokeSessions.map((session) => [
+      sessionKey(session.deploymentId, session.sessionId),
+      session,
     ]),
   );
 
@@ -79,6 +89,21 @@ export function memoryPersistence(
       deployments.set(updated.deploymentId, updated);
       return updated;
     },
+    async insertInvokeSessionMetadata(input: InsertInvokeSessionMetadataInput) {
+      const key = sessionKey(input.deploymentId, input.sessionId);
+      if (invokeSessions.has(key)) {
+        throw new InvokeSessionMetadataAlreadyExistsError(
+          input.deploymentId,
+          input.sessionId,
+        );
+      }
+      const session = invokeSessionMetadata(input);
+      invokeSessions.set(key, session);
+      return session;
+    },
+    async getInvokeSessionMetadata(deploymentId: string, sessionId: string) {
+      return invokeSessions.get(sessionKey(deploymentId, sessionId)) ?? null;
+    },
   };
 }
 
@@ -108,6 +133,33 @@ export function deploymentMetadata(
   };
 }
 
+export function invokeSessionMetadata(
+  input: InsertInvokeSessionMetadataInput,
+): InvokeSessionMetadataRecord {
+  return {
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    projectId: input.projectId,
+    packageId: input.packageId,
+    functionPath: input.functionPath,
+    functionKind: input.functionKind,
+    partitionKey: input.partitionKey,
+    scopeJson: input.scopeJson,
+    argsJson: input.argsJson,
+    idempotencyKey: input.idempotencyKey ?? null,
+    state: input.state ?? "active",
+    beginTs: input.beginTs,
+    schemaVersion: input.schemaVersion,
+    executionModule: input.executionModule,
+    createdAt: new Date("2026-06-19T00:00:00.000Z"),
+    finishedAt: null,
+  };
+}
+
 function packageKey(deploymentId: string, packageId: string): string {
   return `${deploymentId}/${packageId}`;
+}
+
+function sessionKey(deploymentId: string, sessionId: string): string {
+  return `${deploymentId}/${sessionId}`;
 }
