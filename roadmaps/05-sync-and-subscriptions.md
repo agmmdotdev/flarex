@@ -150,8 +150,10 @@ escape hatch while adding this live path.
   hibernation/recovery is not implemented.
 - Action execution over `/sync` is not implemented yet.
 - No cross-shard subscription aggregation exists yet.
-- `partitionKey` is still required in `AddQuery` and Flarex `Mutation` messages
-  until routing inference exists.
+- `partitionKey` is still required in `AddQuery` and existing-root Flarex
+  `Mutation` messages. Create-root mutation references are the exception: they
+  omit `partitionKey` and the backend validates `partitionCreateRoot` metadata
+  before execution.
 - The client-side sync stack exists and has real example-app E2E coverage, but
   production reconnect/backoff, auth refresh, transition chunks, action-over-sync,
   and paginated reactive sync are still missing.
@@ -301,7 +303,10 @@ Convex reference:
 
 Cloudflare difference:
 
-- Flarex still requires explicit `partitionKey` for mutation routing.
+- Flarex still requires explicit/generated `partitionKey` for existing-root
+  mutation routing.
+- Create-root mutation references omit `partitionKey`; the backend resolves
+  the new partition after active metadata validation and root id allocation.
 - The HTTP mutation path remains public because it is useful for tests,
   tooling, and compatibility while sync reconnect/auth semantics are still
   incomplete.

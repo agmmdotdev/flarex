@@ -623,3 +623,43 @@ Validation:
 - `corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1`
 - `corepack pnpm --filter flarex-backend typecheck`
 - `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1`
+
+### Create-Root Sync Hardening
+
+Previous completed checkpoint: `1d239b1` Run create-root mutations over sync.
+
+Changed:
+
+- Added a client regression for explicit `{ transport: "http" }` create-root
+  mutations. The request body omits `partitionKey`, matching the sync path.
+- Tightened the backend sync regression so missing `partitionKey` means an
+  existing-root mutation is rejected, not a create-root mutation.
+- Updated active test analysis with `users:update` existing-root partition
+  metadata so the missing-key behavior is tied to function metadata.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  keeps normal mutations on the sync path by default.
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+  mutation protocol messages do not expose physical shard routing.
+- `crates/sync/src/worker.rs`
+  resolves mutation responses through the sync worker.
+
+Flarex differences:
+
+- Flarex still carries `partitionKey` for existing-root sync messages because a
+  Durable Object route must be known before execution.
+- Create-root is the only current missing-key mutation case. The backend must
+  validate active `partitionCreateRoot` metadata before starting execution.
+- HTTP invoke remains an explicit escape hatch, but it follows the same
+  create-root no-key rule.
+
+Verification:
+
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1`
+- `corepack pnpm --filter flarex build`
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1`
+- `corepack pnpm --filter flarex-backend build`

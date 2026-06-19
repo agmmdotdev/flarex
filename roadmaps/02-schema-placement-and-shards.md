@@ -92,7 +92,8 @@ user.
 - The current implementation still contains legacy
   `defineTable(...).partitionBy(...)`, `.colocateWith(...)`, and `.global()`.
   These should become compatibility shims after the new constructors are added.
-- `partitionBy("_id")` root-record creation/allocation is not implemented yet.
+- `partitionBy("_id")` root-record creation/allocation is now implemented for
+  create-root function declarations. Legacy constructor cleanup remains.
 - Legacy `partitionBy(field)` owner-field uniqueness exists for `field !==
   "_id"`, but arbitrary partition fields are no longer the v1 product target.
 - Owner-scoped index queries must include an equality on the placement field
@@ -680,8 +681,8 @@ Cloudflare difference:
 
 Remaining limitations:
 
-- Root `partitionBy("_id")` enforcement is still not implemented because
-  create-time root IDs need a dedicated owner allocation story.
+- Historical note: later create-root checkpoints added backend-owned root id
+  preallocation and transaction enforcement for `_id` partition roots.
 - Direct low-level `SingleShardTransaction` test helpers can still seed
   malformed data; user-code DB syscalls reject it when read or written.
 - Index queries validate returned documents but do not yet require the query
@@ -728,4 +729,41 @@ Verified with:
 ```sh
 corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend test
+```
+
+## Create-Root Placement Status
+
+Previous completed checkpoint: `1d239b1` Run create-root mutations over sync.
+
+Current root placement status:
+
+- `_id` partition roots can be created through `partitionCreateRoot` function
+  metadata.
+- The backend preallocates the root id, starts execution in that partition, and
+  requires the root table insert to consume that id.
+- Existing-root functions still route by generated metadata such as
+  `argField: "userId"`.
+- Legacy `defineTable(...).partitionBy(...)` compatibility still exists and
+  should be cleaned up after the explicit table constructors are fully migrated.
+
+Convex references:
+
+- `crates/value/src/document_id.rs`
+  document ids encode table identity.
+- `crates/database/src/transaction.rs`
+  generated ids and staged writes participate in the transaction.
+- `crates/database/src/committer.rs`
+  invalid write sets are rejected before commit.
+
+Cloudflare difference: Flarex root placement is a Durable Object routing
+decision. Convex can allocate ids inside one logical database transaction;
+Flarex must allocate the root id early enough to choose the target
+`PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-backend build
 ```

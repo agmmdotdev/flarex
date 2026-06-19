@@ -437,7 +437,7 @@ describe("sync protocol", () => {
     ws.close();
   });
 
-  it("returns a mutation failure when partitionKey is missing", async () => {
+  it("returns a mutation failure when an existing-root partitionKey is missing", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);
     await activateDeployment(harness, "sync-mutation-failure-deployment");
@@ -448,7 +448,7 @@ describe("sync protocol", () => {
       type: "Mutation",
       requestId: 22,
       udfPath: "users:update",
-      args: [{ name: "Grace" }],
+      args: [{ userId: "1:ada", name: "Grace" }],
     }));
 
     await expect(response).resolves.toEqual({
@@ -773,6 +773,25 @@ function testAnalysis(): DeploymentAnalysis {
             type: "partitionCreateRoot",
             table: "users",
             partitionField: "_id",
+          },
+        },
+        {
+          path: "users:update",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "id", tableName: "users" }, optional: false },
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          returns: null,
+          partition: {
+            type: "partition",
+            table: "users",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "userId",
           },
         },
       ],

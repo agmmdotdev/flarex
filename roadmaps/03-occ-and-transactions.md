@@ -146,10 +146,11 @@ Cloudflare difference:
 
 Remaining limitations:
 
-- ExecutionDO/syscall create-root sessions are still not enabled.
-- Final SDK codegen still rejects `partitionCreateRoot`.
-- Public `/invoke` still requires explicit `partitionKey`, so create-root is
-  internal-only until client/codegen support is added.
+- Historical note: later checkpoints enabled ExecutionDO/syscall create-root
+  sessions, generated `partitionCreateRoot` references, and public invoke/sync
+  paths that omit `partitionKey` for create-root functions.
+- Create-root remains limited to `_id` partition roots and single-shard
+  colocated writes.
 
 Verification:
 

@@ -1678,7 +1678,8 @@ Client behavior:
   argument, for example `model.users` plus `args.userId`,
 - explicit `{ partitionKey }` still wins,
 - create-root references omit `partitionKey`, and
-- create-root mutations use HTTP invoke instead of sync mutation transport.
+- historical note: at this checkpoint create-root used HTTP invoke; this was
+  later superseded by create-root sync routing.
 
 Convex reference:
 
@@ -1688,10 +1689,11 @@ Convex reference:
 - `npm-packages/convex/src/server/registration.ts`
   - function declaration metadata is captured at registration time.
 
-Cloudflare difference: create-root calls cannot be routed through the current
-sync mutation queue because sync messages still require a partition key.
-HTTP invoke can reach backend active metadata first, then the backend can
-preallocate the root id and start the `PartitionDO` session.
+Cloudflare difference: this checkpoint used HTTP invoke because the sync queue
+had no metadata-backed missing-key path yet. The current design now lets
+create-root sync messages omit `partitionKey`, validates active metadata in
+`ConnectionDO`, then lets the backend preallocate the root id and start the
+`PartitionDO` session.
 
 Verification:
 
@@ -1783,4 +1785,49 @@ corepack pnpm --filter flarex-backend build
 corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example build
+```
+
+## Create-Root Missing-Key Boundary
+
+Previous completed checkpoint: `1d239b1` Run create-root mutations over sync.
+
+Current routing rule:
+
+- existing-root functions must have a concrete `partitionKey` inferred from
+  generated metadata or supplied by low-level tests/tooling,
+- create-root functions must omit `partitionKey`, and
+- the backend decides whether omission is valid by reading active function
+  metadata.
+
+This is the important boundary for developer ergonomics. App code should call:
+
+```ts
+await client.mutation(api.users.create, { name: "Ada" });
+await client.mutation(api.users.update, { userId, name: "Grace" });
+```
+
+The first call allocates the root partition. The second routes to the existing
+root partition. A raw `Mutation` for `users:update` without `partitionKey` is a
+protocol error, and the regression test now says that explicitly.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  function declarations define the public callable shape.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  clients send mutations without exposing storage topology to app code.
+- `crates/function_runner/src/lib.rs`
+  execution context is backend-owned, not user-code-owned.
+
+Cloudflare difference: Flarex cannot hide routing entirely inside one global
+database. It hides normal routing at the generated API layer, then enforces the
+result at the backend boundary before Durable Object execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1
 ```

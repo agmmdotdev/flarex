@@ -1818,8 +1818,9 @@ client must deliberately omit `partitionKey`.
 
 Remaining limitations:
 
-- Sync mutations still require a concrete partition key, so create-root
-  mutations use HTTP invoke for now.
+- Historical note: this checkpoint was superseded by
+  `1d239b1` Run create-root mutations over sync. Create-root mutations no
+  longer need to force HTTP invoke; they can use sync without `partitionKey`.
 - Create-root support is limited to `_id` partition roots and single-shard
   colocated writes.
 - Cross-shard create flows still require the future workflow/atomic-mutation
@@ -1880,4 +1881,43 @@ Verification:
 ```sh
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+```
+
+### Create-Root Client Transport Hardening
+
+Previous completed checkpoint: `1d239b1` Run create-root mutations over sync.
+
+The client API now has regression coverage for both supported create-root
+transports:
+
+```ts
+await client.mutation(api.users.create, { name: "Ada" });
+await client.mutation(api.users.create, { name: "Ada" }, { transport: "http" });
+```
+
+Both paths omit `partitionKey` because generated references carrying
+`partitionCreateRoot` tell the backend that it must allocate the root
+partition. Existing-root references still infer `partitionKey` from generated
+metadata and send it over the wire.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/simple_client.ts`
+  exposes the simple public `mutation()` API.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  makes sync the normal mutation transport.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  generated references are the stable public calling surface.
+
+Cloudflare difference: Flarex generated references carry extra partition
+metadata that Convex does not need. That metadata determines whether the
+client sends an existing-root `partitionKey` or deliberately omits it for
+create-root backend allocation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+corepack pnpm --filter flarex build
 ```
