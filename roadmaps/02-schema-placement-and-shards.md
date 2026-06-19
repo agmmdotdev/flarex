@@ -151,6 +151,55 @@ Verification:
 Documentation-only change; no runtime validation required.
 ```
 
+## Explicit Table Constructor Update
+
+Checkpoint title: `Add explicit schema table constructors`
+
+Previous completed checkpoint: `ebf431a` Plan explicit partition table API.
+
+What changed:
+
+- Added the v1 public constructor names in `packages/flarex/src/schema.ts`:
+  - `definePartitionTable(...)`
+  - `defineColocatedTable(rootTable, ownerField, ...)`
+  - `defineGlobalTable(...)`
+- The new constructors are compatibility wrappers over the existing placement
+  metadata:
+  - `definePartitionTable(...)` records `{ kind: "partitionBy", field: "_id" }`
+  - `defineColocatedTable(...)` records `{ kind: "colocateWith", ... }`
+  - `defineGlobalTable(...)` records `{ kind: "global" }`
+- Existing chain APIs remain available for legacy tests and migration while the
+  rest of codegen/backend moves to the simpler v1 model.
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - kept the compact table-constructor style and type inference pattern.
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated data model typing depends on schema definitions retaining precise
+    validator/index information.
+
+Cloudflare difference:
+
+- Convex's `defineTable` does not encode physical shard placement. Flarex's new
+  constructor names make placement explicit because it determines the
+  `PartitionDO` transaction boundary.
+
+Remaining limitations:
+
+- The internal serialized placement shape is still the legacy
+  `partitionBy`/`colocateWith`/`global` shape.
+- Codegen still emits `model.table.byId(...)`; `model.table` root objects are
+  the next slice.
+- Backend create-mode root preallocation is not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+```
+
 ## Partition Scope Type Update
 
 Checkpoint title: `Generate partition-scoped mutation types`

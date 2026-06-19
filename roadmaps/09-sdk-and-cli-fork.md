@@ -270,6 +270,53 @@ Verification:
 Documentation-only change; no runtime validation required.
 ```
 
+## Explicit Schema Constructor Update
+
+Checkpoint title: `Add explicit schema table constructors`
+
+Previous completed checkpoint: `ebf431a` Plan explicit partition table API.
+
+What changed:
+
+- `flarex/server` now exports the new public schema constructors:
+  `definePartitionTable`, `defineColocatedTable`, and `defineGlobalTable`.
+- The constructors preserve the existing Convex-style `defineTable` typing for
+  document validators, field paths, indexes, and generated data model
+  inference.
+- The implementation is intentionally a thin compatibility layer over current
+  placement metadata so no backend or generator behavior changes in this
+  checkpoint.
+- Schema tests now cover each explicit constructor and verify it records the
+  expected placement metadata.
+
+Convex references:
+
+- `npm-packages/convex/src/server/schema.ts`
+  - schema constructors should preserve validator and field-path inference.
+- `npm-packages/convex/src/server/registration.ts`
+  - generated function types depend on schema-derived data model fidelity.
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - data model codegen stays downstream of the schema definition shape.
+
+Cloudflare difference:
+
+- Flarex adds named placement constructors because physical placement is part
+  of correctness on Durable Objects. Convex keeps physical placement hidden
+  behind its logical database.
+
+Known limitations:
+
+- Existing example apps and generator tests still use chain-style placement.
+- `model.table` root partition declarations are not implemented yet.
+- Backend execution still consumes selector-style partition metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+```
+
 ## Partition-Scoped Mutation Type Update
 
 Checkpoint title: `Generate partition-scoped mutation types`

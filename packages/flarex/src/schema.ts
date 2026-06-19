@@ -14,6 +14,18 @@ export type Placement =
   | { kind: "colocateWith"; table: string; field: string }
   | { kind: "global" };
 type Indexes = Record<string, readonly string[]>;
+type FieldPathsForFields<Fields extends PropertyValidators> = {
+  [Field in keyof Fields & string]:
+    | Field
+    | (Fields[Field]["fieldPaths"] extends string
+        ? `${Field}.${Fields[Field]["fieldPaths"]}`
+        : never);
+}[keyof Fields & string];
+type ValidatorForFields<Fields extends PropertyValidators> = Validator<
+  ObjectType<Fields>,
+  "required",
+  FieldPathsForFields<Fields>
+>;
 
 export class TableDefinition<
   DocumentValidator extends GenericValidator = GenericValidator,
@@ -84,18 +96,60 @@ export class SchemaDefinition<Definitions extends GenericSchema> {
 
 export function defineTable<Fields extends PropertyValidators>(
   fields: Fields,
-): TableDefinition<Validator<ObjectType<Fields>, "required", {
-  [Field in keyof Fields & string]:
-    | Field
-    | (Fields[Field]["fieldPaths"] extends string
-        ? `${Field}.${Fields[Field]["fieldPaths"]}`
-        : never);
-}[keyof Fields & string]>>;
+): TableDefinition<ValidatorForFields<Fields>>;
 export function defineTable<DocumentValidator extends Validator<Record<string, any>, "required", any>>(
   validator: DocumentValidator,
 ): TableDefinition<DocumentValidator>;
 export function defineTable(value: PropertyValidators | Validator<Record<string, any>, "required", any>) {
   return new TableDefinition(asObjectValidator(value), isPropertyValidators(value) ? value : {});
+}
+
+export function definePartitionTable<Fields extends PropertyValidators>(
+  fields: Fields,
+): TableDefinition<ValidatorForFields<Fields>>;
+export function definePartitionTable<DocumentValidator extends Validator<Record<string, any>, "required", any>>(
+  validator: DocumentValidator,
+): TableDefinition<DocumentValidator>;
+export function definePartitionTable(
+  value: PropertyValidators | Validator<Record<string, any>, "required", any>,
+) {
+  return defineTable(value as never).partitionBy("_id");
+}
+
+export function defineColocatedTable<
+  Fields extends PropertyValidators,
+  Field extends FieldPathsForFields<Fields>,
+>(
+  table: string,
+  field: Field,
+  fields: Fields,
+): TableDefinition<ValidatorForFields<Fields>>;
+export function defineColocatedTable<
+  DocumentValidator extends Validator<Record<string, any>, "required", any>,
+  Field extends DocumentValidator["fieldPaths"],
+>(
+  table: string,
+  field: Field,
+  validator: DocumentValidator,
+): TableDefinition<DocumentValidator>;
+export function defineColocatedTable(
+  table: string,
+  field: string,
+  value: PropertyValidators | Validator<Record<string, any>, "required", any>,
+) {
+  return defineTable(value as never).colocateWith(table, field as never);
+}
+
+export function defineGlobalTable<Fields extends PropertyValidators>(
+  fields: Fields,
+): TableDefinition<ValidatorForFields<Fields>>;
+export function defineGlobalTable<DocumentValidator extends Validator<Record<string, any>, "required", any>>(
+  validator: DocumentValidator,
+): TableDefinition<DocumentValidator>;
+export function defineGlobalTable(
+  value: PropertyValidators | Validator<Record<string, any>, "required", any>,
+) {
+  return defineTable(value as never).global();
 }
 
 function isPropertyValidators(

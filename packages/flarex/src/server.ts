@@ -496,7 +496,14 @@ export type {
   FunctionType,
   FunctionVisibility,
 } from "./api";
-export { defineProjection, defineSchema, defineTable } from "./schema";
+export {
+  defineColocatedTable,
+  defineGlobalTable,
+  definePartitionTable,
+  defineProjection,
+  defineSchema,
+  defineTable,
+} from "./schema";
 export {
   functionArgsToValidatorJson,
   validateFunctionArgs,
