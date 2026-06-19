@@ -2,6 +2,7 @@ import type { SQLWrapper } from "drizzle-orm";
 import type {
   DeploymentMetadataRecord,
   InsertDeploymentMetadataInput,
+  UpdateDeploymentMetadataActivationInput,
 } from "./deployments";
 export { sql } from "drizzle-orm";
 
@@ -29,6 +30,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   ): Promise<DeploymentMetadataRecord>;
   getDeploymentMetadata(
     deploymentId: string,
+  ): Promise<DeploymentMetadataRecord | null>;
+  updateDeploymentMetadataActivation(
+    input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;

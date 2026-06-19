@@ -10,6 +10,12 @@ export interface InsertDeploymentMetadataInput {
   activeSchemaVersion?: number;
 }
 
+export interface UpdateDeploymentMetadataActivationInput {
+  deploymentId: string;
+  activePackageId: string;
+  activeSchemaVersion: number;
+}
+
 export type DeploymentMetadataRecord = typeof deployments.$inferSelect;
 
 export class DeploymentMetadataAlreadyExistsError extends Error {
@@ -56,6 +62,22 @@ export async function getDeploymentMetadata(
     .from(deployments)
     .where(eq(deployments.deploymentId, deploymentId))
     .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function updateDeploymentMetadataActivation(
+  db: FlarexMetadataDatabase,
+  input: UpdateDeploymentMetadataActivationInput,
+): Promise<DeploymentMetadataRecord | null> {
+  const rows = await db
+    .update(deployments)
+    .set({
+      activePackageId: input.activePackageId,
+      activeSchemaVersion: input.activeSchemaVersion,
+    })
+    .where(eq(deployments.deploymentId, input.deploymentId))
+    .returning();
 
   return rows[0] ?? null;
 }

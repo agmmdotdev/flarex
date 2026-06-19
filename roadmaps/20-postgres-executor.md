@@ -1170,6 +1170,81 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Deployment Package Activation
+
+Previous completed checkpoint: `29dfb4b` Split executor tests by domain.
+
+What changed:
+
+- Added low-level activation metadata storage to
+  `@flarex/persistence-postgres`:
+  - `UpdateDeploymentMetadataActivationInput`
+  - `updateDeploymentMetadataActivation(...)`
+- Wired the PGlite adapter to the new Drizzle-backed update helper.
+- Added PGlite tests proving activation metadata updates existing deployment
+  rows and returns `null` for missing deployment rows.
+- Added executor-level package activation behavior:
+  - `ActivateDeploymentPackageInput`
+  - `ActivateDeploymentPackageResult`
+  - `executor.activateDeploymentPackage(...)`
+- `activateDeploymentPackage(...)` ensures the deployment exists, validates
+  project ownership through `ensureDeployment(...)`, then updates
+  `activePackageId` and `activeSchemaVersion`.
+- Added executor tests for:
+  - activating a package for a missing deployment,
+  - activating a package for an existing deployment,
+  - rejecting activation when the deployment belongs to another project.
+- Updated Nitro adapter test fakes to satisfy the wider executor persistence
+  contract without importing `@flarex/persistence-postgres` directly.
+
+Why it changed:
+
+This is the first real deployment lifecycle transition after metadata creation.
+The persistence package still only updates storage columns. The executor owns
+the platform action: ensure deployment, validate project ownership, decide
+whether a deployment was created, and return the activated deployment metadata.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - deployment/function state is backend-owned and used to route future
+    execution.
+- `crates/function_runner/src/lib.rs`
+  - backend execution works through stable interfaces rather than exposing
+    storage internals.
+- `crates/database/src/committer.rs`
+  - state transitions should be validated by the backend boundary before they
+    become authoritative.
+
+Flarex differences:
+
+- Convex's hosted control plane owns deployment activation internally. Flarex
+  exposes this as executor behavior because Nitro/local tests/future platform
+  APIs need a reusable framework-neutral method.
+- This checkpoint only activates package IDs and schema versions already known
+  to the caller. It does not yet store source packages or backend analysis
+  results.
+
+Known limitations:
+
+- No source package table or package artifact store exists yet.
+- No auth or project creation API exists yet.
+- Activation is a direct executor method only; no Nitro route exists yet.
+- There is no compare-and-swap guard for activation order yet. Later push flow
+  may need package status checks or monotonic activation rules.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

@@ -2,6 +2,7 @@ import {
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
   type InsertDeploymentMetadataInput,
+  type UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 
 import type { FlarexExecutorPersistence } from "../../src";
@@ -34,6 +35,22 @@ export function memoryPersistence(
       const deployment = deploymentMetadata(input);
       deployments.set(deployment.deploymentId, deployment);
       return deployment;
+    },
+    async updateDeploymentMetadataActivation(
+      input: UpdateDeploymentMetadataActivationInput,
+    ) {
+      const deployment = deployments.get(input.deploymentId);
+      if (deployment === undefined) {
+        return null;
+      }
+
+      const updated = {
+        ...deployment,
+        activePackageId: input.activePackageId,
+        activeSchemaVersion: input.activeSchemaVersion,
+      };
+      deployments.set(updated.deploymentId, updated);
+      return updated;
     },
   };
 }

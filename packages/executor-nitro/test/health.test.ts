@@ -96,5 +96,18 @@ function healthyPersistence() {
         createdAt: new Date("2026-06-19T00:00:00.000Z"),
       };
     },
+    async updateDeploymentMetadataActivation(input: {
+      deploymentId: string;
+      activePackageId: string;
+      activeSchemaVersion: number;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        projectId: "project_test",
+        activePackageId: input.activePackageId,
+        activeSchemaVersion: input.activeSchemaVersion,
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
   };
 }

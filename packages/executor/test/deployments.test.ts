@@ -10,6 +10,77 @@ import {
 } from "./helpers/persistence";
 
 describe("executor deployment behavior", () => {
+  it("activates a package for a missing deployment", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.activateDeploymentPackage({
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        packageId: "package_activate",
+        schemaVersion: 4,
+      }),
+    ).resolves.toMatchObject({
+      createdDeployment: true,
+      deployment: {
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        activePackageId: "package_activate",
+        activeSchemaVersion: 4,
+      },
+    });
+  });
+
+  it("activates a package for an existing deployment", async () => {
+    const persistence = memoryPersistence([
+      deploymentMetadata({
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        activePackageId: "package_old",
+        activeSchemaVersion: 3,
+      }),
+    ]);
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.activateDeploymentPackage({
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        packageId: "package_new",
+        schemaVersion: 4,
+      }),
+    ).resolves.toMatchObject({
+      createdDeployment: false,
+      deployment: {
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        activePackageId: "package_new",
+        activeSchemaVersion: 4,
+      },
+    });
+  });
+
+  it("rejects package activation for a deployment in another project", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_activate",
+          projectId: "project_a",
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.activateDeploymentPackage({
+        deploymentId: "deployment_activate",
+        projectId: "project_b",
+        packageId: "package_new",
+        schemaVersion: 4,
+      }),
+    ).rejects.toThrow(DeploymentProjectMismatchError);
+  });
+
   it("creates missing deployment metadata", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });

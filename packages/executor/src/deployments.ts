@@ -5,10 +5,35 @@ import {
 
 import { DeploymentProjectMismatchError } from "./errors";
 import type {
+  ActivateDeploymentPackageInput,
+  ActivateDeploymentPackageResult,
   EnsureDeploymentInput,
   EnsureDeploymentResult,
   FlarexExecutorPersistence,
 } from "./types";
+
+export async function activateDeploymentPackage(
+  persistence: FlarexExecutorPersistence,
+  input: ActivateDeploymentPackageInput,
+): Promise<ActivateDeploymentPackageResult> {
+  const ensured = await ensureDeployment(persistence, input);
+  const deployment = await persistence.updateDeploymentMetadataActivation({
+    deploymentId: input.deploymentId,
+    activePackageId: input.packageId,
+    activeSchemaVersion: input.schemaVersion,
+  });
+
+  if (deployment === null) {
+    throw new Error(
+      `Deployment disappeared before package activation: ${input.deploymentId}`,
+    );
+  }
+
+  return {
+    deployment,
+    createdDeployment: ensured.created,
+  };
+}
 
 export async function ensureDeployment(
   persistence: FlarexExecutorPersistence,

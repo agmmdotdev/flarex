@@ -2,6 +2,7 @@ import type {
   DeploymentMetadataRecord,
   FlarexPersistenceCheck,
   InsertDeploymentMetadataInput,
+  UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 
 export interface Clock {
@@ -14,6 +15,9 @@ export interface FlarexExecutorConfig {
 }
 
 export interface FlarexExecutor {
+  activateDeploymentPackage(
+    input: ActivateDeploymentPackageInput,
+  ): Promise<ActivateDeploymentPackageResult>;
   ensureDeployment(input: EnsureDeploymentInput): Promise<EnsureDeploymentResult>;
   health(): Promise<FlarexHealth>;
 }
@@ -26,6 +30,21 @@ export interface FlarexExecutorPersistence {
   insertDeploymentMetadata(
     input: InsertDeploymentMetadataInput,
   ): Promise<DeploymentMetadataRecord>;
+  updateDeploymentMetadataActivation(
+    input: UpdateDeploymentMetadataActivationInput,
+  ): Promise<DeploymentMetadataRecord | null>;
+}
+
+export interface ActivateDeploymentPackageInput {
+  deploymentId: string;
+  projectId: string;
+  packageId: string;
+  schemaVersion: number;
+}
+
+export interface ActivateDeploymentPackageResult {
+  deployment: DeploymentMetadataRecord;
+  createdDeployment: boolean;
 }
 
 export interface EnsureDeploymentInput {

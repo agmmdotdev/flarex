@@ -165,6 +165,42 @@ describe("createPGlitePersistence", () => {
     ).resolves.toBeNull();
   });
 
+  it("updates deployment activation metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_activate",
+      projectId: "project_activate",
+    });
+
+    await expect(
+      persistence.updateDeploymentMetadataActivation({
+        deploymentId: "deployment_activate",
+        activePackageId: "package_activate",
+        activeSchemaVersion: 3,
+      }),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_activate",
+      projectId: "project_activate",
+      activePackageId: "package_activate",
+      activeSchemaVersion: 3,
+    });
+  });
+
+  it("returns null when updating activation for missing deployment metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.updateDeploymentMetadataActivation({
+        deploymentId: "missing",
+        activePackageId: "package_missing",
+        activeSchemaVersion: 1,
+      }),
+    ).resolves.toBeNull();
+  });
+
   it("rejects duplicate deployment metadata clearly", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
