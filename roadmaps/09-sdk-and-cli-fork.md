@@ -1837,3 +1837,47 @@ corepack pnpm --filter flarex-dev exec vitest run test/executionArtifact.test.ts
 corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --maxWorkers=1
 corepack pnpm --filter flarex-dev build
 ```
+
+### Create-Root Sync Client Default
+
+Previous completed checkpoint: `b5c9780` Enable create-root generated
+execution.
+
+The generated create-root client path now matches the normal Convex-style
+mutation default more closely:
+
+```ts
+await client.mutation(api.users.create, { name: "Ada" });
+```
+
+For references carrying:
+
+```ts
+{
+  type: "partitionCreateRoot",
+  table: "users",
+  partitionField: "_id",
+}
+```
+
+the client sends a sync `Mutation` message without `partitionKey`. Existing-root
+references still infer and send `partitionKey` from args, and explicit
+`{ transport: "http" }` still forces HTTP invoke.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - mutations use the sync transport by default.
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+  - mutation messages contain request id, function path, and encoded args.
+
+Cloudflare difference: omitting `partitionKey` is valid only for create-root
+metadata. The backend still validates active metadata before allowing execution
+because Durable Object routing cannot be guessed for existing roots.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+```

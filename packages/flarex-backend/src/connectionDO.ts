@@ -19,7 +19,14 @@ import {
   type StateModification,
   type StateVersion,
 } from "./syncProtocol";
-import type { Env, InvokeRequest, Json, ReadSet } from "./types";
+import type {
+  ActiveDeploymentStatus,
+  Env,
+  InvokeResponse,
+  InvokeRequest,
+  Json,
+  ReadSet,
+} from "./types";
 
 type ActiveQuery = {
   queryId: QueryId;
@@ -141,25 +148,26 @@ export class ConnectionDO extends DurableObject<Env> {
   }
 
   private async executeMutation(ws: WebSocket, message: MutationRequest): Promise<void> {
-    const partitionKey = message.partitionKey;
-    if (partitionKey === undefined || partitionKey.length === 0) {
-      send(ws, {
-        type: "MutationResponse",
-        requestId: message.requestId,
-        success: false,
-        result: "Mutation.partitionKey is required until Flarex routing inference is implemented.",
-        logLines: [],
-      });
-      return;
-    }
-
     try {
       const deploymentId = requireDeploymentId(this.state.deploymentId);
+      if (
+        message.partitionKey === undefined &&
+        !(await mutationAllowsMissingPartitionKey(this.env, deploymentId, message))
+      ) {
+        send(ws, {
+          type: "MutationResponse",
+          requestId: message.requestId,
+          success: false,
+          result: "Mutation.partitionKey is required until Flarex routing inference is implemented.",
+          logLines: [],
+        });
+        return;
+      }
       const response = await executeSyncInvoke(this.env, deploymentId, {
         path: message.udfPath,
         kind: "mutation",
-        partitionKey,
         args: argsObjectForInvoke(message.args),
+        ...(message.partitionKey === undefined ? {} : { partitionKey: message.partitionKey }),
       });
       send(ws, {
         type: "MutationResponse",
@@ -169,7 +177,13 @@ export class ConnectionDO extends DurableObject<Env> {
         ...(response.committedTs === undefined ? {} : { ts: response.committedTs }),
         logLines: [],
       });
-      await this.rerunQueriesForPartition(ws, partitionKey);
+      const partitionKey = await committedPartitionKeyForMutation(
+        this.env,
+        deploymentId,
+        message,
+        response,
+      );
+      if (partitionKey !== null) await this.rerunQueriesForPartition(ws, partitionKey);
     } catch (error) {
       send(ws, {
         type: "MutationResponse",
@@ -406,6 +420,47 @@ async function executeSyncInvoke(
     return artifactRuntime.invoke(activeDeployment, request);
   }
   return executeInvoke(env, deploymentId, request, {});
+}
+
+async function mutationAllowsMissingPartitionKey(
+  env: Env,
+  deploymentId: string,
+  message: MutationRequest,
+): Promise<boolean> {
+  const activeDeployment = await loadActiveDeployment(env, deploymentId);
+  const metadata = activeDeployment.analysis.functions.functions.find(
+    fn => fn.path === message.udfPath,
+  );
+  return metadata?.partition?.type === "partitionCreateRoot";
+}
+
+async function committedPartitionKeyForMutation(
+  env: Env,
+  deploymentId: string,
+  message: MutationRequest,
+  response: InvokeResponse,
+): Promise<string | null> {
+  if (message.partitionKey !== undefined) return message.partitionKey;
+  const activeDeployment = await loadActiveDeployment(env, deploymentId);
+  const metadata = activeDeployment.analysis.functions.functions.find(
+    fn => fn.path === message.udfPath,
+  );
+  if (metadata?.partition?.type !== "partitionCreateRoot") return null;
+  return committedCreateRootId(activeDeployment, metadata.partition.table, response);
+}
+
+function committedCreateRootId(
+  activeDeployment: ActiveDeploymentStatus,
+  tableName: string,
+  response: InvokeResponse,
+): string | null {
+  const rootTable = activeDeployment.analysis.schema.tables.find(
+    table => table.name === tableName && table.state !== "deleted",
+  );
+  if (rootTable === undefined) return null;
+  return response.writes?.find(
+    write => write.tableId === rootTable.tableId && write.value !== null,
+  )?.id ?? null;
 }
 
 function artifactRuntimeFromEnv(

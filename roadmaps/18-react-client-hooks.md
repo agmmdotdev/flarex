@@ -268,6 +268,41 @@ corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example build
 ```
 
+## Create-Root Mutation Transport Update
+
+Previous completed checkpoint: `b5c9780` Enable create-root generated
+execution.
+
+`useMutation(api.users.create)` can now follow the normal client mutation path
+for generated create-root references. The client sends a sync mutation without
+`partitionKey`; the backend validates `partitionCreateRoot` metadata and
+preallocates the root id.
+
+What remains unchanged:
+
+- `useQuery(...)` and live query subscriptions still require generated or
+  explicit partition keys.
+- Existing-root mutations still infer `partitionKey` from generated partition
+  metadata.
+- React hooks did not need a separate API surface for create-root.
+
+Convex reference:
+
+- `npm-packages/convex/src/react/client.ts`
+  - hooks delegate mutation execution to the client.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - the client owns sync mutation transport details.
+
+Cloudflare difference: hook ergonomics are Convex-like, but the generated
+function reference still carries Flarex-specific partition metadata so the
+client/backend can distinguish create-root from existing-root execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+```
+
 ## Route-Aware Hook Update
 
 Checkpoint title: `Add route-aware generated client inference`

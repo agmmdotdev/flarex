@@ -47,7 +47,7 @@ export type MutationRequest = {
   requestId: RequestId;
   udfPath: string;
   args: Json[];
-  partitionKey: string;
+  partitionKey?: string;
 };
 
 export type ClientMessage = ModifyQuerySet | MutationRequest;

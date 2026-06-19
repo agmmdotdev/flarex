@@ -92,35 +92,45 @@ describe("FlarexClient", () => {
     );
   });
 
-  it("omits partition keys for create-root generated mutation references", async () => {
+  it("sends create-root generated mutation references over sync without partition keys", async () => {
+    FakeWebSocket.instances = [];
     const fetch = vi.fn(async () => Response.json({ value: "2:user" }));
-    const client = new FlarexClient("https://example.test", { fetch });
+    const client = new FlarexClient("https://example.test", {
+      fetch,
+      webSocketConstructor: FakeWebSocket,
+    });
 
-    await expect(
-      client.mutation(
-        {
-          _path: "users:create",
-          _kind: "mutation",
-          _partition: {
-            type: "partitionCreateRoot",
-            table: "users",
-            partitionField: "_id",
-          },
+    const result = client.mutation(
+      {
+        _path: "users:create",
+        _kind: "mutation",
+        _partition: {
+          type: "partitionCreateRoot",
+          table: "users",
+          partitionField: "_id",
         },
-        { name: "Ada" },
-      ),
-    ).resolves.toEqual("2:user");
-
-    expect(fetch).toHaveBeenCalledWith(
-      new URL("https://example.test/invoke"),
-      expect.objectContaining({
-        body: JSON.stringify({
-          path: "users:create",
-          args: { name: "Ada" },
-        }),
-      }),
+      },
+      { name: "Ada" },
     );
-    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    const ws = FakeWebSocket.instances[0]!;
+    expect(JSON.parse(ws.sent[0]!)).toEqual({
+      type: "Mutation",
+      requestId: 0,
+      udfPath: "users:create",
+      args: [{ name: "Ada" }],
+    });
+
+    ws.receive({
+      type: "MutationResponse",
+      requestId: 0,
+      success: true,
+      result: "2:user",
+      logLines: [],
+    });
+
+    await expect(result).resolves.toEqual("2:user");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("does not infer invoke partitions from route-only metadata", async () => {

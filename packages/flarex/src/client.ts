@@ -62,13 +62,15 @@ export class FlarexClient {
     options: InvokeOptions = {},
   ): Promise<FunctionReturnType<Reference>> {
     const resolvedOptions = resolveInvokeOptions(reference, args, options);
-    if (resolvedOptions.transport === "http" || resolvedOptions.partitionKey === undefined) {
+    if (resolvedOptions.transport === "http") {
       return this.invoke(reference, args, resolvedOptions) as Promise<FunctionReturnType<Reference>>;
     }
     return this.ensureSyncClient().mutation(
       getFunctionName(reference),
       args as Record<string, unknown>,
-      { partitionKey: resolvedOptions.partitionKey },
+      resolvedOptions.partitionKey === undefined
+        ? {}
+        : { partitionKey: resolvedOptions.partitionKey },
     ) as Promise<FunctionReturnType<Reference>>;
   }
 

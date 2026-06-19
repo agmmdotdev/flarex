@@ -6,6 +6,7 @@ import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
   Env,
+  InvokeResponse,
   Json,
   PushSourcePackage,
   PushStatus,
@@ -332,6 +333,110 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("executes create-root mutations over sync without caller partition keys", async () => {
+    let currentName = "pending";
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      undefined,
+      async payload => {
+        if (payload.request.kind === "mutation") {
+          currentName = (payload.request.args as { name: string }).name;
+          return {
+            value: { userId: "1:created" },
+            committedTs: 5,
+            writes: [
+              {
+                tableId: 1,
+                id: "1:created",
+                prevTs: null,
+                ts: 5,
+                value: { name: currentName },
+              },
+            ],
+          };
+        }
+        return {
+          value: { user: currentName },
+          readSet: { documents: [{ tableId: 1, id: "1:created" }] },
+          readTs: 3,
+        };
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-create-root-deployment");
+
+    const ws = await openSync(harness, "sync-create-root-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 13,
+          udfPath: "users:get",
+          args: [{ id: "1:created" }],
+          partitionKey: "1:created",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const messages = collectJsonMessages(ws, 2);
+    ws.send(JSON.stringify({
+      type: "Mutation",
+      requestId: 23,
+      udfPath: "users:create",
+      args: [{ name: "Ada" }],
+    }));
+
+    await expect(messages).resolves.toEqual([
+      expect.objectContaining({
+        type: "MutationResponse",
+        requestId: 23,
+        success: true,
+        result: { userId: "1:created" },
+        ts: 5,
+        logLines: [],
+      }),
+      expect.objectContaining({
+        type: "Transition",
+        modifications: [
+          expect.objectContaining({
+            type: "QueryUpdated",
+            queryId: 13,
+            value: { user: "Ada" },
+          }),
+        ],
+      }),
+    ]);
+    expect(runtimeCalls).toEqual([
+      expect.objectContaining({
+        request: expect.objectContaining({
+          path: "users:get",
+          kind: "query",
+          partitionKey: "1:created",
+        }),
+      }),
+      expect.objectContaining({
+        request: {
+          path: "users:create",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+      }),
+      expect.objectContaining({
+        request: expect.objectContaining({
+          path: "users:get",
+          kind: "query",
+          partitionKey: "1:created",
+        }),
+      }),
+    ]);
+    ws.close();
+  });
+
   it("returns a mutation failure when partitionKey is missing", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);
@@ -473,6 +578,14 @@ async function createSyncHarness(
       result: payload.request.path,
       args: payload.request.args as Json,
     }),
+  responseForRequest?: (payload: {
+    request: {
+      path: string;
+      kind?: "query" | "mutation";
+      args: unknown;
+      partitionKey?: string;
+    };
+  }) => InvokeResponse | Promise<InvokeResponse>,
 ): Promise<BackendHarness> {
   return createBackendHarness({
     bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret" },
@@ -484,6 +597,9 @@ async function createSyncHarness(
           materialize: async () => ({
             invoke: async payload => {
               runtimeCalls.push(payload);
+              if (responseForRequest !== undefined) {
+                return responseForRequest(payload);
+              }
               return {
                 value: await valueForRequest(payload),
                 readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
@@ -642,6 +758,22 @@ function testAnalysis(): DeploymentAnalysis {
           kind: "query",
           args: { type: "object", value: {} },
           returns: null,
+        },
+        {
+          path: "users:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          returns: null,
+          partition: {
+            type: "partitionCreateRoot",
+            table: "users",
+            partitionField: "_id",
+          },
         },
       ],
     },

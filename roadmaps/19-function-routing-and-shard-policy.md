@@ -1700,6 +1700,48 @@ corepack pnpm --filter flarex exec vitest run test/client.test.ts test/api.test.
 corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
 ```
 
+## Create-Root Sync Routing
+
+Previous completed checkpoint: `b5c9780` Enable create-root generated
+execution.
+
+Create-root routing now works through `/sync` mutations:
+
+```txt
+client Mutation(no partitionKey)
+  -> ConnectionDO loads active metadata
+  -> metadata partition is partitionCreateRoot
+  -> execution starts without partitionKey
+  -> root insert commits id 2:...
+  -> ConnectionDO reruns active queries on 2:...
+```
+
+Existing-root routing remains stricter:
+
+```txt
+client Mutation(no partitionKey)
+  -> metadata is not partitionCreateRoot
+  -> MutationResponse(success: false)
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - mutation execution is coordinated through the sync worker.
+- `crates/database/src/committer.rs`
+  - committed writes define the mutation's durable effects.
+
+Cloudflare difference: Flarex must derive the new partition from committed
+root-table writes after execution. Convex does not need this because it does
+not route mutations to a per-partition Durable Object.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1
+corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
+```
+
 ## Previous Update
 
 Implemented `routeFromArgs(field)` as the first real function route policy and

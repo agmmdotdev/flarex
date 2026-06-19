@@ -37,7 +37,7 @@ export type BaseFlarexClientOptions = {
 };
 
 export type SyncMutationOptions = {
-  partitionKey: string;
+  partitionKey?: string;
 };
 
 type QueryResult =
@@ -94,7 +94,7 @@ export class BaseFlarexClient {
     args: Record<string, unknown>,
     options: SyncMutationOptions,
   ): Promise<Json> {
-    if (options.partitionKey.length === 0) {
+    if (options.partitionKey !== undefined && options.partitionKey.length === 0) {
       throw new Error("partitionKey is required for Flarex sync mutations.");
     }
     const requestId = this.nextRequestId++;
@@ -103,7 +103,7 @@ export class BaseFlarexClient {
       requestId,
       udfPath: name,
       args: [assertJson(args)],
-      partitionKey: options.partitionKey,
+      ...(options.partitionKey === undefined ? {} : { partitionKey: options.partitionKey }),
     };
     const mutationPromise = new Promise<Json>((resolve, reject) => {
       this.pendingMutations.set(requestId, { resolve, reject });

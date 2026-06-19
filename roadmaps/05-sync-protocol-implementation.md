@@ -578,3 +578,48 @@ Known limitations:
 - No client SDK integration yet.
 - No cross-shard live query aggregation yet.
 - No durable subscription recovery across hibernation/restart yet.
+
+### Create-Root Mutations Over Sync
+
+Previous completed checkpoint: `b5c9780` Enable create-root generated
+execution.
+
+Changed:
+
+- `ConnectionDO` now accepts `Mutation` messages without `partitionKey` only
+  when active function metadata says the mutation is `partitionCreateRoot`.
+- Existing-root sync mutations without `partitionKey` still fail before
+  execution.
+- After a create-root mutation succeeds, `ConnectionDO` derives the committed
+  partition key from the root table write and reruns active queries on that new
+  partition.
+- The browser sync client can send mutation messages without `partitionKey`.
+- `FlarexClient.mutation(...)` now defaults create-root references back to the
+  sync transport.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  queues mutations and resolves client mutation promises from
+  `MutationResponse`.
+- `crates/sync/src/state.rs`
+  coordinates query-set updates after mutation-side invalidation.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  sends mutations over the sync protocol by default rather than forcing a
+  separate HTTP path.
+
+Flarex differences:
+
+- Convex can schedule all affected queries through a global subscription model.
+  Flarex only reruns active queries in the resolved `PartitionDO` partition.
+- Create-root sync mutation refresh requires the backend to inspect committed
+  writes and find the newly created root id. If a future handler somehow
+  returns success without a root write, there is no partition-local refresh.
+- Live queries still require explicit/generated partition keys.
+
+Validation:
+
+- `corepack pnpm --filter flarex typecheck`
+- `corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1`
+- `corepack pnpm --filter flarex-backend typecheck`
+- `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1`
