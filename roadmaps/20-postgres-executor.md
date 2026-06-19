@@ -1990,6 +1990,88 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Elysia HTTP API Adapter
+
+Previous completed checkpoint: `b4a2518` Begin invoke sessions.
+
+What changed:
+
+- Added `@flarex/executor-http` as the real HTTP API adapter package.
+- Implemented `createFlarexHttpApp({ executor })` with Elysia.
+- Implemented `createFlarexHttpHandler({ executor })` as a fetch-style handler.
+- Moved the existing HTTP behavior into the Elysia app:
+  - `GET /health`
+  - `POST /invoke/prepare`
+  - method rejection for `/invoke/prepare`
+  - JSON `404` for unknown routes
+  - executor error-to-status mapping
+- Added direct Elysia tests using `app.handle(request)`.
+- Refactored `@flarex/executor-nitro` into a thin wrapper over
+  `@flarex/executor-http`.
+- Updated the workspace lockfile with Elysia.
+
+Why it changed:
+
+The HTTP API should be explicit and directly testable. Nitro is still useful as
+a deployment shell, but file routing should not own Flarex platform semantics.
+Elysia gives Flarex a single concrete router for `/invoke`, future session
+routes, sync routes, and health checks, while Nitro can mount or delegate to
+that router.
+
+Convex references:
+
+- `crates/local_backend/src/lib.rs`
+  - local/backend HTTP surfaces adapt requests into backend application
+    behavior instead of owning database semantics.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution routing decisions stay in backend/application logic, not the HTTP
+    adapter.
+
+Flarex references:
+
+- `packages/executor/src/invoke.ts`
+  - executor core still owns prepare-invoke semantics.
+- `packages/executor/src/sessions.ts`
+  - executor core owns session creation semantics.
+- `packages/executor-http/src/index.ts`
+  - Elysia now owns HTTP route parsing and response mapping.
+- `packages/executor-nitro/src/index.ts`
+  - Nitro now delegates to the HTTP handler.
+
+External reference:
+
+- Nitro Elysia example: `https://nitro.build/examples/elysia`
+  - Nitro can use a server entry that exports `app.compile()`, allowing a
+    framework router to handle all incoming requests.
+
+Flarex differences:
+
+- Convex has its own backend HTTP protocol and local backend. Flarex is using
+  Elysia as a framework-neutral HTTP adapter that can run under Nitro/Vercel or
+  other fetch-compatible hosts.
+- `@flarex/executor-nitro` remains a compatibility/deployment wrapper, not the
+  source of API route behavior.
+
+Known limitations:
+
+- `@flarex/executor-http` currently exposes only health and invoke prepare.
+- There is no Nitro `server.ts` app package yet; this slice only makes the
+  reusable Elysia app and wrapper.
+- `/invoke/start`, syscall, finish, and abort routes still need to be added to
+  the Elysia app.
+- The Elysia app uses manual request validation for now. We can move to Elysia
+  schemas once the API shape stabilizes.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

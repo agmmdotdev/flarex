@@ -1,5 +1,5 @@
 {
-  "name": "@flarex/executor-nitro",
+  "name": "@flarex/executor-http",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@flarex/executor": "workspace:*",
-    "@flarex/executor-http": "workspace:*"
+    "elysia": "^1.4.13"
   },
   "devDependencies": {
     "vite": "catalog:",

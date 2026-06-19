@@ -324,6 +324,67 @@ corepack pnpm build
 git diff --check
 ```
 
+## Executor HTTP Boundary Update
+
+Previous completed checkpoint for this roadmap: `c563d88` Make push start
+source-only.
+
+The trusted Postgres executor HTTP API now has a dedicated adapter package:
+`@flarex/executor-http`.
+
+Package responsibilities:
+
+- `@flarex/executor` owns platform behavior:
+  - deployment/package resolution
+  - function resolution
+  - invoke preparation
+  - invoke session creation
+- `@flarex/persistence-postgres` owns Drizzle schema, migrations, PGlite, and
+  low-level Postgres persistence helpers.
+- `@flarex/executor-http` owns the real HTTP API router using Elysia:
+  - `GET /health`
+  - `POST /invoke/prepare`
+  - request shape validation
+  - executor error-to-status mapping
+- `@flarex/executor-nitro` is only a Nitro/deployment wrapper over the HTTP
+  app. It must not regain route semantics as invoke/session APIs grow.
+
+Why this changed:
+
+Nitro file routing is a deployment convenience, but Flarex needs one explicit,
+testable platform API surface. Elysia gives us a fetch-compatible router that
+can be tested directly and mounted under Nitro using Nitro's documented server
+entry approach.
+
+External reference:
+
+- `https://nitro.build/examples/elysia`
+  - Nitro supports an Elysia server entry where the Elysia app handles incoming
+    requests.
+
+Convex reference:
+
+- `crates/local_backend/src/lib.rs`
+  - HTTP surfaces are adapters over backend behavior.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution semantics stay below the HTTP layer.
+
+Known limitations:
+
+- No concrete Nitro `server.ts` host app exists yet.
+- `@flarex/executor-http` currently has only health and invoke prepare.
+- API request validation is manual until the route bodies settle.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Backend Artifact Store Boundary Update
 
 Previous completed checkpoint: `873fee7` Add R2 execution artifact store
