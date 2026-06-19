@@ -1046,6 +1046,72 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Executor Module Layout
+
+Previous completed checkpoint: `a86d1ff` Add executor deployment ensure
+behavior.
+
+What changed:
+
+- Split `@flarex/executor/src/index.ts` into focused modules:
+  - `types.ts`
+    - shared public executor contracts and result shapes.
+  - `errors.ts`
+    - domain errors such as `DeploymentProjectMismatchError`.
+  - `deployments.ts`
+    - deployment ensure behavior and project ownership validation.
+  - `health.ts`
+    - health dependency checks and response construction.
+  - `index.ts`
+    - public package entrypoint and executor factory wiring only.
+
+Why it changed:
+
+`index.ts` should not become the executor implementation. It should expose the
+public API and compose domain modules. This matters now because deployment
+provisioning, package activation, execution sessions, syscall handling, OCC
+commit, auth, and eventually sync-facing behavior will each grow their own
+types and errors.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - application-level behavior is grouped by domain module instead of living in
+    a single crate entrypoint.
+- `crates/function_runner/src/lib.rs`
+  - crate entrypoints define traits/contracts and route to focused
+    implementations.
+- `crates/database/src/committer.rs`
+  - transaction/commit behavior is isolated in its own module instead of being
+    mixed into generic entrypoint code.
+
+Flarex differences:
+
+- Flarex's TypeScript package still exports a single public npm entrypoint,
+  but implementation modules stay private unless a direct helper becomes part
+  of the public executor API.
+- Shared types live in `types.ts` for now. A separate `@flarex/core` package
+  should only be added later if types must be shared across packages without
+  depending on executor behavior.
+
+Known limitations:
+
+- Tests still live in one `health.test.ts` file even though they now cover
+  health and deployment behavior. They should be split once the next executor
+  domain test file is added.
+- `ensureDeployment(...)` remains direct-method only. No Nitro route or auth
+  boundary exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
