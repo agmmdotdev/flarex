@@ -379,7 +379,7 @@ Create package boundaries and tests before writing full SQL behavior:
 1. Add `packages/flarex-postgres` with a tiny persistence interface and PGlite
    adapter scaffold.
 2. Add `packages/flarex-executor` with `createFlarexExecutor(...)` and a
-   no-op health/fetch route.
+   framework-agnostic health function.
 3. Add `packages/flarex-executor-nitro` as adapter-only.
 4. Add one `flarex-test` in-process executor harness test using PGlite.
 5. Do not wire the main SDK/client path to it yet.
@@ -396,10 +396,9 @@ What changed:
 
 - Added `packages/flarex-executor` as the framework-neutral trusted executor
   core package.
-- Added `createFlarexExecutor()` with a direct `health()` method and a
-  Fetch-compatible `GET /health` route.
+- Added `createFlarexExecutor()` with a direct `health()` method.
 - Added `packages/flarex-executor-nitro` as an adapter-only package that
-  delegates an incoming web `Request` to the executor core.
+  maps `GET /health` from an incoming web `Request` to the executor core.
 - Added focused health tests for both packages.
 
 Why it changed:
@@ -407,9 +406,9 @@ Why it changed:
 The old Cloudflare DO prototype uses `stub.fetch()` because Durable Objects are
 separate actors. The Postgres executor path should not keep that internal
 shape. The executor core should be callable directly by tests, local dev, and
-framework adapters. HTTP/fetch should exist only at real network boundaries,
-such as Cloudflare Dynamic Worker to trusted executor, or Nitro/Vercel route to
-core.
+framework adapters. HTTP/fetch routing should exist only in adapters and real
+network boundaries, such as Cloudflare Dynamic Worker to trusted executor, or
+Nitro/Vercel route to core.
 
 Convex references:
 
@@ -427,9 +426,9 @@ Flarex differences:
   Postgres executor may be deployed as Nitro/Vercel while Cloudflare runs user
   code and sync connections.
 - Convex's function runner executes user code near the database transaction.
-  Flarex's first executor core only exposes health; the future syscall/session
-  API will keep a logical transaction session and avoid holding a Postgres
-  transaction open while Cloudflare user code runs.
+  Flarex's first executor core only exposes a direct health function; the
+  future syscall/session API will keep a logical transaction session and avoid
+  holding a Postgres transaction open while Cloudflare user code runs.
 - The Nitro package intentionally imports no Nitro runtime yet. It is currently
   a minimal adapter seam over web-standard `Request`/`Response`; concrete Nitro
   route helpers can be added once the executor protocol exists.
@@ -440,6 +439,61 @@ Known limitations:
 - No execution session, syscall API, commit path, or OCC validation exists in
   the new executor packages yet.
 - Existing DO prototype packages still own the old invoke/sync behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-executor typecheck
+corepack pnpm --filter flarex-executor test
+corepack pnpm --filter flarex-executor-nitro typecheck
+corepack pnpm --filter flarex-executor-nitro test
+git diff --check
+```
+
+## Framework-Agnostic Core Correction
+
+Previous completed checkpoint: `2107439` Add executor health endpoint packages.
+
+What changed:
+
+- Removed `fetch(request)` and `healthPath` from `packages/flarex-executor`.
+- Kept `packages/flarex-executor` as direct core functions only:
+  `createFlarexExecutor().health()`.
+- Moved HTTP route matching, JSON response creation, and 404 handling into
+  `packages/flarex-executor-nitro`.
+- Updated tests so the core package verifies direct function behavior and the
+  adapter package verifies endpoint behavior.
+
+Why it changed:
+
+The trusted executor core must stay framework-agnostic. It should not own API
+endpoint names, path matching, `Request`, or `Response` behavior. Those are
+adapter concerns. This keeps local tests, future PGlite harnesses, Nitro, and
+any other host able to reuse the same executor core without inheriting a
+transport contract.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - Convex's function runner is a backend interface, not an HTTP router.
+- `crates/function_runner/src/in_process_function_runner.rs`
+  - local/backend execution can call runner logic in process.
+- `crates/application/src/application_function_runner/mod.rs`
+  - request routing is outside the function runner itself.
+
+Flarex differences:
+
+- Flarex still needs deployed HTTP adapters because Cloudflare user-code
+  runtime will call the trusted executor over a network boundary.
+- The endpoint contract belongs to adapter packages such as
+  `flarex-executor-nitro`; direct executor methods remain the source of
+  behavior.
+
+Known limitations:
+
+- The Nitro adapter is still a minimal web-standard adapter, not a real Nitro
+  route module.
+- No session/syscall/OCC methods exist yet.
 
 Verification:
 

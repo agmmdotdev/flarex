@@ -5,7 +5,7 @@ import { createFlarexExecutor } from "flarex-executor";
 import { createFlarexNitroHandler } from "../src/index";
 
 describe("createFlarexNitroHandler", () => {
-  it("delegates health requests to the executor core", async () => {
+  it("maps health requests to the executor core", async () => {
     const handler = createFlarexNitroHandler({
       executor: createFlarexExecutor({
         clock: { now: () => new Date("2026-06-19T00:00:00.000Z") },
@@ -21,6 +21,20 @@ describe("createFlarexNitroHandler", () => {
       service: "flarex-executor",
       status: "ok",
       time: "2026-06-19T00:00:00.000Z",
+    });
+  });
+
+  it("returns a JSON 404 for unknown adapter routes", async () => {
+    const handler = createFlarexNitroHandler();
+
+    const response = await handler({
+      request: new Request("https://executor.test/unknown"),
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "not_found",
+      message: "No Flarex executor adapter route for GET /unknown",
     });
   });
 });
