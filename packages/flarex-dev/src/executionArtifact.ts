@@ -34,7 +34,7 @@ export type ExecutionArtifactInvokeRequest = {
   deploymentId: string;
   path: string;
   args: unknown;
-  partitionKey: string;
+  partitionKey?: string;
   idempotencyKey?: string;
 };
 

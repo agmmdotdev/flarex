@@ -274,7 +274,7 @@ export const merge = mutation({
     );
   });
 
-  it("rejects create-root model table partitions during final codegen", async () => {
+  it("generates create-root model table partitions for backend execution sessions", async () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/schema.ts"),
@@ -296,14 +296,27 @@ import { v } from "flarex/values";
 export const create = mutation({
   args: { name: v.string() },
   partition: model.users,
-  handler: async () => null,
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("users", { name: args.name });
+  },
 });
 `,
     );
 
-    await expect(generateFlarex({ root })).rejects.toThrow(
-      "users:create.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.users.",
-    );
+    await generateFlarex({ root });
+
+    const api = await readGenerated(root, "api.ts");
+    const functionMetadata = await readGenerated(root, "functionMetadata.ts");
+    const worker = await readGenerated(root, "worker.ts");
+
+    expect(functionMetadata).toContain('"path": "users:create"');
+    expect(functionMetadata).toContain('"partition": {');
+    expect(functionMetadata).toContain('"type": "partitionCreateRoot"');
+    expect(functionMetadata).toContain('"table": "users"');
+    expect(api).toContain('"users:create": {');
+    expect(api).toContain('"type": "partitionCreateRoot"');
+    expect(worker).toContain('...(partitionKey === undefined ? {} : { partitionKey })');
+    expect(worker).not.toContain("A partitionKey or x-flarex-partition header is required.");
   });
 
   it("rejects model partition selectors that do not match schema placement", async () => {

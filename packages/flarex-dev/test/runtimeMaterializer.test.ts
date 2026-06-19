@@ -127,6 +127,82 @@ describe("runtime materializer", () => {
     });
     expect(materializeCount).toBe(1);
   });
+
+  it("materializes create-root mutations without caller partition keys", async () => {
+    const root = await createCreateRootProject();
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+    const codegenAnalysis = await new LocalMiniflareExecutionArtifactAdapter()
+      .analyze(sourcePackage);
+    const analysis = backendAnalysisFromCodegenAnalysis(codegenAnalysis);
+
+    let harness!: BackendHarness;
+    const artifactStore = {
+      put: async (package_: typeof sourcePackage) =>
+        new R2BackendExecutionArtifactStore(
+          (await harness.mf.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        ).put(package_),
+      get: async (ref: Parameters<R2BackendExecutionArtifactStore["get"]>[0]) =>
+        new R2BackendExecutionArtifactStore(
+          (await harness.mf.getR2Bucket("ARTIFACTS")) as unknown as R2BucketLike,
+        ).get(ref),
+    };
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      internalToken: "artifact-internal",
+      backend: request => dispatchBackend(harness, request),
+    });
+
+    harness = await createBackendHarness({
+      bindings: {
+        FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+        FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
+      },
+      r2Buckets: ["ARTIFACTS"],
+      serviceBindings: {
+        FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
+          capabilityToken: "runtime-secret",
+          materializer,
+          store: artifactStore,
+        }),
+      },
+    });
+    harnesses.push(harness);
+
+    const deploymentId = "runtime-materializer-create-root";
+    const start = await startPush(harness, deploymentId, {
+      sourcePackage,
+      analysis,
+    });
+    const bucket = await harness.mf.getR2Bucket("ARTIFACTS");
+    await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike).put(sourcePackage);
+    await finishPush(harness, deploymentId, start.pushId);
+
+    const created = await invoke(harness, deploymentId, {
+      path: "users:create",
+      kind: "mutation",
+      args: { name: "Ada" },
+    });
+    const createBody = await created.json() as {
+      value: { userId: string; profileId: string };
+      writes: Array<{ tableId: number; id: string; value: unknown }>;
+    };
+
+    expect({ status: created.status, body: createBody }).toMatchObject({ status: 200 });
+    expect(createBody.value.userId).toMatch(/^2:/);
+    expect(createBody.value.profileId).toMatch(/^1:/);
+    expect(createBody.writes).toEqual([
+      expect.objectContaining({
+        tableId: 2,
+        id: createBody.value.userId,
+        value: { name: "Ada" },
+      }),
+      expect.objectContaining({
+        tableId: 1,
+        id: createBody.value.profileId,
+        value: { userId: createBody.value.userId, bio: "Hello" },
+      }),
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -167,6 +243,45 @@ export const list = query({
   args: { lessonId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db.query("messages").withIndex("by_lesson_text", q => q.eq("lessonId", args.lessonId).eq("text", "hello")).collect();
+  },
+});
+`,
+  );
+  return root;
+}
+
+async function createCreateRootProject(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-runtime-create-root-"));
+  await mkdir(path.join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    path.join(root, "flarex/schema.ts"),
+    `import { defineColocatedTable, definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  profiles: defineColocatedTable("users", "userId", {
+    userId: v.id("users"),
+    bio: v.string(),
+  }),
+  users: definePartitionTable({
+    name: v.string(),
+  }),
+});
+`,
+  );
+  await writeFile(
+    path.join(root, "flarex/functions/users.ts"),
+    `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  partition: model.users,
+  args: { name: v.string() },
+  returns: v.object({ userId: v.id("users"), profileId: v.id("profiles") }),
+  handler: async (ctx, args) => {
+    const userId = await ctx.db.insert("users", { name: args.name });
+    const profileId = await ctx.db.insert("profiles", { userId, bio: "Hello" });
+    return { userId, profileId };
   },
 });
 `,

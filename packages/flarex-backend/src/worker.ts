@@ -310,8 +310,10 @@ async function routeInvoke(
     const invokeRequest: InvokeRequest = {
       path: required(body.path, "function path"),
       args: (body.args ?? null) as Json,
-      partitionKey: required(body.partitionKey, "partition key"),
       ...(kind === undefined ? {} : { kind }),
+      ...(body.partitionKey === undefined
+        ? {}
+        : { partitionKey: required(body.partitionKey, "partition key") }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     };
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);

@@ -1768,3 +1768,72 @@ corepack pnpm --filter @flarex/example build
 Separated reusable backend runtime, development tooling, test SDK, and
 deployable wrapper packages; added Convex-style generated APIs and local
 development behavior.
+
+### Create-Root Generated Runtime Bridge
+
+Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+
+Generated code now treats `partition: model.<rootTable>` with no required root
+id argument as executable create-root metadata instead of a codegen error.
+
+Developer-facing API:
+
+```ts
+export const create = mutation({
+  args: { name: v.string() },
+  partition: model.users,
+  handler: async (ctx, args) => {
+    const userId = await ctx.db.insert("users", { name: args.name });
+    return userId;
+  },
+});
+```
+
+What changed:
+
+- final codegen preserves `partitionCreateRoot` in generated function metadata,
+- generated API references expose create-root partition metadata,
+- `FlarexClient.mutation(...)` omits `partitionKey` for create-root references
+  and routes them over HTTP instead of sync,
+- generated worker and materialized artifact runtime start backend execution
+  sessions without a partition key when none is supplied, and
+- dev invoke forwarding no longer forces a partition key before the backend can
+  inspect active metadata.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - user code keeps normal `mutation({ args, handler })` ergonomics.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  - generated references carry metadata for client invocation.
+- `crates/function_runner/src/lib.rs`
+  - the backend controls function execution and storage access.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code uses database syscalls rather than a direct connection.
+
+Cloudflare difference: Flarex still needs explicit partition metadata because
+Cloudflare Durable Objects require a routing key. For create-root functions the
+backend preallocates that key after the client call arrives, so the generated
+client must deliberately omit `partitionKey`.
+
+Remaining limitations:
+
+- Sync mutations still require a concrete partition key, so create-root
+  mutations use HTTP invoke for now.
+- Create-root support is limited to `_id` partition roots and single-shard
+  colocated writes.
+- Cross-shard create flows still require the future workflow/atomic-mutation
+  design.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/client.test.ts test/api.test.ts --maxWorkers=1
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/executionArtifact.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-dev build
+```

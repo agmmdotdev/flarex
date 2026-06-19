@@ -85,6 +85,24 @@ describe("backend artifact runtime route", () => {
       value: { runtime: "artifact", path: "users:get" },
     });
 
+    const createResponse = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/artifact-runtime-route/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "users:create",
+          kind: "mutation",
+          args: { name: "Ada" },
+        }),
+      },
+    );
+    const createBody = await createResponse.json();
+    expect(createResponse.ok).toBe(true);
+    expect(createBody).toEqual({
+      value: { runtime: "artifact", path: "users:create" },
+    });
+
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
     expect(runtimeCalls).toEqual([
       {
@@ -99,6 +117,20 @@ describe("backend artifact runtime route", () => {
             kind: "query",
             partitionKey: "user:1",
             args: { id: "1:user" },
+          },
+        },
+      },
+      {
+        artifactId: ref.artifactId,
+        sourcePackageHash: ref.sourcePackageHash,
+        body: {
+          deploymentId: "artifact-runtime-route",
+          ref,
+          sourcePackage,
+          request: {
+            path: "users:create",
+            kind: "mutation",
+            args: { name: "Ada" },
           },
         },
       },
@@ -158,8 +190,36 @@ function testAnalysis(): DeploymentAnalysis {
         {
           path: "users:get",
           kind: "query",
-          args: { type: "object", value: {} },
+          args: {
+            type: "object",
+            value: {
+              id: { fieldType: { type: "id", tableName: "users" }, optional: false },
+            },
+          },
           returns: null,
+          partition: {
+            type: "partition",
+            table: "users",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "id",
+          },
+        },
+        {
+          path: "users:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          returns: null,
+          partition: {
+            type: "partitionCreateRoot",
+            table: "users",
+            partitionField: "_id",
+          },
         },
       ],
     },

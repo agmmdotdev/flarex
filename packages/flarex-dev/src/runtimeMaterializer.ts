@@ -142,13 +142,12 @@ async function invokeWithBackend(body, env, request) {
   const deploymentId = request.headers.get("x-flarex-deployment") ?? body.deploymentId;
   if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
-  if (!partitionKey) throw new Error("A partitionKey or x-flarex-partition header is required.");
 
   const start = await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/start\`, {
     path: body.path,
     args: body.args ?? null,
     kind,
-    partitionKey,
+    ...(partitionKey === undefined ? {} : { partitionKey }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   });
   try {

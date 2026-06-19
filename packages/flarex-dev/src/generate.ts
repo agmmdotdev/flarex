@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   listFunctionModules,
   type AnalyzedFunction,
+  type AnalyzedFunctionPartitionCreateRootPolicy,
   type AnalyzedFunctionPartitionPolicy,
   type AnalyzedModule,
   type AnalyzedSchema,
@@ -164,6 +165,10 @@ export type FunctionMetadata = {
     selector: string;
     partitionField: string;
     argField: string;
+  } | {
+    type: "partitionCreateRoot";
+    table: string;
+    partitionField: "_id";
   } | null;
   position?: {
     path: string;
@@ -478,7 +483,6 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
     request.headers.get("x-flarex-deployment") ?? body.deploymentId ?? env.FLAREX_DEPLOYMENT_ID;
   if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
-  if (!partitionKey) throw new Error("A partitionKey or x-flarex-partition header is required.");
 
   const start = await postBackend<ExecutionStartResponse>(
     env.FLAREX_BACKEND,
@@ -487,7 +491,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
       path: body.path,
       args: body.args,
       kind: metadata.kind,
-      partitionKey,
+      ...(partitionKey === undefined ? {} : { partitionKey }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     },
   );
@@ -680,14 +684,12 @@ function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, u
   );
 }
 
-function runnablePartition(fn: AnalyzedFunction): AnalyzedFunctionPartitionPolicy | null {
+function runnablePartition(
+  fn: AnalyzedFunction,
+): AnalyzedFunctionPartitionPolicy | AnalyzedFunctionPartitionCreateRootPolicy | null {
   if (fn.partition === null || fn.partition === undefined) return null;
   if (fn.partition.type === "partition") return fn.partition;
-  if (fn.partition.type === "partitionCreateRoot") {
-    throw new Error(
-      `${functionPath(fn)}.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.${fn.partition.table}.`,
-    );
-  }
+  if (fn.partition.type === "partitionCreateRoot") return fn.partition;
   throw new Error(
     `${functionPath(fn)}.partition: unresolved partition root policy reached final codegen.`,
   );

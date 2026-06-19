@@ -19,7 +19,7 @@ export type InvokeOptions = {
   transport?: "http" | "sync";
 };
 
-type ResolvedInvokeOptions = InvokeOptions & { partitionKey: string };
+type ResolvedInvokeOptions = InvokeOptions;
 
 export class FlarexInvocationError extends Error {
   constructor(
@@ -62,13 +62,13 @@ export class FlarexClient {
     options: InvokeOptions = {},
   ): Promise<FunctionReturnType<Reference>> {
     const resolvedOptions = resolveInvokeOptions(reference, args, options);
-    if (resolvedOptions.transport === "http") {
+    if (resolvedOptions.transport === "http" || resolvedOptions.partitionKey === undefined) {
       return this.invoke(reference, args, resolvedOptions) as Promise<FunctionReturnType<Reference>>;
     }
     return this.ensureSyncClient().mutation(
       getFunctionName(reference),
       args as Record<string, unknown>,
-      resolvedOptions,
+      { partitionKey: resolvedOptions.partitionKey },
     ) as Promise<FunctionReturnType<Reference>>;
   }
 
@@ -186,7 +186,7 @@ export class FlarexClient {
       body: JSON.stringify({
         path: getFunctionName(reference),
         args,
-        partitionKey: options.partitionKey,
+        ...(options.partitionKey === undefined ? {} : { partitionKey: options.partitionKey }),
       }),
     });
     const result = (await response.json()) as { value?: unknown; error?: string };
@@ -221,7 +221,7 @@ export function resolvePartitionKey(
   reference: FunctionReference,
   args: unknown,
   options: { partitionKey?: string } = {},
-): string {
+): string | undefined {
   if (options.partitionKey !== undefined) {
     if (options.partitionKey.length === 0) {
       throw new Error("partitionKey must be a non-empty string.");
@@ -244,6 +244,9 @@ export function resolvePartitionKey(
     }
     return value;
   }
+  if (partition?.type === "partitionCreateRoot") {
+    return undefined;
+  }
   throw new Error(
     `partitionKey is required for ${name}. Add partition: model.table.byX(...) to the function or pass { partitionKey }.`,
   );
@@ -254,7 +257,8 @@ function resolveInvokeOptions(
   args: unknown,
   options: InvokeOptions,
 ): ResolvedInvokeOptions {
-  return { ...options, partitionKey: resolvePartitionKey(reference, args, options) };
+  const partitionKey = resolvePartitionKey(reference, args, options);
+  return partitionKey === undefined ? { ...options } : { ...options, partitionKey };
 }
 
 function resolveOnUpdateOptions<Query extends FunctionReference<"query">>(
@@ -262,7 +266,13 @@ function resolveOnUpdateOptions<Query extends FunctionReference<"query">>(
   args: FunctionArgs<Query>,
   options: OnUpdateOptions,
 ): OnUpdateOptions & { partitionKey: string } {
-  return { ...options, partitionKey: resolvePartitionKey(query, args, options) };
+  const partitionKey = resolvePartitionKey(query, args, options);
+  if (partitionKey === undefined) {
+    throw new Error(
+      `partitionKey is required for ${getFunctionName(query)} live queries.`,
+    );
+  }
+  return { ...options, partitionKey };
 }
 
 function scheduleExistingLocalResult(watch: Watch<unknown>, callback: () => void): void {

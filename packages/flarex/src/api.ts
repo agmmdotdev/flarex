@@ -17,13 +17,21 @@ export type FunctionPartitionRootPolicy = {
   table: string;
   partitionField: string;
 };
+export type FunctionPartitionCreateRootPolicy = {
+  type: "partitionCreateRoot";
+  table: string;
+  partitionField: "_id";
+};
+export type FunctionReferencePartitionPolicy =
+  | FunctionPartitionPolicy
+  | FunctionPartitionCreateRootPolicy;
 export type FunctionPartitionInputPolicy =
   | FunctionPartitionPolicy
   | FunctionPartitionRootPolicy;
 export type FunctionRouteMap = Record<string, FunctionRoutePolicy | null | undefined>;
 export type FunctionReferenceMetadata = {
   route?: FunctionRoutePolicy | null;
-  partition?: FunctionPartitionPolicy | null;
+  partition?: FunctionReferencePartitionPolicy | null;
 };
 export type FunctionReferenceMetadataMap = Record<
   string,
@@ -40,7 +48,7 @@ export type FunctionReference<
   readonly _kind?: Type;
   readonly _visibility?: Visibility;
   readonly _route?: FunctionRoutePolicy | null;
-  readonly _partition?: FunctionPartitionPolicy | null;
+  readonly _partition?: FunctionReferencePartitionPolicy | null;
   readonly [functionName]?: string;
   readonly __args?: Args;
   readonly __returnType?: ReturnType;
@@ -69,7 +77,7 @@ export function makeFunctionReference<
   name: string,
   kind?: Type,
   route?: FunctionRoutePolicy | null,
-  partition?: FunctionPartitionPolicy | null,
+  partition?: FunctionReferencePartitionPolicy | null,
 ): FunctionReference<Type, "public", Args, ReturnType> {
   return {
     _path: name,

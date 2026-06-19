@@ -89,7 +89,7 @@ describe("execution artifact analysis", () => {
     await finalCodegen(context, artifact.analysis);
   });
 
-  it("classifies create-root model table partitions without finalizing client metadata", async () => {
+  it("classifies create-root model table partitions and finalizes client metadata", async () => {
     const root = await createCreateRootProject();
     const context = await initialCodegen({ root });
     const sourcePackage = await bundleFlarexSourcePackage(context);
@@ -108,9 +108,7 @@ describe("execution artifact analysis", () => {
       table: "users",
       partitionField: "_id",
     });
-    await expect(finalCodegen(context, artifact)).rejects.toThrow(
-      "users:create.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.users.",
-    );
+    await expect(finalCodegen(context, artifact)).resolves.toBeUndefined();
   });
 
   it("uses deterministic import-time Date and Math.random during analysis", async () => {

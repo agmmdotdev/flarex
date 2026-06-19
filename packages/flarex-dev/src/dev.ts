@@ -208,12 +208,20 @@ async function devInvokeBody(request: Request): Promise<Record<string, unknown>>
   return {
     path: requiredString(body.path, "function path"),
     args: body.args ?? null,
-    partitionKey:
-      request.headers.get("x-flarex-partition") ??
-      requiredString(body.partitionKey, "partition key"),
+    ...optionalPartitionKey(request, body),
     ...(body.kind === undefined ? {} : { kind: requiredString(body.kind, "function kind") }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   };
+}
+
+function optionalPartitionKey(
+  request: Request,
+  body: Record<string, unknown>,
+): { partitionKey?: string } {
+  const header = request.headers.get("x-flarex-partition");
+  if (header !== null) return { partitionKey: header };
+  if (body.partitionKey === undefined) return {};
+  return { partitionKey: requiredString(body.partitionKey, "partition key") };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

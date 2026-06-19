@@ -2291,6 +2291,49 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Create-Root Artifact Invoke Activation
+
+Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+
+The deployment push and artifact runtime path now allows active
+`partitionCreateRoot` metadata to reach execution instead of being stopped by
+client/generator request shaping.
+
+Updated flow:
+
+```txt
+push/start-analyzed
+  -> active metadata includes partitionCreateRoot
+public /invoke without partitionKey
+  -> active deployment artifact runtime
+  -> materialized source package
+  -> ExecutionDO.start without partitionKey
+  -> backend preallocates root id
+```
+
+Convex references:
+
+- `crates/model/src/modules/mod.rs`
+  - analyzed function metadata is durable deployment state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment metadata drives function execution.
+- `crates/model/src/source_packages/mod.rs`
+  - source packages are loaded by backend-controlled identity.
+
+Cloudflare difference: Flarex public invoke must allow missing `partitionKey`
+for create-root artifact invocations. Existing-root invocations are still
+validated by active function partition metadata once `ExecutionDO.start` runs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
 ## Root Partition Analysis Lowering
 
 Checkpoint: `40b9999` Infer existing root partitions from model table.

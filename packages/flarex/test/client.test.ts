@@ -92,6 +92,37 @@ describe("FlarexClient", () => {
     );
   });
 
+  it("omits partition keys for create-root generated mutation references", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: "2:user" }));
+    const client = new FlarexClient("https://example.test", { fetch });
+
+    await expect(
+      client.mutation(
+        {
+          _path: "users:create",
+          _kind: "mutation",
+          _partition: {
+            type: "partitionCreateRoot",
+            table: "users",
+            partitionField: "_id",
+          },
+        },
+        { name: "Ada" },
+      ),
+    ).resolves.toEqual("2:user");
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        body: JSON.stringify({
+          path: "users:create",
+          args: { name: "Ada" },
+        }),
+      }),
+    );
+    expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
   it("does not infer invoke partitions from route-only metadata", async () => {
     const client = new FlarexClient("https://example.test", {
       fetch: async () => Response.json({ value: null }),

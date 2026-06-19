@@ -454,6 +454,57 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Generated Create-Root Artifact Execution
+
+Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+
+The generated and materialized execution workers now start backend execution
+sessions with optional partition keys. This lets create-root functions execute
+through the same syscall path as existing-root functions:
+
+```txt
+generated/artifact worker invoke
+  -> start execution session without partitionKey
+  -> backend active metadata says partitionCreateRoot
+  -> ExecutionDO preallocates root id
+  -> ctx.db.insert(rootTable, value) syscall returns that id
+  -> finish commits staged writes
+```
+
+The integration test now materializes a stored source package containing:
+
+```ts
+export const create = mutation({
+  partition: model.users,
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await ctx.db.insert("users", { name: args.name });
+    const profileId = await ctx.db.insert("profiles", { userId, bio: "Hello" });
+    return { userId, profileId };
+  },
+});
+```
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - user function execution is mediated by the backend runner.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - storage access crosses the syscall boundary.
+- `crates/database/src/transaction.rs`
+  - generated ids are transaction-local state until commit.
+
+Cloudflare difference: Flarex's materialized source-package runtime runs in
+Miniflare/Dynamic Worker style and calls the backend over internal fetch. It
+does not own transaction state; `ExecutionDO` and `PartitionDO` do.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionDO.test.ts --maxWorkers=1
+```
+
 ## Create-Root Execution Sessions
 
 Previous completed checkpoint: `2e6dc68` Consume preallocated root ids.

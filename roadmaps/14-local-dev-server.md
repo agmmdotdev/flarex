@@ -927,3 +927,31 @@ corepack pnpm --filter @flarex/example build
 The deployable backend wrapper no longer runs Wrangler as its normal `build`.
 Wrangler deployment validation is available through
 `corepack pnpm --filter @flarex/backend deploy:dry-run`.
+
+## Optional Partition Dev Invoke Forwarding
+
+Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+
+The local dev invoke proxy now forwards `partitionKey` only when the request or
+`x-flarex-partition` header supplies one. This matches hosted behavior for
+create-root functions: local dev must let the backend inspect active function
+metadata before deciding whether a partition key is required.
+
+Convex reference:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev routes client calls to a backend-owned runtime.
+- `crates/local_backend/src/lib.rs`
+  - local backend execution uses the same semantic boundary as hosted
+    execution.
+
+Cloudflare difference: this is still a Vite/Miniflare proxy shape, but it now
+preserves the important backend-owned root id preallocation boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-dev build
+```

@@ -1630,7 +1630,7 @@ mutation({
 // create root
 mutation({
   args: { name: v.string() },
-  partition: model.users.create(),
+  partition: model.users,
   handler: async ctx => {
     const userId = await ctx.db.insert("users", { name: "Ada" });
     return userId;
@@ -1656,6 +1656,48 @@ Verification:
 ```sh
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test -- --runInBand
+```
+
+## Create-Root Client Routing Metadata
+
+Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+
+Generated function references can now carry:
+
+```ts
+{
+  type: "partitionCreateRoot",
+  table: "users",
+  partitionField: "_id",
+}
+```
+
+Client behavior:
+
+- existing-root references still infer `partitionKey` from the declared
+  argument, for example `model.users` plus `args.userId`,
+- explicit `{ partitionKey }` still wins,
+- create-root references omit `partitionKey`, and
+- create-root mutations use HTTP invoke instead of sync mutation transport.
+
+Convex reference:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - generated references drive client calls without app developers manually
+    building protocol messages.
+- `npm-packages/convex/src/server/registration.ts`
+  - function declaration metadata is captured at registration time.
+
+Cloudflare difference: create-root calls cannot be routed through the current
+sync mutation queue because sync messages still require a partition key.
+HTTP invoke can reach backend active metadata first, then the backend can
+preallocate the root id and start the `PartitionDO` session.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex exec vitest run test/client.test.ts test/api.test.ts --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
 ```
 
 ## Previous Update
