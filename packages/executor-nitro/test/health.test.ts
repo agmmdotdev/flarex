@@ -7,6 +7,7 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  PartitionValidationError,
   createFlarexExecutor,
   type FlarexExecutor,
   type PrepareInvokeInput,
@@ -108,6 +109,8 @@ describe("createFlarexNitroHandler", () => {
         projectId: "project_active",
         path: "messages:list",
         kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     });
 
@@ -118,6 +121,8 @@ describe("createFlarexNitroHandler", () => {
         projectId: "project_active",
         path: "messages:list",
         kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       },
     ]);
     await expect(response.json()).resolves.toEqual({
@@ -126,6 +131,14 @@ describe("createFlarexNitroHandler", () => {
       path: "messages:list",
       kind: "query",
       schemaVersion: 12,
+      scope: {
+        kind: "partition",
+        table: "teams",
+        selector: "byId",
+        partitionField: "_id",
+        argField: "teamId",
+        partitionKey: "team:1",
+      },
       executionModule: "_flarex/execution.js",
     });
   });
@@ -166,6 +179,8 @@ describe("createFlarexNitroHandler", () => {
         projectId: "project_active",
         path: "messages:list",
         kind: "action",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     });
 
@@ -174,6 +189,34 @@ describe("createFlarexNitroHandler", () => {
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
       message: "kind must be query or mutation.",
+    });
+  });
+
+  it("validates invoke prepare args before calling the executor", async () => {
+    let called = false;
+    const handler = createFlarexNitroHandler({
+      executor: fakeExecutor({
+        async prepareInvoke() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await handler({
+      request: jsonRequest("https://executor.test/invoke/prepare", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+      }),
+    });
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "args must be a JSON value.",
     });
   });
 
@@ -261,6 +304,19 @@ describe("createFlarexNitroHandler", () => {
       status: 400,
       body: {
         error: "FunctionNotInvokableError",
+      },
+    });
+
+    await expect(
+      expectPrepareError(
+        new PartitionValidationError(
+          "partitionKey must match args.teamId for messages:list.",
+        ),
+      ),
+    ).resolves.toMatchObject({
+      status: 400,
+      body: {
+        error: "PartitionValidationError",
       },
     });
   });
@@ -415,6 +471,14 @@ function preparedInvokeResult(input: {
       tables: [],
       indexes: [],
     },
+    scope: {
+      kind: "partition",
+      table: "teams",
+      selector: "byId",
+      partitionField: "_id",
+      argField: "teamId",
+      partitionKey: "team:1",
+    },
     executionModule: input.executionModule,
   };
 }
@@ -443,6 +507,8 @@ async function expectPrepareError(error: Error): Promise<{
       deploymentId: "deployment_active",
       projectId: "project_active",
       path: "messages:list",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
     }),
   });
 

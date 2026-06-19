@@ -19,6 +19,7 @@ export {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  PartitionValidationError,
 } from "./errors";
 export type {
   ActivateDeploymentPackageInput,
@@ -35,7 +36,13 @@ export type {
   FlarexExecutorPersistence,
   FlarexHealth,
   FunctionVisibility,
+  FunctionExecutionScope,
+  FunctionPartitionCreateRootPolicy,
+  FunctionPartitionMetadata,
+  FunctionPartitionPolicy,
+  FunctionRoutePolicy,
   InvokableFunctionKind,
+  Json,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
@@ -44,6 +51,9 @@ export type {
   PrepareInvokeResult,
   RegisterDeploymentPackageInput,
   RegisterDeploymentPackageResult,
+  SchemaIndexMetadata,
+  SchemaTableMetadata,
+  TablePlacement,
 } from "./types";
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {

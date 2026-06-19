@@ -117,24 +117,91 @@ export interface DeploymentFunctionMetadata {
   visibility?: FunctionVisibility;
   args?: unknown;
   returns?: unknown;
-  route?: unknown;
-  partition?: unknown;
+  route?: FunctionRoutePolicy | null;
+  partition?: FunctionPartitionMetadata | null;
   position?: unknown;
 }
 
 export type InvokableFunctionKind = "query" | "mutation";
 
+export type Json =
+  | null
+  | boolean
+  | number
+  | string
+  | Json[]
+  | { [key: string]: Json };
+
+export type TablePlacement =
+  | { kind: "partitionBy"; field: string }
+  | { kind: "colocateWith"; table: string; field: string }
+  | { kind: "global" };
+
+export interface SchemaTableMetadata {
+  tableId: number;
+  name: string;
+  state?: "active" | "hidden" | "deleted";
+  placement: TablePlacement;
+}
+
+export interface SchemaIndexMetadata {
+  indexId: number;
+  tableId: number;
+  name: string;
+  fields: string[];
+  state?: "enabled" | "staged" | "disabled";
+}
+
 export interface DeploymentSchemaMetadata {
   version: number;
-  tables: unknown[];
-  indexes: unknown[];
+  tables: SchemaTableMetadata[];
+  indexes: SchemaIndexMetadata[];
 }
+
+export type FunctionRoutePolicy = { type: "args"; field: string };
+
+export type FunctionPartitionPolicy = {
+  type: "partition";
+  table: string;
+  selector: string;
+  partitionField: string;
+  argField: string;
+};
+
+export type FunctionPartitionCreateRootPolicy = {
+  type: "partitionCreateRoot";
+  table: string;
+  partitionField: "_id";
+};
+
+export type FunctionPartitionMetadata =
+  | FunctionPartitionPolicy
+  | FunctionPartitionCreateRootPolicy;
+
+export type FunctionExecutionScope =
+  | {
+      kind: "partition";
+      table: string;
+      selector: string;
+      partitionField: string;
+      argField: string;
+      partitionKey: string;
+    }
+  | {
+      kind: "partitionCreateRoot";
+      table: string;
+      partitionField: "_id";
+      partitionKey: string;
+      preallocatedRootId: string;
+    };
 
 export interface PrepareInvokeInput {
   deploymentId: string;
   projectId: string;
   path: string;
   kind?: InvokableFunctionKind;
+  args: Json;
+  partitionKey?: string;
 }
 
 export interface PrepareInvokeResult {
@@ -142,6 +209,7 @@ export interface PrepareInvokeResult {
   package: DeploymentPackageMetadataRecord;
   function: DeploymentFunctionMetadata & { kind: InvokableFunctionKind };
   schema: DeploymentSchemaMetadata;
+  scope: FunctionExecutionScope;
   executionModule: string;
 }
 

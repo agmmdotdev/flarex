@@ -7,6 +7,8 @@ import type {
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
   FlarexExecutorPersistence,
+  FunctionPartitionMetadata,
+  FunctionRoutePolicy,
   FunctionVisibility,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
@@ -102,10 +104,118 @@ function deploymentFunctionMetadataFromJson(
       : { visibility: metadata.visibility }),
     ...(metadata.args === undefined ? {} : { args: metadata.args }),
     ...(metadata.returns === undefined ? {} : { returns: metadata.returns }),
-    ...(metadata.route === undefined ? {} : { route: metadata.route }),
-    ...(metadata.partition === undefined ? {} : { partition: metadata.partition }),
+    ...(metadata.route === undefined
+      ? {}
+      : {
+          route: functionRoutePolicyFromJson(
+            metadata.route,
+            deploymentId,
+            packageId,
+            index,
+          ),
+        }),
+    ...(metadata.partition === undefined
+      ? {}
+      : {
+          partition: functionPartitionMetadataFromJson(
+            metadata.partition,
+            deploymentId,
+            packageId,
+            index,
+          ),
+        }),
     ...(metadata.position === undefined ? {} : { position: metadata.position }),
   };
+}
+
+function functionRoutePolicyFromJson(
+  value: unknown,
+  deploymentId: string,
+  packageId: string,
+  index: number,
+): FunctionRoutePolicy | null {
+  if (value === null) return null;
+  const route = asRecord(value);
+  if (route === null) {
+    throw invalidFunctionMetadata(deploymentId, packageId, index, "route must be null or an object");
+  }
+  if (route.type !== "args" || typeof route.field !== "string" || route.field.length === 0) {
+    throw invalidFunctionMetadata(
+      deploymentId,
+      packageId,
+      index,
+      "route must be { type: \"args\", field: string }",
+    );
+  }
+  return {
+    type: "args",
+    field: route.field,
+  };
+}
+
+function functionPartitionMetadataFromJson(
+  value: unknown,
+  deploymentId: string,
+  packageId: string,
+  index: number,
+): FunctionPartitionMetadata | null {
+  if (value === null) return null;
+  const partition = asRecord(value);
+  if (partition === null) {
+    throw invalidFunctionMetadata(deploymentId, packageId, index, "partition must be null or an object");
+  }
+  if (partition.type === "partition") {
+    if (
+      typeof partition.table !== "string" ||
+      partition.table.length === 0 ||
+      typeof partition.selector !== "string" ||
+      partition.selector.length === 0 ||
+      typeof partition.partitionField !== "string" ||
+      partition.partitionField.length === 0 ||
+      typeof partition.argField !== "string" ||
+      partition.argField.length === 0
+    ) {
+      throw invalidFunctionMetadata(
+        deploymentId,
+        packageId,
+        index,
+        "partition metadata must include table, selector, partitionField, and argField strings",
+      );
+    }
+    return {
+      type: "partition",
+      table: partition.table,
+      selector: partition.selector,
+      partitionField: partition.partitionField,
+      argField: partition.argField,
+    };
+  }
+  if (partition.type === "partitionCreateRoot") {
+    if (
+      typeof partition.table !== "string" ||
+      partition.table.length === 0 ||
+      partition.partitionField !== "_id"
+    ) {
+      throw invalidFunctionMetadata(
+        deploymentId,
+        packageId,
+        index,
+        "create-root partition metadata must include table and partitionField \"_id\"",
+      );
+    }
+    return {
+      type: "partitionCreateRoot",
+      table: partition.table,
+      partitionField: "_id",
+    };
+  }
+
+  throw invalidFunctionMetadata(
+    deploymentId,
+    packageId,
+    index,
+    "partition type must be partition or partitionCreateRoot",
+  );
 }
 
 function invalidFunctionMetadata(

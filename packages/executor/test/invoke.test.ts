@@ -30,6 +30,8 @@ describe("executor invoke preparation", () => {
             visibility: "public",
             args: { type: "any" },
             returns: null,
+            route: { type: "args", field: "teamId" },
+            partition: teamPartition(),
           },
         ],
       }),
@@ -47,6 +49,8 @@ describe("executor invoke preparation", () => {
         projectId: "project_invoke",
         path: "messages:list",
         kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).resolves.toMatchObject({
       deployment: {
@@ -63,8 +67,22 @@ describe("executor invoke preparation", () => {
       },
       schema: {
         version: 5,
-        tables: [],
+        tables: [
+          {
+            tableId: 1,
+            name: "teams",
+            placement: { kind: "partitionBy", field: "_id" },
+          },
+        ],
         indexes: [],
+      },
+      scope: {
+        kind: "partition",
+        table: "teams",
+        selector: "byId",
+        partitionField: "_id",
+        argField: "teamId",
+        partitionKey: "team:1",
       },
       executionModule: "_flarex/execution.js",
     });
@@ -89,7 +107,14 @@ describe("executor invoke preparation", () => {
             executionModule: "_flarex/execution.js",
             sourcePackageJson: sourcePackageJson(),
             analysisJson: analysisJson({
-              functions: [{ path: "messages:send", kind: "mutation" }],
+              functions: [
+                {
+                  path: "messages:send",
+                  kind: "mutation",
+                  route: { type: "args", field: "teamId" },
+                  partition: teamPartition(),
+                },
+              ],
             }),
           }),
         ],
@@ -101,11 +126,16 @@ describe("executor invoke preparation", () => {
         deploymentId: "deployment_invoke",
         projectId: "project_invoke",
         path: "messages:send",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).resolves.toMatchObject({
       function: {
         path: "messages:send",
         kind: "mutation",
+      },
+      scope: {
+        partitionKey: "team:1",
       },
     });
   });
@@ -121,6 +151,8 @@ describe("executor invoke preparation", () => {
         projectId: "project_invoke",
         path: "messages:list",
         kind: "mutation",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).rejects.toThrow(FunctionKindMismatchError);
   });
@@ -135,6 +167,8 @@ describe("executor invoke preparation", () => {
         deploymentId: "deployment_invoke",
         projectId: "project_invoke",
         path: "messages:archive",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).rejects.toThrow(FunctionNotInvokableError);
   });
@@ -172,6 +206,8 @@ describe("executor invoke preparation", () => {
         deploymentId: "deployment_invoke",
         projectId: "project_invoke",
         path: "messages:list",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).rejects.toThrow(DeploymentSchemaMetadataUnavailableError);
   });
@@ -187,8 +223,116 @@ describe("executor invoke preparation", () => {
         deploymentId: "deployment_invoke",
         projectId: "project_invoke",
         path: "messages:list",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
       }),
     ).rejects.toThrow(DeploymentSchemaMetadataUnavailableError);
+  });
+
+  it("rejects invoke preparation without partition metadata", async () => {
+    const executor = executorWithActivePackage({
+      functions: [{ path: "messages:list", kind: "query" }],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "messages:list",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+      }),
+    ).rejects.toThrow(
+      "PartitionValidationError: function messages:list must declare partition metadata.",
+    );
+  });
+
+  it("rejects mismatched partition keys", async () => {
+    const executor = executorWithActivePackage({
+      functions: [
+        {
+          path: "messages:list",
+          kind: "query",
+          route: { type: "args", field: "teamId" },
+          partition: teamPartition(),
+        },
+      ],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "messages:list",
+        args: { teamId: "team:1" },
+        partitionKey: "team:wrong",
+      }),
+    ).rejects.toThrow(
+      "PartitionValidationError: partitionKey must match args.teamId for messages:list.",
+    );
+  });
+
+  it("rejects partition metadata that does not match schema placement", async () => {
+    const executor = executorWithActivePackage({
+      functions: [
+        {
+          path: "messages:list",
+          kind: "query",
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "bySlug",
+            partitionField: "slug",
+            argField: "teamSlug",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "messages:list",
+        args: { teamSlug: "acme" },
+        partitionKey: "acme",
+      }),
+    ).rejects.toThrow(
+      "PartitionValidationError: messages:list partition selector bySlug targets slug, but teams is partitioned by _id.",
+    );
+  });
+
+  it("prepares create-root partition scopes with a preallocated root id", async () => {
+    const executor = executorWithActivePackage({
+      functions: [
+        {
+          path: "teams:create",
+          kind: "mutation",
+          partition: {
+            type: "partitionCreateRoot",
+            table: "teams",
+            partitionField: "_id",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "teams:create",
+        args: { name: "Acme" },
+      }),
+    ).resolves.toMatchObject({
+      scope: {
+        kind: "partitionCreateRoot",
+        table: "teams",
+        partitionField: "_id",
+        partitionKey: expect.stringMatching(/^1:/),
+        preallocatedRootId: expect.stringMatching(/^1:/),
+      },
+    });
   });
 });
 
@@ -225,8 +369,28 @@ function analysisJson(input: {
   functions: Array<Record<string, unknown>>;
 }): Record<string, unknown> {
   return {
-    schema: input.schema ?? { version: 5, tables: [], indexes: [] },
+    schema: input.schema ?? {
+      version: 5,
+      tables: [
+        {
+          tableId: 1,
+          name: "teams",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    },
     functions: { functions: input.functions },
+  };
+}
+
+function teamPartition(): Record<string, unknown> {
+  return {
+    type: "partition",
+    table: "teams",
+    selector: "byId",
+    partitionField: "_id",
+    argField: "teamId",
   };
 }
 

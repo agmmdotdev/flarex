@@ -1726,6 +1726,100 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Scope Resolution
+
+Previous completed checkpoint: `9d29a19` Expose invoke prepare in Nitro.
+
+What changed:
+
+- Extended `executor.prepareInvoke(...)` to require `args` and optional
+  `partitionKey`.
+- Added concrete executor metadata types for:
+  - JSON values
+  - schema tables/indexes
+  - table placement
+  - function route policies
+  - function partition policies
+  - resolved execution scopes
+- Ported the legacy single-shard scope resolver into executor core:
+  - functions must declare partition metadata
+  - partition metadata must match schema table placement
+  - route arg metadata must match partition arg metadata
+  - partition key is extracted from `args`
+  - caller-provided `partitionKey` must match the extracted key
+  - create-root partitions preallocate a root ID and reject caller-supplied
+    mismatches
+- Added `PartitionValidationError`.
+- Extended `prepareInvoke(...)` results with `scope`.
+- Extended Nitro `/invoke/prepare` to accept `args` and optional
+  `partitionKey`, return the resolved scope, validate JSON request shape, and
+  map `PartitionValidationError` to `400`.
+- Added executor tests for normal partition scope, missing partition metadata,
+  partition key mismatch, schema placement mismatch, and create-root scope.
+- Updated Nitro adapter tests for args forwarding, scope serialization, args
+  validation, and partition validation error mapping.
+
+Why it changed:
+
+Before any real transaction/session begin, the trusted executor must know which
+single shard/partition the invocation is allowed to touch. This is the core of
+Flarex's current correctness model: user code should not decide the partition
+after it starts running, and HTTP adapters should not implement partition
+semantics.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - Convex resolves function metadata and execution type before handing work to
+    the runner.
+- `crates/database`
+  - Convex transaction correctness depends on a backend-owned transaction
+    boundary and read/write tracking, not user-code-owned storage handles.
+- `crates/model/src/modules/types.rs`
+  - active module metadata carries analyzed function data used by execution.
+
+Flarex references:
+
+- `packages/flarex-backend/src/invoke.ts`
+  - `resolveFunctionExecutionScope(...)` was ported closely into executor core.
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy sessions resolve active function metadata and partition scope before
+    opening transaction state.
+- `packages/flarex-backend/test/invoke.test.ts`
+  - legacy tests cover missing partition metadata, stored partition metadata as
+    authoritative scope, and create-root partition behavior.
+
+Flarex differences:
+
+- Convex does not expose partition selection to developers this way because its
+  database architecture is not Cloudflare single-shard Durable Object routing.
+  Flarex keeps this explicit to preserve correctness in a sharded/serverless
+  runtime.
+- The Postgres executor still reads schema/function metadata from package
+  `analysisJson`; dedicated module/function/schema tables are still pending.
+- Create-root IDs are preallocated in executor core with the current Flarex ID
+  format. Later persistence/session code must consume that ID when inserting
+  the root document.
+
+Known limitations:
+
+- Scope resolution does not begin a transaction yet.
+- It does not validate argument validators or return validators yet.
+- It does not enforce user-code reads/writes against the resolved scope yet;
+  that belongs in the transaction/session syscall layer.
+- Nitro currently returns the full resolved scope for development visibility.
+  The final public protocol may hide or reduce that payload.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

@@ -109,3 +109,10 @@ export class FunctionNotInvokableError extends Error {
     this.name = "FunctionNotInvokableError";
   }
 }
+
+export class PartitionValidationError extends Error {
+  constructor(message: string) {
+    super(`PartitionValidationError: ${message}`);
+    this.name = "PartitionValidationError";
+  }
+}

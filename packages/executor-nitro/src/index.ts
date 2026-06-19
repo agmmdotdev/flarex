@@ -8,8 +8,10 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  PartitionValidationError,
   type FlarexExecutor,
   type InvokableFunctionKind,
+  type Json,
 } from "@flarex/executor";
 
 export interface FlarexNitroEventLike {
@@ -96,6 +98,7 @@ async function handleInvokePrepare(
       path: prepared.function.path,
       kind: prepared.function.kind,
       schemaVersion: prepared.schema.version,
+      scope: prepared.scope,
       executionModule: prepared.executionModule,
     });
   } catch (error) {
@@ -112,6 +115,8 @@ function parsePrepareInvokeBody(
         projectId: string;
         path: string;
         kind?: InvokableFunctionKind;
+        args: Json;
+        partitionKey?: string;
       };
     }
   | { error: { error: "bad_request"; message: string } } {
@@ -132,6 +137,10 @@ function parsePrepareInvokeBody(
   if ("error" in path) return path;
   const kind = optionalInvokableKind(record.kind);
   if ("error" in kind) return kind;
+  const args = jsonValue(record.args, "args");
+  if ("error" in args) return args;
+  const partitionKey = optionalString(record.partitionKey, "partitionKey");
+  if ("error" in partitionKey) return partitionKey;
 
   return {
     value: {
@@ -139,6 +148,10 @@ function parsePrepareInvokeBody(
       projectId: projectId.value,
       path: path.value,
       ...(kind.value === undefined ? {} : { kind: kind.value }),
+      args: args.value,
+      ...(partitionKey.value === undefined
+        ? {}
+        : { partitionKey: partitionKey.value }),
     },
   };
 }
@@ -174,6 +187,53 @@ function optionalInvokableKind(
   };
 }
 
+function optionalString(
+  value: unknown,
+  field: string,
+): { value?: string } | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (typeof value === "string" && value.length > 0) return { value };
+  return {
+    error: {
+      error: "bad_request",
+      message: `${field} must be a non-empty string.`,
+    },
+  };
+}
+
+function jsonValue(
+  value: unknown,
+  field: string,
+): { value: Json } | { error: { error: "bad_request"; message: string } } {
+  if (!isJson(value)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be a JSON value.`,
+      },
+    };
+  }
+  return { value };
+}
+
+function isJson(value: unknown): value is Json {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return Number.isFinite(value as number) || typeof value !== "number";
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJson);
+  }
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).every(isJson);
+  }
+  return false;
+}
+
 function executorErrorResponse(error: unknown): Response {
   if (
     error instanceof DeploymentNotFoundError ||
@@ -187,7 +247,8 @@ function executorErrorResponse(error: unknown): Response {
   }
   if (
     error instanceof FunctionKindMismatchError ||
-    error instanceof FunctionNotInvokableError
+    error instanceof FunctionNotInvokableError ||
+    error instanceof PartitionValidationError
   ) {
     return knownErrorResponse(error, 400);
   }
