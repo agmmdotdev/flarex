@@ -22,6 +22,9 @@ export interface FlarexExecutor {
     input: ActivateDeploymentPackageInput,
   ): Promise<ActivateDeploymentPackageResult>;
   ensureDeployment(input: EnsureDeploymentInput): Promise<EnsureDeploymentResult>;
+  getActiveFunction(
+    input: GetActiveFunctionInput,
+  ): Promise<GetActiveFunctionResult>;
   getActiveDeploymentPackage(
     input: GetActiveDeploymentPackageInput,
   ): Promise<GetActiveDeploymentPackageResult>;
@@ -85,6 +88,37 @@ export interface GetActiveDeploymentPackageInput {
 export interface GetActiveDeploymentPackageResult {
   deployment: DeploymentMetadataRecord;
   package: DeploymentPackageMetadataRecord;
+}
+
+export interface GetActiveFunctionInput {
+  deploymentId: string;
+  projectId: string;
+  path: string;
+}
+
+export interface GetActiveFunctionResult {
+  deployment: DeploymentMetadataRecord;
+  package: DeploymentPackageMetadataRecord;
+  function: DeploymentFunctionMetadata;
+}
+
+export type DeploymentFunctionKind =
+  | "query"
+  | "mutation"
+  | "action"
+  | "workflowMutation";
+
+export type FunctionVisibility = "public" | "internal";
+
+export interface DeploymentFunctionMetadata {
+  path: string;
+  kind: DeploymentFunctionKind;
+  visibility?: FunctionVisibility;
+  args?: unknown;
+  returns?: unknown;
+  route?: unknown;
+  partition?: unknown;
+  position?: unknown;
 }
 
 export interface EnsureDeploymentInput {

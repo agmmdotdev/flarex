@@ -46,3 +46,26 @@ export class DeploymentPackageNotFoundError extends Error {
     this.name = "DeploymentPackageNotFoundError";
   }
 }
+
+export class DeploymentFunctionMetadataUnavailableError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly packageId: string,
+    message: string,
+  ) {
+    super(
+      `Deployment function metadata unavailable for ${deploymentId}/${packageId}: ${message}`,
+    );
+    this.name = "DeploymentFunctionMetadataUnavailableError";
+  }
+}
+
+export class FunctionNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly path: string,
+  ) {
+    super(`Active Flarex function not found: ${deploymentId}/${path}`);
+    this.name = "FunctionNotFoundError";
+  }
+}

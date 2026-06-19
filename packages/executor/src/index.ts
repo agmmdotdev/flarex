@@ -3,20 +3,25 @@ import {
   getActiveDeploymentPackage,
   registerDeploymentPackage,
 } from "./deploymentPackages";
+import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
 
 export {
+  DeploymentFunctionMetadataUnavailableError,
   DeploymentNotFoundError,
   DeploymentPackageMismatchError,
   DeploymentPackageNotActivatedError,
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
+  FunctionNotFoundError,
 } from "./errors";
 export type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,
   Clock,
+  DeploymentFunctionKind,
+  DeploymentFunctionMetadata,
   EnsureDeploymentInput,
   EnsureDeploymentResult,
   FlarexExecutor,
@@ -24,6 +29,9 @@ export type {
   FlarexExecutorDependencyHealth,
   FlarexExecutorPersistence,
   FlarexHealth,
+  FunctionVisibility,
+  GetActiveFunctionInput,
+  GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
   GetActiveDeploymentPackageResult,
   RegisterDeploymentPackageInput,
@@ -38,6 +46,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     activateDeploymentPackage: (input) =>
       activateDeploymentPackage(persistence, input),
     ensureDeployment: (input) => ensureDeployment(persistence, input),
+    getActiveFunction: (input) => getActiveFunction(persistence, input),
     getActiveDeploymentPackage: (input) =>
       getActiveDeploymentPackage(persistence, input),
     registerDeploymentPackage: (input) =>

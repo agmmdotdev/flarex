@@ -1485,6 +1485,83 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Active Function Resolution
+
+Previous completed checkpoint: `509f488` Resolve active deployment packages.
+
+What changed:
+
+- Added `executor.getActiveFunction({ deploymentId, projectId, path })`.
+- The resolver first resolves the active deployment package, then reads
+  `analysisJson.functions.functions` from the active package and returns the
+  matching function metadata.
+- Added executor-owned function metadata types for path, kind, visibility,
+  validators, route, partition, and source position.
+- Added explicit errors:
+  - `FunctionNotFoundError` when the active package does not declare the
+    requested function path.
+  - `DeploymentFunctionMetadataUnavailableError` when active package analysis
+    is missing or malformed.
+- Added focused tests for successful function lookup, missing function path,
+  missing analysis metadata, and malformed function metadata.
+
+Why it changed:
+
+The executor can now answer the next invoke-routing question after package
+activation: "Which active function metadata should this request use?" This keeps
+future Nitro and Dynamic Worker adapters thin. They should ask executor core for
+the active function instead of inspecting package JSON themselves.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - `FunctionRouter` resolves function metadata before execution and passes
+    validated path/args into the runner.
+- `crates/model/src/modules/types.rs`
+  - active module metadata carries analysis results and source package identity.
+- `crates/model/src/source_packages/mod.rs`
+  - source package lookup remains backend model behavior.
+
+Flarex references:
+
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy `loadActiveFunctionMetadata(...)` resolves an active deployment and
+    returns the requested function metadata or a 404-style error.
+- `packages/flarex-dev/src/backendPush.ts`
+  - `backendAnalysisFromCodegenAnalysis(...)` flattens codegen analysis into
+    `analysis.functions.functions`, which is the shape consumed by the new
+    executor resolver.
+
+Flarex differences:
+
+- Convex stores rich module and function metadata in backend model tables.
+  Flarex still reads function metadata from package `analysisJson` until the
+  Postgres module/function tables exist.
+- Convex has component-aware public function paths. Flarex currently resolves a
+  flat string path such as `messages:list`.
+- The executor keeps validator, route, partition, and position payloads typed as
+  `unknown` for this slice. Runtime validation will narrow those when invoke
+  session execution is ported.
+
+Known limitations:
+
+- No dedicated Postgres `functions` or `modules` table exists yet.
+- Function path normalization is not implemented; callers must pass the exact
+  active analysis path.
+- The resolver does not yet enforce public/internal visibility.
+- The resolver does not yet check whether `action` or `workflowMutation`
+  functions are invokable by a given route.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
