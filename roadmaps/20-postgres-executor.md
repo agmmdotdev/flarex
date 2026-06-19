@@ -387,6 +387,70 @@ Create package boundaries and tests before writing full SQL behavior:
 This keeps the next code change small and proves the new package direction
 without mixing it with the large SDK/codegen partition API removal.
 
+## Health Endpoint Package Shell
+
+Previous completed checkpoint: `af85c26` Record executor package migration and
+cache layers.
+
+What changed:
+
+- Added `packages/flarex-executor` as the framework-neutral trusted executor
+  core package.
+- Added `createFlarexExecutor()` with a direct `health()` method and a
+  Fetch-compatible `GET /health` route.
+- Added `packages/flarex-executor-nitro` as an adapter-only package that
+  delegates an incoming web `Request` to the executor core.
+- Added focused health tests for both packages.
+
+Why it changed:
+
+The old Cloudflare DO prototype uses `stub.fetch()` because Durable Objects are
+separate actors. The Postgres executor path should not keep that internal
+shape. The executor core should be callable directly by tests, local dev, and
+framework adapters. HTTP/fetch should exist only at real network boundaries,
+such as Cloudflare Dynamic Worker to trusted executor, or Nitro/Vercel route to
+core.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - Convex keeps function execution behind a backend-owned trait boundary.
+- `crates/function_runner/src/in_process_function_runner.rs`
+  - Convex has an in-process runner path for local/backend execution.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application routing calls the backend function runner rather than exposing
+    storage directly to user code.
+
+Flarex differences:
+
+- Convex does not need a Nitro adapter. Flarex does because the trusted
+  Postgres executor may be deployed as Nitro/Vercel while Cloudflare runs user
+  code and sync connections.
+- Convex's function runner executes user code near the database transaction.
+  Flarex's first executor core only exposes health; the future syscall/session
+  API will keep a logical transaction session and avoid holding a Postgres
+  transaction open while Cloudflare user code runs.
+- The Nitro package intentionally imports no Nitro runtime yet. It is currently
+  a minimal adapter seam over web-standard `Request`/`Response`; concrete Nitro
+  route helpers can be added once the executor protocol exists.
+
+Known limitations:
+
+- No Postgres or PGlite persistence package exists yet.
+- No execution session, syscall API, commit path, or OCC validation exists in
+  the new executor packages yet.
+- Existing DO prototype packages still own the old invoke/sync behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-executor typecheck
+corepack pnpm --filter flarex-executor test
+corepack pnpm --filter flarex-executor-nitro typecheck
+corepack pnpm --filter flarex-executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
