@@ -1,5 +1,62 @@
 # Testing and Simulation Strategy
 
+## PGlite Local And Test Lane
+
+Previous completed checkpoint: `beef4d2` Document Postgres multitenant
+persistence schema.
+
+The Postgres-authoritative executor should use PGlite as the default local and
+fast-test persistence backend.
+
+Testing lanes now become:
+
+```txt
+PGlite lane:
+  package tests
+  example app tests
+  Vite/local dev
+  in-process executor harness
+  no Nitro app required
+
+real Postgres lane:
+  isolation and lock correctness
+  migration correctness
+  production index/query behavior
+  outbox dispatcher behavior
+
+Nitro adapter lane:
+  small HTTP/auth/route smoke tests only
+```
+
+This preserves the existing goal that tests reuse the real runtime logic rather
+than a fake backend. The difference is that the real runtime logic moves from
+Miniflare `PartitionDO` storage to framework-neutral executor core plus
+PGlite/Postgres persistence adapters.
+
+PGlite references:
+
+- official PGlite docs describe Node/Bun/Deno and browser usage,
+  in-memory storage, filesystem persistence, `.query`, `.exec`, and
+  `.transaction(...)` callback semantics.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+- `crates/database/src/committer.rs`
+- `crates/common/src/runtime/mod.rs`
+
+Known limitation:
+
+- PGlite is not a replacement for real Postgres concurrency validation. It is
+  the fast lane. Real Postgres remains required for final transaction,
+  isolation, lock, outbox, and migration confidence.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Goal
 
 Flarex must guarantee transaction serializability, schema invariants, and data safety in a highly concurrent, distributed edge environment. To achieve this, Flarex needs a robust testing strategy that includes local unit/integration tests and deterministic simulation tests (e.g., monkey testing for restarts, latency injection, and partition failures).

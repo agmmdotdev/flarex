@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Postgres Executor Package Boundary Pivot
+
+Previous completed checkpoint: `beef4d2` Document Postgres multitenant
+persistence schema.
+
+The Postgres-authoritative plan changes the package target. The trusted
+executor must be framework-neutral core first, not a Nitro app first.
+
+New target packages:
+
+```txt
+packages/flarex-postgres
+  generic document/index persistence and PGlite/Postgres adapters
+
+packages/flarex-executor
+  trusted transaction executor core with a stable fetch/direct-call protocol
+
+packages/flarex-executor-nitro
+  Nitro/Vercel adapter only
+
+packages/flarex-test
+  in-process executor harness using PGlite by default
+```
+
+`packages/flarex-backend` remains the current Cloudflare DO prototype while the
+Postgres executor is introduced. It should not grow new Postgres transaction
+logic directly. The refactor path is to extract/port reusable contracts into
+executor/postgres packages, then retire the authoritative `PartitionDO` commit
+path after the Postgres executor is proven.
+
+Detailed plan: `roadmaps/20-postgres-executor.md`.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+- `crates/database/src/committer.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `npm-packages/convex/src/cli/lib/dev.ts`
+
+Flarex difference:
+
+- Nitro is a production host adapter for Vercel, while local dev and tests call
+  the same executor core in-process.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Problem
 
 The current prototype has a bad package boundary:

@@ -1,0 +1,309 @@
+# Postgres Executor
+
+## Decision
+
+The trusted Postgres transaction executor should be framework-neutral core
+first, with Nitro/Vercel as a thin deployment adapter.
+
+```txt
+packages/flarex-postgres
+  Convex-style generic document/index persistence
+  schema migrations
+  OCC read validation
+  commit/write-log/outbox transaction helpers
+  adapters for real Postgres and PGlite
+
+packages/flarex-executor
+  trusted executor core
+  createFlarexExecutor()
+  stable fetch/request protocol
+  auth and deployment scoping
+  query/mutation execution-session endpoints
+  no Nitro, Vercel, Cloudflare, or UI imports
+
+packages/flarex-executor-nitro
+  Nitro adapter only
+  maps Nitro events/routes to flarex-executor fetch handlers
+  Vercel deployment configuration helpers
+
+packages/flarex-test
+  in-process executor harness
+  PGlite-backed local/test persistence
+  app/client helpers for E2E without booting a Nitro app
+```
+
+Production shape:
+
+```txt
+Cloudflare Dynamic Worker
+  runs untrusted user function code
+  emits ctx.db syscalls / read-set / write intent
+
+Cloudflare ConnectionDO
+  owns WebSocket sync sessions and fanout
+
+Nitro on Vercel
+  thin HTTP adapter
+  calls framework-neutral trusted executor core
+
+Trusted executor core
+  opens short Postgres transactions
+  validates read sets and predicates
+  applies document/index writes
+  writes commits and outbox events
+  returns commitVersion
+
+Postgres
+  authoritative multitenant document/index store
+```
+
+Local/test shape:
+
+```txt
+Vite plugin or test harness
+  -> in-process flarex-executor core
+  -> PGlite persistence adapter
+  -> same generated client/server APIs
+```
+
+The executor protocol must be stable while the host remains replaceable.
+Nitro is a deployment adapter, not the core architecture.
+
+## Why
+
+The current repo started with a Cloudflare Durable Object authoritative path:
+
+```txt
+ExecutionDO -> SingleShardTransaction -> PartitionDO
+```
+
+That was useful for proving Convex-like syscall sessions, read sets,
+return-validation-before-commit, index reads, and `/sync` behavior. But it also
+forced public API concepts that no longer fit the Postgres-authoritative plan:
+
+- `definePartitionTable`
+- `defineColocatedTable`
+- `defineGlobalTable`
+- generated `model`
+- `partition: model.table`
+- caller-supplied `partitionKey`
+- partition-local sync invalidation
+
+With Postgres as the source of truth, the public API should move back closer to
+Convex:
+
+```ts
+export default defineSchema({
+  users: defineTable({
+    name: v.string(),
+  }),
+});
+
+export const update = mutation({
+  args: { userId: v.id("users"), name: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { name: args.name });
+  },
+});
+```
+
+No partition API should be required for normal `query` and `mutation`.
+
+## Current Repo Refactor Approach
+
+Refactor by preserving the useful boundaries and deleting the wrong public
+model.
+
+Keep and adapt:
+
+- source-package bundling from `packages/flarex-dev`
+- authoritative backend push/analyze/finish flow
+- generated `_generated/api`, `_generated/server`, and `_generated/dataModel`
+- execution-session/syscall mental model
+- return validation before commit
+- read-set collection and OCC conflict shape
+- `/invoke` and `/sync` compatibility targets
+- example app and E2E structure
+
+Replace:
+
+- `PartitionDO` as authoritative database
+- single-shard transaction core
+- generated `model` partition selectors
+- partition-scoped mutation type enforcement
+- partition-local subscription invalidation
+- app-facing `partitionKey` requirements
+
+Transitional bridge:
+
+```txt
+Phase 1:
+  remove public partition API from SDK/codegen
+  keep existing backend tests passing through a temporary global legacy route
+  do not expose the bridge to app developers
+
+Phase 2:
+  add flarex-postgres persistence interfaces and PGlite adapter
+  port generic document/index schema into SQL migrations
+
+Phase 3:
+  add flarex-executor core using the persistence interface
+  tests call executor core directly with PGlite
+
+Phase 4:
+  add flarex-executor-nitro adapter
+  production deploys Nitro on Vercel near Postgres
+
+Phase 5:
+  retire PartitionDO commit path
+  keep Cloudflare DOs for sync, connection/session state, and cache/freshness
+```
+
+## PGlite Policy
+
+Use PGlite for local development and fast tests.
+
+PGlite is suitable for this lane because official docs describe:
+
+- Node/Bun/Deno and browser usage,
+- in-memory Postgres with `new PGlite()` or `PGlite.create(...)`,
+- filesystem persistence for local development,
+- parameterized `.query(...)`,
+- multi-statement `.exec(...)` for migrations,
+- `.transaction(...)` callback semantics with automatic commit/rollback.
+
+PGlite is not the only correctness gate. Real Postgres remains required for:
+
+- isolation-level behavior,
+- lock and advisory-lock behavior,
+- connection pool behavior,
+- production query plans and indexes,
+- outbox dispatcher behavior under concurrent writes,
+- any feature that depends on real Postgres extensions or server settings.
+
+Testing lanes:
+
+```txt
+fast default lane:
+  PGlite
+  executor core in-process
+  no Nitro app
+  no Vercel
+  used by package tests, examples, and local dev
+
+real database lane:
+  real Postgres
+  executor core in-process or over HTTP
+  validates transaction isolation, locks, migrations, and outbox
+
+adapter smoke lane:
+  Nitro adapter
+  small HTTP tests only
+  proves route mapping and auth, not transaction semantics
+```
+
+## Executor Core Contract
+
+The first executor core should expose a Fetch-like interface and direct methods:
+
+```ts
+export function createFlarexExecutor(config: {
+  persistence: FlarexPersistence;
+  auth: ExecutorAuth;
+  clock?: Clock;
+  ids?: IdGenerator;
+}): FlarexExecutor;
+
+export interface FlarexExecutor {
+  fetch(request: Request): Promise<Response>;
+  executeMutation(input: ExecuteMutationInput): Promise<ExecuteMutationResult>;
+  executeQuery(input: ExecuteQueryInput): Promise<ExecuteQueryResult>;
+}
+```
+
+Persistence should be injected:
+
+```ts
+export interface FlarexPersistence {
+  migrate(): Promise<void>;
+  beginTransaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
+}
+```
+
+The Nitro adapter should only wrap this:
+
+```ts
+export default defineEventHandler(event => {
+  return handleFlarexNitroEvent(event, executor);
+});
+```
+
+## Convex References
+
+- `crates/database/src/transaction.rs`
+  - user execution accumulates reads and writes before final commit.
+- `crates/database/src/committer.rs`
+  - commit validation is the authoritative boundary.
+- `crates/postgres/src/sql.rs`
+  - documents and indexes use generic physical tables with multitenant
+    `instance_name` support.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is routed through a backend-owned runner.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev orchestrates backend, codegen, and push rather than turning the
+    app into the backend.
+
+## Flarex Differences
+
+- Convex's executor and database are close in one backend runtime. Flarex runs
+  user code in Cloudflare and commits in a trusted Nitro/Vercel executor near
+  Postgres.
+- Convex does not need a Nitro adapter. Flarex needs framework-neutral core so
+  Nitro, tests, and local dev all reuse the same transaction implementation.
+- Convex's public API does not expose shard placement for normal app tables.
+  Flarex's previous DO prototype did; the Postgres path should remove that
+  public API.
+
+## Known Limitations
+
+- No `flarex-postgres`, `flarex-executor`, or `flarex-executor-nitro` package
+  exists yet.
+- Existing backend code still commits through `PartitionDO`.
+- Existing generated server code still emits partition model helpers.
+- Existing example schema still uses partition/colocation helpers.
+- PGlite can keep local and test loops fast, but it cannot replace real
+  Postgres correctness testing.
+
+## First Implementation Step
+
+Create package boundaries and tests before writing full SQL behavior:
+
+1. Add `packages/flarex-postgres` with a tiny persistence interface and PGlite
+   adapter scaffold.
+2. Add `packages/flarex-executor` with `createFlarexExecutor(...)` and a
+   no-op health/fetch route.
+3. Add `packages/flarex-executor-nitro` as adapter-only.
+4. Add one `flarex-test` in-process executor harness test using PGlite.
+5. Do not wire the main SDK/client path to it yet.
+
+This keeps the next code change small and proves the new package direction
+without mixing it with the large SDK/codegen partition API removal.
+
+## Checkpoint
+
+Previous completed checkpoint: `beef4d2` Document Postgres multitenant
+persistence schema.
+
+What changed:
+
+- Recorded the Nitro/Vercel executor as a thin adapter over a
+  framework-neutral trusted executor core.
+- Recorded PGlite as the default local/test persistence lane.
+- Defined the current DO-first repo refactor path and the public API cleanup
+  target.
+
+Verification:
+
+```sh
+git diff --check
+```

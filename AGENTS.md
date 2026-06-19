@@ -115,6 +115,8 @@ user request.
   `roadmaps/16-package-boundaries.md`
 - Deployment push, authoritative module analysis, and activation:
   `roadmaps/17-deployment-analysis-and-push.md`
+- Postgres trusted executor, Nitro adapter, and PGlite local/test lane:
+  `roadmaps/20-postgres-executor.md`
 
 ## Backend Rules
 

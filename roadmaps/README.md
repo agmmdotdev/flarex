@@ -40,3 +40,4 @@ Start with:
 - [17-deployment-analysis-and-push.md](./17-deployment-analysis-and-push.md)
 - [18-react-client-hooks.md](./18-react-client-hooks.md)
 - [19-function-routing-and-shard-policy.md](./19-function-routing-and-shard-policy.md)
+- [20-postgres-executor.md](./20-postgres-executor.md)
