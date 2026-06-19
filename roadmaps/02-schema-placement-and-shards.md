@@ -1,5 +1,37 @@
 # Schema Placement And Shards
 
+## Superseded By Postgres Authority
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+The table-kind/shard API in this file is now historical DO-authoritative design
+work. For the Postgres-authoritative path, public schema should move back
+toward Convex-style `defineTable(...)` for normal app tables:
+
+```ts
+export default defineSchema({
+  users: defineTable({
+    name: v.string(),
+  }),
+});
+```
+
+Do not continue expanding `definePartitionTable`, `defineColocatedTable`,
+`defineGlobalTable`, generated `model`, or `partition: model.table` as the
+default developer model. Any remaining placement metadata should become
+internal cache/routing/projection policy, not the authoritative transaction
+API.
+
+Implementation history below is retained because it explains the current code
+and migration debt.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Current Decision
 
 Redesign the v1 schema placement API around explicit table kinds instead of

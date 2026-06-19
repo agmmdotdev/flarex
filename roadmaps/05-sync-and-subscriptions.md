@@ -1,5 +1,35 @@
 # Sync And Subscriptions
 
+## Postgres Authority Pivot
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+The forward sync design is Postgres commit/outbox driven. `ConnectionDO` can
+remain the WebSocket session owner, but `PartitionDO` read-set registration and
+same-partition reruns are now legacy prototype behavior.
+
+New sync work should assume:
+
+```txt
+trusted Postgres transaction
+  -> commitVersion
+  -> outbox/change event
+  -> Cloudflare freshness/cache mirrors
+  -> affected query reruns with required freshness
+  -> ConnectionDO transition fanout
+```
+
+Public clients should eventually stop sending `partitionKey`; query and
+mutation messages should look Convex-like. The older partition-local sync notes
+below remain as implementation history for the current code.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Current Decision
 
 Subscriptions should be read-set based, inspired by Convex. A query result
@@ -423,7 +453,9 @@ subscription's required freshness.
 
 Known limitations:
 
-- This is an alternative authority model, not current implementation.
+- This was originally recorded as an alternative authority model. After the
+  Postgres executor pivot, it is the forward sync authority model, but the
+  implementation is still not built.
 - Range freshness for indexed/list queries remains the hardest part.
 - Cache detection of staleness does not automatically provide the fresh row or
   query result; the runtime still needs no-cache fallback, replicated row

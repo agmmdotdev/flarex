@@ -1,5 +1,37 @@
 # Function Routing And Shard Policy
 
+## Superseded Public API Direction
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+This file records the DO-authoritative function routing design. That design is
+now superseded for the forward Postgres-authoritative path.
+
+Do not continue the `partition: model.table` API as the default developer
+model. Normal `query` and `mutation` should move back toward Convex-style
+function definitions without partition selectors:
+
+```ts
+export const update = mutation({
+  args: { userId: v.id("users"), name: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { name: args.name });
+  },
+});
+```
+
+The useful preserved idea is not public shard routing; it is backend-owned
+execution metadata and a restricted syscall boundary. The Postgres executor
+will own commit routing by deployment and transaction metadata, not by caller
+partition keys.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Current Decision
 
 This is a Flarex platform design issue, not an application design issue.

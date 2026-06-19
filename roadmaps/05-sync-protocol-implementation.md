@@ -1,5 +1,22 @@
 # Sync Protocol Implementation Details
 
+## Superseded Transport Constraint
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+This file records the implemented partition-local sync protocol. The protocol
+message names and Convex-style query-set behavior remain useful, but the
+`partitionKey` transport requirement is now migration debt. The Postgres
+executor path should remove app-facing partition routing and drive live-query
+freshness from commit/outbox events instead of `PartitionDO` invalidation.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Goal
 
 Implement Flarex live sync as a Convex-style query-set protocol over a single
@@ -202,11 +219,12 @@ The query response already returns enough backend envelope data to start sync:
 `ConnectionDO` stores the read set with the query so later invalidation can
 compare committed writes against it.
 
-### PartitionDO
+### Historical PartitionDO Prototype
 
-`PartitionDO` remains the source of truth for one `{deploymentId,
-partitionKey}`. It already owns documents, indexes, write log, idempotency, and
-OCC validation.
+This section describes the implemented DO-authoritative prototype, not the
+forward Postgres executor path. In that prototype, `PartitionDO` is the source
+of truth for one `{deploymentId, partitionKey}` and owns documents, indexes,
+write log, idempotency, and OCC validation.
 
 Future sync responsibilities:
 

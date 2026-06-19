@@ -1,5 +1,27 @@
 # Postgres Executor
 
+## Documentation Synchronization Update
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+Aligned design notes and older DO-shard roadmaps with this executor pivot:
+
+- Postgres-authoritative sync is now the forward path, not an optional
+  alternative.
+- `PartitionDO` authoritative storage is documented as prototype/legacy
+  scaffolding.
+- Schema placement, function routing, sync protocol, and OCC roadmaps now start
+  with superseded/pivot notices.
+- `AGENTS.md` now points new authoritative storage and transaction work at the
+  Postgres executor packages and PGlite local/test lane.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Decision
 
 The trusted Postgres transaction executor should be framework-neutral core

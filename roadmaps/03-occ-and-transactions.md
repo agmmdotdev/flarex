@@ -1,5 +1,40 @@
 # OCC And Transactions
 
+## Postgres Authority Pivot
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+The forward OCC boundary is the trusted Postgres executor:
+
+```txt
+Cloudflare user-code runtime
+  -> restricted ctx.db syscalls / read dependencies / write intent
+  -> trusted executor near Postgres
+  -> short Postgres transaction
+  -> read-set and predicate revalidation
+  -> document/index writes + commit row + outbox row
+```
+
+The existing `PartitionDO` OCC implementation remains prototype scaffolding and
+a source of useful tests/semantics. Do not extend normal public mutations as
+single-shard DO transactions unless maintaining the legacy path explicitly.
+
+The important semantics to preserve from the DO prototype are:
+
+- user code never gets a raw database connection,
+- reads are recorded as document/table/index dependencies,
+- writes are staged until return validation succeeds,
+- commit validates dependencies against later writes,
+- document history and index history are versioned,
+- deterministic validation errors stay separate from retryable OCC conflicts.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Current Decision
 
 Normal `mutation` is single-shard. Inside one `PartitionDO`, Flarex should copy

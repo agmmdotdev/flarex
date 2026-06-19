@@ -225,9 +225,9 @@ Flarex should copy the model, not the exact implementation:
 - Convex has mature table mapping, tablet, timestamp, retention, import/export,
   and lease machinery; Flarex should add only the subset needed for the first
   correct transaction and sync loop.
-- Existing Flarex code still has a Durable Object authoritative prototype.
-  This Postgres schema is the intended persistence shape for the
-  Postgres-authoritative track.
+- Existing Flarex code still has a Durable Object authoritative prototype, but
+  that implementation is now legacy scaffolding. This Postgres schema is the
+  intended authoritative persistence shape.
 
 ## Operational Notes
 

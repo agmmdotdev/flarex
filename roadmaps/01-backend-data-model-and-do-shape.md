@@ -1,5 +1,29 @@
 # Backend Data Model And Durable Object Shape
 
+## Authority Pivot
+
+Previous completed checkpoint: `e80e176` Plan Postgres executor package
+boundaries.
+
+The forward authoritative data model is now Postgres-backed generic
+multitenant document/index persistence, not Durable Object shard storage. The
+existing `PartitionDO` implementation remains a useful prototype and temporary
+bridge, but new data-model work should target:
+
+- `design-notes/postgres-multitenant-persistence-schema.md`
+- `design-notes/postgres-authoritative-sync.md`
+- `roadmaps/20-postgres-executor.md`
+
+Durable Objects should remain in the architecture for deployment coordination,
+WebSocket sessions, schedulers, and future freshness/cache mirrors. They should
+not remain the long-term authoritative document database.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Postgres Multitenant Persistence Schema Direction
 
 Previous completed checkpoint: `4538f4a` Document Postgres authoritative sync

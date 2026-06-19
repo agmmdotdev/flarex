@@ -1,7 +1,7 @@
 # Postgres-Authoritative Sync and Cloudflare Cache Design
 
-This note records the current research finding for an alternative Flarex
-authority model:
+This note records the forward Flarex authority model after the pivot away from
+Durable Object authoritative storage:
 
 ```txt
 Postgres is the source of truth.
@@ -9,11 +9,12 @@ Cloudflare runs user code, WebSockets, live-query state, and edge caches.
 Trusted executors near Postgres own authoritative commits.
 ```
 
-This is not the current default implementation. The current implementation is
-still Durable Object shard-authoritative. This note exists because the
-Postgres-authoritative design may better preserve Convex-style global database
-semantics while still using Cloudflare for sandboxed execution and realtime
-fanout.
+This is now the target architecture. The existing implementation still contains
+the earlier Durable Object shard-authoritative prototype, but that path is
+legacy implementation scaffolding. New executor, SDK, sync, and testing work
+should move toward Postgres-authoritative semantics while still using
+Cloudflare for sandboxed execution, WebSockets, cache/freshness DOs, and
+realtime fanout.
 
 Physical storage for this track should use the Convex-style generic
 multitenant document/index schema described in
@@ -295,7 +296,9 @@ out-of-order events, dispatcher crashes, and backpressure.
 
 Phase 1:
 
-- Keep Postgres-authoritative design as an option, not current default.
+- Treat Postgres-authoritative design as the forward path.
+- Introduce framework-neutral executor and persistence package boundaries.
+- Use PGlite for local/test executor runs.
 - Use no-cache or near-Postgres query executor for live-query reruns.
 - Use Hyperdrive for one-shot/ordinary reads where stale cache is acceptable.
 
@@ -344,8 +347,8 @@ Runtime live-query freshness must be explicit and versioned internally.
 
 ## Open Questions
 
-- Should Postgres authority replace DO authority, or remain an alternative
-  backend mode?
+- How aggressively should the old Durable Object authoritative prototype be
+  removed once the Postgres executor can run basic invoke and sync tests?
 - What is the smallest read-dependency model that supports both OCC commit
   validation and live query invalidation?
 - Do we use commit sequence numbers, WAL LSNs, or logical timestamps as the

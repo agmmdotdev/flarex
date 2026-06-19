@@ -125,18 +125,20 @@ user request.
    APIs to either backend location. Client and generated developer APIs belong
    in `packages/flarex`, `packages/flarex-dev`, and future test/dev packages.
 
-2. Treat `DeploymentDO` as the authoritative deployment metadata owner.
-   Schema, table mapping, index definitions, placement rules, and function
-   metadata belong there. `PartitionDO` may cache schema metadata, but it should
-   not become the source of truth for schema.
+2. Treat the Postgres trusted executor as the forward authoritative data path.
+   The older Durable Object shard implementation is prototype/legacy
+   scaffolding. New storage, OCC, sync invalidation, and client API work should
+   target `roadmaps/20-postgres-executor.md` unless the user explicitly asks to
+   maintain the DO prototype.
 
-3. Treat `PartitionDO` as the authoritative shard database.
-   It owns local documents, indexes, write log, idempotency, and the local OCC
-   boundary for one `{deploymentId, partitionKey}`.
+3. Keep Nitro as an adapter, not the executor core. Trusted transaction logic
+   belongs in framework-neutral packages such as `flarex-executor` and
+   `flarex-postgres`; `flarex-executor-nitro` should only map Nitro/Vercel
+   requests to that core.
 
-4. Keep normal `mutation` single-shard.
-   Do not add global transaction claims for cross-shard writes. Cross-shard
-   writes must go through explicit workflow semantics.
+4. Use PGlite for local and fast test lanes, but keep real Postgres as the
+   required correctness lane for isolation, locks, migrations, outbox behavior,
+   and production query plans.
 
 5. Preserve Convex's core transaction idea.
    Function execution produces reads and writes, then commit validates reads
@@ -155,22 +157,25 @@ user request.
    Mutation identifiers/idempotency keys are part of backend semantics so
    retries do not duplicate writes.
 
-9. Use Cloudflare storage transactions correctly.
-   Durable Object SQLite should use `ctx.storage.transaction(...)` for atomic
-   multi-statement changes. Do not manually issue `BEGIN` or `COMMIT` through
-   `sql.exec`.
+9. Use database transactions correctly.
+   Postgres/PGlite transaction helpers should own `BEGIN`/`COMMIT`/rollback.
+   Do not hold a Postgres transaction open while waiting on untrusted user code
+   in Cloudflare.
 
-10. Keep DO names deterministic and tenant-scoped.
+10. Keep Cloudflare DO names deterministic and tenant-scoped where DOs remain
+    useful for deployment metadata, sync connections, schedulers, and future
+    cache/freshness mirrors.
 
     ```txt
     registry:v1
     deployment:{deploymentId}
-    partition:{deploymentId}:{partitionKey}
     connection:{deploymentId}:{sessionId}
     scheduler:{deploymentId}
+    version:{deploymentId}:{bucket}
+    query-cache:{deploymentId}:{queryHash}
     ```
 
-11. Do not expose raw storage bindings to user code.
+11. Do not expose raw storage or database handles to user code.
     Dynamic Worker user code should call a restricted syscall API. The backend
     owns routing, transaction state, OCC validation, and persistence.
 
