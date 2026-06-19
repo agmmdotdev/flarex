@@ -620,7 +620,7 @@ function tableIdForName(schema: DeploymentSchema, table: string): number {
   return tableForName(schema, table).tableId;
 }
 
-function tableForName(schema: DeploymentSchema, table: string): SchemaTable {
+export function tableForName(schema: DeploymentSchema, table: string): SchemaTable {
   const metadata = schema.tables.find(candidate => candidate.name === table);
   if (!metadata || metadata.state === "deleted") {
     throw new HttpError(400, `Unknown table: ${table}.`);

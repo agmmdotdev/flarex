@@ -150,6 +150,128 @@ describe("ExecutionDO sessions", () => {
     await expect(tx.get(1, "1:bad-return")).resolves.toBeNull();
   });
 
+  it("runs create-root mutation sessions through preallocated root insert syscalls", async () => {
+    const schema = userProfileSchema();
+    await activateDeployment("execution-create-root-deployment", schema, {
+      functions: [
+        {
+          path: "users:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: createUsersPartition(),
+        },
+      ],
+    });
+
+    const start = await startExecution("execution-create-root-deployment", {
+      path: "users:create",
+      kind: "mutation",
+      args: { name: "Ada" },
+    });
+
+    const userId = await syscall("execution-create-root-deployment", start.sessionId, {
+      op: "insert",
+      table: "users",
+      value: { name: "Ada" },
+    }) as string;
+    expect(userId).toMatch(/^2:/);
+
+    const profileId = await syscall("execution-create-root-deployment", start.sessionId, {
+      op: "insert",
+      table: "profiles",
+      id: "1:profile",
+      value: { userId, bio: "Hello" },
+    }) as string;
+    expect(profileId).toBe("1:profile");
+
+    const finish = await finishExecution("execution-create-root-deployment", start.sessionId, {
+      userId,
+      profileId,
+    });
+    expect(finish.value).toEqual({ userId, profileId });
+    expect(finish.writes).toEqual([
+      { tableId: 2, id: userId, prevTs: null, ts: 1, value: { name: "Ada" } },
+      {
+        tableId: 1,
+        id: "1:profile",
+        prevTs: null,
+        ts: 1,
+        value: { userId, bio: "Hello" },
+      },
+    ]);
+
+    const tx = await SingleShardTransaction.begin(
+      env,
+      "execution-create-root-deployment",
+      String(userId),
+    );
+    await expect(tx.get(2, String(userId))).resolves.toMatchObject({ value: { name: "Ada" } });
+    await expect(tx.get(1, "1:profile")).resolves.toMatchObject({
+      value: { userId, bio: "Hello" },
+    });
+  });
+
+  it("rejects create-root sessions that skip or override the preallocated root id", async () => {
+    await activateDeployment("execution-create-root-reject-deployment", userProfileSchema(), {
+      functions: [
+        {
+          path: "users:create",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: createUsersPartition(),
+        },
+      ],
+    });
+
+    const missingRoot = await startExecution("execution-create-root-reject-deployment", {
+      path: "users:create",
+      kind: "mutation",
+      args: { name: "Ada" },
+    });
+    const missingRootFinish = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/execution-create-root-reject-deployment/executions/${missingRoot.sessionId}/finish`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ value: null }),
+      },
+    );
+    expect(missingRootFinish.status).toBe(500);
+    await expect(missingRootFinish.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/^Create-root transaction must insert root document 2:/),
+    });
+
+    const wrongRoot = await startExecution("execution-create-root-reject-deployment", {
+      path: "users:create",
+      kind: "mutation",
+      args: { name: "Grace" },
+    });
+    const wrongRootInsert = await syscallResponse(
+      "execution-create-root-reject-deployment",
+      wrongRoot.sessionId,
+      {
+        op: "insert",
+        table: "users",
+        id: "2:wrong",
+        value: { name: "Grace" },
+      },
+    );
+    expect(wrongRootInsert.status).toBe(500);
+    await expect(wrongRootInsert.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/^Create-root insert for table 2 must use preallocated root id 2:/),
+    });
+  });
+
   it("serves indexed query syscalls from a session snapshot", async () => {
     const schema = lessonSchema();
     await activateDeployment("execution-query-deployment", schema, {
@@ -345,6 +467,33 @@ function teamSchema(): DeploymentSchema {
   };
 }
 
+function userProfileSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [
+      {
+        tableId: 1,
+        name: "profiles",
+        placement: { kind: "colocateWith", table: "users", field: "userId" },
+      },
+      {
+        tableId: 2,
+        name: "users",
+        placement: { kind: "partitionBy", field: "_id" },
+      },
+    ],
+    indexes: [],
+  };
+}
+
+function createUsersPartition() {
+  return {
+    type: "partitionCreateRoot" as const,
+    table: "users",
+    partitionField: "_id" as const,
+  };
+}
+
 async function activateDeployment(
   deploymentId: string,
   schema: DeploymentSchema,
@@ -415,7 +564,7 @@ async function putFunctions(
 
 async function startExecution(
   deploymentId: string,
-  body: { path: string; kind: string; partitionKey: string; args: unknown },
+  body: { path: string; kind: string; partitionKey?: string; args: unknown },
 ): Promise<{ sessionId: string }> {
   const response = await startExecutionResponse(deploymentId, body);
   expect(response.ok).toBe(true);
@@ -424,7 +573,7 @@ async function startExecution(
 
 async function startExecutionResponse(
   deploymentId: string,
-  body: { path: string; kind: string; partitionKey: string; args: unknown },
+  body: { path: string; kind: string; partitionKey?: string; args: unknown },
 ): Promise<TestResponse> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/start`,
@@ -438,7 +587,17 @@ async function startExecutionResponse(
 }
 
 async function syscall(deploymentId: string, sessionId: string, body: unknown): Promise<unknown> {
-  const response = await harness.mf.dispatchFetch(
+  const response = await syscallResponse(deploymentId, sessionId, body);
+  expect(response.ok).toBe(true);
+  return response.json();
+}
+
+async function syscallResponse(
+  deploymentId: string,
+  sessionId: string,
+  body: unknown,
+): Promise<TestResponse> {
+  return harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/${sessionId}/syscall`,
     {
       method: "POST",
@@ -446,8 +605,6 @@ async function syscall(deploymentId: string, sessionId: string, body: unknown): 
       body: JSON.stringify(body),
     },
   );
-  expect(response.ok).toBe(true);
-  return response.json();
 }
 
 async function finishExecution(

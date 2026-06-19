@@ -7,6 +7,7 @@ import {
   loadActiveFunctionMetadata,
   readerFor,
   resolveFunctionExecutionScope,
+  tableForName,
   validateReturn,
   writerFor,
 } from "./invoke";
@@ -94,12 +95,6 @@ export class ExecutionDO extends DurableObject<Env> {
       throw error;
     }
     const scope = resolveFunctionExecutionScope(metadata.partition, metadata.route, request, schema);
-    if (scope.kind === "partitionCreateRoot") {
-      throw new HttpError(
-        400,
-        `PartitionValidationError: create-root partition for ${request.path} preallocated ${scope.preallocatedRootId}, but execution sessions cannot consume preallocated root ids yet.`,
-      );
-    }
 
     await SingleShardTransaction.ensureSchema(
       this.env,
@@ -111,6 +106,14 @@ export class ExecutionDO extends DurableObject<Env> {
       this.env,
       request.deploymentId,
       scope.partitionKey,
+      scope.kind === "partitionCreateRoot"
+        ? {
+            createRoot: {
+              rootTableId: tableForName(schema, scope.table).tableId,
+              preallocatedRootId: scope.preallocatedRootId,
+            },
+          }
+        : {},
     );
     this.session = {
       deploymentId: request.deploymentId,

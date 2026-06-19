@@ -304,7 +304,6 @@ export type InvokeResponse = {
 
 export type ExecutionStartRequest = InvokeRequest & {
   deploymentId: string;
-  partitionKey: string;
 };
 
 export type ExecutionStartResponse = {

@@ -1594,8 +1594,6 @@ Cloudflare difference:
 Remaining limitations:
 
 - Final generated client/server code still rejects create-root declarations.
-- ExecutionDO/syscall sessions still cannot start create-root without a new
-  start request shape.
 - Public request routing still requires explicit partition keys, so this is not
   yet exposed to app clients.
 
@@ -1607,6 +1605,57 @@ corepack pnpm --filter flarex-backend test
 corepack pnpm --filter flarex-backend build
 corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend build
+```
+
+## Execution Session Create-Root Routing
+
+Previous completed checkpoint: `2e6dc68` Consume preallocated root ids.
+
+Create-root partition metadata is now accepted by `ExecutionDO.start`. The
+start request no longer requires `partitionKey` at the type level. Existing-root
+functions still require the request partition key to match the analyzed route
+argument, but create-root functions reject client-supplied keys and use the
+backend-preallocated `_id` as the partition key.
+
+Examples:
+
+```ts
+// existing root
+mutation({
+  args: { userId: v.id("users") },
+  partition: model.users.byId("userId"),
+  handler: async ctx => { /* partitionKey must equal args.userId */ },
+});
+
+// create root
+mutation({
+  args: { name: v.string() },
+  partition: model.users.create(),
+  handler: async ctx => {
+    const userId = await ctx.db.insert("users", { name: "Ada" });
+    return userId;
+  },
+});
+```
+
+Convex reference:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - user functions remain normal `query`/`mutation` declarations.
+- `crates/application/src/application_function_runner/mod.rs`
+  - stored analysis drives function execution.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - the backend controls storage access after function routing is known.
+
+Cloudflare difference: Flarex adds explicit partition metadata because the
+Cloudflare runtime needs a concrete Durable Object destination before mutation
+execution can begin.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- --runInBand
 ```
 
 ## Previous Update

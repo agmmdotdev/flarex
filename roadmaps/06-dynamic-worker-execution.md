@@ -454,6 +454,67 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Create-Root Execution Sessions
+
+Previous completed checkpoint: `2e6dc68` Consume preallocated root ids.
+
+Execution sessions can now run create-root mutations through backend-owned
+syscalls. `ExecutionDO.start` accepts active function metadata with
+`partitionCreateRoot`, preallocates the root document id during partition
+resolution, begins `SingleShardTransaction` with the create-root context, and
+keeps that context in the session transaction.
+
+Runtime shape:
+
+```txt
+/deployments/:deploymentId/executions/start
+  -> active function metadata
+  -> partitionCreateRoot preallocates root id
+  -> ExecutionDO owns SingleShardTransaction(partitionKey = root id)
+  -> generated worker calls /syscall insert(root table)
+  -> transaction returns the preallocated id
+  -> /finish validates return and commits
+```
+
+The generated user-code worker still does not receive a raw database
+connection. It only talks to the backend session through syscalls, which keeps
+commit authority inside the backend `PartitionDO` path.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - function execution gets a backend-controlled context instead of direct
+    database access.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - isolate code reaches storage through syscalls.
+- `crates/database/src/transaction.rs`
+  - generated ids and staged writes are transaction state.
+- `crates/database/src/committer.rs`
+  - invalid mutation state is rejected before/during commit.
+
+Cloudflare difference: Flarex must choose a `PartitionDO` before user code
+runs. For create-root functions, the backend preallocates the `_id` partition
+key first, then `ctx.db.insert(rootTable, value)` consumes that same id through
+the syscall path. Convex does not expose this routing concern because its
+runtime presents one logical transactional database.
+
+Remaining limitations:
+
+- Final generated code still rejects create-root declarations, so this is a
+  backend capability but not yet a supported app-authoring flow.
+- Public `/invoke` request construction still expects caller-supplied partition
+  keys; hosted artifact execution should move create-root app calls through
+  execution sessions instead.
+- Cross-shard mutation semantics are unchanged; this only hardens single-shard
+  root creation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- --runInBand
+```
+
 ## Runtime Materializer Cache Update
 
 Previous completed checkpoint: `f88296c` Authorize artifact runtime calls.

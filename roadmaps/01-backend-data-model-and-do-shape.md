@@ -345,6 +345,46 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## ExecutionDO Create-Root Session Shape
+
+Previous completed checkpoint: `2e6dc68` Consume preallocated root ids.
+
+`ExecutionDO` now stores create-root scope in the active session indirectly
+through its `SingleShardTransaction`. The session still records the resolved
+scope, active schema, active function metadata, deployment id, and path, but
+the authoritative create-root enforcement lives in the transaction object so
+all syscalls share the same preallocated root state.
+
+DO shape after this step:
+
+```txt
+ExecutionDO session
+  deploymentId
+  active schema/functions metadata
+  resolved FunctionExecutionScope
+  SingleShardTransaction
+    partitionKey
+    optional createRoot(rootTableId, preallocatedRootId, consumed)
+```
+
+Convex reference:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - active deployment analysis is the runtime input to function execution.
+- `crates/database/src/transaction.rs`
+  - transaction-local mutation state owns generated ids and staged writes.
+
+Cloudflare difference: this session is per execution Durable Object instance,
+not an in-process Rust isolate transaction. That makes explicit session
+lifetime and HTTP syscall validation part of the backend data model.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- --runInBand
+```
+
 ## Create-Root Transaction Context
 
 Previous completed checkpoint: `1a8a8ff` Plan create-root id preallocation.

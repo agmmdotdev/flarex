@@ -623,3 +623,42 @@ corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend test
 corepack pnpm --filter @flarex/backend build
 ```
+
+## Create-Root Transaction Sessions
+
+Previous completed checkpoint: `2e6dc68` Consume preallocated root ids.
+
+`SingleShardTransaction` create-root enforcement is now exercised through
+`ExecutionDO`, not only direct in-process backend invoke. This matters because
+the hosted Dynamic Worker path will run user code outside the backend object
+and every `ctx.db.*` operation must arrive as a syscall against a backend-owned
+transaction.
+
+The same OCC/write-set invariant applies:
+
+- root id is chosen before transaction begin,
+- the root table insert must consume that exact id,
+- child colocated writes validate against the same partition key,
+- finish cannot commit unless the root document exists in the staged writes,
+  and
+- commit still goes through `PartitionDO` with the accumulated read/write set.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state owns generated document ids and pending writes.
+- `crates/database/src/committer.rs`
+  - mutation validity is enforced before persisted commit state advances.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user function storage operations cross a syscall boundary.
+
+Cloudflare difference: Flarex's transaction object lives in an `ExecutionDO`
+session and talks to the partition over internal fetches. Convex keeps the
+transaction and committer in the Rust backend process.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- --runInBand
+```
