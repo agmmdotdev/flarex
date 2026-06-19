@@ -263,6 +263,9 @@ Known limitations:
   APIs.
 - Backend invoke/sync still expects analyzed partition metadata with an
   argument field. Create-mode root preallocation is a follow-up.
+- Do not remove `model.<rootTable>.byId(...)` until root-model partition
+  metadata is implemented in analysis, backend invoke/session start, sync,
+  generated clients, and examples/tests.
 
 Verification:
 
@@ -309,12 +312,65 @@ Known limitations:
 - Existing example apps and generator tests still use chain-style placement.
 - `model.table` root partition declarations are not implemented yet.
 - Backend execution still consumes selector-style partition metadata.
+- `model.table.byId(...)` remains necessary compatibility API until backend
+  execution can resolve `model.table` policies for both existing-root and
+  create-root modes.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test
+```
+
+## Root Model Migration Order
+
+Checkpoint title: `Document root model migration order`
+
+Previous completed checkpoint: `fa7bf98` Add explicit schema table
+constructors.
+
+What changed:
+
+- Documented that `.byId(...)` must remain until `model.<rootTable>` is
+  supported end to end.
+- The migration order is:
+  1. generate `model.<rootTable>` root objects alongside current selectors,
+  2. update analysis to emit root-model partition policies,
+  3. update backend invoke/execution-session/sync to handle existing-root and
+     create-root policy shapes,
+  4. update generated clients to infer or omit wire `partitionKey` based on
+     policy mode,
+  5. migrate examples and tests to `partition: model.<rootTable>`,
+  6. remove or demote `model.<rootTable>.byId(...)` and selector metadata.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server files should expose the stable app-facing helpers before
+    old helpers are removed.
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations remain the metadata boundary.
+- `npm-packages/convex/src/server/api.ts`
+  - generated function references carry metadata used by clients.
+
+Cloudflare difference:
+
+- Convex can change generated helper shapes without coordinating Durable
+  Object routing metadata. Flarex must keep the old selector helper until the
+  backend can choose or allocate a `PartitionDO` from root-model metadata.
+
+Known limitations:
+
+- This is documentation only. Current code still requires selector-style
+  partition metadata for normal execution.
+- Removing `.byId(...)` before backend support would break client partition
+  inference, invoke validation, execution sessions, sync, and current tests.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
 ```
 
 ## Partition-Scoped Mutation Type Update

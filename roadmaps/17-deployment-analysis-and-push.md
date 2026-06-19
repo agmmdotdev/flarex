@@ -2968,6 +2968,53 @@ Remaining limitations:
   `argField`.
 - Active backend metadata has no create-mode partition policy yet.
 - Final codegen still emits selector-based model helpers.
+- `model.<rootTable>.byId(...)` must stay until active deployment metadata,
+  runtime invocation, sync, and generated clients support root-model policies.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
+
+## Root Model Migration Order
+
+Checkpoint title: `Document root model migration order`
+
+Previous completed checkpoint: `fa7bf98` Add explicit schema table
+constructors.
+
+What changed:
+
+- Documented that deployment analysis is the blocker for removing
+  selector-style model helpers.
+- Analysis must eventually convert `partition: model.<rootTable>` into one of:
+  - existing-root policy with the inferred root ID argument,
+  - create-root policy requiring backend preallocation,
+  - analysis error for query create mode or ambiguous multiple root IDs.
+- Until those policy shapes are active metadata, `.byId(...)` remains a
+  required compatibility helper.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed function metadata is the durable deployment contract.
+- `crates/application/src/application_function_runner/mod.rs`
+  - invocation consumes analyzed metadata, not ad hoc client intent.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen should follow authoritative analysis output.
+
+Cloudflare difference:
+
+- Convex analysis does not need to encode a `PartitionDO` route. Flarex must
+  preserve selector metadata until the new root-model policy can drive Durable
+  Object selection and root allocation.
+
+Remaining limitations:
+
+- No root-model policy type exists in `DeploymentAnalysis` or active backend
+  function metadata yet.
+- No create-root preallocation path exists in execution sessions.
 
 Verification:
 

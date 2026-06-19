@@ -326,6 +326,55 @@ Remaining limitations:
 - Natural-key partitioning is removed from the v1 target. Slug/name lookup must
   be handled through global lookup tables, projections, or future unique-index
   services.
+- Do not remove `model.table.byId(...)` until backend root-model policy
+  support is implemented and examples/tests are migrated.
+
+Verification:
+
+```sh
+Documentation-only change; no runtime validation required.
+```
+
+## Root Model Migration Order
+
+Checkpoint title: `Document root model migration order`
+
+Previous completed checkpoint: `fa7bf98` Add explicit schema table
+constructors.
+
+What changed:
+
+- Recorded that `model.<rootTable>.byId(...)` is a compatibility API that
+  cannot be removed yet.
+- The required migration order is:
+  1. generated `model.<rootTable>` root objects,
+  2. root-model analysis producing existing-root or create-root policy,
+  3. backend invoke/session/sync routing support for those policies,
+  4. generated client inference for existing-root and create-root calls,
+  5. example/test migration,
+  6. selector removal or demotion.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction context must be known before user syscalls.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - syscalls enforce execution-bound database access.
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations carry backend-relevant metadata.
+
+Cloudflare difference:
+
+- The selector currently carries `argField`, which lets Flarex validate
+  `partitionKey` before selecting a `PartitionDO`. Root-model metadata must
+  replace that with explicit existing-root/create-root policies before the
+  selector can disappear.
+
+Remaining limitations:
+
+- Current runtime still validates selector metadata shaped as
+  `{ table, selector, partitionField, argField }`.
+- Root create mode has no backend preallocation path yet.
 
 Verification:
 
