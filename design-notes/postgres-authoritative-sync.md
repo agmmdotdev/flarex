@@ -15,6 +15,12 @@ Postgres-authoritative design may better preserve Convex-style global database
 semantics while still using Cloudflare for sandboxed execution and realtime
 fanout.
 
+Physical storage for this track should use the Convex-style generic
+multitenant document/index schema described in
+`postgres-multitenant-persistence-schema.md`. Sync/cache freshness depends on
+versioned document history, encoded index entries, commit records, and outbox
+events being written by the same trusted Postgres transaction.
+
 ## Finding
 
 The Durable Object shard model gives strong local transactions but makes
@@ -351,4 +357,3 @@ Runtime live-query freshness must be explicit and versioned internally.
   second database to operate?
 - Should QueryCacheDO be per deployment, per table/index family, or per
   canonical query hash?
-

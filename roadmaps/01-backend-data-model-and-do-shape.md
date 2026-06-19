@@ -1,5 +1,70 @@
 # Backend Data Model And Durable Object Shape
 
+## Postgres Multitenant Persistence Schema Direction
+
+Previous completed checkpoint: `4538f4a` Document Postgres authoritative sync
+cache design.
+
+What changed:
+
+- Added `design-notes/postgres-multitenant-persistence-schema.md`.
+- Recorded the storage-shape decision for the Postgres-authoritative Flarex
+  track:
+  - keep public `defineSchema` / `defineTable` APIs Convex-style,
+  - do not create one physical SQL table per developer table,
+  - store app data in generic multitenant `documents` and `index_entries`
+    tables,
+  - scope every authoritative physical row by deployment/project identity,
+  - keep table names, table IDs, index IDs, document history, current-document
+    optimization, commits, and outbox as backend metadata/state.
+
+Why it changed:
+
+- The user clarified that "same schema as Convex" means the same internal
+  multitenant persistence model, not SQL DDL per developer table.
+- This is the correct fit for Convex-style generated APIs, dynamic schema push,
+  logical document IDs, OCC, and live-query invalidation.
+
+Convex references:
+
+- `crates/clusters/src/lib.rs`
+  - `DbDriverTag::PostgresMultitenant` resolves schema/search path and sets
+    `multitenant: true`.
+- `crates/db_connection/src/lib.rs`
+  - `PostgresOptions` carries `schema`, `instance_name`, and `multitenant`.
+- `crates/postgres/src/sql.rs`
+  - `documents` and `indexes` are generic physical persistence tables with
+    optional `instance_name` tenancy columns and filters.
+- `crates/value/src/table_mapping.rs`
+  - logical table names are separated from internal table numbers/tablets.
+
+Cloudflare / Flarex difference:
+
+- Existing Flarex implementation remains Durable Object authoritative. The new
+  note defines the intended physical Postgres schema for the
+  Postgres-authoritative track.
+- Convex uses `instance_name`; Flarex should use platform terminology such as
+  `deployment_id`, while preserving the same tenant-discriminator invariant.
+- Flarex's trusted executor near Postgres must own authoritative commits; user
+  code running in Cloudflare Dynamic Workers must not receive a raw database
+  connection.
+
+Known limitations / follow-up:
+
+- No Postgres DDL or executor implementation exists yet.
+- We still need to decide whether the first implementation includes
+  `current_documents` as a table or derives current state from history.
+- Range freshness, outbox delivery, and Cloudflare cache repair remain covered
+  by `design-notes/postgres-authoritative-sync.md`.
+- The older DO shard placement model should become optional cache/routing
+  policy if Postgres authority becomes the default.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Source-Package Schema Analysis Update
 
 Local deployment analysis now evaluates the separately bundled immutable schema
