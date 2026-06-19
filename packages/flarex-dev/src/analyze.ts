@@ -37,9 +37,15 @@ export type AnalyzedFunctionPartitionRootPolicy = {
   table: string;
   partitionField: string;
 };
+export type AnalyzedFunctionPartitionCreateRootPolicy = {
+  type: "partitionCreateRoot";
+  table: string;
+  partitionField: "_id";
+};
 type ParsedFunctionPartitionPolicy =
   | AnalyzedFunctionPartitionPolicy
-  | AnalyzedFunctionPartitionRootPolicy;
+  | AnalyzedFunctionPartitionRootPolicy
+  | AnalyzedFunctionPartitionCreateRootPolicy;
 
 export type AnalyzedModule = {
   moduleName: string;
@@ -349,8 +355,19 @@ function validateFunctionPartitions(modules: AnalyzedModule[], schema: AnalyzedS
       }
       if (partition.type === "partitionRoot") {
         fn.partition = lowerRootPartition(fn, partition, table, path);
-        if (fn.route === null || fn.route === undefined) {
+        if (
+          fn.partition.type === "partition" &&
+          (fn.route === null || fn.route === undefined)
+        ) {
           fn.route = { type: "args", field: fn.partition.argField };
+        }
+        continue;
+      }
+      if (partition.type === "partitionCreateRoot") {
+        if (table.placement.field !== partition.partitionField) {
+          throw new Error(
+            `${path}.partition: create-root policy targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
+          );
         }
         continue;
       }
@@ -387,7 +404,7 @@ function lowerRootPartition(
   partition: AnalyzedFunctionPartitionRootPolicy,
   table: AnalyzedSchema["tables"][number],
   path: string,
-): AnalyzedFunctionPartitionPolicy {
+): AnalyzedFunctionPartitionPolicy | AnalyzedFunctionPartitionCreateRootPolicy {
   if (table.placement.kind !== "partitionBy") {
     throw new Error(`${path}.partition: Table ${partition.table} is not partitioned.`);
   }
@@ -399,9 +416,16 @@ function lowerRootPartition(
   const idArgs = requiredIdArgsForTable(fn.args, partition.table);
   if (idArgs.length === 0) {
     if (fn.kind === "mutation" || fn.kind === "workflowMutation") {
-      throw new Error(
-        `${path}.partition: create-root mode for model.${partition.table} is not implemented yet. Add exactly one required v.id(${JSON.stringify(partition.table)}) argument or use model.${partition.table}.byId("argName").`,
-      );
+      if (fn.route !== null && fn.route !== undefined) {
+        throw new Error(
+          `${path}.partition: create-root mode for model.${partition.table} cannot declare a route until backend root id preallocation exists.`,
+        );
+      }
+      return {
+        type: "partitionCreateRoot",
+        table: partition.table,
+        partitionField: "_id",
+      };
     }
     throw new Error(
       `${path}.partition: model.${partition.table} requires exactly one required v.id(${JSON.stringify(partition.table)}) argument.`,

@@ -95,6 +95,55 @@ single-shard.
 
 ## Root Partition Creation Plan
 
+Checkpoint title: `Classify create-root partitions`
+
+Previous completed checkpoint: `14c303e` Prefer root model partitions in
+example.
+
+What changed:
+
+- Deployment analysis now has an explicit create-root partition policy:
+  `partitionCreateRoot`.
+- The policy is emitted only for mutation/workflow mutation functions that
+  declare `partition: model.<rootTable>` and have no required
+  `v.id("<rootTable>")` argument.
+- Final codegen rejects this policy because transaction execution still lacks
+  the backend preallocated root id required to name the `PartitionDO`.
+
+Why this belongs in OCC:
+
+- The future preallocated id must become part of the transaction context before
+  user code runs.
+- Commit validation must eventually prove the mutation consumed that id with
+  exactly one root-table insert, while colocated child writes remain in the same
+  partition.
+- Until that exists, classifying create-root without executing it prevents
+  accidental cross-layer hacks.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state owns writes accumulated during function execution.
+- `crates/database/src/committer.rs`
+  - commit validation is where invalid write sets are rejected.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend execution prepares the function context before user code runs.
+
+Cloudflare difference:
+
+- Convex can allocate ids inside the logical database transaction. Flarex must
+  allocate the root id before choosing the `PartitionDO`, so id preallocation is
+  part of the transaction entry contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+```
+
+## Previous Root Creation Plan
+
 Checkpoint title: `Plan explicit partition table API`
 
 Previous completed checkpoint: `ff5dae0` Generate partition-scoped mutation

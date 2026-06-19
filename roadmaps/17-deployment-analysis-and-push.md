@@ -2293,6 +2293,8 @@ corepack pnpm --filter flarex-backend test
 
 ## Root Partition Analysis Lowering
 
+Checkpoint: `40b9999` Infer existing root partitions from model table.
+
 Previous completed checkpoint: `3bd5d77` Generate root model objects.
 
 Deployment analysis now accepts the root model marker emitted by
@@ -2342,6 +2344,59 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex-dev build
 corepack pnpm --filter @flarex/example generate
+```
+
+## Create-Root Analysis Classification
+
+Previous completed checkpoint: `14c303e` Prefer root model partitions in
+example.
+
+Deployment analysis now distinguishes create-root declarations from invalid
+root declarations. For a root table partitioned by `_id`:
+
+- exactly one required `v.id(table)` arg still lowers to selector metadata,
+- zero required `v.id(table)` args on `mutation` or `workflowMutation` becomes
+  `partitionCreateRoot`,
+- zero required root ids on query/action remains invalid, and
+- multiple required root ids remain invalid as ambiguous.
+
+The policy shape is:
+
+```ts
+{
+  type: "partitionCreateRoot",
+  table: string,
+  partitionField: "_id",
+}
+```
+
+The embedded Miniflare execution-artifact analyzer returns the same shape, so
+backend-style analysis and local direct analysis agree. Final codegen rejects
+the policy until root id preallocation and create-root invocation are
+implemented.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - deployment analysis stores function metadata as an explicit model.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution reads backend-owned deployment metadata before running user code.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files should reflect backend analysis and fail early on
+    unsupported analyzed metadata.
+
+Cloudflare difference:
+
+- Convex can allocate new document ids inside the same database transaction.
+  Flarex cannot choose a root `PartitionDO` for a new root document unless the
+  backend allocates the root id before invoking user code.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
 ```
 
 ## Backend Artifact Runtime Invoke Update

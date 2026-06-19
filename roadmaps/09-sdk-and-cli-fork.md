@@ -1572,7 +1572,69 @@ Remaining SDK limitation:
 
 ## Implementation Checkpoints
 
-### Pending Commit: Prefer Root Model Partitions In The Example
+### Pending Commit: Classify Create-Root Partitions
+
+Previous completed checkpoint: `14c303e` Prefer root model partitions in
+example.
+
+Raw deployment analysis now has a named create-root partition policy:
+
+```ts
+{
+  type: "partitionCreateRoot",
+  table: "users",
+  partitionField: "_id",
+}
+```
+
+This is produced for mutation/workflow declarations like:
+
+```ts
+export const create = mutation({
+  partition: model.users,
+  args: { name: v.string() },
+  handler: async () => null,
+});
+```
+
+Final codegen still rejects the policy because generated clients cannot infer a
+partition key until the backend can preallocate the new root id before user
+code starts.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations carry typed metadata beside the handler.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen consumes analysis output and should reject unsupported analyzed
+    shapes before emitting generated files.
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed module metadata is a backend-owned deployment contract.
+
+Cloudflare difference:
+
+- Convex inserts can allocate ids inside one global transaction. Flarex must
+  route to a concrete `PartitionDO` before the handler runs, so root creation
+  needs a backend preallocation step that does not exist yet.
+
+Remaining limitations:
+
+- `partitionCreateRoot` is analysis-only and not client-executable.
+- Final codegen rejects create-root metadata with a preallocation error.
+- Queries/actions without a required root id remain invalid for
+  `partition: model.table`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example test
+```
+
+### `14c303e` Prefer root model partitions in example
 
 Previous completed checkpoint: `40b9999` Infer existing root partitions from
 model table.

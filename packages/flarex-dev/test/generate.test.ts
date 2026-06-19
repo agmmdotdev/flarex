@@ -274,7 +274,7 @@ export const merge = mutation({
     );
   });
 
-  it("rejects create-root model table partitions until root preallocation exists", async () => {
+  it("rejects create-root model table partitions during final codegen", async () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/schema.ts"),
@@ -302,7 +302,7 @@ export const create = mutation({
     );
 
     await expect(generateFlarex({ root })).rejects.toThrow(
-      'users:create.partition: create-root mode for model.users is not implemented yet. Add exactly one required v.id("users") argument or use model.users.byId("argName").',
+      "users:create.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.users.",
     );
   });
 

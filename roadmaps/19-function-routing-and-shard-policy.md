@@ -1370,6 +1370,8 @@ corepack pnpm --filter @flarex/example build
 
 ## Preferred Root Model Example Routing
 
+Checkpoint: `14c303e` Prefer root model partitions in example.
+
 Previous completed checkpoint: `40b9999` Infer existing root partitions from
 model table.
 
@@ -1421,6 +1423,69 @@ corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example build
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex test
+```
+
+## Create-Root Partition Policy Boundary
+
+Previous completed checkpoint: `14c303e` Prefer root model partitions in
+example.
+
+The route policy model now names the future create-root case separately from
+existing-root routing:
+
+```ts
+partition: model.users
+```
+
+means:
+
+- existing root if the function has exactly one required `v.id("users")` arg,
+- create root if the function is a mutation/workflow mutation with no required
+  `v.id("users")` arg,
+- invalid if the function is a query/action with no required root id, or if it
+  has multiple required root ids.
+
+Create-root analysis produces:
+
+```ts
+{ type: "partitionCreateRoot", table: "users", partitionField: "_id" }
+```
+
+This policy is not executable yet. It documents that the next backend slice
+must allocate the new root id before execution, then invoke the handler in the
+`PartitionDO` named by that id.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function registration keeps declaration metadata with the handler.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend execution owns the runtime boundary before user code runs.
+- `crates/model/src/modules/module_versions.rs`
+  - deployment metadata carries analyzed function metadata.
+
+Cloudflare difference:
+
+- Convex does not need this split because its transaction engine can allocate
+  ids and commit writes in one logical database. Flarex must route to a Durable
+  Object before running user code, so create-root needs preallocation.
+
+Remaining limitations:
+
+- No create-root invocation path exists.
+- Final codegen rejects `partitionCreateRoot`, so generated clients cannot
+  call create-root functions yet.
+- Cross-root mutation semantics are unchanged and remain outside normal
+  single-shard mutation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example test
 ```
 
 ## Previous Update

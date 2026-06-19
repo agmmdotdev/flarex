@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   listFunctionModules,
   type AnalyzedFunction,
+  type AnalyzedFunctionPartitionPolicy,
   type AnalyzedModule,
   type AnalyzedSchema,
   type DeploymentAnalysis,
@@ -143,7 +144,7 @@ function functionMetadataSource(modules: AnalyzedModule[]): string {
       args: fn.args,
       returns: fn.returns,
       route: fn.route ?? null,
-      partition: fn.partition ?? null,
+      partition: runnablePartition(fn),
       ...(fn.position === undefined ? {} : { position: fn.position }),
     })),
   );
@@ -660,9 +661,10 @@ function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, u
   return Object.fromEntries(
     modules.flatMap(module =>
       module.functions.flatMap(fn => {
+        const partition = runnablePartition(fn);
         if (
           (fn.route === null || fn.route === undefined) &&
-          (fn.partition === null || fn.partition === undefined)
+          partition === null
         ) {
           return [];
         }
@@ -670,11 +672,24 @@ function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, u
           functionPath(fn),
           {
             route: fn.route ?? null,
-            partition: fn.partition ?? null,
+            partition,
           },
         ]];
       }),
     ),
+  );
+}
+
+function runnablePartition(fn: AnalyzedFunction): AnalyzedFunctionPartitionPolicy | null {
+  if (fn.partition === null || fn.partition === undefined) return null;
+  if (fn.partition.type === "partition") return fn.partition;
+  if (fn.partition.type === "partitionCreateRoot") {
+    throw new Error(
+      `${functionPath(fn)}.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.${fn.partition.table}.`,
+    );
+  }
+  throw new Error(
+    `${functionPath(fn)}.partition: unresolved partition root policy reached final codegen.`,
   );
 }
 

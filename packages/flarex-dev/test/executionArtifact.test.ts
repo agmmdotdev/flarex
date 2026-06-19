@@ -89,6 +89,30 @@ describe("execution artifact analysis", () => {
     await finalCodegen(context, artifact.analysis);
   });
 
+  it("classifies create-root model table partitions without finalizing client metadata", async () => {
+    const root = await createCreateRootProject();
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+
+    const direct = await analyzeSourcePackageLocally(sourcePackage);
+    const artifact = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+
+    expect(artifact).toEqual(direct);
+    expect(
+      artifact.functions
+        .find(module => module.moduleName === "users")
+        ?.functions.find(fn => fn.exportName === "create")
+        ?.partition,
+    ).toEqual({
+      type: "partitionCreateRoot",
+      table: "users",
+      partitionField: "_id",
+    });
+    await expect(finalCodegen(context, artifact)).rejects.toThrow(
+      "users:create.partition: create-root partitions are classified by analysis but are not executable yet. Backend root id preallocation must run before codegen and invoke can support partition: model.users.",
+    );
+  });
+
   it("uses deterministic import-time Date and Math.random during analysis", async () => {
     const root = await createProject({
       topLevelSource: `
@@ -192,6 +216,35 @@ export const get = query({
 export const updateScore = mutation({
   args: { id: v.id("users"), score: v.number() },
   returns: v.null(),
+  handler: async () => null,
+});
+`,
+  );
+  return root;
+}
+
+async function createCreateRootProject(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-create-root-artifact-"));
+  await mkdir(path.join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    path.join(root, "flarex/schema.ts"),
+    `import { definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+export default defineSchema({
+  users: definePartitionTable({
+    name: v.string(),
+  }),
+});
+`,
+  );
+  await writeFile(
+    path.join(root, "flarex/functions/users.ts"),
+    `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  partition: model.users,
+  args: { name: v.string() },
   handler: async () => null,
 });
 `,
