@@ -388,3 +388,49 @@ Validation:
 - `corepack pnpm --filter @flarex/example test`
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`
+
+## Postgres-Authoritative Sync Design Note
+
+Previous completed checkpoint: `d40b5ba` Remove legacy SDK route APIs.
+
+Created a non-roadmap design note for the Postgres-authoritative sync/cache
+alternative:
+
+- [postgres-authoritative-sync.md](../design-notes/postgres-authoritative-sync.md)
+
+The finding recorded there is that Hyperdrive can reduce ordinary read load,
+but it cannot prove live-query freshness by itself. A Postgres-authoritative
+Flarex mode would need a committed outbox/CDC stream and Cloudflare-side
+freshness mirrors such as `VersionDO`, `DocCacheDO`, and eventually
+`QueryCacheDO`.
+
+Convex references:
+
+- `npm-packages/convex/src/react/client.ts`
+  - `useQuery` and `watchQuery` subscribe through the sync client.
+- `npm-packages/convex/src/browser/simple_client.ts`
+  - one-shot `query()` can be implemented as subscribe, receive first result,
+    and unsubscribe.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - active query subscriptions are tracked through the client query-set
+    protocol.
+
+Cloudflare difference: Flarex may use Hyperdrive and replicated Cloudflare
+SQLite caches for read performance, but live-query correctness must come from
+versioned commit/outbox metadata, not cache revalidation. A cached result can
+only be published as a live update when its observed version satisfies the
+subscription's required freshness.
+
+Known limitations:
+
+- This is an alternative authority model, not current implementation.
+- Range freshness for indexed/list queries remains the hardest part.
+- Cache detection of staleness does not automatically provide the fresh row or
+  query result; the runtime still needs no-cache fallback, replicated row
+  images, or query-cache rebuilds.
+
+Verification:
+
+```sh
+git diff --check
+```
