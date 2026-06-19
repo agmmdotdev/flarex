@@ -237,8 +237,12 @@ await complete({ userId, lessonId: "intro" });
 ```
 
 The generated function reference supplies `_partition` from
-`partition: model.users.byId("userId")`, and the client sends
+the analyzed `partition: model.users` declaration, and the client sends
 `partitionKey: args.userId` on the sync/invoke protocol.
+
+Current example coverage now uses `partition: model.users` directly for the
+lesson query and mutation, with generated metadata assertions proving the hook
+and client path still receive selector-shaped partition metadata.
 
 Convex reference:
 

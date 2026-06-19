@@ -1299,6 +1299,8 @@ corepack pnpm --filter @flarex/example build
 
 ## Root Model Partition Shorthand
 
+Checkpoint: `40b9999` Infer existing root partitions from model table.
+
 Previous completed checkpoint: `3bd5d77` Generate root model objects.
 
 The single-shard policy now has a simpler generated API for the common
@@ -1364,6 +1366,61 @@ corepack pnpm --filter flarex-dev build
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example build
+```
+
+## Preferred Root Model Example Routing
+
+Previous completed checkpoint: `40b9999` Infer existing root partitions from
+model table.
+
+The example app now exercises the preferred single-shard routing form:
+
+```ts
+partition: model.users
+```
+
+for both `lessons:list` and `lessons:complete`. Generated client metadata is
+asserted to remain:
+
+```ts
+{
+  type: "partition",
+  table: "users",
+  selector: "byId",
+  partitionField: "_id",
+  argField: "userId",
+}
+```
+
+Why this matters:
+
+- It proves the public app API can be simple while the backend still receives a
+  concrete selector policy.
+- It makes `model.table` the default mental model for root-table functions.
+- It leaves `model.table.byId("field")` as a compatibility and escape-hatch
+  API, not the normal example path.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - functions are declared with validators and compact metadata.
+- `npm-packages/convex/src/react/client.ts`
+  - clients/hooks keep call sites focused on args rather than routing details.
+
+Cloudflare difference:
+
+- Flarex still serializes a `partitionKey` on invoke/sync because Durable
+  Objects need a concrete name. The difference is now generated/analyzed away
+  for the normal root-id case.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex test
 ```
 
 ## Previous Update

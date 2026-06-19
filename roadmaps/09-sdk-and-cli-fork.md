@@ -1572,7 +1572,66 @@ Remaining SDK limitation:
 
 ## Implementation Checkpoints
 
-### Pending Commit: Infer Existing Root Partitions From Model Table
+### Pending Commit: Prefer Root Model Partitions In The Example
+
+Previous completed checkpoint: `40b9999` Infer existing root partitions from
+model table.
+
+The example app now uses the preferred v1 root model API for normal
+single-root functions:
+
+```ts
+export const complete = mutation({
+  partition: model.users,
+  args: { userId: v.id("users"), lessonId: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("lessonProgress", {
+      userId: args.userId,
+      lessonId: args.lessonId,
+      completed: true,
+    });
+  },
+});
+```
+
+Generated metadata is still selector-shaped after analysis, so the client,
+test SDK, sync path, and backend invoke path continue to infer the partition
+key from `args.userId`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - application functions keep compact declarations beside validators.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server APIs are the normal developer entrypoint.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated API metadata comes from analysis results.
+
+Cloudflare difference:
+
+- Convex does not expose placement metadata in app code. Flarex still needs a
+  generated `model.users` marker so analysis can select the correct
+  `PartitionDO` without making developers pass `{ partitionKey }` manually.
+
+Remaining limitations:
+
+- `.byId(...)` remains available for compatibility and explicit edge tests.
+- Non-`_id` partition roots still use generated selectors such as
+  `model.teams.bySlug("teamSlug")`.
+- Create-root mutations still require backend id preallocation before
+  `partition: model.users` can omit an existing root id.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex test
+```
+
+### `40b9999` Infer existing root partitions from model table
 
 Previous completed checkpoint: `3bd5d77` Generate root model objects.
 

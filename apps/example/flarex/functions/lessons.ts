@@ -2,7 +2,7 @@ import { model, mutation, query } from "../_generated/server";
 import { v } from "flarex/values";
 
 export const list = query({
-  partition: model.users.byId("userId"),
+  partition: model.users,
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     return ctx.db
@@ -13,7 +13,7 @@ export const list = query({
 });
 
 export const complete = mutation({
-  partition: model.users.byId("userId"),
+  partition: model.users,
   args: {
     userId: v.id("users"),
     lessonId: v.string(),

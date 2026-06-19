@@ -9,6 +9,18 @@ describe("generated Flarex API", () => {
     expect(api.lessons.complete._path).toBe("lessons:complete");
   });
 
+  it("lowers model table partitions into generated client metadata", () => {
+    expect(api.lessons.complete._partition).toEqual({
+      type: "partition",
+      table: "users",
+      selector: "byId",
+      partitionField: "_id",
+      argField: "userId",
+    });
+    expect(api.lessons.list._partition).toEqual(api.lessons.complete._partition);
+    expect(api.lessons.list._route).toEqual({ type: "args", field: "userId" });
+  });
+
   it("generates document types from the schema", () => {
     const user = null as unknown as Doc<"users">;
     expect(user).toBeNull();
