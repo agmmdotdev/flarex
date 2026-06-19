@@ -117,6 +117,8 @@ user request.
   `roadmaps/17-deployment-analysis-and-push.md`
 - Postgres trusted executor, Nitro adapter, and PGlite local/test lane:
   `roadmaps/20-postgres-executor.md`
+- Cloudflare freshness/cache layers for Postgres-authoritative sync:
+  `roadmaps/21-cloudflare-freshness-cache.md`
 
 ## Backend Rules
 

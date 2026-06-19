@@ -41,3 +41,4 @@ Start with:
 - [18-react-client-hooks.md](./18-react-client-hooks.md)
 - [19-function-routing-and-shard-policy.md](./19-function-routing-and-shard-policy.md)
 - [20-postgres-executor.md](./20-postgres-executor.md)
+- [21-cloudflare-freshness-cache.md](./21-cloudflare-freshness-cache.md)

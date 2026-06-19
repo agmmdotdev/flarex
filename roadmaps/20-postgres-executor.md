@@ -1,5 +1,81 @@
 # Postgres Executor
 
+## Current Package Fate And Migration Map
+
+Previous completed checkpoint: `74d8b74` Align docs with Postgres executor
+pivot.
+
+Current packages are not all deleted. They split into keep, refactor, legacy
+bridge, and new packages:
+
+```txt
+packages/flarex
+  status: keep and refactor
+  role: public SDK, validators, query builder, client, generated API types
+  change: remove partition/model APIs and move back toward Convex-style APIs
+
+packages/flarex-dev
+  status: keep and refactor
+  role: source-package bundling, analyzer, codegen, Vite/local dev
+  change: generate Convex-style _generated files without partition metadata
+
+packages/flarex-test
+  status: keep and refactor
+  role: test SDK and examples harness
+  change: add in-process executor core + PGlite path
+
+packages/flarex-backend
+  status: legacy/prototype bridge
+  role: current Cloudflare Worker/DO backend with DeploymentDO, PartitionDO,
+        ExecutionDO, ConnectionDO
+  change: do not grow new authoritative DB logic here; port useful contracts
+        and tests to the Postgres executor path
+
+apps/backend
+  status: legacy/prototype wrapper
+  role: thin Wrangler wrapper around packages/flarex-backend
+  change: keep until tests no longer depend on the DO-authoritative backend
+
+apps/example
+  status: keep and migrate
+  role: real example app and E2E target
+  change: migrate schema/functions back to defineTable/query/mutation without
+        partition selectors
+```
+
+New packages:
+
+```txt
+packages/flarex-postgres
+  status: new
+  role: generic document/index persistence, migrations, PGlite adapter,
+        real Postgres adapter
+
+packages/flarex-executor
+  status: new
+  role: framework-neutral trusted executor core
+
+packages/flarex-executor-nitro
+  status: new
+  role: thin Nitro/Vercel adapter over flarex-executor
+```
+
+Migration order:
+
+1. Add package shells and PGlite smoke tests.
+2. Add in-process executor harness in `flarex-test`.
+3. Refactor SDK/codegen away from public partition APIs.
+4. Migrate `apps/example`.
+5. Port behavior tests from Miniflare/PartitionDO to executor/PGlite.
+6. Add real Postgres correctness lane.
+7. Retire or archive `PartitionDO`-specific authoritative storage code.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Documentation Synchronization Update
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

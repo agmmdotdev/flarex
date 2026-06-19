@@ -24,6 +24,9 @@ Public clients should eventually stop sending `partitionKey`; query and
 mutation messages should look Convex-like. The older partition-local sync notes
 below remain as implementation history for the current code.
 
+Future Cloudflare cache/freshness layers now have a dedicated roadmap:
+`roadmaps/21-cloudflare-freshness-cache.md`.
+
 Verification:
 
 ```sh
