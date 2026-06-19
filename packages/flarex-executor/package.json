@@ -10,6 +10,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
+  "dependencies": {
+    "flarex-postgres": "workspace:*"
+  },
   "devDependencies": {
     "vite": "catalog:",
     "vitest": "catalog:"

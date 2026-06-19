@@ -1,19 +1,18 @@
 import type { FlarexExecutor } from "flarex-executor";
-import { createFlarexExecutor } from "flarex-executor";
 
 export interface FlarexNitroEventLike {
   request: Request;
 }
 
 export interface FlarexNitroAdapterConfig {
-  executor?: FlarexExecutor;
+  executor: FlarexExecutor;
   healthPath?: string;
 }
 
 export function createFlarexNitroHandler(
-  config: FlarexNitroAdapterConfig = {},
+  config: FlarexNitroAdapterConfig,
 ): (event: FlarexNitroEventLike) => Promise<Response> {
-  const executor = config.executor ?? createFlarexExecutor();
+  const executor = config.executor;
   const healthPath = normalizePath(config.healthPath ?? "/health");
 
   return async (event) => {
@@ -23,7 +22,7 @@ export function createFlarexNitroHandler(
       event.request.method === "GET" &&
       normalizePath(url.pathname) === healthPath
     ) {
-      return jsonResponse(executor.health());
+      return jsonResponse(await executor.health());
     }
 
     return jsonResponse(

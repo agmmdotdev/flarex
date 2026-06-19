@@ -774,6 +774,65 @@ corepack pnpm db:check
 git diff --check
 ```
 
+## Executor Health Uses Persistence Injection
+
+Previous completed checkpoint: `11c82e0` Expose Drizzle raw SQL persistence
+interface.
+
+What changed:
+
+- Added `flarex-postgres` as a dependency of `flarex-executor`.
+- Made `createFlarexExecutor({ persistence })` require a persistence
+  dependency.
+- Changed `executor.health()` from synchronous to async.
+- Added persistence dependency health to the executor health payload.
+- Added degraded health reporting when `persistence.check()` fails.
+- Updated `flarex-executor-nitro` so the adapter requires an injected executor
+  and awaits async health.
+- Added tests for healthy persistence, degraded persistence, adapter health
+  serialization, and adapter 404 behavior.
+
+Why it changed:
+
+This creates the first real boundary between the framework-agnostic trusted
+executor core and the Postgres persistence package. Health is intentionally the
+first integration point because it proves dependency injection and adapter
+behavior without starting execution sessions, syscalls, or OCC commit logic.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - backend execution is behind explicit injected interfaces.
+- `crates/function_runner/src/in_process_function_runner.rs`
+  - local/in-process execution wires backend dependencies directly.
+- `crates/application/src/application_function_runner/mod.rs`
+  - request routing sits outside the runner and calls injected backend
+    execution logic.
+
+Flarex differences:
+
+- Convex does not expose a Nitro health adapter. Flarex has an adapter because
+  the trusted executor may run as Nitro/Vercel.
+- The executor core still owns no route paths. `GET /health` remains a
+  `flarex-executor-nitro` concern.
+
+Known limitations:
+
+- Health only checks persistence connectivity.
+- No migrations are run by executor startup yet.
+- No execution session, syscall, read-set, or OCC commit methods exist yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-executor typecheck
+corepack pnpm --filter flarex-executor test
+corepack pnpm --filter flarex-executor-nitro typecheck
+corepack pnpm --filter flarex-executor-nitro test
+corepack pnpm --filter flarex-postgres typecheck
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
