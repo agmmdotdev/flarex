@@ -162,14 +162,20 @@ export async function executeInvoke(
     request,
     schema,
   );
-  if (scope.kind === "partitionCreateRoot") {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: create-root partition for ${request.path} preallocated ${scope.preallocatedRootId}, but handler execution cannot consume preallocated root ids yet.`,
-    );
-  }
   await SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema);
-  const tx = await SingleShardTransaction.begin(env, deploymentId, scope.partitionKey);
+  const tx = await SingleShardTransaction.begin(
+    env,
+    deploymentId,
+    scope.partitionKey,
+    scope.kind === "partitionCreateRoot"
+      ? {
+          createRoot: {
+            rootTableId: tableForName(schema, scope.table).tableId,
+            preallocatedRootId: scope.preallocatedRootId,
+          },
+        }
+      : {},
+  );
   const value =
     fn.kind === "query"
       ? await fn.handler({ db: readerFor(tx, schema) }, request.args)

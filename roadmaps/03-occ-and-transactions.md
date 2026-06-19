@@ -95,6 +95,74 @@ single-shard.
 
 ## Root Partition Creation Plan
 
+Checkpoint title: `Consume preallocated root ids`
+
+Previous completed checkpoint: `1a8a8ff` Plan create-root id preallocation.
+
+What changed:
+
+- `SingleShardTransaction.begin(...)` now accepts create-root context:
+
+  ```ts
+  {
+    createRoot: {
+      rootTableId,
+      preallocatedRootId,
+    },
+  }
+  ```
+
+- The transaction consumes `preallocatedRootId` when the handler inserts into
+  the root table without an explicit id.
+- Explicit root insert ids must match the preallocated id.
+- A second root insert in the same create-root transaction is rejected.
+- Commit requires the preallocated root id to be consumed exactly once.
+- Direct backend invoke can now execute create-root functions internally, while
+  final SDK codegen still rejects them.
+
+Why this belongs in OCC:
+
+- Root creation is now part of the transaction contract, not an ad hoc handler
+  convention.
+- The commit boundary enforces that a create-root mutation cannot complete
+  without producing the root document for the preallocated partition.
+- Colocated child writes can use the returned root id and commit atomically in
+  the same `PartitionDO`.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state tracks writes before final commit.
+- `crates/database/src/committer.rs`
+  - commit validation rejects invalid write sets.
+- `crates/database/src/database.rs`
+  - Convex id allocation participates in the same logical transaction.
+
+Cloudflare difference:
+
+- Convex does not need a preallocated root id because it does not route user
+  code to a Durable Object by document id before execution. Flarex must bind
+  the root id to the transaction before the handler starts.
+
+Remaining limitations:
+
+- ExecutionDO/syscall create-root sessions are still not enabled.
+- Final SDK codegen still rejects `partitionCreateRoot`.
+- Public `/invoke` still requires explicit `partitionKey`, so create-root is
+  internal-only until client/codegen support is added.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Root Id Preallocation Plan
+
 Checkpoint title: `Plan create-root id preallocation`
 
 Previous completed checkpoint: `601256a` Classify create-root partition

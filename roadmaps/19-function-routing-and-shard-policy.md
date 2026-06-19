@@ -1492,6 +1492,8 @@ corepack pnpm --filter @flarex/example test
 
 ## Backend Create-Root Scope Planning
 
+Checkpoint: `1a8a8ff` Plan create-root id preallocation.
+
 Previous completed checkpoint: `601256a` Classify create-root partition
 analysis.
 
@@ -1534,6 +1536,68 @@ Remaining limitations:
 - The preallocated id is not passed into `ctx.db.insert`.
 - No commit validation requires exactly one root insert yet.
 - Final codegen still rejects create-root declarations.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Internal Create-Root Execution
+
+Previous completed checkpoint: `1a8a8ff` Plan create-root id preallocation.
+
+Backend direct invoke can now execute create-root functions internally. The
+route flow is:
+
+```txt
+partitionCreateRoot metadata
+  -> resolveFunctionExecutionScope preallocates root id
+  -> SingleShardTransaction begins in partitionKey = preallocatedRootId
+  -> ctx.db.insert(rootTable, value) consumes that id
+  -> commit requires exactly one root insert
+```
+
+Developer-facing semantics remain Convex-like at the handler layer:
+
+```ts
+const userId = await ctx.db.insert("users", { name: "Ada" });
+await ctx.db.insert("profiles", { userId, bio: "Hello" });
+```
+
+Safety rules added now:
+
+- explicit root ids must match the preallocated id,
+- a second root insert is rejected,
+- missing root insert is rejected before commit reaches `PartitionDO`, and
+- colocated child writes still validate against the preallocated partition key.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - handler code remains normal `ctx.db.insert` code.
+- `crates/database/src/transaction.rs`
+  - generated ids and writes live in transaction state.
+- `crates/database/src/committer.rs`
+  - invalid write sets fail at commit.
+
+Cloudflare difference:
+
+- The root id is allocated before handler execution so Cloudflare can choose
+  the `PartitionDO`; the handler still receives it through insert return value
+  rather than a separate argument.
+
+Remaining limitations:
+
+- Final generated client/server code still rejects create-root declarations.
+- ExecutionDO/syscall sessions still cannot start create-root without a new
+  start request shape.
+- Public request routing still requires explicit partition keys, so this is not
+  yet exposed to app clients.
 
 Verification:
 

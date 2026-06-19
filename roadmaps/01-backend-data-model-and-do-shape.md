@@ -345,6 +345,51 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Create-Root Transaction Context
+
+Previous completed checkpoint: `1a8a8ff` Plan create-root id preallocation.
+
+`SingleShardTransaction` now carries optional create-root state:
+
+```ts
+{
+  rootTableId: number,
+  preallocatedRootId: string,
+  consumed: boolean,
+}
+```
+
+This state is not persisted as a separate table. It is request-local execution
+context that controls which document id can be used for the first root insert.
+The durable data model remains the normal document history/current rows/index
+rows written by `PartitionDO` commit.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction-local state accumulates writes before commit.
+- `crates/database/src/committer.rs`
+  - commit applies validated writes to durable tables.
+
+Cloudflare difference:
+
+- The preallocated id is a Durable Object routing concern, so Flarex keeps it
+  in transaction context until the root document write is staged.
+
+Remaining limitations:
+
+- No durable marker records that a transaction was create-root after commit;
+  the created document is the durable result.
+- Active deployment/client layers still cannot expose create-root until
+  generated code and execution sessions carry the new request shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Create-Root Metadata Shape Update
 
 Previous completed checkpoint: `601256a` Classify create-root partition

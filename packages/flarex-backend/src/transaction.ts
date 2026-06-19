@@ -1,5 +1,5 @@
 import { partitionObjectName } from "./routing";
-import { encodeFlarexId } from "./ids";
+import { encodeFlarexId, isFlarexIdForTable } from "./ids";
 import type {
   BeginResponse,
   CommitRequest,
@@ -23,6 +23,19 @@ export type TransactionCommitOptions = {
   idempotencyKey?: string;
 };
 
+export type CreateRootTransactionOptions = {
+  rootTableId: number;
+  preallocatedRootId: string;
+};
+
+export type TransactionBeginOptions = {
+  createRoot?: CreateRootTransactionOptions;
+};
+
+type CreateRootState = CreateRootTransactionOptions & {
+  consumed: boolean;
+};
+
 export class PartitionRequestError extends Error {
   constructor(
     readonly status: number,
@@ -42,18 +55,40 @@ export class SingleShardTransaction {
     readonly partitionKey: string,
     readonly beginTs: number,
     readonly schemaVersion: number,
+    private readonly createRoot?: CreateRootState,
   ) {}
 
   static async begin(
     env: PartitionEnv,
     deploymentId: string,
     partitionKey: string,
+    options: TransactionBeginOptions = {},
   ): Promise<SingleShardTransaction> {
     const partition = env.PARTITIONS.getByName(partitionObjectName(deploymentId, partitionKey));
     const begin = await fetchJson<BeginResponse>(
       partition.fetch("https://flarex.internal/begin", { method: "POST" }),
     );
-    return new SingleShardTransaction(partition, partitionKey, begin.beginTs, begin.schemaVersion);
+    const createRoot = options.createRoot === undefined
+      ? undefined
+      : {
+          ...options.createRoot,
+          consumed: false,
+        };
+    if (
+      createRoot !== undefined &&
+      !isFlarexIdForTable(createRoot.preallocatedRootId, createRoot.rootTableId)
+    ) {
+      throw new Error(
+        `Preallocated root id ${createRoot.preallocatedRootId} must be an ID for table ${createRoot.rootTableId}.`,
+      );
+    }
+    return new SingleShardTransaction(
+      partition,
+      partitionKey,
+      begin.beginTs,
+      begin.schemaVersion,
+      createRoot,
+    );
   }
 
   static async ensureSchema(
@@ -134,13 +169,14 @@ export class SingleShardTransaction {
     };
   }
 
-  insert(tableId: number, value: Json, id = encodeFlarexId(tableId)): string {
-    const key = documentKey(tableId, id);
+  insert(tableId: number, value: Json, id?: string): string {
+    const writeId = this.idForInsert(tableId, id);
+    const key = documentKey(tableId, writeId);
     if (this.stagedWrites.has(key)) {
-      throw new Error(`Document ${id} already has a staged write.`);
+      throw new Error(`Document ${writeId} already has a staged write.`);
     }
-    this.stagedWrites.set(key, { tableId, id, value });
-    return id;
+    this.stagedWrites.set(key, { tableId, id: writeId, value });
+    return writeId;
   }
 
   replace(tableId: number, id: string, value: Json): void {
@@ -175,6 +211,21 @@ export class SingleShardTransaction {
   }
 
   commit(options: TransactionCommitOptions = {}): Promise<CommitResponse> {
+    if (this.createRoot !== undefined && !this.createRoot.consumed) {
+      throw new Error(
+        `Create-root transaction must insert root document ${this.createRoot.preallocatedRootId} before commit.`,
+      );
+    }
+    if (this.createRoot !== undefined) {
+      const rootWrite = this.stagedWrites.get(
+        documentKey(this.createRoot.rootTableId, this.createRoot.preallocatedRootId),
+      );
+      if (rootWrite === undefined || rootWrite.value === null) {
+        throw new Error(
+          `Create-root transaction must commit root document ${this.createRoot.preallocatedRootId}.`,
+        );
+      }
+    }
     const request: CommitRequest = {
       beginTs: this.beginTs,
       schemaVersion: this.schemaVersion,
@@ -190,6 +241,24 @@ export class SingleShardTransaction {
         body: JSON.stringify(request),
       }),
     );
+  }
+
+  private idForInsert(tableId: number, id: string | undefined): string {
+    if (this.createRoot === undefined || tableId !== this.createRoot.rootTableId) {
+      return id ?? encodeFlarexId(tableId);
+    }
+    if (this.createRoot.consumed) {
+      throw new Error(
+        `Create-root transaction already inserted root document ${this.createRoot.preallocatedRootId}.`,
+      );
+    }
+    if (id !== undefined && id !== this.createRoot.preallocatedRootId) {
+      throw new Error(
+        `Create-root insert for table ${tableId} must use preallocated root id ${this.createRoot.preallocatedRootId}.`,
+      );
+    }
+    this.createRoot.consumed = true;
+    return this.createRoot.preallocatedRootId;
   }
 }
 

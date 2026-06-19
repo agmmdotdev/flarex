@@ -117,8 +117,70 @@ describe("executeInvoke", () => {
     );
   });
 
-  it("does not execute create-root partitions until handlers can consume preallocated ids", async () => {
-    await putSchema("create-root-planning-deployment", {
+  it("executes create-root partitions by consuming the preallocated id on root insert", async () => {
+    await putSchema("create-root-execution-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "profiles",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    });
+
+    const result = await executeInvoke(
+      env,
+      "create-root-execution-deployment",
+      {
+        path: "users:create",
+        kind: "mutation",
+        args: { name: "Ada" },
+      },
+      {
+        "users:create": {
+          kind: "mutation",
+          partition: createUsersPartition(),
+          handler: async ctx => {
+            const userId = await ctx.db.insert("users", { name: "Ada" });
+            const profileId = await ctx.db.insert("profiles", { userId, bio: "Hello" }, "1:profile");
+            return { userId, profileId };
+          },
+        },
+      },
+    );
+
+    expect(result.value).toMatchObject({ profileId: "1:profile" });
+    const userId = (result.value as { userId: string }).userId;
+    expect(userId).toMatch(/^2:/);
+    expect(result.writes).toEqual([
+      expect.objectContaining({
+        tableId: 2,
+        id: userId,
+        value: { name: "Ada" },
+      }),
+      expect.objectContaining({
+        tableId: 1,
+        id: "1:profile",
+        value: { userId, bio: "Hello" },
+      }),
+    ]);
+
+    const tx = await SingleShardTransaction.begin(env, "create-root-execution-deployment", userId);
+    await expect(tx.get(2, userId)).resolves.toMatchObject({ value: { name: "Ada" } });
+    await expect(tx.get(1, "1:profile")).resolves.toMatchObject({
+      value: { userId, bio: "Hello" },
+    });
+  });
+
+  it("requires create-root handlers to consume exactly one preallocated root insert", async () => {
+    await putSchema("create-root-consumption-deployment", {
       version: 1,
       tables: [
         {
@@ -130,35 +192,89 @@ describe("executeInvoke", () => {
       indexes: [],
     });
 
-    let ran = false;
     await expect(
       executeInvoke(
         env,
-        "create-root-planning-deployment",
+        "create-root-consumption-deployment",
         {
-          path: "users:create",
+          path: "users:missingRoot",
           kind: "mutation",
           args: { name: "Ada" },
         },
         {
-          "users:create": {
+          "users:missingRoot": {
             kind: "mutation",
-            partition: {
-              type: "partitionCreateRoot",
-              table: "users",
-              partitionField: "_id",
-            },
-            handler: async () => {
-              ran = true;
+            partition: createUsersPartition(),
+            handler: async () => null,
+          },
+        },
+      ),
+    ).rejects.toThrow("Create-root transaction must insert root document 2:");
+
+    await expect(
+      executeInvoke(
+        env,
+        "create-root-consumption-deployment",
+        {
+          path: "users:wrongRoot",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+        {
+          "users:wrongRoot": {
+            kind: "mutation",
+            partition: createUsersPartition(),
+            handler: async ctx => ctx.db.insert("users", { name: "Ada" }, "2:wrong"),
+          },
+        },
+      ),
+    ).rejects.toThrow("Create-root insert for table 2 must use preallocated root id 2:");
+
+    await expect(
+      executeInvoke(
+        env,
+        "create-root-consumption-deployment",
+        {
+          path: "users:doubleRoot",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+        {
+          "users:doubleRoot": {
+            kind: "mutation",
+            partition: createUsersPartition(),
+            handler: async ctx => {
+              await ctx.db.insert("users", { name: "Ada" });
+              await ctx.db.insert("users", { name: "Grace" });
               return null;
             },
           },
         },
       ),
-    ).rejects.toThrow(
-      "PartitionValidationError: create-root partition for users:create preallocated 2:",
-    );
-    expect(ran).toBe(false);
+    ).rejects.toThrow("Create-root transaction already inserted root document 2:");
+
+    await expect(
+      executeInvoke(
+        env,
+        "create-root-consumption-deployment",
+        {
+          path: "users:deleteRoot",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+        {
+          "users:deleteRoot": {
+            kind: "mutation",
+            partition: createUsersPartition(),
+            handler: async ctx => {
+              const id = await ctx.db.insert("users", { name: "Ada" });
+              await ctx.db.delete(id);
+              return null;
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow("Create-root transaction must commit root document 2:");
   });
 
   it("executes a registered mutation against SingleShardTransaction", async () => {
@@ -1420,6 +1536,14 @@ function userPartition() {
     selector: "byId",
     partitionField: "_id",
     argField: "userId",
+  };
+}
+
+function createUsersPartition() {
+  return {
+    type: "partitionCreateRoot" as const,
+    table: "users",
+    partitionField: "_id" as const,
   };
 }
 
