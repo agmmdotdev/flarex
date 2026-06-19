@@ -10,13 +10,11 @@ describe("createPGlitePersistence", () => {
     await expect(persistence.check()).resolves.toEqual({ status: "ok" });
   });
 
-  it("runs Convex-style generic persistence migrations once", async () => {
+  it("runs Drizzle Kit migrations idempotently", async () => {
     const persistence = await createPGlitePersistence();
 
-    await expect(persistence.migrate()).resolves.toMatchObject({
-      applied: [{ version: 1, name: "convex_style_multitenant_persistence" }],
-    });
-    await expect(persistence.migrate()).resolves.toEqual({ applied: [] });
+    await expect(persistence.migrate()).resolves.toBeUndefined();
+    await expect(persistence.migrate()).resolves.toBeUndefined();
 
     const tables = await persistence.query<{ table_name: string }>(
       `
@@ -31,12 +29,29 @@ describe("createPGlitePersistence", () => {
       "commits",
       "deployments",
       "documents",
-      "flarex_schema_migrations",
       "indexes",
       "leases",
       "outbox",
       "persistence_globals",
       "read_only",
+    ]);
+
+    const migrationTables = await persistence.query<{
+      table_schema: string;
+      table_name: string;
+    }>(
+      `
+        select table_schema, table_name
+        from information_schema.tables
+        where table_name = '__drizzle_migrations'
+      `,
+    );
+
+    expect(migrationTables.rows).toEqual([
+      {
+        table_schema: "drizzle",
+        table_name: "__drizzle_migrations",
+      },
     ]);
   });
 

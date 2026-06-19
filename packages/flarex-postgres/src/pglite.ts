@@ -1,17 +1,16 @@
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
-  FlarexMigrationResult,
   FlarexPersistence,
   FlarexPersistenceCheck,
   FlarexPersistenceTx,
-  FlarexSqlClient,
   QueryResult,
 } from "./index";
-import { FLAREX_MIGRATIONS, type FlarexMigration } from "./index";
-import { flarexSchema, schemaMigrations } from "./schema";
+import { flarexSchema } from "./schema";
 
 type PGliteLike = {
   exec(sql: string): Promise<unknown>;
@@ -33,6 +32,7 @@ type PGliteTransactionLike = {
 export interface PGlitePersistenceOptions {
   dataDir?: string;
   db?: PGliteLike;
+  migrationsFolder?: string;
 }
 
 export interface PGliteFlarexPersistence extends FlarexPersistence {
@@ -44,6 +44,7 @@ export async function createPGlitePersistence(
 ): Promise<PGliteFlarexPersistence> {
   const db: PGliteLike =
     options.db ?? (new PGlite(options.dataDir) as unknown as PGliteLike);
+  const migrationsFolder = options.migrationsFolder ?? defaultMigrationsFolder();
   const drizzleDb = drizzle({
     client: db as unknown as PGlite,
     schema: flarexSchema,
@@ -59,8 +60,8 @@ export async function createPGlitePersistence(
       return { status: "ok" };
     },
 
-    migrate(): Promise<FlarexMigrationResult> {
-      return runDrizzleMigrations(db, drizzleDb);
+    async migrate(): Promise<void> {
+      await migratePGlite(drizzleDb, { migrationsFolder });
     },
 
     transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T> {
@@ -69,39 +70,6 @@ export async function createPGlitePersistence(
   };
 }
 
-async function runDrizzleMigrations(
-  client: FlarexSqlClient,
-  db: PgliteDatabase<typeof flarexSchema>,
-  migrations: readonly FlarexMigration[] = FLAREX_MIGRATIONS,
-): Promise<FlarexMigrationResult> {
-  await client.exec(`
-    create table if not exists flarex_schema_migrations (
-      version integer primary key,
-      name text not null,
-      applied_at timestamptz not null default now()
-    );
-  `);
-
-  const applied: FlarexMigration[] = [];
-
-  for (const migration of migrations) {
-    const existing = await db
-      .select({ version: schemaMigrations.version })
-      .from(schemaMigrations)
-      .where(eq(schemaMigrations.version, migration.version))
-      .limit(1);
-
-    if (existing.length > 0) {
-      continue;
-    }
-
-    await client.exec(migration.sql);
-    await db.insert(schemaMigrations).values({
-      version: migration.version,
-      name: migration.name,
-    });
-    applied.push(migration);
-  }
-
-  return { applied };
+function defaultMigrationsFolder(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "../drizzle");
 }

@@ -659,6 +659,70 @@ corepack pnpm --filter flarex-postgres test
 git diff --check
 ```
 
+## Package-Local Drizzle Kit Migrations
+
+Previous completed checkpoint: `a3692cf` Add Drizzle schema for Postgres
+persistence.
+
+What changed:
+
+- Added `packages/flarex-postgres/drizzle.config.ts`.
+- Added package-local scripts:
+  - `db:generate`
+  - `db:check`
+- Added `drizzle-kit` as a `flarex-postgres` dev dependency.
+- Generated the first package-local migration under
+  `packages/flarex-postgres/drizzle/`.
+- Replaced the custom in-source migration runner with
+  `drizzle-orm/pglite/migrator`.
+- Removed the custom `flarex_schema_migrations` app table and switched to
+  Drizzle's own migration log table under the `drizzle` schema.
+- Changed `FlarexPersistence.migrate()` to return `Promise<void>` because the
+  Drizzle migrator applies migrations but does not report an applied list.
+
+Why it changed:
+
+The Postgres package owns persistence schema and migration history. Drizzle Kit
+should live package-locally instead of at the workspace root, so schema changes,
+generated SQL, and migration metadata stay with `flarex-postgres`.
+
+Convex references:
+
+- `crates/postgres/src/sql.rs`
+  - remains the reference for the exact document/index physical schema.
+- `crates/postgres/src/lib.rs`
+  - remains the reference for idempotent persistence initialization.
+
+Drizzle references:
+
+- Drizzle Kit `generate` creates SQL migration files from Drizzle schema.
+- Drizzle Kit `check` validates migration history.
+- `drizzle-orm/pglite/migrator` applies generated migrations to PGlite.
+
+Flarex differences:
+
+- Convex does not use Drizzle Kit; Flarex does because the persistence layer is
+  TypeScript.
+- The generated initial migration was manually adjusted from `"bytea"` to
+  `bytea` because Drizzle Kit quotes custom types. This is intentional for the
+  Convex-compatible binary storage columns.
+
+Known limitations:
+
+- The real Postgres adapter still is not implemented.
+- The `bytea` custom type workaround means generated migrations must be
+  reviewed before commit whenever binary engine columns change.
+- No full document/index read/write API exists yet.
+
+Verification:
+
+```sh
+corepack pnpm db:check
+corepack pnpm typecheck
+corepack pnpm test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

@@ -75,9 +75,15 @@ future value codec can stay Convex-compatible instead of locking the storage
 layer to JSONB too early.
 
 The TypeScript source of truth for this schema now lives in Drizzle table
-definitions under `packages/flarex-postgres/src/schema.ts`. The migration SQL
-still remains explicit for the Convex engine tables because their physical
-shape and indexes need to match Convex's deliberate query paths closely.
+definitions under `packages/flarex-postgres/src/schema.ts`. Migration files
+are package-local under `packages/flarex-postgres/drizzle/` and generated with
+Drizzle Kit from the package-local `drizzle.config.ts`.
+
+The initial migration keeps one manual SQL adjustment: Drizzle Kit renders the
+custom `bytea` type as a quoted custom type (`"bytea"`), so the generated SQL is
+edited to use Postgres' built-in `bytea` type. This preserves the
+Convex-compatible binary storage layout while still letting Drizzle Kit own the
+migration snapshot and history.
 
 ```sql
 deployments (
@@ -167,7 +173,7 @@ Use Drizzle for:
 
 - table definitions,
 - typed platform metadata access,
-- migration tracking,
+- package-local migration generation and tracking,
 - local/test PGlite wiring,
 - future drizzle-kit generated migrations for non-hot-path tables.
 

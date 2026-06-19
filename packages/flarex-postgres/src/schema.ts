@@ -3,7 +3,6 @@ import {
   boolean,
   customType,
   index,
-  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -18,12 +17,6 @@ export const bytea = customType<{
   dataType() {
     return "bytea";
   },
-});
-
-export const schemaMigrations = pgTable("flarex_schema_migrations", {
-  version: integer("version").primaryKey(),
-  name: text("name").notNull(),
-  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const deployments = pgTable("deployments", {
@@ -160,5 +153,4 @@ export const flarexSchema = {
   outbox,
   persistenceGlobals,
   readOnly,
-  schemaMigrations,
 };
