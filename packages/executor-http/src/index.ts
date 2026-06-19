@@ -10,15 +10,18 @@ import {
   FunctionNotFoundError,
   FunctionNotInvokableError,
   PartitionValidationError,
+  type BeginInvokeSessionInput,
   type FlarexExecutor,
   type InvokableFunctionKind,
   type Json,
+  type PrepareInvokeInput,
 } from "@flarex/executor";
 
 export interface FlarexHttpAppConfig {
   executor: FlarexExecutor;
   healthPath?: string;
   invokePreparePath?: string;
+  invokeStartPath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -27,17 +30,30 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokePreparePath = normalizePath(
     config.invokePreparePath ?? "/invoke/prepare",
   );
+  const invokeStartPath = normalizePath(
+    config.invokeStartPath ?? "/invoke/start",
+  );
 
   return new Elysia()
     .get(healthPath, () => executor.health())
     .post(invokePreparePath, ({ request, set }) =>
       handleInvokePrepare(executor, request, set),
     )
+    .post(invokeStartPath, ({ request, set }) =>
+      handleInvokeStart(executor, request, set),
+    )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
       return {
         error: "method_not_allowed",
         message: `${invokePreparePath} only supports POST`,
+      };
+    })
+    .all(invokeStartPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${invokeStartPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -97,18 +113,71 @@ async function handleInvokePrepare(
   }
 }
 
+async function handleInvokeStart(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+): Promise<object> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseBeginInvokeSessionBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.beginInvokeSession(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function parsePrepareInvokeBody(
   body: unknown,
 ):
+  | { value: PrepareInvokeInput }
+  | { error: { error: "bad_request"; message: string } } {
+  return parseInvokeBody(body, { includeIdempotencyKey: false });
+}
+
+function parseBeginInvokeSessionBody(
+  body: unknown,
+):
+  | { value: BeginInvokeSessionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  return parseInvokeBody(body, { includeIdempotencyKey: true });
+}
+
+function parseInvokeBody(
+  body: unknown,
+  options: { includeIdempotencyKey: false },
+):
+  | { value: PrepareInvokeInput }
+  | { error: { error: "bad_request"; message: string } };
+function parseInvokeBody(
+  body: unknown,
+  options: { includeIdempotencyKey: true },
+):
+  | { value: BeginInvokeSessionInput }
+  | { error: { error: "bad_request"; message: string } };
+function parseInvokeBody(
+  body: unknown,
+  options: { includeIdempotencyKey: boolean },
+):
   | {
-      value: {
-        deploymentId: string;
-        projectId: string;
-        path: string;
-        kind?: InvokableFunctionKind;
-        args: Json;
-        partitionKey?: string;
-      };
+      value: BeginInvokeSessionInput;
     }
   | { error: { error: "bad_request"; message: string } } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -132,6 +201,8 @@ function parsePrepareInvokeBody(
   if ("error" in args) return args;
   const partitionKey = optionalString(record.partitionKey, "partitionKey");
   if ("error" in partitionKey) return partitionKey;
+  const idempotencyKey = optionalString(record.idempotencyKey, "idempotencyKey");
+  if ("error" in idempotencyKey) return idempotencyKey;
 
   return {
     value: {
@@ -143,6 +214,9 @@ function parsePrepareInvokeBody(
       ...(partitionKey.value === undefined
         ? {}
         : { partitionKey: partitionKey.value }),
+      ...(options.includeIdempotencyKey && idempotencyKey.value !== undefined
+        ? { idempotencyKey: idempotencyKey.value }
+        : {}),
     },
   };
 }

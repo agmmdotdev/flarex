@@ -344,6 +344,7 @@ Package responsibilities:
 - `@flarex/executor-http` owns the real HTTP API router using Elysia:
   - `GET /health`
   - `POST /invoke/prepare`
+  - `POST /invoke/start`
   - request shape validation
   - executor error-to-status mapping
 - `@flarex/executor-nitro` is only a Nitro/deployment wrapper over the HTTP
@@ -369,10 +370,18 @@ Convex reference:
 - `crates/application/src/application_function_runner/mod.rs`
   - execution semantics stay below the HTTP layer.
 
+Current update:
+
+- `POST /invoke/start` is now part of `@flarex/executor-http` and maps to
+  `executor.beginInvokeSession(...)`.
+- Nitro remains a wrapper and must continue delegating route behavior to
+  `@flarex/executor-http`.
+
 Known limitations:
 
 - No concrete Nitro `server.ts` host app exists yet.
-- `@flarex/executor-http` currently has only health and invoke prepare.
+- `@flarex/executor-http` currently has health, invoke prepare, and invoke
+  start only.
 - API request validation is manual until the route bodies settle.
 
 Verification:

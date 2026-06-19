@@ -2072,6 +2072,84 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Start HTTP Route
+
+Previous completed checkpoint: `36f572e` Move executor HTTP routes to Elysia.
+
+What changed:
+
+- Added `POST /invoke/start` to `@flarex/executor-http`.
+- The route validates the same invoke body as `/invoke/prepare` plus optional
+  `idempotencyKey`.
+- The route calls `executor.beginInvokeSession(...)` and returns the durable
+  session start response:
+  - `sessionId`
+  - `beginTs`
+  - `schemaVersion`
+  - function path/kind
+  - resolved scope
+  - `executionModule`
+- Added method rejection for non-POST `/invoke/start`.
+- Added HTTP tests for successful session begin, idempotency-key validation,
+  method rejection, and executor error mapping.
+- Kept `@flarex/executor-nitro` unchanged as a thin wrapper over the Elysia
+  app.
+
+Why it changed:
+
+This exposes the framework-neutral session core over the real HTTP adapter.
+The next syscall and finish routes can now target a backend-owned session ID
+instead of giving Cloudflare user code any direct database connection.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned function execution routing prepares and controls user
+    function execution.
+- `crates/model/src/session_requests/mod.rs`
+  - Convex stores framework-owned session request metadata for idempotent
+    mutation handling.
+- `crates/model/src/session_requests/types.rs`
+  - session/request identity and outcome are model-level system data.
+
+Flarex references:
+
+- `packages/executor/src/sessions.ts`
+  - owns `beginInvokeSession(...)` and durable session insertion.
+- `packages/executor-http/src/index.ts`
+  - owns Elysia route parsing and error/status mapping.
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy execution sessions provide the behavior reference for backend-owned
+    session state before syscalls.
+
+Flarex differences:
+
+- Convex session requests are tied to its sync/mutation protocol. Flarex
+  currently exposes `/invoke/start` as an internal executor HTTP milestone for
+  Dynamic Worker execution.
+- `beginTs` is still executor-clock based. Final OCC should use an
+  authoritative Postgres timestamp/version source.
+- `idempotencyKey` is accepted and persisted by the core path, but replay
+  semantics are not implemented yet.
+
+Known limitations:
+
+- `/invoke/start` does not execute user code.
+- No syscall, finish, abort, read-set, write-set, return validation, or commit
+  route exists yet.
+- The route returns the resolved scope for development visibility. The final
+  internal protocol may reduce that response once the runtime contract settles.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

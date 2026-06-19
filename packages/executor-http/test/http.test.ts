@@ -8,6 +8,8 @@ import {
   FunctionNotInvokableError,
   PartitionValidationError,
   type FlarexExecutor,
+  type BeginInvokeSessionInput,
+  type BeginInvokeSessionResult,
   type PrepareInvokeInput,
   type PrepareInvokeResult,
 } from "@flarex/executor";
@@ -170,6 +172,115 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps invoke start requests to the executor core", async () => {
+    const calls: BeginInvokeSessionInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async beginInvokeSession(input) {
+          calls.push(input);
+          return beginInvokeSessionResult({
+            sessionId: "session_active",
+            beginTs: 1781913600123,
+            path: input.path,
+            kind: input.kind ?? "query",
+            schemaVersion: 12,
+            executionModule: "_flarex/execution.js",
+          });
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+        idempotencyKey: "idem_1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+        idempotencyKey: "idem_1",
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      sessionId: "session_active",
+      beginTs: 1781913600123,
+      schemaVersion: 12,
+      function: {
+        path: "messages:list",
+        kind: "query",
+      },
+      scope: {
+        kind: "partition",
+        table: "teams",
+        selector: "byId",
+        partitionField: "_id",
+        argField: "teamId",
+        partitionKey: "team:1",
+      },
+      executionModule: "_flarex/execution.js",
+    });
+  });
+
+  it("validates invoke start idempotency keys before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async beginInvokeSession() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+        idempotencyKey: "",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "idempotencyKey must be a non-empty string.",
+    });
+  });
+
+  it("rejects non-POST invoke start requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/start"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/invoke/start only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -254,6 +365,33 @@ describe("createFlarexHttpApp", () => {
       body: { error: "DeploymentPackageNotActivatedError" },
     });
   });
+
+  it("maps invoke start executor errors to stable statuses", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async beginInvokeSession() {
+          throw new PartitionValidationError(
+            "partitionKey must match args.teamId for messages:list.",
+          );
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        args: { teamId: "team:1" },
+        partitionKey: "team:wrong",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "PartitionValidationError",
+    });
+  });
 });
 
 function fakeExecutor(
@@ -275,7 +413,14 @@ function fakeExecutor(
       );
     },
     async beginInvokeSession() {
-      throw new Error("beginInvokeSession is not implemented by test fake");
+      return beginInvokeSessionResult({
+        sessionId: "session_active",
+        beginTs: 1781913600123,
+        path: "messages:list",
+        kind: "query",
+        schemaVersion: 12,
+        executionModule: "_flarex/execution.js",
+      });
     },
     async prepareInvoke(input) {
       return preparedInvokeResult({
@@ -299,6 +444,34 @@ function fakeExecutor(
       };
     },
     ...overrides,
+  };
+}
+
+function beginInvokeSessionResult(input: {
+  sessionId: string;
+  beginTs: number;
+  path: string;
+  kind: "query" | "mutation";
+  schemaVersion: number;
+  executionModule: string;
+}): BeginInvokeSessionResult {
+  return {
+    sessionId: input.sessionId,
+    beginTs: input.beginTs,
+    schemaVersion: input.schemaVersion,
+    function: {
+      path: input.path,
+      kind: input.kind,
+    },
+    scope: {
+      kind: "partition",
+      table: "teams",
+      selector: "byId",
+      partitionField: "_id",
+      argField: "teamId",
+      partitionKey: "team:1",
+    },
+    executionModule: input.executionModule,
   };
 }
 
