@@ -462,6 +462,13 @@ function validateFunctionPartitions(modules, schema) {
       if (table.placement.kind !== "partitionBy") {
         throw new Error(\`\${path}.partition: Table \${partition.table} is not partitioned.\`);
       }
+      if (partition.type === "partitionRoot") {
+        fn.partition = lowerRootPartition(fn, partition, table, path);
+        if (fn.route === null || fn.route === undefined) {
+          fn.route = { type: "args", field: fn.partition.argField };
+        }
+        continue;
+      }
       if (table.placement.field !== partition.partitionField) {
         throw new Error(
           \`\${path}.partition: Selector \${partition.selector} targets \${partition.partitionField}, but \${partition.table} is partitioned by \${table.placement.field}.\`,
@@ -488,6 +495,51 @@ function validateFunctionPartitions(modules, schema) {
       }
     }
   }
+}
+
+function lowerRootPartition(fn, partition, table, path) {
+  if (table.placement.kind !== "partitionBy") {
+    throw new Error(\`\${path}.partition: Table \${partition.table} is not partitioned.\`);
+  }
+  if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
+    throw new Error(
+      \`\${path}.partition: model.\${partition.table} requires \${partition.table} to be partitioned by _id.\`,
+    );
+  }
+  const idArgs = requiredIdArgsForTable(fn.args, partition.table);
+  if (idArgs.length === 0) {
+    if (fn.kind === "mutation" || fn.kind === "workflowMutation") {
+      throw new Error(
+        \`\${path}.partition: create-root mode for model.\${partition.table} is not implemented yet. Add exactly one required v.id(\${JSON.stringify(partition.table)}) argument or use model.\${partition.table}.byId("argName").\`,
+      );
+    }
+    throw new Error(
+      \`\${path}.partition: model.\${partition.table} requires exactly one required v.id(\${JSON.stringify(partition.table)}) argument.\`,
+    );
+  }
+  if (idArgs.length > 1) {
+    throw new Error(
+      \`\${path}.partition: model.\${partition.table} is ambiguous. Found multiple required \${partition.table} IDs: \${idArgs.join(", ")}.\`,
+    );
+  }
+  const argField = idArgs[0];
+  if (
+    fn.route !== null &&
+    fn.route !== undefined &&
+    fn.route.type === "args" &&
+    fn.route.field !== argField
+  ) {
+    throw new Error(
+      \`\${path}.partition: partition argument \${argField} must match route argument \${fn.route.field}.\`,
+    );
+  }
+  return {
+    type: "partition",
+    table: partition.table,
+    selector: "byId",
+    partitionField: "_id",
+    argField,
+  };
 }
 
 function sourcePositionResolver() {
@@ -691,6 +743,19 @@ function assertPartitionPolicy(value, path) {
   if (value === null) return null;
   if (!isRecord(value)) throw new Error(\`\${path}: Invalid partition policy.\`);
   if (
+    value.type === "partitionRoot" &&
+    typeof value.table === "string" &&
+    value.table.length > 0 &&
+    typeof value.partitionField === "string" &&
+    value.partitionField.length > 0
+  ) {
+    return {
+      type: "partitionRoot",
+      table: value.table,
+      partitionField: value.partitionField,
+    };
+  }
+  if (
     value.type === "partition" &&
     typeof value.table === "string" &&
     value.table.length > 0 &&
@@ -732,6 +797,18 @@ function validatorHasRequiredField(validator, field) {
     Object.prototype.hasOwnProperty.call(validator.value, field) &&
     validator.value[field]?.optional === false
   );
+}
+
+function requiredIdArgsForTable(validator, tableName) {
+  if (validator.type !== "object") return [];
+  return Object.entries(validator.value)
+    .filter(([, field]) =>
+      field.optional === false &&
+      field.fieldType.type === "id" &&
+      field.fieldType.tableName === tableName,
+    )
+    .map(([fieldName]) => fieldName)
+    .sort();
 }
 
 function assertValidatorJson(value, path = "$validator") {

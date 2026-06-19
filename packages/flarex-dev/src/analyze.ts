@@ -20,7 +20,7 @@ export type AnalyzedFunction = {
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
   route?: AnalyzedFunctionRoutePolicy | null;
-  partition?: AnalyzedFunctionPartitionPolicy | null;
+  partition?: ParsedFunctionPartitionPolicy | null;
   position?: AnalyzedSourcePosition;
 };
 
@@ -32,6 +32,14 @@ export type AnalyzedFunctionPartitionPolicy = {
   partitionField: string;
   argField: string;
 };
+export type AnalyzedFunctionPartitionRootPolicy = {
+  type: "partitionRoot";
+  table: string;
+  partitionField: string;
+};
+type ParsedFunctionPartitionPolicy =
+  | AnalyzedFunctionPartitionPolicy
+  | AnalyzedFunctionPartitionRootPolicy;
 
 export type AnalyzedModule = {
   moduleName: string;
@@ -339,6 +347,13 @@ function validateFunctionPartitions(modules: AnalyzedModule[], schema: AnalyzedS
       if (table.placement.kind !== "partitionBy") {
         throw new Error(`${path}.partition: Table ${partition.table} is not partitioned.`);
       }
+      if (partition.type === "partitionRoot") {
+        fn.partition = lowerRootPartition(fn, partition, table, path);
+        if (fn.route === null || fn.route === undefined) {
+          fn.route = { type: "args", field: fn.partition.argField };
+        }
+        continue;
+      }
       if (table.placement.field !== partition.partitionField) {
         throw new Error(
           `${path}.partition: Selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
@@ -365,6 +380,56 @@ function validateFunctionPartitions(modules: AnalyzedModule[], schema: AnalyzedS
       }
     }
   }
+}
+
+function lowerRootPartition(
+  fn: AnalyzedFunction,
+  partition: AnalyzedFunctionPartitionRootPolicy,
+  table: AnalyzedSchema["tables"][number],
+  path: string,
+): AnalyzedFunctionPartitionPolicy {
+  if (table.placement.kind !== "partitionBy") {
+    throw new Error(`${path}.partition: Table ${partition.table} is not partitioned.`);
+  }
+  if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
+    throw new Error(
+      `${path}.partition: model.${partition.table} requires ${partition.table} to be partitioned by _id.`,
+    );
+  }
+  const idArgs = requiredIdArgsForTable(fn.args, partition.table);
+  if (idArgs.length === 0) {
+    if (fn.kind === "mutation" || fn.kind === "workflowMutation") {
+      throw new Error(
+        `${path}.partition: create-root mode for model.${partition.table} is not implemented yet. Add exactly one required v.id(${JSON.stringify(partition.table)}) argument or use model.${partition.table}.byId("argName").`,
+      );
+    }
+    throw new Error(
+      `${path}.partition: model.${partition.table} requires exactly one required v.id(${JSON.stringify(partition.table)}) argument.`,
+    );
+  }
+  if (idArgs.length > 1) {
+    throw new Error(
+      `${path}.partition: model.${partition.table} is ambiguous. Found multiple required ${partition.table} IDs: ${idArgs.join(", ")}.`,
+    );
+  }
+  const argField = idArgs[0]!;
+  if (
+    fn.route !== null &&
+    fn.route !== undefined &&
+    fn.route.type === "args" &&
+    fn.route.field !== argField
+  ) {
+    throw new Error(
+      `${path}.partition: partition argument ${argField} must match route argument ${fn.route.field}.`,
+    );
+  }
+  return {
+    type: "partition",
+    table: partition.table,
+    selector: "byId",
+    partitionField: "_id",
+    argField,
+  };
 }
 
 function sourcePositionResolver(
@@ -553,7 +618,7 @@ function parseRouteExport(value: RuntimeFunction, identifier: string): AnalyzedF
 function parsePartitionExport(
   value: RuntimeFunction,
   identifier: string,
-): AnalyzedFunctionPartitionPolicy | null {
+): ParsedFunctionPartitionPolicy | null {
   const candidate = value as Record<string, unknown>;
   const exporter = "exportPartition" in candidate ? candidate.exportPartition : undefined;
   if (exporter === undefined) return null;
@@ -591,9 +656,22 @@ function assertRoutePolicy(value: unknown, path: string): AnalyzedFunctionRouteP
 function assertPartitionPolicy(
   value: unknown,
   path: string,
-): AnalyzedFunctionPartitionPolicy | null {
+): ParsedFunctionPartitionPolicy | null {
   if (value === null) return null;
   if (!isRecord(value)) throw new Error(`${path}: Invalid partition policy.`);
+  if (
+    value.type === "partitionRoot" &&
+    typeof value.table === "string" &&
+    value.table.length > 0 &&
+    typeof value.partitionField === "string" &&
+    value.partitionField.length > 0
+  ) {
+    return {
+      type: "partitionRoot",
+      table: value.table,
+      partitionField: value.partitionField,
+    };
+  }
   if (
     value.type === "partition" &&
     typeof value.table === "string" &&
@@ -636,6 +714,18 @@ function validatorHasRequiredField(validator: ValidatorJSON, field: string): boo
     Object.prototype.hasOwnProperty.call(validator.value, field) &&
     validator.value[field]?.optional === false
   );
+}
+
+function requiredIdArgsForTable(validator: ValidatorJSON, tableName: string): string[] {
+  if (validator.type !== "object") return [];
+  return Object.entries(validator.value)
+    .filter(([, field]) =>
+      field.optional === false &&
+      field.fieldType.type === "id" &&
+      field.fieldType.tableName === tableName,
+    )
+    .map(([fieldName]) => fieldName)
+    .sort();
 }
 
 function errorMessage(error: unknown): string {

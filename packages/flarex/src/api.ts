@@ -12,6 +12,14 @@ export type FunctionPartitionPolicy = {
   partitionField: string;
   argField: string;
 };
+export type FunctionPartitionRootPolicy = {
+  type: "partitionRoot";
+  table: string;
+  partitionField: string;
+};
+export type FunctionPartitionInputPolicy =
+  | FunctionPartitionPolicy
+  | FunctionPartitionRootPolicy;
 export type FunctionRouteMap = Record<string, FunctionRoutePolicy | null | undefined>;
 export type FunctionReferenceMetadata = {
   route?: FunctionRoutePolicy | null;

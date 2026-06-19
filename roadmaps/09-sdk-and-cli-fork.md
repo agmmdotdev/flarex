@@ -1572,6 +1572,76 @@ Remaining SDK limitation:
 
 ## Implementation Checkpoints
 
+### Pending Commit: Infer Existing Root Partitions From Model Table
+
+Previous completed checkpoint: `3bd5d77` Generate root model objects.
+
+The generated `model.table` object is now accepted as a function `partition`
+input for the existing-root case:
+
+```ts
+export const rename = mutation({
+  args: { userId: v.id("users"), name: v.string() },
+  partition: model.users,
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { name: args.name });
+  },
+});
+```
+
+The SDK records this as a root partition policy during registration, and
+analysis lowers it to the existing selector metadata used by clients and the
+backend:
+
+```ts
+{
+  type: "partition",
+  table: "users",
+  selector: "byId",
+  partitionField: "_id",
+  argField: "userId",
+}
+```
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function declarations keep handler metadata beside the handler value.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server helpers are the app-facing API, not hand-authored runtime
+    wiring.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated files are driven by backend/analyzer metadata.
+
+Cloudflare difference:
+
+- Convex does not expose shard placement through generated model helpers.
+  Flarex accepts `model.table` only as a shorthand for selecting the root
+  `PartitionDO` from one required root document id.
+
+Remaining limitations:
+
+- Create-root mode is deliberately rejected until backend id preallocation
+  and root `PartitionDO` creation are implemented.
+- `model.table` requires exactly one required `v.id(table)` argument.
+- Tables partitioned by a field other than `_id` must still use the explicit
+  selector form, for example `model.teams.bySlug("teamSlug")`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
 ### `772fce2` Refactor Flarex runtime and add Convex-style codegen
 
 Separated reusable backend runtime, development tooling, test SDK, and

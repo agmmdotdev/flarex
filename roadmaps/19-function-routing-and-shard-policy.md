@@ -1297,6 +1297,75 @@ corepack pnpm --filter @flarex/example test
 corepack pnpm --filter @flarex/example build
 ```
 
+## Root Model Partition Shorthand
+
+Previous completed checkpoint: `3bd5d77` Generate root model objects.
+
+The single-shard policy now has a simpler generated API for the common
+existing-root mutation/query shape:
+
+```ts
+export const completeLesson = mutation({
+  args: { userId: v.id("users"), lessonId: v.string() },
+  partition: model.users,
+  handler: async (ctx, args) => {
+    await ctx.db.insert("lessonProgress", {
+      userId: args.userId,
+      lessonId: args.lessonId,
+    });
+  },
+});
+```
+
+This is equivalent to:
+
+```ts
+partition: model.users.byId("userId")
+```
+
+for runtime metadata. The analyzer owns the equivalence and rejects cases where
+the partition cannot be derived safely.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function definitions include metadata and validators in the exported
+    registration object.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  - generated server helpers provide the app-level API surface.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend execution owns the final runtime boundary.
+
+Cloudflare difference:
+
+- The shorthand is not a Convex data-model feature; it is Flarex's way to make
+  the required `PartitionDO` route feel like the table-level Convex API for the
+  common root-document case.
+- The backend still receives selector-shaped partition metadata. No cross-shard
+  atomicity or create-root behavior is implied.
+
+Remaining limitations:
+
+- Cross-root mutations remain outside this single-shard API and should be
+  rejected or moved to a future workflow/atomic-mutation design.
+- Create-root mutations need a future backend preallocation path before
+  `partition: model.users` can work without a required `v.id("users")` arg.
+- Non-`_id` root partition keys stay explicit through generated selectors.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+corepack pnpm --filter @flarex/example build
+```
+
 ## Previous Update
 
 Implemented `routeFromArgs(field)` as the first real function route policy and

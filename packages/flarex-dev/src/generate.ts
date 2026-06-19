@@ -209,6 +209,7 @@ const dynamicPartitionTable = (table: string) => new Proxy({
     if (property === "type") return "partitionRoot";
     if (property === "table") return table;
     if (property === "partitionField") return "_id";
+    if (property === "toJSON") return undefined;
     return (argField: string) => ({
       type: "partition",
       table,

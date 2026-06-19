@@ -2291,6 +2291,59 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Root Partition Analysis Lowering
+
+Previous completed checkpoint: `3bd5d77` Generate root model objects.
+
+Deployment analysis now accepts the root model marker emitted by
+`partition: model.table` and lowers it before metadata leaves analysis. This
+keeps the authoritative deployment artifact compatible with the existing
+selector-shaped function metadata and backend routing model.
+
+Analysis rule:
+
+- `partition: model.users` is valid only when args contain exactly one required
+  `v.id("users")` field.
+- The analyzer lowers that declaration to `model.users.byId("fieldName")`
+  metadata and fills the route from the same arg when no explicit route exists.
+- Multiple required ids for the same root table are rejected as ambiguous.
+- No id is rejected. For mutations the error explicitly calls this
+  unimplemented create-root mode.
+- `model.table` is rejected for non-`_id` partition roots. Those tables must use
+  the explicit generated selector.
+
+The same logic was added to:
+
+- `packages/flarex-dev/src/analyze.ts`
+- the embedded Miniflare execution-artifact analyzer in
+  `packages/flarex-dev/src/executionArtifact.ts`
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - Convex records analyzed module/function metadata as the deployment truth.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution consumes backend-owned source package and function metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated code is completed from analysis output, not only local source
+    scanning.
+
+Cloudflare difference:
+
+- Convex analysis does not need to derive a `PartitionDO` route. Flarex lowers
+  root model declarations to existing selector metadata so hosted push,
+  generated API metadata, client inference, and backend invoke all continue to
+  agree on one partition key.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example generate
+```
+
 ## Backend Artifact Runtime Invoke Update
 
 Previous completed checkpoint: `804a055` Add backend artifact storage binding.

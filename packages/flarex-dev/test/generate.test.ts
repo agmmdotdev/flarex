@@ -189,6 +189,123 @@ export const create = mutation({
     expect(api).toContain('"argField": "teamSlug"');
   });
 
+  it("lowers model table root partitions from exactly one root id argument", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { defineColocatedTable, definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  users: definePartitionTable({
+    name: v.string(),
+  }),
+  lessonProgress: defineColocatedTable("users", "userId", {
+    userId: v.id("users"),
+    lessonId: v.string(),
+  }),
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/functions/users.ts"),
+      `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const rename = mutation({
+  args: { userId: v.id("users"), name: v.string() },
+  partition: model.users,
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { name: args.name });
+    await ctx.db.insert("lessonProgress", { userId: args.userId, lessonId: "intro" });
+  },
+});
+`,
+    );
+
+    await generateFlarex({ root });
+
+    const api = await readGenerated(root, "api.ts");
+    const functionMetadata = await readGenerated(root, "functionMetadata.ts");
+
+    expect(functionMetadata).toContain('"path": "users:rename"');
+    expect(functionMetadata).toContain('"route": {');
+    expect(functionMetadata).toContain('"field": "userId"');
+    expect(functionMetadata).toContain('"partition": {');
+    expect(functionMetadata).toContain('"table": "users"');
+    expect(functionMetadata).toContain('"selector": "byId"');
+    expect(functionMetadata).toContain('"partitionField": "_id"');
+    expect(functionMetadata).toContain('"argField": "userId"');
+    expect(api).toContain('"users:rename": {');
+    expect(api).toContain('"partition": {');
+    expect(api).toContain('"selector": "byId"');
+    expect(api).toContain('"argField": "userId"');
+  });
+
+  it("rejects model table root partitions when the root id is ambiguous", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  users: definePartitionTable({
+    name: v.string(),
+  }),
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/functions/users.ts"),
+      `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const merge = mutation({
+  args: { fromUserId: v.id("users"), toUserId: v.id("users") },
+  partition: model.users,
+  handler: async () => null,
+});
+`,
+    );
+
+    await expect(generateFlarex({ root })).rejects.toThrow(
+      "users:merge.partition: model.users is ambiguous. Found multiple required users IDs: fromUserId, toUserId.",
+    );
+  });
+
+  it("rejects create-root model table partitions until root preallocation exists", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  users: definePartitionTable({
+    name: v.string(),
+  }),
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/functions/users.ts"),
+      `import { model, mutation } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const create = mutation({
+  args: { name: v.string() },
+  partition: model.users,
+  handler: async () => null,
+});
+`,
+    );
+
+    await expect(generateFlarex({ root })).rejects.toThrow(
+      'users:create.partition: create-root mode for model.users is not implemented yet. Add exactly one required v.id("users") argument or use model.users.byId("argName").',
+    );
+  });
+
   it("rejects model partition selectors that do not match schema placement", async () => {
     const root = await createProject();
     await writeFile(

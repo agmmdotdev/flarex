@@ -18,7 +18,9 @@ import type {
 import type { QueryInitializer } from "./query";
 import type {
   AnyFunctionReference,
+  FunctionPartitionInputPolicy,
   FunctionPartitionPolicy,
+  FunctionPartitionRootPolicy,
   FunctionReference,
   FunctionRoutePolicy,
   FunctionType,
@@ -37,7 +39,7 @@ export function routeFromArgs(field: string): FunctionRoutePolicy {
   return { type: "args", field };
 }
 
-type FunctionPartitionInput = FunctionRoutePolicy | FunctionPartitionPolicy;
+type FunctionPartitionInput = FunctionRoutePolicy | FunctionPartitionInputPolicy;
 
 type TableFromId<Identifier> = Identifier extends Id<infer Table> ? Table : never;
 
@@ -91,7 +93,7 @@ type WritableTablesForPartition<
   DataModel extends GenericDataModel,
   Scopes extends PartitionScopeMap<DataModel>,
   Partition,
-> = Partition extends { type: "partition"; table: infer Table }
+> = Partition extends { table: infer Table }
   ? Table extends keyof Scopes
     ? Extract<Scopes[Table], TableNamesInDataModel<DataModel>>
     : TableNamesInDataModel<DataModel>
@@ -136,7 +138,7 @@ export type RegisteredFunction<
   readonly args: FunctionArgsValidator;
   readonly returns: DefinedReturnValidator | null;
   readonly route: FunctionRoutePolicy | null;
-  readonly partition: FunctionPartitionPolicy | null;
+  readonly partition: FunctionPartitionInputPolicy | null;
   readonly handler: (ctx: never, args: never) => ReturnType;
   readonly exportArgs: () => string;
   readonly exportReturns: () => string;
@@ -241,7 +243,8 @@ function exportPartition(functionDefinition: FunctionDefinition<unknown>): () =>
     const partition =
       typeof functionDefinition === "object" &&
       functionDefinition.partition !== undefined &&
-      functionDefinition.partition.type === "partition"
+      (functionDefinition.partition.type === "partition" ||
+        functionDefinition.partition.type === "partitionRoot")
         ? functionDefinition.partition
         : null;
     return JSON.stringify(partition, strictReplacer);
@@ -253,6 +256,7 @@ function routeFromPartition(
 ): FunctionRoutePolicy | null {
   if (partition === undefined) return null;
   if (partition.type === "args") return partition;
+  if (partition.type === "partitionRoot") return null;
   return routeFromArgs(partition.argField);
 }
 
@@ -300,7 +304,8 @@ function register<
   const partition =
     typeof functionDefinition === "object" &&
     functionDefinition.partition !== undefined &&
-    functionDefinition.partition.type === "partition"
+    (functionDefinition.partition.type === "partition" ||
+      functionDefinition.partition.type === "partitionRoot")
       ? functionDefinition.partition
       : null;
   const registered = {
@@ -364,7 +369,7 @@ export type MutationBuilder<
   <
     ArgsValidator extends FunctionArgsValidator | void,
     ReturnsValidator extends DefinedReturnValidator | void,
-    Partition extends FunctionPartitionPolicy,
+    Partition extends FunctionPartitionPolicy | FunctionPartitionRootPolicy,
     ReturnValue extends MaybePromise<ReturnValueForOptionalValidator<ReturnsValidator>> = any,
     OneOrZeroArgs extends ArgsArrayForOptionalValidator<ArgsValidator> =
       DefaultArgsForOptionalValidator<ArgsValidator>,
@@ -490,6 +495,7 @@ export type {
   FunctionReferenceFromExport,
   FunctionArgs,
   FunctionPartitionPolicy,
+  FunctionPartitionRootPolicy,
   FunctionRouteMap,
   FunctionRoutePolicy,
   FunctionReturnType,

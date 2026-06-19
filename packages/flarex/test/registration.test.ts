@@ -63,6 +63,12 @@ const userPartition = {
   argField: "userId",
 } as const;
 
+const userPartitionRoot = {
+  type: "partitionRoot",
+  table: "users",
+  partitionField: "_id",
+} as const;
+
 describe("Convex-style function registration", () => {
   it("attaches exclusive function kind and visibility markers", () => {
     const functions = [
@@ -168,5 +174,24 @@ describe("Convex-style function registration", () => {
     });
 
     expect(fn.partition).toEqual(userPartition);
+  });
+
+  it("accepts root partition metadata and narrows mutation writer tables", () => {
+    const fn = scopedMutation({
+      partition: userPartitionRoot,
+      args: { userId: v.id("users"), lessonId: v.string() },
+      handler: async (ctx, args) => {
+        await ctx.db.insert("lessonProgress", {
+          userId: args.userId,
+          lessonId: args.lessonId,
+        });
+        // @ts-expect-error leaderboard is not colocated with the users partition scope.
+        await ctx.db.insert("leaderboard", { userId: args.userId, score: 1 });
+      },
+    });
+
+    expect(fn.partition).toEqual(userPartitionRoot);
+    expect(JSON.parse(fn.exportPartition())).toEqual(userPartitionRoot);
+    expect(JSON.parse(fn.exportRoute())).toBeNull();
   });
 });
