@@ -767,3 +767,62 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1
 corepack pnpm --filter flarex-backend build
 ```
+
+## Explicit Placement Constructor Cleanup
+
+Previous completed checkpoint: `75b84c8` Remove direct deployment metadata
+routes.
+
+The schema placement API is now centered on explicit constructors:
+
+```ts
+definePartitionTable({ name: v.string() });
+defineColocatedTable("users", "userId", { userId: v.id("users") });
+defineGlobalTable({ message: v.string() });
+```
+
+The old public chain placement methods were removed from `TableDefinition`:
+
+- `.partitionBy(...)`
+- `.colocateWith(...)`
+- `.global()`
+
+This records the current design choice: partition roots are `_id` roots for
+now. Natural-key partition roots such as `partitionBy("slug")` stay out of the
+public API until we have a stronger uniqueness and routing story.
+
+Convex references:
+
+- `crates/common/src/schemas/mod.rs`
+  schema metadata is authoritative backend validation input.
+- `crates/value/src/document_id.rs`
+  document ids carry table identity.
+- `crates/database/src/transaction.rs`
+  writes are validated against active schema and transaction state.
+
+Cloudflare difference: Convex can preserve a simpler `defineTable(...)`
+mental model because one logical database owns OCC. Flarex needs table
+placement to be explicit because it decides which `PartitionDO` owns writes.
+
+Remaining limitations:
+
+- Backend deployment metadata still has a compatibility `route` field that is
+  now always emitted as `null` by dev analysis.
+- Cross-shard mutation ergonomics remain a separate roadmap item; this cleanup
+  only hardens the single-shard/root-placement public API.
+- Plain unplaced `defineTable(...)` remains available as a low-level schema
+  building block, but app-facing placement examples should use the explicit
+  constructors.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+```

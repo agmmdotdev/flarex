@@ -169,14 +169,14 @@ describe("FlarexClient", () => {
     expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
-  it("does not infer invoke partitions from route-only metadata", async () => {
+  it("does not infer invoke partitions without partition metadata", async () => {
     const client = new FlarexClient("https://example.test", {
       fetch: async () => Response.json({ value: null }),
     });
 
     expect(() =>
       client.query(
-        { _path: "lessons:list", _kind: "query", _route: { type: "args", field: "userId" } },
+        { _path: "lessons:list", _kind: "query" },
         { userId: "user-1" },
       ),
     ).toThrow(

@@ -1831,3 +1831,47 @@ corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1
 ```
+
+## Route API Removal
+
+Previous completed checkpoint: `75b84c8` Remove direct deployment metadata
+routes.
+
+The routing model is now partition-first at the SDK boundary:
+
+- generated function references may carry `_partition`,
+- callers infer existing-root partition keys from `_partition.argField`,
+- create-root mutations omit a partition key and let the backend allocate the
+  root id, and
+- the old public route metadata path is gone from `flarex/server`,
+  `flarex/api`, generated server files, generated API files, analyzer output,
+  and codegen metadata.
+
+Backend compatibility still stores `route: null` in the analyzed push payload
+shape for now so deployment metadata can be simplified separately without
+mixing storage migration into the SDK cleanup.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  clients call generated function references without route policies.
+- `npm-packages/convex/src/server/registration.ts`
+  function registration is the metadata boundary.
+- `crates/function_runner/src/lib.rs`
+  backend execution owns the concrete transaction context.
+
+Cloudflare difference: Flarex still needs explicit partition metadata because
+Durable Object routing must happen before execution. The removed piece is only
+the redundant route API; shard selection is now expressed through `model.*`
+partition metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```

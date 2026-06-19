@@ -192,6 +192,5 @@ describe("Convex-style function registration", () => {
 
     expect(fn.partition).toEqual(userPartitionRoot);
     expect(JSON.parse(fn.exportPartition())).toEqual(userPartitionRoot);
-    expect(JSON.parse(fn.exportRoute())).toBeNull();
   });
 });

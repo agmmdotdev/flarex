@@ -4,16 +4,14 @@ import {
   defineGlobalTable,
   definePartitionTable,
   defineSchema,
-  defineTable,
   v,
 } from "../src";
 
 describe("schema builders", () => {
   it("records partition placement and indexes", () => {
     const schema = defineSchema({
-      users: defineTable({ name: v.string() }).partitionBy("_id"),
-      progress: defineTable({ userId: v.id("users") })
-        .colocateWith("users", "userId")
+      users: definePartitionTable({ name: v.string() }),
+      progress: defineColocatedTable("users", "userId", { userId: v.id("users") })
         .index("by_user", ["userId"]),
     });
 
@@ -26,7 +24,7 @@ describe("schema builders", () => {
 
   it("records global placement explicitly", () => {
     const schema = defineSchema({
-      catalog: defineTable({ sku: v.string() }).global(),
+      catalog: defineGlobalTable({ sku: v.string() }),
     });
 
     expect(schema.tables.catalog).toMatchObject({

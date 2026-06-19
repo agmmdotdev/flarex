@@ -91,8 +91,8 @@ describe("runtime materializer", () => {
     const created = await invoke(harness, deploymentId, {
       path: "messages:create",
       kind: "mutation",
-      partitionKey: "lesson:1",
-      args: { lessonId: "lesson:1", text: "hello" },
+      partitionKey: "1:lesson",
+      args: { lessonId: "1:lesson", text: "hello" },
     });
     const createBody = await created.json() as {
       value: { id: string };
@@ -100,18 +100,18 @@ describe("runtime materializer", () => {
       writes: Array<{ value: { lessonId: string; text: string; done: boolean } }>;
     };
     expect({ status: created.status, body: createBody }).toMatchObject({ status: 200 });
-    expect(createBody.value.id).toMatch(/^1:/);
+    expect(createBody.value.id).toMatch(/^2:/);
     expect(createBody.writes).toEqual([
       expect.objectContaining({
-        value: { lessonId: "lesson:1", text: "hello", done: true },
+        value: { lessonId: "1:lesson", text: "hello", done: true },
       }),
     ]);
 
     const listed = await invoke(harness, deploymentId, {
       path: "messages:list",
       kind: "query",
-      partitionKey: "lesson:1",
-      args: { lessonId: "lesson:1" },
+      partitionKey: "1:lesson",
+      args: { lessonId: "1:lesson" },
     });
     const listBody = await listed.json();
     expect({ status: listed.status, body: listBody }).toMatchObject({ status: 200 });
@@ -119,7 +119,7 @@ describe("runtime materializer", () => {
       value: [
         {
           _id: createBody.value.id,
-          lessonId: "lesson:1",
+          lessonId: "1:lesson",
           text: "hello",
           done: true,
         },
@@ -210,15 +210,18 @@ async function createProject(): Promise<string> {
   await mkdir(path.join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     path.join(root, "flarex/schema.ts"),
-    `import { defineSchema, defineTable } from "flarex/server";
+    `import { defineColocatedTable, definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 
 export default defineSchema({
-  messages: defineTable({
-    lessonId: v.string(),
+  lessons: definePartitionTable({
+    title: v.string(),
+  }),
+  messages: defineColocatedTable("lessons", "lessonId", {
+    lessonId: v.id("lessons"),
     text: v.string(),
     done: v.boolean(),
-  }).index("by_lesson_text", ["lessonId", "text"]).partitionBy("lessonId"),
+  }).index("by_lesson_text", ["lessonId", "text"]),
 });
 `,
   );
@@ -228,8 +231,8 @@ export default defineSchema({
 import { v } from "flarex/values";
 
 export const create = mutation({
-  partition: model.messages.byLessonId("lessonId"),
-  args: { lessonId: v.string(), text: v.string() },
+  partition: model.lessons,
+  args: { lessonId: v.id("lessons"), text: v.string() },
   returns: v.object({ id: v.id("messages") }),
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("messages", { lessonId: args.lessonId, text: args.text, done: false });
@@ -239,8 +242,8 @@ export const create = mutation({
 });
 
 export const list = query({
-  partition: model.messages.byLessonId("lessonId"),
-  args: { lessonId: v.string() },
+  partition: model.lessons,
+  args: { lessonId: v.id("lessons") },
   handler: async (ctx, args) => {
     return await ctx.db.query("messages").withIndex("by_lesson_text", q => q.eq("lessonId", args.lessonId).eq("text", "hello")).collect();
   },

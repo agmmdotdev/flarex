@@ -1921,3 +1921,58 @@ corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex exec vitest run test/client.test.ts --maxWorkers=1
 corepack pnpm --filter flarex build
 ```
+
+### Remove Legacy SDK Route APIs
+
+Previous completed checkpoint: `75b84c8` Remove direct deployment metadata
+routes.
+
+The public SDK no longer exposes the old route policy surface:
+
+- `routeFromArgs(...)` is no longer generated or exported from
+  `_generated/server.ts`.
+- `FunctionReference` no longer carries `_route`.
+- `makeFunctionReference(...)` and `createApi(...)` only use generated
+  `_partition` metadata for routing inference.
+- unpartitioned functions do not emit client metadata entries just to preserve
+  route information.
+
+The schema SDK also moved away from chain-based placement methods for the
+public path:
+
+```ts
+definePartitionTable({ name: v.string() });
+defineColocatedTable("users", "userId", { userId: v.id("users") });
+defineGlobalTable({ message: v.string() });
+```
+
+This keeps app code closer to the current Flarex mental model: root tables are
+Durable Object partitions, colocated tables live under a root partition, and
+global tables are intentionally separate.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  function builders carry validators and execution metadata with the handler.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  generated API references are the stable public call surface.
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+  generated server files expose the app-facing builder APIs.
+
+Cloudflare difference: Convex does not need generated partition metadata
+because routing is hidden behind one logical transactional database. Flarex
+keeps generated `_partition` metadata because the client/backend must route to
+the correct `PartitionDO`, but it no longer exposes a second route API.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter @flarex/example test
+```

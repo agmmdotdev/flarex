@@ -318,7 +318,7 @@ function validatePartitionPolicyAgainstSchema(
   if (partition.selector !== expectedSelector) {
     throw new HttpError(
       400,
-      `PartitionValidationError: ${path} expected partition selector ${expectedSelector} for ${partition.table}.partitionBy(${JSON.stringify(table.placement.field)}).`,
+      `PartitionValidationError: ${path} expected partition selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
     );
   }
 }

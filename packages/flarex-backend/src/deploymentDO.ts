@@ -587,7 +587,7 @@ function validateFunctionPartitions(
     if (partition.selector !== expectedSelector) {
       throw new HttpError(
         400,
-        `${metadata.path}.partition: Expected selector ${expectedSelector} for ${partition.table}.partitionBy(${JSON.stringify(table.placement.field)}).`,
+        `${metadata.path}.partition: Expected selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
       );
     }
     if (!validatorHasRequiredField(metadata.args ?? null, partition.argField)) {

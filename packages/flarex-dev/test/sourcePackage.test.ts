@@ -56,7 +56,7 @@ describe("Flarex source packages", () => {
               name: { fieldType: { type: "string" }, optional: false },
             },
           },
-          placement: { kind: "partitionBy", field: "name" },
+          placement: { kind: "partitionBy", field: "_id" },
         },
       ],
       indexes: [
@@ -80,9 +80,9 @@ describe("Flarex source packages", () => {
 
     await writeFile(
       path.join(root, "flarex/schema.ts"),
-      `import { defineSchema, defineTable } from "flarex/server";
+      `import { defineGlobalTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
-export default defineSchema({ spoofed: defineTable({ value: v.number() }).global() });
+export default defineSchema({ spoofed: defineGlobalTable({ value: v.number() }) });
 `,
     );
     await finalCodegen(context, analysis);
@@ -133,10 +133,10 @@ async function createProject(): Promise<string> {
   await mkdir(path.join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     path.join(root, "flarex/schema.ts"),
-    `import { defineSchema, defineTable } from "flarex/server";
+    `import { definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 export default defineSchema({
-  users: defineTable({ name: v.string() }).index("by_name", ["name"]).partitionBy("name"),
+  users: definePartitionTable({ name: v.string() }).index("by_name", ["name"]),
 });
 `,
   );

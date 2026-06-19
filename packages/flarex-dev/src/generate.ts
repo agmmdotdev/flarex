@@ -81,7 +81,6 @@ import {
   internalQueryGeneric,
   mutationGeneric,
   queryGeneric,
-  routeFromArgs,
   workflowMutationGeneric,
   type ActionBuilder,
   type ActionCtx as GenericActionCtx,
@@ -118,7 +117,6 @@ export const workflowMutation: MutationBuilder<
   PartitionScopes
 >;
 export const action = actionGeneric as unknown as ActionBuilder<DataModel, "public">;
-export { routeFromArgs };
 
 ${modelSource}
 
@@ -144,7 +142,6 @@ function functionMetadataSource(modules: AnalyzedModule[]): string {
       visibility: fn.visibility,
       args: fn.args,
       returns: fn.returns,
-      route: fn.route ?? null,
       partition: runnablePartition(fn),
       ...(fn.position === undefined ? {} : { position: fn.position }),
     })),
@@ -158,7 +155,6 @@ export type FunctionMetadata = {
   visibility: "public" | "internal";
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
-  route: { type: "args"; field: string } | null;
   partition: {
     type: "partition";
     table: string;
@@ -666,18 +662,10 @@ function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, u
     modules.flatMap(module =>
       module.functions.flatMap(fn => {
         const partition = runnablePartition(fn);
-        if (
-          (fn.route === null || fn.route === undefined) &&
-          partition === null
-        ) {
-          return [];
-        }
+        if (partition === null) return [];
         return [[
           functionPath(fn),
-          {
-            route: fn.route ?? null,
-            partition,
-          },
+          { partition },
         ]];
       }),
     ),

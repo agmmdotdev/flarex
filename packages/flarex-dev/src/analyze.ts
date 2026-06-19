@@ -19,12 +19,10 @@ export type AnalyzedFunction = {
   visibility: "public" | "internal";
   args: ValidatorJSON;
   returns: ValidatorJSON | null;
-  route?: AnalyzedFunctionRoutePolicy | null;
   partition?: ParsedFunctionPartitionPolicy | null;
   position?: AnalyzedSourcePosition;
 };
 
-export type AnalyzedFunctionRoutePolicy = { type: "args"; field: string };
 export type AnalyzedFunctionPartitionPolicy = {
   type: "partition";
   table: string;
@@ -333,7 +331,6 @@ function analyzeExport(
     visibility,
     args: parseArgsValidator(value, identifier),
     returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
-    route: parseRouteExport(value, identifier),
     partition: parsePartitionExport(value, identifier),
     ...(position === undefined ? {} : { position }),
   };
@@ -355,12 +352,6 @@ function validateFunctionPartitions(modules: AnalyzedModule[], schema: AnalyzedS
       }
       if (partition.type === "partitionRoot") {
         fn.partition = lowerRootPartition(fn, partition, table, path);
-        if (
-          fn.partition.type === "partition" &&
-          (fn.route === null || fn.route === undefined)
-        ) {
-          fn.route = { type: "args", field: fn.partition.argField };
-        }
         continue;
       }
       if (partition.type === "partitionCreateRoot") {
@@ -379,21 +370,11 @@ function validateFunctionPartitions(modules: AnalyzedModule[], schema: AnalyzedS
       const expectedSelector = selectorNameForPartitionField(table.placement.field);
       if (partition.selector !== expectedSelector) {
         throw new Error(
-          `${path}.partition: Expected selector ${expectedSelector} for ${partition.table}.partitionBy(${JSON.stringify(table.placement.field)}).`,
+          `${path}.partition: Expected selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
         );
       }
       if (!validatorHasRequiredField(fn.args, partition.argField)) {
         throw new Error(`${path}.partition: args.${partition.argField} is not a required argument.`);
-      }
-      if (
-        fn.route !== null &&
-        fn.route !== undefined &&
-        fn.route.type === "args" &&
-        fn.route.field !== partition.argField
-      ) {
-        throw new Error(
-          `${path}.partition: partition argument ${partition.argField} must match route argument ${fn.route.field}.`,
-        );
       }
     }
   }
@@ -416,11 +397,6 @@ function lowerRootPartition(
   const idArgs = requiredIdArgsForTable(fn.args, partition.table);
   if (idArgs.length === 0) {
     if (fn.kind === "mutation" || fn.kind === "workflowMutation") {
-      if (fn.route !== null && fn.route !== undefined) {
-        throw new Error(
-          `${path}.partition: create-root mode for model.${partition.table} cannot declare a route until backend root id preallocation exists.`,
-        );
-      }
       return {
         type: "partitionCreateRoot",
         table: partition.table,
@@ -437,16 +413,6 @@ function lowerRootPartition(
     );
   }
   const argField = idArgs[0]!;
-  if (
-    fn.route !== null &&
-    fn.route !== undefined &&
-    fn.route.type === "args" &&
-    fn.route.field !== argField
-  ) {
-    throw new Error(
-      `${path}.partition: partition argument ${argField} must match route argument ${fn.route.field}.`,
-    );
-  }
   return {
     type: "partition",
     table: partition.table,
@@ -613,32 +579,6 @@ function parseArgsValidator(value: RuntimeFunction, identifier: string): Validat
   return validator;
 }
 
-function parseRouteExport(value: RuntimeFunction, identifier: string): AnalyzedFunctionRoutePolicy | null {
-  const candidate = value as Record<string, unknown>;
-  const exporter = "exportRoute" in candidate ? candidate.exportRoute : undefined;
-  if (exporter === undefined) return null;
-  if (typeof exporter !== "function") {
-    throw new Error(`${identifier}.exportRoute is not a function or \`undefined\`.`);
-  }
-
-  const serialized = exporter.call(value);
-  if (typeof serialized !== "string") {
-    throw new Error(
-      `Invalid exportRoute return value: ${identifier}.exportRoute() didn't return a string.`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(serialized);
-  } catch (error) {
-    throw new Error(
-      `Invalid JSON returned from ${identifier}.exportRoute(): ${errorMessage(error)}`,
-    );
-  }
-  return assertRoutePolicy(parsed, `${identifier}.exportRoute()`);
-}
-
 function parsePartitionExport(
   value: RuntimeFunction,
   identifier: string,
@@ -666,15 +606,6 @@ function parsePartitionExport(
     );
   }
   return assertPartitionPolicy(parsed, `${identifier}.exportPartition()`);
-}
-
-function assertRoutePolicy(value: unknown, path: string): AnalyzedFunctionRoutePolicy | null {
-  if (value === null) return null;
-  if (!isRecord(value)) throw new Error(`${path}: Invalid route policy.`);
-  if (value.type === "args" && typeof value.field === "string" && value.field.length > 0) {
-    return { type: "args", field: value.field };
-  }
-  throw new Error(`${path}: Invalid route policy.`);
 }
 
 function assertPartitionPolicy(

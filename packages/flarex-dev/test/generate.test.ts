@@ -12,12 +12,11 @@ describe("generateFlarex", () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/functions/messages.ts"),
-      `import { internalQuery, mutation, query, routeFromArgs } from "../_generated/server";
+      `import { internalQuery, mutation, query } from "../_generated/server";
 import { v } from "flarex/values";
 const listImpl = query({
   args: { topic: v.string() },
   returns: v.array(v.string()),
-  route: routeFromArgs("topic"),
   handler: async () => [],
 });
 Object.assign(listImpl, {
@@ -60,9 +59,7 @@ export const helper = "not a function";
     expect(api).toContain('import type * as module0 from "../functions/messages"');
     expect(api).toContain('import type * as module1 from "../functions/reexports"');
     expect(api).toContain('createApi({');
-    expect(api).toContain('"messages:list": {');
-    expect(api).toContain('"route": {');
-    expect(api).toContain('"field": "topic"');
+    expect(api).toContain('createApi({})');
     expect(dataModel).toContain("DataModelFromSchemaDefinition<typeof schema>");
     expect(server).toContain('QueryBuilder<DataModel, "public">');
     expect(registry).toContain('"messages:list": module0.list');
@@ -79,8 +76,6 @@ export const helper = "not a function";
     expect(functionMetadata).toContain('"kind": "query"');
     expect(functionMetadata).toContain('"visibility": "public"');
     expect(functionMetadata).toContain('"topic"');
-    expect(functionMetadata).toContain('"route": {');
-    expect(functionMetadata).toContain('"field": "topic"');
     expect(functionMetadata).toContain('"type": "array"');
     expect(functionMetadata).not.toContain("spoofed");
     expect(deploymentSchema).toContain("export const deploymentSchema");
@@ -117,35 +112,31 @@ export default query({ args: {}, handler: async () => null });
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/schema.ts"),
-      `import { defineSchema, defineTable } from "flarex/server";
+      `import { defineColocatedTable, defineGlobalTable, definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 
 export default defineSchema({
-  users: defineTable({
+  users: definePartitionTable({
     name: v.string(),
-  }).partitionBy("_id"),
-  teams: defineTable({
-    slug: v.string(),
-    name: v.string(),
-  }).partitionBy("slug"),
-  teamMembers: defineTable({
-    teamSlug: v.string(),
+  }),
+  teamMembers: defineColocatedTable("users", "userId", {
     userId: v.id("users"),
-  }).colocateWith("teams", "teamSlug"),
-  auditLog: defineTable({
+    role: v.string(),
+  }),
+  auditLog: defineGlobalTable({
     message: v.string(),
-  }).global(),
+  }),
 });
 `,
     );
     await writeFile(
-      path.join(root, "flarex/functions/teams.ts"),
+      path.join(root, "flarex/functions/users.ts"),
       `import { model, mutation } from "../_generated/server";
 import { v } from "flarex/values";
 
 export const create = mutation({
-  args: { teamSlug: v.string(), name: v.string() },
-  partition: model.teams.bySlug("teamSlug"),
+  args: { userId: v.id("users"), role: v.string() },
+  partition: model.users,
   handler: async () => null,
 });
 `,
@@ -163,30 +154,23 @@ export const create = mutation({
     expect(server).toContain('table: "users"');
     expect(server).toContain('selector: "byId"');
     expect(server).toContain('partitionField: "_id"');
-    expect(server).toContain("teams: {");
-    expect(server).toContain('table: "teams"');
-    expect(server).toContain("bySlug: (argField: string) => ({");
-    expect(server).toContain('selector: "bySlug"');
-    expect(server).toContain('partitionField: "slug"');
+    expect(server).not.toContain("bySlug");
     expect(server).toContain("export type PartitionScopes = {");
-    expect(server).toContain('users: "users";');
-    expect(server).toContain('teams: "teamMembers" | "teams";');
+    expect(server).toContain('users: "teamMembers" | "users";');
     expect(server).not.toContain('auditLog: "auditLog";');
     expect(server).toContain('MutationBuilder<DataModel, "public", "mutation", PartitionScopes>');
-    expect(functionMetadata).toContain('"path": "teams:create"');
-    expect(functionMetadata).toContain('"route": {');
-    expect(functionMetadata).toContain('"field": "teamSlug"');
+    expect(functionMetadata).toContain('"path": "users:create"');
     expect(functionMetadata).toContain('"partition": {');
-    expect(functionMetadata).toContain('"table": "teams"');
-    expect(functionMetadata).toContain('"selector": "bySlug"');
-    expect(functionMetadata).toContain('"partitionField": "slug"');
-    expect(functionMetadata).toContain('"argField": "teamSlug"');
-    expect(api).toContain('"teams:create": {');
+    expect(functionMetadata).toContain('"table": "users"');
+    expect(functionMetadata).toContain('"selector": "byId"');
+    expect(functionMetadata).toContain('"partitionField": "_id"');
+    expect(functionMetadata).toContain('"argField": "userId"');
+    expect(api).toContain('"users:create": {');
     expect(api).toContain('"partition": {');
-    expect(api).toContain('"table": "teams"');
-    expect(api).toContain('"selector": "bySlug"');
-    expect(api).toContain('"partitionField": "slug"');
-    expect(api).toContain('"argField": "teamSlug"');
+    expect(api).toContain('"table": "users"');
+    expect(api).toContain('"selector": "byId"');
+    expect(api).toContain('"partitionField": "_id"');
+    expect(api).toContain('"argField": "userId"');
   });
 
   it("lowers model table root partitions from exactly one root id argument", async () => {
@@ -229,8 +213,6 @@ export const rename = mutation({
     const functionMetadata = await readGenerated(root, "functionMetadata.ts");
 
     expect(functionMetadata).toContain('"path": "users:rename"');
-    expect(functionMetadata).toContain('"route": {');
-    expect(functionMetadata).toContain('"field": "userId"');
     expect(functionMetadata).toContain('"partition": {');
     expect(functionMetadata).toContain('"table": "users"');
     expect(functionMetadata).toContain('"selector": "byId"');
@@ -323,14 +305,14 @@ export const create = mutation({
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/schema.ts"),
-      `import { defineSchema, defineTable } from "flarex/server";
+      `import { definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 
 export default defineSchema({
-  teams: defineTable({
+  teams: definePartitionTable({
     slug: v.string(),
     name: v.string(),
-  }).partitionBy("slug"),
+  }),
 });
 `,
     );
@@ -341,14 +323,20 @@ import { v } from "flarex/values";
 
 export const create = mutation({
   args: { teamId: v.id("teams"), name: v.string() },
-  partition: model.teams.byId("teamId"),
+  partition: {
+    type: "partition",
+    table: "teams",
+    selector: "bySlug",
+    partitionField: "slug",
+    argField: "teamId",
+  },
   handler: async () => null,
 });
 `,
     );
 
     await expect(generateFlarex({ root })).rejects.toThrow(
-      "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug.",
+      "teams:create.partition: Selector bySlug targets slug, but teams is partitioned by _id.",
     );
   });
 

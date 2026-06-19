@@ -52,21 +52,6 @@ export class TableDefinition<
     return this as never;
   }
 
-  partitionBy(field: DocumentValidator["fieldPaths"] | "_id"): this {
-    this.placement = { kind: "partitionBy", field };
-    return this;
-  }
-
-  colocateWith(table: string, field: DocumentValidator["fieldPaths"]): this {
-    this.placement = { kind: "colocateWith", table, field };
-    return this;
-  }
-
-  global(): this {
-    this.placement = { kind: "global" };
-    return this;
-  }
-
   build() {
     return this;
   }
@@ -113,7 +98,9 @@ export function definePartitionTable<DocumentValidator extends Validator<Record<
 export function definePartitionTable(
   value: PropertyValidators | Validator<Record<string, any>, "required", any>,
 ) {
-  return defineTable(value as never).partitionBy("_id");
+  const table = defineTable(value as never);
+  table.placement = { kind: "partitionBy", field: "_id" };
+  return table;
 }
 
 export function defineColocatedTable<
@@ -137,7 +124,9 @@ export function defineColocatedTable(
   field: string,
   value: PropertyValidators | Validator<Record<string, any>, "required", any>,
 ) {
-  return defineTable(value as never).colocateWith(table, field as never);
+  const definition = defineTable(value as never);
+  definition.placement = { kind: "colocateWith", table, field };
+  return definition;
 }
 
 export function defineGlobalTable<Fields extends PropertyValidators>(
@@ -149,7 +138,9 @@ export function defineGlobalTable<DocumentValidator extends Validator<Record<str
 export function defineGlobalTable(
   value: PropertyValidators | Validator<Record<string, any>, "required", any>,
 ) {
-  return defineTable(value as never).global();
+  const table = defineTable(value as never);
+  table.placement = { kind: "global" };
+  return table;
 }
 
 function isPropertyValidators(

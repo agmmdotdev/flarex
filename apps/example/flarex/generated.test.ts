@@ -18,7 +18,6 @@ describe("generated Flarex API", () => {
       argField: "userId",
     });
     expect(api.lessons.list._partition).toEqual(api.lessons.complete._partition);
-    expect(api.lessons.list._route).toEqual({ type: "args", field: "userId" });
   });
 
   it("generates document types from the schema", () => {

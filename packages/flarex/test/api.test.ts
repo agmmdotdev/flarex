@@ -55,13 +55,11 @@ describe("Convex-compatible function references", () => {
     const reference = makeFunctionReference<"mutation">(
       "lessons:complete",
       "mutation",
-      { type: "args", field: "userId" },
       userPartition,
     );
     expect(reference).toMatchObject({
       _path: "lessons:complete",
       _kind: "mutation",
-      _route: { type: "args", field: "userId" },
       _partition: userPartition,
     });
   });
@@ -69,20 +67,11 @@ describe("Convex-compatible function references", () => {
   it("attaches generated partition metadata to api references", () => {
     const api = createApi({
       "lessons:complete": {
-        route: { type: "args", field: "userId" },
         partition: userPartition,
       },
     });
-    expect(api.lessons.complete._route).toEqual({ type: "args", field: "userId" });
     expect(api.lessons.complete._partition).toEqual(userPartition);
-    expect(api.lessons.list._route).toBeNull();
     expect(api.lessons.list._partition).toBeNull();
-  });
-
-  it("keeps old route maps readable as compatibility metadata", () => {
-    const api = createApi({ "lessons:complete": { type: "args", field: "userId" } });
-    expect(api.lessons.complete._route).toEqual({ type: "args", field: "userId" });
-    expect(api.lessons.complete._partition).toBeNull();
   });
 
   it("derives generated reference argument and return types", () => {

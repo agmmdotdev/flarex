@@ -187,13 +187,13 @@ async function createProject(options: { topLevelSource?: string } = {}): Promise
   await mkdir(path.join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     path.join(root, "flarex/schema.ts"),
-    `import { defineSchema, defineTable } from "flarex/server";
+    `import { definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 export default defineSchema({
-  users: defineTable({
+  users: definePartitionTable({
     name: v.string(),
     score: v.optional(v.number()),
-  }).index("by_name", ["name"]).partitionBy("name"),
+  }).index("by_name", ["name"]),
 });
 `,
   );

@@ -442,7 +442,6 @@ function analyzeExport(moduleName, exportName, value, positionFor) {
     visibility,
     args: parseArgsValidator(value, identifier),
     returns: parseValidatorExport(value, "exportReturns", identifier, null, true),
-    route: parseRouteExport(value, identifier),
     partition: parsePartitionExport(value, identifier),
     ...(position === undefined ? {} : { position }),
   };
@@ -464,12 +463,6 @@ function validateFunctionPartitions(modules, schema) {
       }
       if (partition.type === "partitionRoot") {
         fn.partition = lowerRootPartition(fn, partition, table, path);
-        if (
-          fn.partition.type === "partition" &&
-          (fn.route === null || fn.route === undefined)
-        ) {
-          fn.route = { type: "args", field: fn.partition.argField };
-        }
         continue;
       }
       if (partition.type === "partitionCreateRoot") {
@@ -488,21 +481,11 @@ function validateFunctionPartitions(modules, schema) {
       const expectedSelector = selectorNameForPartitionField(table.placement.field);
       if (partition.selector !== expectedSelector) {
         throw new Error(
-          \`\${path}.partition: Expected selector \${expectedSelector} for \${partition.table}.partitionBy(\${JSON.stringify(table.placement.field)}).\`,
+          \`\${path}.partition: Expected selector \${expectedSelector} for \${partition.table} partition field \${JSON.stringify(table.placement.field)}.\`,
         );
       }
       if (!validatorHasRequiredField(fn.args, partition.argField)) {
         throw new Error(\`\${path}.partition: args.\${partition.argField} is not a required argument.\`);
-      }
-      if (
-        fn.route !== null &&
-        fn.route !== undefined &&
-        fn.route.type === "args" &&
-        fn.route.field !== partition.argField
-      ) {
-        throw new Error(
-          \`\${path}.partition: partition argument \${partition.argField} must match route argument \${fn.route.field}.\`,
-        );
       }
     }
   }
@@ -520,11 +503,6 @@ function lowerRootPartition(fn, partition, table, path) {
   const idArgs = requiredIdArgsForTable(fn.args, partition.table);
   if (idArgs.length === 0) {
     if (fn.kind === "mutation" || fn.kind === "workflowMutation") {
-      if (fn.route !== null && fn.route !== undefined) {
-        throw new Error(
-          \`\${path}.partition: create-root mode for model.\${partition.table} cannot declare a route until backend root id preallocation exists.\`,
-        );
-      }
       return {
         type: "partitionCreateRoot",
         table: partition.table,
@@ -541,16 +519,6 @@ function lowerRootPartition(fn, partition, table, path) {
     );
   }
   const argField = idArgs[0];
-  if (
-    fn.route !== null &&
-    fn.route !== undefined &&
-    fn.route.type === "args" &&
-    fn.route.field !== argField
-  ) {
-    throw new Error(
-      \`\${path}.partition: partition argument \${argField} must match route argument \${fn.route.field}.\`,
-    );
-  }
   return {
     type: "partition",
     table: partition.table,
@@ -700,29 +668,6 @@ function parseArgsValidator(value, identifier) {
   return validator;
 }
 
-function parseRouteExport(value, identifier) {
-  const exporter = "exportRoute" in value ? value.exportRoute : undefined;
-  if (exporter === undefined) return null;
-  if (typeof exporter !== "function") {
-    throw new Error(\`\${identifier}.exportRoute is not a function or \\\`undefined\\\`.\`);
-  }
-  const serialized = exporter.call(value);
-  if (typeof serialized !== "string") {
-    throw new Error(
-      \`Invalid exportRoute return value: \${identifier}.exportRoute() didn't return a string.\`,
-    );
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(serialized);
-  } catch (error) {
-    throw new Error(
-      \`Invalid JSON returned from \${identifier}.exportRoute(): \${errorMessage(error)}\`,
-    );
-  }
-  return assertRoutePolicy(parsed, \`\${identifier}.exportRoute()\`);
-}
-
 function parsePartitionExport(value, identifier) {
   const exporter = "exportPartition" in value ? value.exportPartition : undefined;
   if (exporter === undefined) return null;
@@ -746,15 +691,6 @@ function parsePartitionExport(value, identifier) {
     );
   }
   return assertPartitionPolicy(parsed, \`\${identifier}.exportPartition()\`);
-}
-
-function assertRoutePolicy(value, path) {
-  if (value === null) return null;
-  if (!isRecord(value)) throw new Error(\`\${path}: Invalid route policy.\`);
-  if (value.type === "args" && typeof value.field === "string" && value.field.length > 0) {
-    return { type: "args", field: value.field };
-  }
-  throw new Error(\`\${path}: Invalid route policy.\`);
 }
 
 function assertPartitionPolicy(value, path) {

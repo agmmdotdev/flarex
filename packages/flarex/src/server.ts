@@ -22,7 +22,6 @@ import type {
   FunctionPartitionPolicy,
   FunctionPartitionRootPolicy,
   FunctionReference,
-  FunctionRoutePolicy,
   FunctionType,
   FunctionVisibility,
 } from "./api";
@@ -34,12 +33,7 @@ export type FunctionArgsValidator =
 export type FunctionKind = FunctionType;
 export type DefaultFunctionArgs = Record<string, unknown>;
 
-export function routeFromArgs(field: string): FunctionRoutePolicy {
-  if (field.length === 0) throw new Error("routeFromArgs field must be non-empty.");
-  return { type: "args", field };
-}
-
-type FunctionPartitionInput = FunctionRoutePolicy | FunctionPartitionInputPolicy;
+type FunctionPartitionInput = FunctionPartitionInputPolicy;
 
 type TableFromId<Identifier> = Identifier extends Id<infer Table> ? Table : never;
 
@@ -137,12 +131,10 @@ export type RegisteredFunction<
   readonly visibility: Visibility;
   readonly args: FunctionArgsValidator;
   readonly returns: DefinedReturnValidator | null;
-  readonly route: FunctionRoutePolicy | null;
   readonly partition: FunctionPartitionInputPolicy | null;
   readonly handler: (ctx: never, args: never) => ReturnType;
   readonly exportArgs: () => string;
   readonly exportReturns: () => string;
-  readonly exportRoute: () => string;
   readonly exportPartition: () => string;
   readonly _handler: (ctx: never, args: never) => ReturnType;
   readonly __args?: Args;
@@ -193,7 +185,6 @@ type FunctionDefinition<Ctx> =
   | {
       args?: FunctionArgsValidator;
       returns?: DefinedReturnValidator;
-      route?: FunctionRoutePolicy;
       partition?: FunctionPartitionInput;
       handler: (ctx: Ctx, args: DefaultFunctionArgs) => unknown;
     };
@@ -228,16 +219,6 @@ function exportReturns(functionDefinition: FunctionDefinition<unknown>): () => s
   };
 }
 
-function exportRoute(functionDefinition: FunctionDefinition<unknown>): () => string {
-  return () => {
-    const route =
-      typeof functionDefinition === "object"
-        ? functionDefinition.route ?? routeFromPartition(functionDefinition.partition)
-        : null;
-    return JSON.stringify(route, strictReplacer);
-  };
-}
-
 function exportPartition(functionDefinition: FunctionDefinition<unknown>): () => string {
   return () => {
     const partition =
@@ -249,15 +230,6 @@ function exportPartition(functionDefinition: FunctionDefinition<unknown>): () =>
         : null;
     return JSON.stringify(partition, strictReplacer);
   };
-}
-
-function routeFromPartition(
-  partition: FunctionPartitionInput | undefined,
-): FunctionRoutePolicy | null {
-  if (partition === undefined) return null;
-  if (partition.type === "args") return partition;
-  if (partition.type === "partitionRoot") return null;
-  return routeFromArgs(partition.argField);
 }
 
 function validatorJson(validator: FunctionArgsValidator | DefinedReturnValidator): unknown {
@@ -297,10 +269,6 @@ function register<
     typeof functionDefinition === "object" && functionDefinition.returns !== undefined
       ? functionDefinition.returns
       : null;
-  const route =
-    typeof functionDefinition === "object"
-      ? functionDefinition.route ?? routeFromPartition(functionDefinition.partition)
-      : null;
   const partition =
     typeof functionDefinition === "object" &&
     functionDefinition.partition !== undefined &&
@@ -315,13 +283,11 @@ function register<
     visibility,
     args,
     returns,
-    route,
     partition,
     handler,
     _handler: handler,
     exportArgs: exportArgs(functionDefinition as FunctionDefinition<unknown>),
     exportReturns: exportReturns(functionDefinition as FunctionDefinition<unknown>),
-    exportRoute: exportRoute(functionDefinition as FunctionDefinition<unknown>),
     exportPartition: exportPartition(functionDefinition as FunctionDefinition<unknown>),
     ...(kind === "query" ? { isQuery: true } : {}),
     ...(kind === "mutation" ? { isMutation: true } : {}),
@@ -352,7 +318,6 @@ export type QueryBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
-          route?: FunctionRoutePolicy;
           partition?: FunctionPartitionInput;
           handler: (ctx: QueryCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
@@ -377,7 +342,6 @@ export type MutationBuilder<
     mutation: {
       args?: ArgsValidator;
       returns?: ReturnsValidator;
-      route?: FunctionRoutePolicy;
       partition: Partition;
       handler: (
         ctx: MutationCtxForPartition<DataModel, Scopes, Partition>,
@@ -396,8 +360,6 @@ export type MutationBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
-          route?: FunctionRoutePolicy;
-          partition?: FunctionRoutePolicy | undefined;
           handler: (ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
       | ((ctx: MutationCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue),
@@ -419,7 +381,6 @@ export type ActionBuilder<
       | {
           args?: ArgsValidator;
           returns?: ReturnsValidator;
-          route?: FunctionRoutePolicy;
           partition?: FunctionPartitionInput;
           handler: (ctx: ActionCtx<DataModel>, ...args: OneOrZeroArgs) => ReturnValue;
         }
@@ -498,8 +459,6 @@ export type {
   FunctionPartitionPolicy,
   FunctionReferencePartitionPolicy,
   FunctionPartitionRootPolicy,
-  FunctionRouteMap,
-  FunctionRoutePolicy,
   FunctionReturnType,
   FunctionType,
   FunctionVisibility,
