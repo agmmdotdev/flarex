@@ -11,7 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@flarex/persistence-postgres": "workspace:*"
+    "@flarex/persistence-postgres": "workspace:*",
+    "flarex": "workspace:*"
   },
   "devDependencies": {
     "vite": "catalog:",

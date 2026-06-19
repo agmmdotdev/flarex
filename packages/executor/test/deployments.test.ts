@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  executionArtifactRefForSourcePackage,
+  type ArtifactSourcePackage,
+} from "flarex/artifacts";
 
 import {
   DeploymentPackageMismatchError,
@@ -21,10 +25,7 @@ describe("executor deployment behavior", () => {
       executor.registerDeploymentPackage({
         deploymentId: "deployment_package",
         projectId: "project_package",
-        packageId: "package_a",
-        sourcePackageHash: "a".repeat(64),
-        executionModule: "_flarex/execution.js",
-        sourcePackageJson: sourcePackageJson(),
+        sourcePackage: sourcePackage(),
         analysisJson: { functions: [] },
       }),
     ).resolves.toMatchObject({
@@ -32,14 +33,15 @@ describe("executor deployment behavior", () => {
       createdPackage: true,
       package: {
         deploymentId: "deployment_package",
-        packageId: "package_a",
-        sourcePackageHash: "a".repeat(64),
+        packageId: expect.stringMatching(/^artifact_[a-f0-9]{32}$/),
+        sourcePackageHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         executionModule: "_flarex/execution.js",
       },
     });
   });
 
   it("returns existing package registration idempotently", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
     const persistence = memoryPersistence(
       [
         deploymentMetadata({
@@ -50,9 +52,9 @@ describe("executor deployment behavior", () => {
       [
         deploymentPackageMetadata({
           deploymentId: "deployment_package",
-          packageId: "package_a",
-          sourcePackageHash: "a".repeat(64),
-          executionModule: "_flarex/execution.js",
+          packageId: ref.artifactId,
+          sourcePackageHash: ref.sourcePackageHash,
+          executionModule: ref.executionModule,
           sourcePackageJson: sourcePackageJson(),
         }),
       ],
@@ -63,22 +65,20 @@ describe("executor deployment behavior", () => {
       executor.registerDeploymentPackage({
         deploymentId: "deployment_package",
         projectId: "project_package",
-        packageId: "package_a",
-        sourcePackageHash: "a".repeat(64),
-        executionModule: "_flarex/execution.js",
-        sourcePackageJson: sourcePackageJson(),
+        sourcePackage: sourcePackage(),
       }),
     ).resolves.toMatchObject({
       createdDeployment: false,
       createdPackage: false,
       package: {
         deploymentId: "deployment_package",
-        packageId: "package_a",
+        packageId: ref.artifactId,
       },
     });
   });
 
   it("rejects mismatched package registration metadata", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
     const persistence = memoryPersistence(
       [
         deploymentMetadata({
@@ -89,9 +89,9 @@ describe("executor deployment behavior", () => {
       [
         deploymentPackageMetadata({
           deploymentId: "deployment_package",
-          packageId: "package_a",
-          sourcePackageHash: "a".repeat(64),
-          executionModule: "_flarex/execution.js",
+          packageId: ref.artifactId,
+          sourcePackageHash: "b".repeat(64),
+          executionModule: ref.executionModule,
           sourcePackageJson: sourcePackageJson(),
         }),
       ],
@@ -102,10 +102,7 @@ describe("executor deployment behavior", () => {
       executor.registerDeploymentPackage({
         deploymentId: "deployment_package",
         projectId: "project_package",
-        packageId: "package_a",
-        sourcePackageHash: "b".repeat(64),
-        executionModule: "_flarex/execution.js",
-        sourcePackageJson: sourcePackageJson(),
+        sourcePackage: sourcePackage(),
       }),
     ).rejects.toThrow(DeploymentPackageMismatchError);
   });
@@ -114,20 +111,17 @@ describe("executor deployment behavior", () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });
 
-    await executor.registerDeploymentPackage({
+    const registered = await executor.registerDeploymentPackage({
       deploymentId: "deployment_activate",
       projectId: "project_activate",
-      packageId: "package_activate",
-      sourcePackageHash: "a".repeat(64),
-      executionModule: "_flarex/execution.js",
-      sourcePackageJson: sourcePackageJson(),
+      sourcePackage: sourcePackage(),
     });
 
     await expect(
       executor.activateDeploymentPackage({
         deploymentId: "deployment_activate",
         projectId: "project_activate",
-        packageId: "package_activate",
+        packageId: registered.package.packageId,
         schemaVersion: 4,
       }),
     ).resolves.toMatchObject({
@@ -135,13 +129,14 @@ describe("executor deployment behavior", () => {
       deployment: {
         deploymentId: "deployment_activate",
         projectId: "project_activate",
-        activePackageId: "package_activate",
+        activePackageId: registered.package.packageId,
         activeSchemaVersion: 4,
       },
     });
   });
 
   it("activates a package for an existing deployment", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
     const persistence = memoryPersistence(
       [
         deploymentMetadata({
@@ -154,9 +149,9 @@ describe("executor deployment behavior", () => {
       [
         deploymentPackageMetadata({
           deploymentId: "deployment_activate",
-          packageId: "package_new",
-          sourcePackageHash: "a".repeat(64),
-          executionModule: "_flarex/execution.js",
+          packageId: ref.artifactId,
+          sourcePackageHash: ref.sourcePackageHash,
+          executionModule: ref.executionModule,
           sourcePackageJson: sourcePackageJson(),
         }),
       ],
@@ -167,7 +162,7 @@ describe("executor deployment behavior", () => {
       executor.activateDeploymentPackage({
         deploymentId: "deployment_activate",
         projectId: "project_activate",
-        packageId: "package_new",
+        packageId: ref.artifactId,
         schemaVersion: 4,
       }),
     ).resolves.toMatchObject({
@@ -175,7 +170,7 @@ describe("executor deployment behavior", () => {
       deployment: {
         deploymentId: "deployment_activate",
         projectId: "project_activate",
-        activePackageId: "package_new",
+        activePackageId: ref.artifactId,
         activeSchemaVersion: 4,
       },
     });
@@ -324,10 +319,20 @@ describe("executor deployment behavior", () => {
   });
 });
 
-function sourcePackageJson(): Record<string, unknown> {
+function sourcePackage(): ArtifactSourcePackage {
   return {
-    modules: [],
+    modules: [
+      {
+        path: "functions.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+      },
+    ],
     functions: [],
     execution: "_flarex/execution.js",
   };
+}
+
+function sourcePackageJson(): Record<string, unknown> {
+  return sourcePackage() as unknown as Record<string, unknown>;
 }

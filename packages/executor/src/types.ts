@@ -6,6 +6,7 @@ import type {
   InsertDeploymentMetadataInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
+import type { ArtifactSourcePackage } from "flarex/artifacts";
 
 export interface Clock {
   now(): Date;
@@ -62,10 +63,7 @@ export interface ActivateDeploymentPackageResult {
 export interface RegisterDeploymentPackageInput {
   deploymentId: string;
   projectId: string;
-  packageId: string;
-  sourcePackageHash: string;
-  executionModule: string;
-  sourcePackageJson: Record<string, unknown>;
+  sourcePackage: ArtifactSourcePackage;
   analysisJson?: Record<string, unknown> | null;
 }
 

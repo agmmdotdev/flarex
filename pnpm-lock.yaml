@@ -82,6 +82,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      flarex:
+        specifier: workspace:*
+        version: link:../flarex
     devDependencies:
       vite:
         specifier: 'catalog:'

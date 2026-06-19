@@ -1335,6 +1335,89 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Source Package Artifact Identity
+
+Previous completed checkpoint: `aa50827` Add source package registry.
+
+What changed:
+
+- Added `flarex` as a dependency of `@flarex/executor`.
+- Changed `RegisterDeploymentPackageInput` so callers pass a typed
+  `ArtifactSourcePackage` instead of caller-supplied package identity fields.
+- `registerDeploymentPackage(...)` now derives package identity with
+  `executionArtifactRefForSourcePackage(...)`:
+  - `packageId = artifactId`
+  - `sourcePackageHash = sourcePackageHash`
+  - `executionModule = executionModule`
+- Stored `sourcePackageJson` is now built from the immutable source package
+  passed to the executor.
+- Updated activation tests so activation uses the derived artifact ID returned
+  by package registration.
+- Kept mismatch protection for corrupted/stale package rows that already exist
+  under the derived artifact ID but do not match the derived hash/module.
+
+Why it changed:
+
+Package registration should not trust arbitrary caller-supplied IDs and hashes.
+Convex derives source package identity from backend-owned package metadata and
+then ties module/function state back to that identity. Flarex already had a
+content-addressed artifact identity helper in `flarex/artifacts`; the executor
+now reuses that instead of duplicating or bypassing it.
+
+Convex references:
+
+- `crates/model/src/source_packages/types.rs`
+  - source package identity is durable metadata with `sha256` and storage
+    identity, not a loose caller-provided string.
+- `crates/model/src/source_packages/mod.rs`
+  - backend model code owns package storage and lookup.
+- `crates/model/src/modules/types.rs`
+  - active module metadata references source package identity.
+- `crates/application/src/deploy_config.rs`
+  - finish push validates downloaded source packages by storage key/hash before
+    committing deployment state.
+
+Flarex references:
+
+- `packages/flarex/src/artifacts.ts`
+  - `executionArtifactRefForSourcePackage(...)` derives the stable
+    `artifactId`, `sourcePackageHash`, and `executionModule`.
+- `packages/flarex-backend/src/artifactStore.ts`
+  - the legacy Cloudflare backend already stores and validates source packages
+    by this derived artifact identity.
+
+Flarex differences:
+
+- Convex's production backend stores source package metadata in system tables
+  and package bytes in storage. Flarex still stores source package JSON in
+  Postgres for this first executor slice.
+- The derived `artifactId` is currently used as `packageId`. Later object-store
+  backed packages may also store a separate storage key, but activation should
+  continue to reference the derived immutable package identity.
+
+Known limitations:
+
+- `sourcePackageJson` is still inline JSONB instead of object storage.
+- Registration does not yet validate package size limits or deep-compare JSON
+  when an existing package row matches hash and execution module.
+- No module metadata/function routing table exists yet, so the package identity
+  is not yet connected to execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

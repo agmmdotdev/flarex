@@ -2,6 +2,7 @@ import {
   DeploymentPackageMetadataAlreadyExistsError,
   type DeploymentPackageMetadataRecord,
 } from "@flarex/persistence-postgres";
+import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 
 import { DeploymentPackageMismatchError } from "./errors";
 import { ensureDeployment } from "./deployments";
@@ -16,28 +17,31 @@ export async function registerDeploymentPackage(
   input: RegisterDeploymentPackageInput,
 ): Promise<RegisterDeploymentPackageResult> {
   const ensured = await ensureDeployment(persistence, input);
+  const ref = await executionArtifactRefForSourcePackage(input.sourcePackage);
+  const packageInput = {
+    deploymentId: input.deploymentId,
+    packageId: ref.artifactId,
+    sourcePackageHash: ref.sourcePackageHash,
+    executionModule: ref.executionModule,
+    sourcePackageJson: sourcePackageJson(input.sourcePackage),
+    analysisJson: input.analysisJson ?? null,
+  };
   const existingPackage = await persistence.getDeploymentPackageMetadata(
     input.deploymentId,
-    input.packageId,
+    packageInput.packageId,
   );
   if (existingPackage !== null) {
     return {
       deployment: ensured.deployment,
-      package: assertDeploymentPackageMatches(existingPackage, input),
+      package: assertDeploymentPackageMatches(existingPackage, packageInput),
       createdDeployment: ensured.created,
       createdPackage: false,
     };
   }
 
   try {
-    const deploymentPackage = await persistence.insertDeploymentPackageMetadata({
-      deploymentId: input.deploymentId,
-      packageId: input.packageId,
-      sourcePackageHash: input.sourcePackageHash,
-      executionModule: input.executionModule,
-      sourcePackageJson: input.sourcePackageJson,
-      analysisJson: input.analysisJson ?? null,
-    });
+    const deploymentPackage =
+      await persistence.insertDeploymentPackageMetadata(packageInput);
 
     return {
       deployment: ensured.deployment,
@@ -52,7 +56,7 @@ export async function registerDeploymentPackage(
 
     const racedPackage = await persistence.getDeploymentPackageMetadata(
       input.deploymentId,
-      input.packageId,
+      packageInput.packageId,
     );
     if (racedPackage === null) {
       throw error;
@@ -60,7 +64,7 @@ export async function registerDeploymentPackage(
 
     return {
       deployment: ensured.deployment,
-      package: assertDeploymentPackageMatches(racedPackage, input),
+      package: assertDeploymentPackageMatches(racedPackage, packageInput),
       createdDeployment: ensured.created,
       createdPackage: false,
     };
@@ -69,7 +73,12 @@ export async function registerDeploymentPackage(
 
 function assertDeploymentPackageMatches(
   deploymentPackage: DeploymentPackageMetadataRecord,
-  input: RegisterDeploymentPackageInput,
+  input: {
+    deploymentId: string;
+    packageId: string;
+    sourcePackageHash: string;
+    executionModule: string;
+  },
 ): DeploymentPackageMetadataRecord {
   if (
     deploymentPackage.sourcePackageHash !== input.sourcePackageHash ||
@@ -82,4 +91,15 @@ function assertDeploymentPackageMatches(
   }
 
   return deploymentPackage;
+}
+
+function sourcePackageJson(
+  sourcePackage: RegisterDeploymentPackageInput["sourcePackage"],
+): Record<string, unknown> {
+  return {
+    modules: sourcePackage.modules.map((module) => ({ ...module })),
+    functions: [...sourcePackage.functions],
+    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+    execution: sourcePackage.execution,
+  };
 }
