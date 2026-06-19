@@ -28,6 +28,7 @@ export interface FlarexExecutor {
   getActiveDeploymentPackage(
     input: GetActiveDeploymentPackageInput,
   ): Promise<GetActiveDeploymentPackageResult>;
+  prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
     input: RegisterDeploymentPackageInput,
   ): Promise<RegisterDeploymentPackageResult>;
@@ -119,6 +120,29 @@ export interface DeploymentFunctionMetadata {
   route?: unknown;
   partition?: unknown;
   position?: unknown;
+}
+
+export type InvokableFunctionKind = "query" | "mutation";
+
+export interface DeploymentSchemaMetadata {
+  version: number;
+  tables: unknown[];
+  indexes: unknown[];
+}
+
+export interface PrepareInvokeInput {
+  deploymentId: string;
+  projectId: string;
+  path: string;
+  kind?: InvokableFunctionKind;
+}
+
+export interface PrepareInvokeResult {
+  deployment: DeploymentMetadataRecord;
+  package: DeploymentPackageMetadataRecord;
+  function: DeploymentFunctionMetadata & { kind: InvokableFunctionKind };
+  schema: DeploymentSchemaMetadata;
+  executionModule: string;
 }
 
 export interface EnsureDeploymentInput {

@@ -1562,6 +1562,86 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Target Preparation
+
+Previous completed checkpoint: `7319758` Resolve active functions.
+
+What changed:
+
+- Added `executor.prepareInvoke({ deploymentId, projectId, path, kind? })`.
+- The prepare step resolves the active function, verifies it is invokable by
+  `/invoke`, validates optional caller kind expectations, validates schema
+  metadata shape, and returns:
+  - deployment metadata
+  - active package metadata
+  - active function metadata
+  - schema metadata
+  - execution module
+- Added executor errors:
+  - `DeploymentSchemaMetadataUnavailableError`
+  - `FunctionKindMismatchError`
+  - `FunctionNotInvokableError`
+- Added tests for successful query and mutation preparation, kind mismatch,
+  action rejection, missing schema metadata, and malformed schema metadata.
+
+Why it changed:
+
+Nitro and future execution-session adapters need one framework-neutral executor
+answer for "what exactly am I about to invoke?" The adapter should not duplicate
+active package lookup, function lookup, kind checks, or schema availability
+checks. This keeps HTTP routing thin and moves Convex-style execution decisions
+into the trusted executor core.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - `FunctionRouter` prepares execution with function metadata and UDF type
+    before handing work to the function runner.
+- `crates/application/src/cache/mod.rs`
+  - cached query execution is keyed around public function path and arguments,
+    after route/function resolution.
+- `crates/model/src/modules/types.rs`
+  - active module metadata carries source package identity and analysis data.
+
+Flarex references:
+
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy `executeInvoke(...)` and `loadActiveFunctionMetadata(...)` perform
+    active function lookup, kind validation, schema access, and invoke-time
+    checks in one path.
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy execution sessions call `loadActiveFunctionMetadata(...)` before
+    validating args and opening a transaction.
+
+Flarex differences:
+
+- Convex runs function preparation against rich backend model tables. Flarex
+  still reads schema and function metadata from active package `analysisJson`.
+- Convex supports actions through separate action paths. Flarex
+  `prepareInvoke(...)` currently accepts only `query` and `mutation` as
+  invokable kinds because this path targets `/invoke` transaction execution.
+- Flarex returns `executionModule` from package metadata so future Dynamic
+  Worker execution can load the active artifact without HTTP adapters
+  inspecting package rows.
+
+Known limitations:
+
+- `prepareInvoke(...)` does not validate arguments or return values yet.
+- It does not resolve partition execution scope yet.
+- It does not enforce public/internal visibility yet.
+- Schema typing is intentionally minimal until the Postgres executor owns the
+  full schema model instead of reading JSON analysis blobs.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

@@ -5,6 +5,7 @@ import {
 } from "./deploymentPackages";
 import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
+import { prepareInvoke } from "./invoke";
 import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
 
 export {
@@ -14,7 +15,10 @@ export {
   DeploymentPackageNotActivatedError,
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
+  DeploymentSchemaMetadataUnavailableError,
+  FunctionKindMismatchError,
   FunctionNotFoundError,
+  FunctionNotInvokableError,
 } from "./errors";
 export type {
   ActivateDeploymentPackageInput,
@@ -22,6 +26,7 @@ export type {
   Clock,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
+  DeploymentSchemaMetadata,
   EnsureDeploymentInput,
   EnsureDeploymentResult,
   FlarexExecutor,
@@ -30,10 +35,13 @@ export type {
   FlarexExecutorPersistence,
   FlarexHealth,
   FunctionVisibility,
+  InvokableFunctionKind,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
   GetActiveDeploymentPackageResult,
+  PrepareInvokeInput,
+  PrepareInvokeResult,
   RegisterDeploymentPackageInput,
   RegisterDeploymentPackageResult,
 } from "./types";
@@ -49,6 +57,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     getActiveFunction: (input) => getActiveFunction(persistence, input),
     getActiveDeploymentPackage: (input) =>
       getActiveDeploymentPackage(persistence, input),
+    prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),
     health: () => getExecutorHealth(persistence, clock),

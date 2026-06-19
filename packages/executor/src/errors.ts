@@ -69,3 +69,43 @@ export class FunctionNotFoundError extends Error {
     this.name = "FunctionNotFoundError";
   }
 }
+
+export class DeploymentSchemaMetadataUnavailableError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly packageId: string,
+    message: string,
+  ) {
+    super(
+      `Deployment schema metadata unavailable for ${deploymentId}/${packageId}: ${message}`,
+    );
+    this.name = "DeploymentSchemaMetadataUnavailableError";
+  }
+}
+
+export class FunctionKindMismatchError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly path: string,
+    readonly expectedKind: string,
+    readonly actualKind: string,
+  ) {
+    super(
+      `Function kind mismatch for ${deploymentId}/${path}. Expected ${expectedKind}, got ${actualKind}`,
+    );
+    this.name = "FunctionKindMismatchError";
+  }
+}
+
+export class FunctionNotInvokableError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly path: string,
+    readonly kind: string,
+  ) {
+    super(
+      `Function ${deploymentId}/${path} has kind ${kind}, which is not invokable by /invoke`,
+    );
+    this.name = "FunctionNotInvokableError";
+  }
+}
