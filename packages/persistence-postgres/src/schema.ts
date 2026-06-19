@@ -29,6 +29,28 @@ export const deployments = pgTable("deployments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const deploymentPackages = pgTable(
+  "deployment_packages",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    packageId: text("package_id").notNull(),
+    sourcePackageHash: text("source_package_hash").notNull(),
+    executionModule: text("execution_module").notNull(),
+    sourcePackageJson: jsonb("source_package_json")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    analysisJson: jsonb("analysis_json").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.packageId],
+    }),
+  ],
+);
+
 export const documents = pgTable(
   "documents",
   {
@@ -146,6 +168,7 @@ export const outbox = pgTable(
 
 export const flarexSchema = {
   commits,
+  deploymentPackages,
   deployments,
   documents,
   indexes,

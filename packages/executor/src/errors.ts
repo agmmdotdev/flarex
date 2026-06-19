@@ -10,3 +10,25 @@ export class DeploymentProjectMismatchError extends Error {
     this.name = "DeploymentProjectMismatchError";
   }
 }
+
+export class DeploymentPackageMismatchError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly packageId: string,
+  ) {
+    super(
+      `Deployment package metadata does not match registration input: ${deploymentId}/${packageId}`,
+    );
+    this.name = "DeploymentPackageMismatchError";
+  }
+}
+
+export class DeploymentPackageNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly packageId: string,
+  ) {
+    super(`Deployment package metadata not found: ${deploymentId}/${packageId}`);
+    this.name = "DeploymentPackageNotFoundError";
+  }
+}

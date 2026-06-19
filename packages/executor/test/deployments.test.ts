@@ -1,18 +1,127 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DeploymentPackageMismatchError,
+  DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
   createFlarexExecutor,
 } from "../src";
 import {
   deploymentMetadata,
+  deploymentPackageMetadata,
   memoryPersistence,
 } from "./helpers/persistence";
 
 describe("executor deployment behavior", () => {
-  it("activates a package for a missing deployment", async () => {
+  it("registers a package for a missing deployment", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.registerDeploymentPackage({
+        deploymentId: "deployment_package",
+        projectId: "project_package",
+        packageId: "package_a",
+        sourcePackageHash: "a".repeat(64),
+        executionModule: "_flarex/execution.js",
+        sourcePackageJson: sourcePackageJson(),
+        analysisJson: { functions: [] },
+      }),
+    ).resolves.toMatchObject({
+      createdDeployment: true,
+      createdPackage: true,
+      package: {
+        deploymentId: "deployment_package",
+        packageId: "package_a",
+        sourcePackageHash: "a".repeat(64),
+        executionModule: "_flarex/execution.js",
+      },
+    });
+  });
+
+  it("returns existing package registration idempotently", async () => {
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_package",
+          projectId: "project_package",
+        }),
+      ],
+      [
+        deploymentPackageMetadata({
+          deploymentId: "deployment_package",
+          packageId: "package_a",
+          sourcePackageHash: "a".repeat(64),
+          executionModule: "_flarex/execution.js",
+          sourcePackageJson: sourcePackageJson(),
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.registerDeploymentPackage({
+        deploymentId: "deployment_package",
+        projectId: "project_package",
+        packageId: "package_a",
+        sourcePackageHash: "a".repeat(64),
+        executionModule: "_flarex/execution.js",
+        sourcePackageJson: sourcePackageJson(),
+      }),
+    ).resolves.toMatchObject({
+      createdDeployment: false,
+      createdPackage: false,
+      package: {
+        deploymentId: "deployment_package",
+        packageId: "package_a",
+      },
+    });
+  });
+
+  it("rejects mismatched package registration metadata", async () => {
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_package",
+          projectId: "project_package",
+        }),
+      ],
+      [
+        deploymentPackageMetadata({
+          deploymentId: "deployment_package",
+          packageId: "package_a",
+          sourcePackageHash: "a".repeat(64),
+          executionModule: "_flarex/execution.js",
+          sourcePackageJson: sourcePackageJson(),
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.registerDeploymentPackage({
+        deploymentId: "deployment_package",
+        projectId: "project_package",
+        packageId: "package_a",
+        sourcePackageHash: "b".repeat(64),
+        executionModule: "_flarex/execution.js",
+        sourcePackageJson: sourcePackageJson(),
+      }),
+    ).rejects.toThrow(DeploymentPackageMismatchError);
+  });
+
+  it("activates a registered package", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.registerDeploymentPackage({
+      deploymentId: "deployment_activate",
+      projectId: "project_activate",
+      packageId: "package_activate",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+      sourcePackageJson: sourcePackageJson(),
+    });
 
     await expect(
       executor.activateDeploymentPackage({
@@ -22,7 +131,7 @@ describe("executor deployment behavior", () => {
         schemaVersion: 4,
       }),
     ).resolves.toMatchObject({
-      createdDeployment: true,
+      createdDeployment: false,
       deployment: {
         deploymentId: "deployment_activate",
         projectId: "project_activate",
@@ -33,14 +142,25 @@ describe("executor deployment behavior", () => {
   });
 
   it("activates a package for an existing deployment", async () => {
-    const persistence = memoryPersistence([
-      deploymentMetadata({
-        deploymentId: "deployment_activate",
-        projectId: "project_activate",
-        activePackageId: "package_old",
-        activeSchemaVersion: 3,
-      }),
-    ]);
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_activate",
+          projectId: "project_activate",
+          activePackageId: "package_old",
+          activeSchemaVersion: 3,
+        }),
+      ],
+      [
+        deploymentPackageMetadata({
+          deploymentId: "deployment_activate",
+          packageId: "package_new",
+          sourcePackageHash: "a".repeat(64),
+          executionModule: "_flarex/execution.js",
+          sourcePackageJson: sourcePackageJson(),
+        }),
+      ],
+    );
     const executor = createFlarexExecutor({ persistence });
 
     await expect(
@@ -59,6 +179,26 @@ describe("executor deployment behavior", () => {
         activeSchemaVersion: 4,
       },
     });
+  });
+
+  it("rejects activation for an unregistered package", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_activate",
+          projectId: "project_activate",
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.activateDeploymentPackage({
+        deploymentId: "deployment_activate",
+        projectId: "project_activate",
+        packageId: "package_missing",
+        schemaVersion: 4,
+      }),
+    ).rejects.toThrow(DeploymentPackageNotFoundError);
   });
 
   it("rejects package activation for a deployment in another project", async () => {
@@ -183,3 +323,11 @@ describe("executor deployment behavior", () => {
     ).rejects.toThrow(DeploymentProjectMismatchError);
   });
 });
+
+function sourcePackageJson(): Record<string, unknown> {
+  return {
+    modules: [],
+    functions: [],
+    execution: "_flarex/execution.js",
+  };
+}

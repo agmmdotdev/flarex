@@ -1245,6 +1245,96 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Source Package Registry
+
+Previous completed checkpoint: `5b8b197` Add deployment package activation.
+
+What changed:
+
+- Added a package-local Drizzle migration for `deployment_packages`.
+- Added `deploymentPackages` to the Postgres Drizzle schema.
+- Added low-level package metadata helpers in `@flarex/persistence-postgres`:
+  - `insertDeploymentPackageMetadata(...)`
+  - `getDeploymentPackageMetadata(...)`
+  - `DeploymentPackageMetadataAlreadyExistsError`
+- Wired the PGlite adapter to the new package metadata helpers.
+- Added PGlite tests for package table migration, insert/get, missing lookup,
+  and duplicate package metadata rejection.
+- Added executor-level source package registration:
+  - `registerDeploymentPackage(...)`
+  - `RegisterDeploymentPackageInput`
+  - `RegisterDeploymentPackageResult`
+  - `DeploymentPackageMismatchError`
+- Changed `activateDeploymentPackage(...)` to require a registered package
+  before updating `activePackageId`.
+- Added executor tests for package registration, idempotent registration,
+  mismatch rejection, registered package activation, and missing package
+  activation rejection.
+
+Why it changed:
+
+Activation should not point to an arbitrary caller-supplied package ID. Convex
+keeps source package metadata as backend-owned durable state, and execution
+resolves package metadata from that state. Flarex now has the first equivalent
+Postgres-backed registry so activation can refer to known immutable package
+metadata.
+
+Convex references inspected:
+
+- `crates/model/src/source_packages/mod.rs`
+  - `SourcePackageModel::put(...)` and `get(...)` store and retrieve source
+    package metadata through backend model code.
+- `crates/model/src/source_packages/types.rs`
+  - `SourcePackage` stores durable package identity metadata such as
+    `storage_key`, `sha256`, package size, dependency package ID, and runtime
+    version.
+- `crates/model/src/modules/types.rs`
+  - `ModuleMetadata` references `source_package_id`, so module/function
+    metadata is tied back to immutable package identity.
+- `crates/application/src/deploy_config.rs`
+  - `finish_push(...)` downloads source packages by storage key/hash before
+    committing deployment state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution resolves the latest source package before invoking user code.
+
+Flarex differences:
+
+- Convex stores source package metadata in system tables and package bytes in
+  module storage. This first Flarex Postgres version stores package metadata,
+  source package JSON, and analysis JSON in `deployment_packages`.
+- The current `packageId` is expected to line up with Flarex's execution
+  artifact identity, but the executor does not yet derive it from
+  `executionArtifactRefForSourcePackage(...)`.
+- `sourcePackageJson` and `analysisJson` are JSONB placeholders for the
+  Postgres executor path. Large source packages should eventually move to
+  object storage with Postgres retaining storage keys and hashes, closer to
+  Convex's `storage_key` plus `sha256` model.
+
+Known limitations:
+
+- No real object store abstraction exists in the Postgres executor path yet.
+- No module-level metadata table exists yet, so package registration is not
+  connected to function routing or analyzed module records.
+- Package registration validates hash and execution module on duplicate
+  registration, but it does not deeply compare the full source package JSON.
+- There is no package status machine yet, so packages are not distinguished as
+  uploaded, analyzed, failed, or activated.
+- Activation is still a direct executor method only; no Nitro route or auth
+  boundary exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

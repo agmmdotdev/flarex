@@ -1,6 +1,8 @@
 import type {
+  DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
   FlarexPersistenceCheck,
+  InsertDeploymentPackageMetadataInput,
   InsertDeploymentMetadataInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
@@ -19,11 +21,21 @@ export interface FlarexExecutor {
     input: ActivateDeploymentPackageInput,
   ): Promise<ActivateDeploymentPackageResult>;
   ensureDeployment(input: EnsureDeploymentInput): Promise<EnsureDeploymentResult>;
+  registerDeploymentPackage(
+    input: RegisterDeploymentPackageInput,
+  ): Promise<RegisterDeploymentPackageResult>;
   health(): Promise<FlarexHealth>;
 }
 
 export interface FlarexExecutorPersistence {
   check(): Promise<FlarexPersistenceCheck>;
+  getDeploymentPackageMetadata(
+    deploymentId: string,
+    packageId: string,
+  ): Promise<DeploymentPackageMetadataRecord | null>;
+  insertDeploymentPackageMetadata(
+    input: InsertDeploymentPackageMetadataInput,
+  ): Promise<DeploymentPackageMetadataRecord>;
   getDeploymentMetadata(
     deploymentId: string,
   ): Promise<DeploymentMetadataRecord | null>;
@@ -45,6 +57,23 @@ export interface ActivateDeploymentPackageInput {
 export interface ActivateDeploymentPackageResult {
   deployment: DeploymentMetadataRecord;
   createdDeployment: boolean;
+}
+
+export interface RegisterDeploymentPackageInput {
+  deploymentId: string;
+  projectId: string;
+  packageId: string;
+  sourcePackageHash: string;
+  executionModule: string;
+  sourcePackageJson: Record<string, unknown>;
+  analysisJson?: Record<string, unknown> | null;
+}
+
+export interface RegisterDeploymentPackageResult {
+  deployment: DeploymentMetadataRecord;
+  package: DeploymentPackageMetadataRecord;
+  createdDeployment: boolean;
+  createdPackage: boolean;
 }
 
 export interface EnsureDeploymentInput {

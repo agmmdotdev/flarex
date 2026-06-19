@@ -3,7 +3,10 @@ import {
   type DeploymentMetadataRecord,
 } from "@flarex/persistence-postgres";
 
-import { DeploymentProjectMismatchError } from "./errors";
+import {
+  DeploymentPackageNotFoundError,
+  DeploymentProjectMismatchError,
+} from "./errors";
 import type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,
@@ -17,6 +20,17 @@ export async function activateDeploymentPackage(
   input: ActivateDeploymentPackageInput,
 ): Promise<ActivateDeploymentPackageResult> {
   const ensured = await ensureDeployment(persistence, input);
+  const deploymentPackage = await persistence.getDeploymentPackageMetadata(
+    input.deploymentId,
+    input.packageId,
+  );
+  if (deploymentPackage === null) {
+    throw new DeploymentPackageNotFoundError(
+      input.deploymentId,
+      input.packageId,
+    );
+  }
+
   const deployment = await persistence.updateDeploymentMetadataActivation({
     deploymentId: input.deploymentId,
     activePackageId: input.packageId,

@@ -82,6 +82,27 @@ function healthyPersistence() {
     async getDeploymentMetadata() {
       return null;
     },
+    async getDeploymentPackageMetadata() {
+      return null;
+    },
+    async insertDeploymentPackageMetadata(input: {
+      deploymentId: string;
+      packageId: string;
+      sourcePackageHash: string;
+      executionModule: string;
+      sourcePackageJson: Record<string, unknown>;
+      analysisJson?: Record<string, unknown> | null;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        packageId: input.packageId,
+        sourcePackageHash: input.sourcePackageHash,
+        executionModule: input.executionModule,
+        sourcePackageJson: input.sourcePackageJson,
+        analysisJson: input.analysisJson ?? null,
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
     async insertDeploymentMetadata(input: {
       deploymentId: string;
       projectId: string;

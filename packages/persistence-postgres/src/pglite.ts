@@ -11,6 +11,10 @@ import type {
   QueryResult,
 } from "./index";
 import {
+  getDeploymentPackageMetadata as getDeploymentPackageMetadataWithDb,
+  insertDeploymentPackageMetadata as insertDeploymentPackageMetadataWithDb,
+} from "./deploymentPackages";
+import {
   getDeploymentMetadata as getDeploymentMetadataWithDb,
   insertDeploymentMetadata as insertDeploymentMetadataWithDb,
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
@@ -67,6 +71,10 @@ export async function createPGlitePersistence(
       return { status: "ok" };
     },
 
+    insertDeploymentPackageMetadata: (input) =>
+      insertDeploymentPackageMetadataWithDb(drizzleDb, input),
+    getDeploymentPackageMetadata: (deploymentId, packageId) =>
+      getDeploymentPackageMetadataWithDb(drizzleDb, deploymentId, packageId),
     insertDeploymentMetadata: (input) =>
       insertDeploymentMetadataWithDb(drizzleDb, input),
     getDeploymentMetadata: (deploymentId) =>

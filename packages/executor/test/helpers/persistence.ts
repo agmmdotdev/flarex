@@ -1,6 +1,9 @@
 import {
+  DeploymentPackageMetadataAlreadyExistsError,
+  type DeploymentPackageMetadataRecord,
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
+  type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
   type UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
@@ -13,6 +16,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
 
 export function memoryPersistence(
   initialDeployments: DeploymentMetadataRecord[] = [],
+  initialPackages: DeploymentPackageMetadataRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -20,10 +24,33 @@ export function memoryPersistence(
       deployment,
     ]),
   );
+  const packages = new Map<string, DeploymentPackageMetadataRecord>(
+    initialPackages.map((deploymentPackage) => [
+      packageKey(deploymentPackage.deploymentId, deploymentPackage.packageId),
+      deploymentPackage,
+    ]),
+  );
 
   return {
     async check() {
       return { status: "ok" as const };
+    },
+    async getDeploymentPackageMetadata(deploymentId: string, packageId: string) {
+      return packages.get(packageKey(deploymentId, packageId)) ?? null;
+    },
+    async insertDeploymentPackageMetadata(
+      input: InsertDeploymentPackageMetadataInput,
+    ) {
+      const key = packageKey(input.deploymentId, input.packageId);
+      if (packages.has(key)) {
+        throw new DeploymentPackageMetadataAlreadyExistsError(
+          input.deploymentId,
+          input.packageId,
+        );
+      }
+      const deploymentPackage = deploymentPackageMetadata(input);
+      packages.set(key, deploymentPackage);
+      return deploymentPackage;
     },
     async getDeploymentMetadata(deploymentId: string) {
       return deployments.get(deploymentId) ?? null;
@@ -55,6 +82,20 @@ export function memoryPersistence(
   };
 }
 
+export function deploymentPackageMetadata(
+  input: InsertDeploymentPackageMetadataInput,
+): DeploymentPackageMetadataRecord {
+  return {
+    deploymentId: input.deploymentId,
+    packageId: input.packageId,
+    sourcePackageHash: input.sourcePackageHash,
+    executionModule: input.executionModule,
+    sourcePackageJson: input.sourcePackageJson,
+    analysisJson: input.analysisJson ?? null,
+    createdAt: new Date("2026-06-19T00:00:00.000Z"),
+  };
+}
+
 export function deploymentMetadata(
   input: InsertDeploymentMetadataInput,
 ): DeploymentMetadataRecord {
@@ -65,4 +106,8 @@ export function deploymentMetadata(
     activeSchemaVersion: input.activeSchemaVersion ?? 0,
     createdAt: new Date("2026-06-19T00:00:00.000Z"),
   };
+}
+
+function packageKey(deploymentId: string, packageId: string): string {
+  return `${deploymentId}/${packageId}`;
 }

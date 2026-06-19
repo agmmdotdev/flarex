@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { DeploymentMetadataAlreadyExistsError, sql } from "../src";
+import {
+  DeploymentMetadataAlreadyExistsError,
+  DeploymentPackageMetadataAlreadyExistsError,
+  sql,
+} from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
 
@@ -28,6 +32,7 @@ describe("createPGlitePersistence", () => {
 
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       "commits",
+      "deployment_packages",
       "deployments",
       "documents",
       "indexes",
@@ -216,5 +221,76 @@ describe("createPGlitePersistence", () => {
         projectId: "project_dup",
       }),
     ).rejects.toThrow(DeploymentMetadataAlreadyExistsError);
+  });
+
+  it("inserts and reads deployment package metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const created = await persistence.insertDeploymentPackageMetadata({
+      deploymentId: "deployment_package",
+      packageId: "package_a",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+      sourcePackageJson: {
+        modules: [],
+        functions: [],
+        execution: "_flarex/execution.js",
+      },
+      analysisJson: { functions: [] },
+    });
+
+    expect(created).toMatchObject({
+      deploymentId: "deployment_package",
+      packageId: "package_a",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+      sourcePackageJson: {
+        modules: [],
+        functions: [],
+        execution: "_flarex/execution.js",
+      },
+      analysisJson: { functions: [] },
+    });
+    expect(created.createdAt).toBeInstanceOf(Date);
+
+    await expect(
+      persistence.getDeploymentPackageMetadata("deployment_package", "package_a"),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_package",
+      packageId: "package_a",
+    });
+  });
+
+  it("returns null for missing deployment package metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.getDeploymentPackageMetadata("deployment_package", "missing"),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects duplicate deployment package metadata clearly", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const input = {
+      deploymentId: "deployment_package_dup",
+      packageId: "package_dup",
+      sourcePackageHash: "b".repeat(64),
+      executionModule: "_flarex/execution.js",
+      sourcePackageJson: {
+        modules: [],
+        functions: [],
+        execution: "_flarex/execution.js",
+      },
+    };
+
+    await persistence.insertDeploymentPackageMetadata(input);
+
+    await expect(
+      persistence.insertDeploymentPackageMetadata(input),
+    ).rejects.toThrow(DeploymentPackageMetadataAlreadyExistsError);
   });
 });
