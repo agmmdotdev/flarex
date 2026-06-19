@@ -13,6 +13,7 @@ import type {
   DeploymentCodegenModule,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
+  FunctionPartitionMetadata,
   FunctionPartitionPolicy,
   FunctionRoutePolicy,
   DeploymentFunctions,
@@ -716,6 +717,21 @@ function validateFunctionPartitions(
     if (table.placement.kind !== "partitionBy") {
       throw new HttpError(400, `${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
     }
+    if (partition.type === "partitionCreateRoot") {
+      if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
+        throw new HttpError(
+          400,
+          `${metadata.path}.partition: create-root partition requires ${partition.table} to be partitioned by _id.`,
+        );
+      }
+      if (metadata.route !== null && metadata.route !== undefined) {
+        throw new HttpError(
+          400,
+          `${metadata.path}.partition: create-root partition cannot declare route metadata.`,
+        );
+      }
+      continue;
+    }
     if (table.placement.field !== partition.partitionField) {
       throw new HttpError(
         400,
@@ -800,12 +816,24 @@ function validateFunctionRoutePolicy(
 function validateFunctionPartitionPolicy(
   value: unknown,
   path: string,
-): FunctionPartitionPolicy | null {
+): FunctionPartitionMetadata | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new HttpError(400, `${path}: Invalid partition policy.`);
   }
-  const partition = value as Partial<FunctionPartitionPolicy>;
+  const partition = value as Partial<FunctionPartitionMetadata>;
+  if (
+    partition.type === "partitionCreateRoot" &&
+    typeof partition.table === "string" &&
+    partition.table.length > 0 &&
+    partition.partitionField === "_id"
+  ) {
+    return {
+      type: "partitionCreateRoot",
+      table: partition.table,
+      partitionField: "_id",
+    };
+  }
   if (
     partition.type === "partition" &&
     typeof partition.table === "string" &&

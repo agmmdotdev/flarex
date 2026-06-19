@@ -3,7 +3,7 @@ import {
   indexBoundsForExpressions,
   type IndexRangeExpression,
 } from "./indexKeys";
-import { isFlarexIdForTable, parseFlarexId } from "./ids";
+import { encodeFlarexId, isFlarexIdForTable, parseFlarexId } from "./ids";
 import { deploymentObjectName } from "./routing";
 import {
   PartitionRequestError,
@@ -18,6 +18,7 @@ import type {
   DeploymentFunctionKind,
   Env,
   FunctionExecutionScope,
+  FunctionPartitionMetadata,
   FunctionPartitionPolicy,
   FunctionRoutePolicy,
   InvokeRequest,
@@ -93,7 +94,7 @@ export type BackendRegisteredFunction =
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
       route?: FunctionRoutePolicy | null;
-      partition?: FunctionPartitionPolicy | null;
+      partition?: FunctionPartitionMetadata | null;
       handler: (ctx: BackendQueryCtx, args: Json) => Promise<Json> | Json;
     }
   | {
@@ -101,7 +102,7 @@ export type BackendRegisteredFunction =
       args?: ValidatorJson;
       returns?: ValidatorJson | null;
       route?: FunctionRoutePolicy | null;
-      partition?: FunctionPartitionPolicy | null;
+      partition?: FunctionPartitionMetadata | null;
       handler: (ctx: BackendMutationCtx, args: Json) => Promise<Json> | Json;
     };
 
@@ -161,6 +162,12 @@ export async function executeInvoke(
     request,
     schema,
   );
+  if (scope.kind === "partitionCreateRoot") {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: create-root partition for ${request.path} preallocated ${scope.preallocatedRootId}, but handler execution cannot consume preallocated root ids yet.`,
+    );
+  }
   await SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema);
   const tx = await SingleShardTransaction.begin(env, deploymentId, scope.partitionKey);
   const value =
@@ -182,16 +189,22 @@ export async function executeInvoke(
 }
 
 export function resolveFunctionExecutionScope(
-  partition: FunctionPartitionPolicy | null | undefined,
+  partition: FunctionPartitionMetadata | null | undefined,
   route: FunctionRoutePolicy | null | undefined,
-  request: Pick<InvokeRequest, "path" | "args" | "partitionKey">,
+  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
   schema: DeploymentSchema,
+  options: {
+    allocateRootId?: (table: SchemaTable) => string;
+  } = {},
 ): FunctionExecutionScope {
   if (partition === undefined || partition === null) {
     throw new HttpError(
       400,
       `PartitionValidationError: function ${request.path} must declare partition metadata.`,
     );
+  }
+  if (partition.type === "partitionCreateRoot") {
+    return resolveCreateRootExecutionScope(partition, route, request, schema, options);
   }
   validatePartitionPolicyAgainstSchema(partition, request.path, schema);
   if (
@@ -223,6 +236,56 @@ export function resolveFunctionExecutionScope(
     partitionField: partition.partitionField,
     argField: partition.argField,
     partitionKey,
+  };
+}
+
+function resolveCreateRootExecutionScope(
+  partition: Extract<FunctionPartitionMetadata, { type: "partitionCreateRoot" }>,
+  route: FunctionRoutePolicy | null | undefined,
+  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
+  schema: DeploymentSchema,
+  options: {
+    allocateRootId?: (table: SchemaTable) => string;
+  },
+): FunctionExecutionScope {
+  if (route !== null && route !== undefined) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: create-root partition for ${request.path} cannot declare route metadata.`,
+    );
+  }
+  const table = tableForName(schema, partition.table);
+  if (table.placement.kind !== "partitionBy") {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${request.path} create-root partition table ${partition.table} is not partitioned.`,
+    );
+  }
+  if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: ${request.path} create-root partition requires ${partition.table} to be partitioned by _id.`,
+    );
+  }
+  const preallocatedRootId = options.allocateRootId?.(table) ?? encodeFlarexId(table.tableId);
+  if (!isFlarexIdForTable(preallocatedRootId, table.tableId)) {
+    throw new HttpError(
+      500,
+      `PartitionValidationError: preallocated root id for ${request.path} must be an ID for table ${partition.table}.`,
+    );
+  }
+  if (request.partitionKey !== undefined && request.partitionKey !== preallocatedRootId) {
+    throw new HttpError(
+      400,
+      `PartitionValidationError: partitionKey cannot be supplied for create-root ${request.path}; backend preallocated ${preallocatedRootId}.`,
+    );
+  }
+  return {
+    kind: "partitionCreateRoot",
+    table: partition.table,
+    partitionField: "_id",
+    partitionKey: preallocatedRootId,
+    preallocatedRootId,
   };
 }
 

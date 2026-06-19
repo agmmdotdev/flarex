@@ -1427,6 +1427,8 @@ corepack pnpm --filter flarex test
 
 ## Create-Root Partition Policy Boundary
 
+Checkpoint: `601256a` Classify create-root partition analysis.
+
 Previous completed checkpoint: `14c303e` Prefer root model partitions in
 example.
 
@@ -1486,6 +1488,61 @@ corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex-dev build
 corepack pnpm --filter @flarex/example generate
 corepack pnpm --filter @flarex/example test
+```
+
+## Backend Create-Root Scope Planning
+
+Previous completed checkpoint: `601256a` Classify create-root partition
+analysis.
+
+Backend routing now has the first create-root planning primitive. Given
+metadata:
+
+```ts
+{ type: "partitionCreateRoot", table: "users", partitionField: "_id" }
+```
+
+`resolveFunctionExecutionScope` can allocate a root id before execution and
+return a scope whose `partitionKey` is the preallocated id. This is the runtime
+contract the future handler/session path must consume.
+
+Safety rules added now:
+
+- create-root cannot also declare route metadata,
+- client-supplied `partitionKey` is rejected for create-root planning,
+- allocator output must be an id for the root table, and
+- `executeInvoke` still rejects create-root before handler execution because
+  insert consumption is not implemented.
+
+Convex references:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - function registration carries execution metadata.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend creates the execution context before user code.
+- `crates/database/src/transaction.rs`
+  - generated ids participate in transaction state.
+
+Cloudflare difference:
+
+- Flarex needs this planning step to name the Durable Object before the handler
+  starts. Convex does not because its transaction engine is not partition-key
+  selected by app metadata.
+
+Remaining limitations:
+
+- The preallocated id is not passed into `ctx.db.insert`.
+- No commit validation requires exactly one root insert yet.
+- Final codegen still rejects create-root declarations.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
 ```
 
 ## Previous Update

@@ -94,6 +94,12 @@ export class ExecutionDO extends DurableObject<Env> {
       throw error;
     }
     const scope = resolveFunctionExecutionScope(metadata.partition, metadata.route, request, schema);
+    if (scope.kind === "partitionCreateRoot") {
+      throw new HttpError(
+        400,
+        `PartitionValidationError: create-root partition for ${request.path} preallocated ${scope.preallocatedRootId}, but execution sessions cannot consume preallocated root ids yet.`,
+      );
+    }
 
     await SingleShardTransaction.ensureSchema(
       this.env,

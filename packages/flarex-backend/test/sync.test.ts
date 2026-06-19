@@ -466,7 +466,7 @@ async function createSyncHarness(
       path: string;
       kind?: "query" | "mutation";
       args: unknown;
-      partitionKey: string;
+      partitionKey?: string;
     };
   }) => Json | Promise<Json> =
     payload => ({

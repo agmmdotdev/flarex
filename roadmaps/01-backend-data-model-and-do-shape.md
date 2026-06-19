@@ -345,6 +345,52 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Create-Root Metadata Shape Update
+
+Previous completed checkpoint: `601256a` Classify create-root partition
+analysis.
+
+Backend deployment/function metadata now accepts the create-root partition
+shape:
+
+```ts
+{
+  type: "partitionCreateRoot",
+  table: string,
+  partitionField: "_id",
+}
+```
+
+`DeploymentDO` validates this shape during push/start metadata normalization,
+and backend invoke planning turns it into a future `PartitionDO` object name by
+preallocating the root id.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - function metadata is modeled as backend-owned deployment state.
+- `crates/model/src/source_packages/mod.rs`
+  - source/deployment state is stored durably before execution.
+
+Cloudflare difference:
+
+- Flarex stores routing intent in deployment metadata because Durable Objects
+  need a concrete object name before execution. Convex does not expose this
+  distinction in function metadata.
+
+Remaining limitations:
+
+- This is a metadata/runtime planning shape only.
+- No active deployment can safely expose create-root functions to clients until
+  the execution session consumes `preallocatedRootId`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+```
+
 ## Shared Artifact Ref Computation Update
 
 Previous completed checkpoint: `363d7e0` Add local execution artifact runtime

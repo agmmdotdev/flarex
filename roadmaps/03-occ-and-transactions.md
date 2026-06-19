@@ -95,6 +95,72 @@ single-shard.
 
 ## Root Partition Creation Plan
 
+Checkpoint title: `Plan create-root id preallocation`
+
+Previous completed checkpoint: `601256a` Classify create-root partition
+analysis.
+
+What changed:
+
+- Backend function metadata now accepts both selector partitions and
+  `partitionCreateRoot` policies.
+- `resolveFunctionExecutionScope` can plan a create-root execution by
+  allocating a root id before transaction begin.
+- The planned scope carries:
+
+  ```ts
+  {
+    kind: "partitionCreateRoot",
+    table: "users",
+    partitionField: "_id",
+    partitionKey: preallocatedRootId,
+    preallocatedRootId,
+  }
+  ```
+
+- `executeInvoke` still rejects create-root scopes before user code runs
+  because `ctx.db.insert` cannot consume the preallocated id yet.
+
+Why this belongs in OCC:
+
+- The preallocated root id is now explicitly the partition key for the future
+  transaction.
+- The next OCC slice must pass that id into `SingleShardTransaction` and require
+  exactly one matching root insert before commit.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state owns writes accumulated during execution.
+- `crates/database/src/committer.rs`
+  - commit validation rejects invalid write sets.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend prepares execution context before user code.
+
+Cloudflare difference:
+
+- Convex can allocate document ids inside the database transaction. Flarex must
+  allocate the root id before selecting a `PartitionDO`, so the id becomes part
+  of execution planning.
+
+Remaining limitations:
+
+- Preallocated ids are not exposed to the handler yet.
+- Root insert consumption is not validated at commit.
+- Final SDK codegen still rejects create-root functions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
+## Previous Root Partition Classification
+
 Checkpoint title: `Classify create-root partitions`
 
 Previous completed checkpoint: `14c303e` Prefer root model partitions in

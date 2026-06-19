@@ -1572,7 +1572,7 @@ Remaining SDK limitation:
 
 ## Implementation Checkpoints
 
-### Pending Commit: Classify Create-Root Partitions
+### `601256a` Classify create-root partition analysis
 
 Previous completed checkpoint: `14c303e` Prefer root model partitions in
 example.

@@ -138,16 +138,31 @@ export type FunctionPartitionPolicy = {
   partitionField: string;
   argField: string;
 };
+export type FunctionPartitionCreateRootPolicy = {
+  type: "partitionCreateRoot";
+  table: string;
+  partitionField: "_id";
+};
+export type FunctionPartitionMetadata =
+  | FunctionPartitionPolicy
+  | FunctionPartitionCreateRootPolicy;
 
 export type FunctionExecutionScope =
-  {
-    kind: "partition";
-    table: string;
-    selector: string;
-    partitionField: string;
-    argField: string;
-    partitionKey: string;
-  };
+  | {
+      kind: "partition";
+      table: string;
+      selector: string;
+      partitionField: string;
+      argField: string;
+      partitionKey: string;
+    }
+  | {
+      kind: "partitionCreateRoot";
+      table: string;
+      partitionField: "_id";
+      partitionKey: string;
+      preallocatedRootId: string;
+    };
 
 export type AnalyzedSourcePosition = {
   path: string;
@@ -162,7 +177,7 @@ export type DeploymentFunctionMetadata = {
   args?: ValidatorJson | null;
   returns?: ValidatorJson | null;
   route?: FunctionRoutePolicy | null;
-  partition?: FunctionPartitionPolicy | null;
+  partition?: FunctionPartitionMetadata | null;
   position?: AnalyzedSourcePosition;
 };
 
@@ -203,7 +218,7 @@ export type DeploymentCodegenFunction = {
   args: ValidatorJson;
   returns: ValidatorJson | null;
   route?: FunctionRoutePolicy | null;
-  partition?: FunctionPartitionPolicy | null;
+  partition?: FunctionPartitionMetadata | null;
   position?: AnalyzedSourcePosition;
 };
 
@@ -274,7 +289,7 @@ export type FinishPushRequest = {
 export type InvokeRequest = {
   path: string;
   args: Json;
-  partitionKey: string;
+  partitionKey?: string;
   kind?: BackendFunctionKind;
   idempotencyKey?: string;
 };
@@ -289,6 +304,7 @@ export type InvokeResponse = {
 
 export type ExecutionStartRequest = InvokeRequest & {
   deploymentId: string;
+  partitionKey: string;
 };
 
 export type ExecutionStartResponse = {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   executeInvoke,
+  resolveFunctionExecutionScope,
   type BackendFunctionRegistry,
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
@@ -21,6 +22,145 @@ afterAll(async () => {
 });
 
 describe("executeInvoke", () => {
+  it("plans create-root partitions by preallocating the root id before execution", () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    };
+
+    const scope = resolveFunctionExecutionScope(
+      {
+        type: "partitionCreateRoot",
+        table: "users",
+        partitionField: "_id",
+      },
+      null,
+      {
+        path: "users:create",
+        args: { name: "Ada" },
+      },
+      schema,
+      {
+        allocateRootId: table => `${table.tableId}:preallocated-user`,
+      },
+    );
+
+    expect(scope).toEqual({
+      kind: "partitionCreateRoot",
+      table: "users",
+      partitionField: "_id",
+      partitionKey: "2:preallocated-user",
+      preallocatedRootId: "2:preallocated-user",
+    });
+  });
+
+  it("rejects invalid create-root execution plans before transaction begin", () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    };
+    const partition = {
+      type: "partitionCreateRoot" as const,
+      table: "users",
+      partitionField: "_id" as const,
+    };
+
+    expect(() =>
+      resolveFunctionExecutionScope(
+        partition,
+        { type: "args", field: "userId" },
+        { path: "users:create", args: { name: "Ada" } },
+        schema,
+      ),
+    ).toThrow("create-root partition for users:create cannot declare route metadata.");
+
+    expect(() =>
+      resolveFunctionExecutionScope(
+        partition,
+        null,
+        {
+          path: "users:create",
+          args: { name: "Ada" },
+          partitionKey: "2:client-supplied",
+        },
+        schema,
+        { allocateRootId: () => "2:preallocated-user" },
+      ),
+    ).toThrow(
+      "partitionKey cannot be supplied for create-root users:create; backend preallocated 2:preallocated-user.",
+    );
+
+    expect(() =>
+      resolveFunctionExecutionScope(
+        partition,
+        null,
+        { path: "users:create", args: { name: "Ada" } },
+        schema,
+        { allocateRootId: () => "1:not-a-user" },
+      ),
+    ).toThrow(
+      "preallocated root id for users:create must be an ID for table users.",
+    );
+  });
+
+  it("does not execute create-root partitions until handlers can consume preallocated ids", async () => {
+    await putSchema("create-root-planning-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    });
+
+    let ran = false;
+    await expect(
+      executeInvoke(
+        env,
+        "create-root-planning-deployment",
+        {
+          path: "users:create",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+        {
+          "users:create": {
+            kind: "mutation",
+            partition: {
+              type: "partitionCreateRoot",
+              table: "users",
+              partitionField: "_id",
+            },
+            handler: async () => {
+              ran = true;
+              return null;
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(
+      "PartitionValidationError: create-root partition for users:create preallocated 2:",
+    );
+    expect(ran).toBe(false);
+  });
+
   it("executes a registered mutation against SingleShardTransaction", async () => {
     await putSchema("invoke-deployment", {
       version: 1,

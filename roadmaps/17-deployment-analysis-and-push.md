@@ -2348,6 +2348,8 @@ corepack pnpm --filter @flarex/example generate
 
 ## Create-Root Analysis Classification
 
+Checkpoint: `601256a` Classify create-root partition analysis.
+
 Previous completed checkpoint: `14c303e` Prefer root model partitions in
 example.
 
@@ -2397,6 +2399,41 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex-dev build
+```
+
+## Backend Create-Root Metadata Acceptance
+
+Previous completed checkpoint: `601256a` Classify create-root partition
+analysis.
+
+Deployment metadata validation now accepts `partitionCreateRoot` as a first
+class analyzed partition policy. `DeploymentDO` validates that:
+
+- the target table exists and is active,
+- the table is `partitionBy("_id")`, and
+- create-root metadata does not also declare route metadata.
+
+This lets backend push state preserve create-root analysis metadata without
+pretending generated clients can execute it yet.
+
+Convex references:
+
+- `crates/model/src/modules/module_versions.rs`
+  - analyzed module/function metadata is a durable deployment model.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution consumes validated deployment metadata.
+
+Cloudflare difference:
+
+- Flarex deployment metadata must carry enough routing intent to choose a
+  Durable Object. Convex does not need create-root routing metadata because id
+  allocation and commit happen inside one logical database.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
 ```
 
 ## Backend Artifact Runtime Invoke Update
