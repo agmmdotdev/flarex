@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DeploymentAlreadyExistsError, sql } from "../src";
+import { DeploymentMetadataAlreadyExistsError, sql } from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
 
@@ -127,11 +127,11 @@ describe("createPGlitePersistence", () => {
     ]);
   });
 
-  it("creates and reads deployment metadata", async () => {
+  it("inserts and reads deployment metadata", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    const created = await persistence.createDeployment({
+    const created = await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_meta",
       projectId: "project_meta",
       activePackageId: "package_meta",
@@ -147,7 +147,7 @@ describe("createPGlitePersistence", () => {
     expect(created.createdAt).toBeInstanceOf(Date);
 
     await expect(
-      persistence.getDeployment("deployment_meta"),
+      persistence.getDeploymentMetadata("deployment_meta"),
     ).resolves.toMatchObject({
       deploymentId: "deployment_meta",
       projectId: "project_meta",
@@ -160,23 +160,25 @@ describe("createPGlitePersistence", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    await expect(persistence.getDeployment("missing")).resolves.toBeNull();
+    await expect(
+      persistence.getDeploymentMetadata("missing"),
+    ).resolves.toBeNull();
   });
 
   it("rejects duplicate deployment metadata clearly", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    await persistence.createDeployment({
+    await persistence.insertDeploymentMetadata({
       deploymentId: "deployment_dup",
       projectId: "project_dup",
     });
 
     await expect(
-      persistence.createDeployment({
+      persistence.insertDeploymentMetadata({
         deploymentId: "deployment_dup",
         projectId: "project_dup",
       }),
-    ).rejects.toThrow(DeploymentAlreadyExistsError);
+    ).rejects.toThrow(DeploymentMetadataAlreadyExistsError);
   });
 });

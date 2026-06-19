@@ -11,13 +11,13 @@ executor must be framework-neutral core first, not a Nitro app first.
 New target packages:
 
 ```txt
-packages/flarex-postgres
+packages/persistence-postgres
   generic document/index persistence and PGlite/Postgres adapters
 
-packages/flarex-executor
+packages/executor
   trusted transaction executor core with a stable fetch/direct-call protocol
 
-packages/flarex-executor-nitro
+packages/executor-nitro
   Nitro/Vercel adapter only
 
 packages/flarex-test

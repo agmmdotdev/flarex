@@ -75,8 +75,8 @@ future value codec can stay Convex-compatible instead of locking the storage
 layer to JSONB too early.
 
 The TypeScript source of truth for this schema now lives in Drizzle table
-definitions under `packages/flarex-postgres/src/schema.ts`. Migration files
-are package-local under `packages/flarex-postgres/drizzle/` and generated with
+definitions under `packages/persistence-postgres/src/schema.ts`. Migration files
+are package-local under `packages/persistence-postgres/drizzle/` and generated with
 Drizzle Kit from the package-local `drizzle.config.ts`.
 
 The initial migration keeps one manual SQL adjustment: Drizzle Kit renders the
@@ -188,7 +188,7 @@ Keep explicit SQL for:
 
 This split avoids raw ad hoc SQL for ordinary metadata while preserving full
 control over the storage-engine paths that need to mimic Convex. The
-`flarex-postgres` persistence interface exposes `execute(sql``...``)` for these
+`@flarex/persistence-postgres` persistence interface exposes `execute(sql``...``)` for these
 engine paths and keeps plain string `exec/query` only as a lower-level adapter
 escape hatch.
 

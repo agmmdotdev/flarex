@@ -134,8 +134,8 @@ user request.
    maintain the DO prototype.
 
 3. Keep Nitro as an adapter, not the executor core. Trusted transaction logic
-   belongs in framework-neutral packages such as `flarex-executor` and
-   `flarex-postgres`; `flarex-executor-nitro` should only map Nitro/Vercel
+   belongs in framework-neutral packages such as `@flarex/executor` and
+   `@flarex/persistence-postgres`; `@flarex/executor-nitro` should only map Nitro/Vercel
    requests to that core.
 
 4. Use PGlite for local and fast test lanes, but keep real Postgres as the

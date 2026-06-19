@@ -1,5 +1,5 @@
 {
-  "name": "flarex-executor",
+  "name": "@flarex/executor",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "flarex-postgres": "workspace:*"
+    "@flarex/persistence-postgres": "workspace:*"
   },
   "devDependencies": {
     "vite": "catalog:",

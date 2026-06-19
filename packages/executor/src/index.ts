@@ -1,4 +1,4 @@
-import type { FlarexPersistenceCheck } from "flarex-postgres";
+import type { FlarexPersistenceCheck } from "@flarex/persistence-postgres";
 
 export interface Clock {
   now(): Date;
@@ -18,7 +18,7 @@ export interface FlarexExecutorPersistence {
 }
 
 export interface FlarexHealth {
-  service: "flarex-executor";
+  service: "executor";
   status: "ok" | "degraded";
   persistence: FlarexExecutorDependencyHealth;
   time: string;
@@ -46,7 +46,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       const persistenceHealth = await checkPersistence(persistence);
 
       return {
-        service: "flarex-executor",
+        service: "executor",
         status: persistenceHealth.status === "ok" ? "ok" : "degraded",
         persistence: persistenceHealth,
         time: clock.now().toISOString(),

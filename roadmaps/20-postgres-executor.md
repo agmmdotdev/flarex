@@ -46,18 +46,18 @@ apps/example
 New packages:
 
 ```txt
-packages/flarex-postgres
+packages/persistence-postgres
   status: new
   role: generic document/index persistence, migrations, PGlite adapter,
         real Postgres adapter
 
-packages/flarex-executor
+packages/executor
   status: new
   role: framework-neutral trusted executor core
 
-packages/flarex-executor-nitro
+packages/executor-nitro
   status: new
-  role: thin Nitro/Vercel adapter over flarex-executor
+  role: thin Nitro/Vercel adapter over @flarex/executor
 ```
 
 Migration order:
@@ -104,14 +104,14 @@ The trusted Postgres transaction executor should be framework-neutral core
 first, with Nitro/Vercel as a thin deployment adapter.
 
 ```txt
-packages/flarex-postgres
+packages/persistence-postgres
   Convex-style generic document/index persistence
   schema migrations
   OCC read validation
   commit/write-log/outbox transaction helpers
   adapters for real Postgres and PGlite
 
-packages/flarex-executor
+packages/executor
   trusted executor core
   createFlarexExecutor()
   stable fetch/request protocol
@@ -119,9 +119,9 @@ packages/flarex-executor
   query/mutation execution-session endpoints
   no Nitro, Vercel, Cloudflare, or UI imports
 
-packages/flarex-executor-nitro
+packages/executor-nitro
   Nitro adapter only
-  maps Nitro events/routes to flarex-executor fetch handlers
+  maps Nitro events/routes to @flarex/executor fetch handlers
   Vercel deployment configuration helpers
 
 packages/flarex-test
@@ -159,7 +159,7 @@ Local/test shape:
 
 ```txt
 Vite plugin or test harness
-  -> in-process flarex-executor core
+  -> in-process @flarex/executor core
   -> PGlite persistence adapter
   -> same generated client/server APIs
 ```
@@ -241,15 +241,15 @@ Phase 1:
   do not expose the bridge to app developers
 
 Phase 2:
-  add flarex-postgres persistence interfaces and PGlite adapter
+  add @flarex/persistence-postgres persistence interfaces and PGlite adapter
   port generic document/index schema into SQL migrations
 
 Phase 3:
-  add flarex-executor core using the persistence interface
+  add @flarex/executor core using the persistence interface
   tests call executor core directly with PGlite
 
 Phase 4:
-  add flarex-executor-nitro adapter
+  add @flarex/executor-nitro adapter
   production deploys Nitro on Vercel near Postgres
 
 Phase 5:
@@ -364,7 +364,7 @@ export default defineEventHandler(event => {
 
 ## Known Limitations
 
-- No `flarex-postgres`, `flarex-executor`, or `flarex-executor-nitro` package
+- No `@flarex/persistence-postgres`, `@flarex/executor`, or `@flarex/executor-nitro` package
   exists yet.
 - Existing backend code still commits through `PartitionDO`.
 - Existing generated server code still emits partition model helpers.
@@ -376,11 +376,11 @@ export default defineEventHandler(event => {
 
 Create package boundaries and tests before writing full SQL behavior:
 
-1. Add `packages/flarex-postgres` with a tiny persistence interface and PGlite
+1. Add `packages/persistence-postgres` with a tiny persistence interface and PGlite
    adapter scaffold.
-2. Add `packages/flarex-executor` with `createFlarexExecutor(...)` and a
+2. Add `packages/executor` with `createFlarexExecutor(...)` and a
    framework-agnostic health function.
-3. Add `packages/flarex-executor-nitro` as adapter-only.
+3. Add `packages/executor-nitro` as adapter-only.
 4. Add one `flarex-test` in-process executor harness test using PGlite.
 5. Do not wire the main SDK/client path to it yet.
 
@@ -394,10 +394,10 @@ cache layers.
 
 What changed:
 
-- Added `packages/flarex-executor` as the framework-neutral trusted executor
+- Added `packages/executor` as the framework-neutral trusted executor
   core package.
 - Added `createFlarexExecutor()` with a direct `health()` method.
-- Added `packages/flarex-executor-nitro` as an adapter-only package that
+- Added `packages/executor-nitro` as an adapter-only package that
   maps `GET /health` from an incoming web `Request` to the executor core.
 - Added focused health tests for both packages.
 
@@ -443,10 +443,10 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-executor typecheck
-corepack pnpm --filter flarex-executor test
-corepack pnpm --filter flarex-executor-nitro typecheck
-corepack pnpm --filter flarex-executor-nitro test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
@@ -456,11 +456,11 @@ Previous completed checkpoint: `2107439` Add executor health endpoint packages.
 
 What changed:
 
-- Removed `fetch(request)` and `healthPath` from `packages/flarex-executor`.
-- Kept `packages/flarex-executor` as direct core functions only:
+- Removed `fetch(request)` and `healthPath` from `packages/executor`.
+- Kept `packages/executor` as direct core functions only:
   `createFlarexExecutor().health()`.
 - Moved HTTP route matching, JSON response creation, and 404 handling into
-  `packages/flarex-executor-nitro`.
+  `packages/executor-nitro`.
 - Updated tests so the core package verifies direct function behavior and the
   adapter package verifies endpoint behavior.
 
@@ -486,7 +486,7 @@ Flarex differences:
 - Flarex still needs deployed HTTP adapters because Cloudflare user-code
   runtime will call the trusted executor over a network boundary.
 - The endpoint contract belongs to adapter packages such as
-  `flarex-executor-nitro`; direct executor methods remain the source of
+  `@flarex/executor-nitro`; direct executor methods remain the source of
   behavior.
 
 Known limitations:
@@ -498,10 +498,10 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-executor typecheck
-corepack pnpm --filter flarex-executor test
-corepack pnpm --filter flarex-executor-nitro typecheck
-corepack pnpm --filter flarex-executor-nitro test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
@@ -512,7 +512,7 @@ agnostic.
 
 What changed:
 
-- Added `packages/flarex-postgres`.
+- Added `packages/persistence-postgres`.
 - Added framework-neutral persistence interfaces:
   `FlarexPersistence`, `FlarexPersistenceTx`, `check()`, `migrate()`, and
   `transaction()`.
@@ -590,10 +590,10 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-postgres typecheck
-corepack pnpm --filter flarex-postgres test
-corepack pnpm --filter flarex-executor typecheck
-corepack pnpm --filter flarex-executor-nitro typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
 git diff --check
 ```
 
@@ -604,7 +604,7 @@ persistence package.
 
 What changed:
 
-- Added Drizzle ORM to `packages/flarex-postgres`.
+- Added Drizzle ORM to `packages/persistence-postgres`.
 - Added `src/schema.ts` with Drizzle `pgTable` definitions for all current
   persistence tables.
 - Added a custom Drizzle `bytea` column helper so Convex-style binary document
@@ -654,8 +654,8 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-postgres typecheck
-corepack pnpm --filter flarex-postgres test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
 git diff --check
 ```
 
@@ -666,13 +666,13 @@ persistence.
 
 What changed:
 
-- Added `packages/flarex-postgres/drizzle.config.ts`.
+- Added `packages/persistence-postgres/drizzle.config.ts`.
 - Added package-local scripts:
   - `db:generate`
   - `db:check`
-- Added `drizzle-kit` as a `flarex-postgres` dev dependency.
+- Added `drizzle-kit` as a `@flarex/persistence-postgres` dev dependency.
 - Generated the first package-local migration under
-  `packages/flarex-postgres/drizzle/`.
+  `packages/persistence-postgres/drizzle/`.
 - Replaced the custom in-source migration runner with
   `drizzle-orm/pglite/migrator`.
 - Removed the custom `flarex_schema_migrations` app table and switched to
@@ -684,7 +684,7 @@ Why it changed:
 
 The Postgres package owns persistence schema and migration history. Drizzle Kit
 should live package-locally instead of at the workspace root, so schema changes,
-generated SQL, and migration metadata stay with `flarex-postgres`.
+generated SQL, and migration metadata stay with `@flarex/persistence-postgres`.
 
 Convex references:
 
@@ -732,7 +732,7 @@ What changed:
 
 - Updated `FlarexSqlClient` so persistence and transaction clients expose:
   `execute(query: SQLWrapper | string)`.
-- Re-exported Drizzle's `sql` helper from `flarex-postgres`.
+- Re-exported Drizzle's `sql` helper from `@flarex/persistence-postgres`.
 - Added PGlite adapter support for executing Drizzle raw SQL on both the root
   persistence client and transaction client.
 - Added a test proving `persistence.execute(sql``...``)` and
@@ -781,13 +781,13 @@ interface.
 
 What changed:
 
-- Added `flarex-postgres` as a dependency of `flarex-executor`.
+- Added `@flarex/persistence-postgres` as a dependency of `@flarex/executor`.
 - Made `createFlarexExecutor({ persistence })` require a persistence
   dependency.
 - Changed `executor.health()` from synchronous to async.
 - Added persistence dependency health to the executor health payload.
 - Added degraded health reporting when `persistence.check()` fails.
-- Updated `flarex-executor-nitro` so the adapter requires an injected executor
+- Updated `@flarex/executor-nitro` so the adapter requires an injected executor
   and awaits async health.
 - Added tests for healthy persistence, degraded persistence, adapter health
   serialization, and adapter 404 behavior.
@@ -814,7 +814,7 @@ Flarex differences:
 - Convex does not expose a Nitro health adapter. Flarex has an adapter because
   the trusted executor may run as Nitro/Vercel.
 - The executor core still owns no route paths. `GET /health` remains a
-  `flarex-executor-nitro` concern.
+  `@flarex/executor-nitro` concern.
 
 Known limitations:
 
@@ -825,11 +825,11 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-executor typecheck
-corepack pnpm --filter flarex-executor test
-corepack pnpm --filter flarex-executor-nitro typecheck
-corepack pnpm --filter flarex-executor-nitro test
-corepack pnpm --filter flarex-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
 git diff --check
 ```
 
@@ -839,15 +839,15 @@ Previous completed checkpoint: `20d5de3` Wire executor health to persistence.
 
 What changed:
 
-- Added typed deployment metadata helpers in `flarex-postgres`:
-  `createDeployment(...)` and `getDeployment(...)`.
-- Added `DeploymentRecord`, `CreateDeploymentInput`, and
-  `DeploymentAlreadyExistsError`.
+- Added typed deployment metadata helpers in `@flarex/persistence-postgres`:
+  `insertDeploymentMetadata(...)` and `getDeploymentMetadata(...)`.
+- Added `DeploymentMetadataRecord`, `InsertDeploymentMetadataInput`, and
+  `DeploymentMetadataAlreadyExistsError`.
 - Exposed deployment helpers through the framework-neutral
   `FlarexPersistence` interface.
 - Wired the PGlite adapter to use the same Drizzle-backed helper functions.
 - Added tests for create/read, missing deployment lookup, and duplicate
-  deployment rejection.
+  deployment metadata rejection.
 
 Why it changed:
 
@@ -855,10 +855,10 @@ Deployment metadata is platform state. It should move into the Postgres
 persistence package instead of living in the legacy `DeploymentDO` prototype or
 being accessed through unstructured Drizzle calls from executor code.
 
-The create path uses the database primary key with `onConflictDoNothing(...)`
+The insert path uses the database primary key with `onConflictDoNothing(...)`
 and converts the empty insert result into a Flarex-specific duplicate error.
-That is the right first shape for hosted metadata under concurrent project or
-deployment creation.
+That is the right first storage shape for hosted metadata under concurrent
+project or deployment creation.
 
 Convex references:
 
@@ -893,8 +893,85 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-postgres typecheck
-corepack pnpm --filter flarex-postgres test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+```
+
+## Scoped Internal Package Names
+
+Previous completed checkpoint: `4d84f7e` Add deployment metadata helpers.
+
+What changed:
+
+- Renamed the new internal package directories:
+  - `packages/flarex-postgres` -> `packages/persistence-postgres`
+  - `packages/flarex-executor` -> `packages/executor`
+  - `packages/flarex-executor-nitro` -> `packages/executor-nitro`
+- Renamed package names to scoped imports:
+  - `@flarex/persistence-postgres`
+  - `@flarex/executor`
+  - `@flarex/executor-nitro`
+- Kept Drizzle Kit config, generated migrations, schema definitions, PGlite,
+  and future real Postgres adapters inside `@flarex/persistence-postgres`.
+- Changed persistence deployment APIs from platform-behavior names to
+  storage-row names:
+  - `createDeployment(...)` -> `insertDeploymentMetadata(...)`
+  - `getDeployment(...)` -> `getDeploymentMetadata(...)`
+- Kept the executor health payload service name as plain `executor` because it
+  is runtime identity, not a package import specifier.
+
+Why it changed:
+
+The repeated `flarex-` prefix made the package boundary harder to read. Inside
+this repo, the scope already says these packages belong to Flarex. Scoped names
+avoid npm naming collisions while keeping the internal mental model clean:
+
+```txt
+@flarex/persistence-postgres
+  storage implementation, Drizzle schema, migrations, adapters
+
+@flarex/executor
+  framework-neutral platform behavior and transaction execution
+
+@flarex/executor-nitro
+  Nitro/Vercel adapter only
+```
+
+Convex references:
+
+- `npm-packages/convex`
+  - public developer SDK keeps the short package name.
+- `crates/postgres`
+  - storage-specific implementation is named by responsibility, not by
+    repeating the product name.
+- `crates/application` and `crates/function_runner`
+  - backend behavior is separate from storage implementation.
+
+Flarex differences:
+
+- Flarex uses scoped internal npm packages because these packages may later be
+  published or consumed independently by examples/tests.
+- The public SDK package remains `flarex`, similar to Convex's public `convex`
+  package. This checkpoint only renames the new internal executor/persistence
+  packages to avoid unnecessary churn in the older SDK/dev/test packages.
+
+Known limitations:
+
+- Older packages still use names like `flarex-dev`, `flarex-test`, and
+  `flarex-backend`. Those can be revisited separately if we decide to move all
+  non-public packages under `@flarex/*`.
+- `@flarex/executor` still only exposes health behavior. Deployment creation
+  behavior has not been moved there yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
 ```
 
 ## Checkpoint

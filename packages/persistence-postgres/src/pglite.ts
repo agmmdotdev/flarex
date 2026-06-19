@@ -11,8 +11,8 @@ import type {
   QueryResult,
 } from "./index";
 import {
-  createDeployment as createDeploymentWithDb,
-  getDeployment as getDeploymentWithDb,
+  getDeploymentMetadata as getDeploymentMetadataWithDb,
+  insertDeploymentMetadata as insertDeploymentMetadataWithDb,
 } from "./deployments";
 import { flarexSchema } from "./schema";
 
@@ -66,9 +66,10 @@ export async function createPGlitePersistence(
       return { status: "ok" };
     },
 
-    createDeployment: (input) => createDeploymentWithDb(drizzleDb, input),
-    getDeployment: (deploymentId) =>
-      getDeploymentWithDb(drizzleDb, deploymentId),
+    insertDeploymentMetadata: (input) =>
+      insertDeploymentMetadataWithDb(drizzleDb, input),
+    getDeploymentMetadata: (deploymentId) =>
+      getDeploymentMetadataWithDb(drizzleDb, deploymentId),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

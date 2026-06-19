@@ -10,7 +10,7 @@ describe("createFlarexExecutor", () => {
     });
 
     await expect(executor.health()).resolves.toEqual({
-      service: "flarex-executor",
+      service: "executor",
       status: "ok",
       persistence: { status: "ok" },
       time: "2026-06-19T00:00:00.000Z",
@@ -28,7 +28,7 @@ describe("createFlarexExecutor", () => {
     });
 
     await expect(executor.health()).resolves.toEqual({
-      service: "flarex-executor",
+      service: "executor",
       status: "degraded",
       persistence: {
         status: "error",

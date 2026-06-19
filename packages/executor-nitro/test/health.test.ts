@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createFlarexExecutor } from "flarex-executor";
+import { createFlarexExecutor } from "@flarex/executor";
 
 import { createFlarexNitroHandler } from "../src/index";
 
@@ -19,7 +19,7 @@ describe("createFlarexNitroHandler", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      service: "flarex-executor",
+      service: "executor",
       status: "ok",
       persistence: { status: "ok" },
       time: "2026-06-19T00:00:00.000Z",
@@ -62,7 +62,7 @@ describe("createFlarexNitroHandler", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      service: "flarex-executor",
+      service: "executor",
       status: "degraded",
       persistence: {
         status: "error",

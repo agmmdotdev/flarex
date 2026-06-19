@@ -1,4 +1,4 @@
-import type { FlarexExecutor } from "flarex-executor";
+import type { FlarexExecutor } from "@flarex/executor";
 
 export interface FlarexNitroEventLike {
   request: Request;

@@ -3,19 +3,19 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import { deployments, flarexSchema } from "./schema";
 
-export interface CreateDeploymentInput {
+export interface InsertDeploymentMetadataInput {
   deploymentId: string;
   projectId: string;
   activePackageId?: string | null;
   activeSchemaVersion?: number;
 }
 
-export type DeploymentRecord = typeof deployments.$inferSelect;
+export type DeploymentMetadataRecord = typeof deployments.$inferSelect;
 
-export class DeploymentAlreadyExistsError extends Error {
+export class DeploymentMetadataAlreadyExistsError extends Error {
   constructor(readonly deploymentId: string) {
-    super(`Deployment already exists: ${deploymentId}`);
-    this.name = "DeploymentAlreadyExistsError";
+    super(`Deployment metadata already exists: ${deploymentId}`);
+    this.name = "DeploymentMetadataAlreadyExistsError";
   }
 }
 
@@ -24,10 +24,10 @@ export type FlarexMetadataDatabase = PgDatabase<
   typeof flarexSchema
 >;
 
-export async function createDeployment(
+export async function insertDeploymentMetadata(
   db: FlarexMetadataDatabase,
-  input: CreateDeploymentInput,
-): Promise<DeploymentRecord> {
+  input: InsertDeploymentMetadataInput,
+): Promise<DeploymentMetadataRecord> {
   const rows = await db
     .insert(deployments)
     .values({
@@ -41,16 +41,16 @@ export async function createDeployment(
 
   const deployment = rows[0];
   if (deployment === undefined) {
-    throw new DeploymentAlreadyExistsError(input.deploymentId);
+    throw new DeploymentMetadataAlreadyExistsError(input.deploymentId);
   }
 
   return deployment;
 }
 
-export async function getDeployment(
+export async function getDeploymentMetadata(
   db: FlarexMetadataDatabase,
   deploymentId: string,
-): Promise<DeploymentRecord | null> {
+): Promise<DeploymentMetadataRecord | null> {
   const rows = await db
     .select()
     .from(deployments)

@@ -1,5 +1,5 @@
 {
-  "name": "flarex-executor-nitro",
+  "name": "@flarex/executor-nitro",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "flarex-executor": "workspace:*"
+    "@flarex/executor": "workspace:*"
   },
   "devDependencies": {
     "vite": "catalog:",
