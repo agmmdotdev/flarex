@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DeploymentMetadataAlreadyExistsError,
   DeploymentPackageMetadataAlreadyExistsError,
+  InvokeSessionMetadataAlreadyExistsError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -36,6 +37,7 @@ describe("createPGlitePersistence", () => {
       "deployments",
       "documents",
       "indexes",
+      "invoke_sessions",
       "leases",
       "outbox",
       "persistence_globals",
@@ -292,5 +294,101 @@ describe("createPGlitePersistence", () => {
     await expect(
       persistence.insertDeploymentPackageMetadata(input),
     ).rejects.toThrow(DeploymentPackageMetadataAlreadyExistsError);
+  });
+
+  it("inserts and reads invoke session metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const created = await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_invoke",
+      sessionId: "session_a",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query",
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        table: "teams",
+        selector: "byId",
+        partitionField: "_id",
+        argField: "teamId",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      idempotencyKey: "idem_a",
+      beginTs: 42,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    });
+
+    expect(created).toMatchObject({
+      deploymentId: "deployment_invoke",
+      sessionId: "session_a",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query",
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      idempotencyKey: "idem_a",
+      state: "active",
+      beginTs: 42,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+      finishedAt: null,
+    });
+    expect(created.createdAt).toBeInstanceOf(Date);
+
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_invoke", "session_a"),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_invoke",
+      sessionId: "session_a",
+      state: "active",
+    });
+  });
+
+  it("returns null for missing invoke session metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_invoke", "missing"),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects duplicate invoke session metadata clearly", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const input = {
+      deploymentId: "deployment_invoke_dup",
+      sessionId: "session_dup",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:send",
+      functionKind: "mutation" as const,
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      beginTs: 43,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    };
+
+    await persistence.insertInvokeSessionMetadata(input);
+
+    await expect(
+      persistence.insertInvokeSessionMetadata(input),
+    ).rejects.toThrow(InvokeSessionMetadataAlreadyExistsError);
   });
 });

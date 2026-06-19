@@ -166,12 +166,51 @@ export const outbox = pgTable(
   ],
 );
 
+export const invokeSessions = pgTable(
+  "invoke_sessions",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    projectId: text("project_id").notNull(),
+    packageId: text("package_id").notNull(),
+    functionPath: text("function_path").notNull(),
+    functionKind: text("function_kind").notNull(),
+    partitionKey: text("partition_key").notNull(),
+    scopeJson: jsonb("scope_json").$type<Record<string, unknown>>().notNull(),
+    argsJson: jsonb("args_json").$type<unknown>().notNull(),
+    idempotencyKey: text("idempotency_key"),
+    state: text("state").notNull().default("active"),
+    beginTs: bigint("begin_ts", { mode: "number" }).notNull(),
+    schemaVersion: bigint("schema_version", { mode: "number" }).notNull(),
+    executionModule: text("execution_module").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.sessionId],
+    }),
+    index("invoke_sessions_by_deployment_state_created").on(
+      table.deploymentId,
+      table.state,
+      table.createdAt,
+    ),
+    index("invoke_sessions_by_deployment_idempotency_key").on(
+      table.deploymentId,
+      table.idempotencyKey,
+    ),
+  ],
+);
+
 export const flarexSchema = {
   commits,
   deploymentPackages,
   deployments,
   documents,
   indexes,
+  invokeSessions,
   leases,
   outbox,
   persistenceGlobals,

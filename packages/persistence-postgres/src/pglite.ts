@@ -19,6 +19,10 @@ import {
   insertDeploymentMetadata as insertDeploymentMetadataWithDb,
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
 } from "./deployments";
+import {
+  getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
+  insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
+} from "./invokeSessions";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -81,6 +85,10 @@ export async function createPGlitePersistence(
       getDeploymentMetadataWithDb(drizzleDb, deploymentId),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
+    insertInvokeSessionMetadata: (input) =>
+      insertInvokeSessionMetadataWithDb(drizzleDb, input),
+    getInvokeSessionMetadata: (deploymentId, sessionId) =>
+      getInvokeSessionMetadataWithDb(drizzleDb, deploymentId, sessionId),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

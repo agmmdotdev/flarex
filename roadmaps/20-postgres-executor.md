@@ -1820,6 +1820,97 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Session Persistence
+
+Previous completed checkpoint: `681a2ef` Resolve invoke scopes.
+
+What changed:
+
+- Added a Postgres `invoke_sessions` table to
+  `@flarex/persistence-postgres`.
+- Stored session metadata includes:
+  - deployment/project/package identity
+  - session ID
+  - function path/kind
+  - partition key and resolved scope JSON
+  - invoke args JSON
+  - optional idempotency key
+  - lifecycle state
+  - begin timestamp
+  - schema version
+  - execution module
+  - created/finished timestamps
+- Added indexes for:
+  - deployment/state/created-at session scans
+  - deployment/idempotency-key lookup
+- Added low-level persistence helpers:
+  - `insertInvokeSessionMetadata(...)`
+  - `getInvokeSessionMetadata(...)`
+- Added `InvokeSessionMetadataAlreadyExistsError`.
+- Wired the helpers through `FlarexPersistence` and
+  `createPGlitePersistence(...)`.
+- Added Drizzle migration `0002_fuzzy_lenny_balinger.sql`.
+- Added PGlite tests for insert/read, missing rows, duplicate rows, and
+  migration table coverage.
+
+Why it changed:
+
+The next executor API needs a durable session anchor before user code can make
+restricted syscalls. This table is the bridge between `prepareInvoke(...)` and
+future session operations like begin/syscall/finish/abort. It records the
+already-resolved function and partition scope so Dynamic Worker user code never
+receives a raw database handle or gets to redefine the transaction target after
+execution starts.
+
+Convex references:
+
+- `crates/model/src/session_requests/mod.rs`
+  - Convex keeps system-owned session request records with an index by session
+    ID and request ID for idempotent sync protocol mutation requests.
+- `crates/model/src/session_requests/types.rs`
+  - Convex records session request identity and mutation outcome as durable
+    system metadata.
+- `crates/application/src/application_function_runner/mod.rs`
+  - Convex application execution routes through backend-owned metadata and
+    transaction boundaries rather than user-owned database handles.
+
+Flarex references:
+
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy execution sessions keep active in-memory session state containing
+    deployment, scope, schema, metadata, and transaction.
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy invoke prepares function metadata and partition scope before
+    transaction execution.
+
+Flarex differences:
+
+- Convex `_session_requests` records idempotent request outcomes inside the
+  database transaction. Flarex `invoke_sessions` is a first execution-session
+  anchor; outcome/idempotency replay semantics are not complete yet.
+- The current table stores `scopeJson` and `argsJson` as JSONB. Later
+  transaction/OCC tables may normalize read/write sets separately.
+- No foreign keys are added yet because deployment/package metadata still needs
+  a more complete platform ownership model.
+
+Known limitations:
+
+- `invoke_sessions` does not store read sets, write sets, return values, or log
+  lines yet.
+- There is no executor `beginInvokeSession(...)` method yet.
+- Session state transitions are not implemented yet.
+- Idempotency key lookup is indexed but no helper or replay behavior exists
+  yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

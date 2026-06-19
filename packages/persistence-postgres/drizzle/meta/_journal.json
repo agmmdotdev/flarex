@@ -15,6 +15,13 @@
       "when": 1781889671766,
       "tag": "0001_first_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781894343184,
+      "tag": "0002_fuzzy_lenny_balinger",
+      "breakpoints": true
     }
   ]
 }

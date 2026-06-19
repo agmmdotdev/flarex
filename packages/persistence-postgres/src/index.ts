@@ -8,6 +8,10 @@ import type {
   InsertDeploymentMetadataInput,
   UpdateDeploymentMetadataActivationInput,
 } from "./deployments";
+import type {
+  InsertInvokeSessionMetadataInput,
+  InvokeSessionMetadataRecord,
+} from "./invokeSessions";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -45,6 +49,13 @@ export interface FlarexPersistence extends FlarexSqlClient {
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
+  insertInvokeSessionMetadata(
+    input: InsertInvokeSessionMetadataInput,
+  ): Promise<InvokeSessionMetadataRecord>;
+  getInvokeSessionMetadata(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionMetadataRecord | null>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -55,5 +66,6 @@ export interface FlarexPersistenceCheck {
 
 export * from "./deploymentPackages";
 export * from "./deployments";
+export * from "./invokeSessions";
 export { flarexSchema } from "./schema";
 export * from "./schema";
