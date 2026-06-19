@@ -66,94 +66,95 @@ Convex source references:
 - `crates/value/src/table_mapping.rs`
   - separates logical table names from internal table numbers/tablets.
 
-## Proposed Flarex Physical Schema
+## Implemented First Flarex Physical Schema
 
-The exact DDL can evolve, but the shape should start here:
+The first implemented migration intentionally copies Convex's current
+Postgres persistence table shape more closely than the earlier rough sketch.
+The authoritative document and index payload columns are byte-encoded so the
+future value codec can stay Convex-compatible instead of locking the storage
+layer to JSONB too early.
 
 ```sql
 deployments (
   deployment_id text primary key,
   project_id text not null,
-  active_schema_version bigint not null,
-  active_push_id text,
-  created_at timestamptz not null
-);
-
-table_mapping (
-  deployment_id text not null,
-  table_name text not null,
-  table_id bigint not null,
-  table_kind text not null,
-  document_validator jsonb not null,
-  primary key (deployment_id, table_name),
-  unique (deployment_id, table_id)
-);
-
-index_definitions (
-  deployment_id text not null,
-  index_id bigint not null,
-  table_id bigint not null,
-  index_name text not null,
-  fields jsonb not null,
-  state text not null,
-  primary key (deployment_id, index_id),
-  unique (deployment_id, table_id, index_name)
+  active_package_id text,
+  active_schema_version bigint not null default 0,
+  created_at timestamptz not null default now()
 );
 
 documents (
   deployment_id text not null,
-  table_id bigint not null,
-  document_id text not null,
-  commit_version bigint not null,
-  json_value jsonb,
+  id bytea not null,
+  ts bigint not null,
+  table_id bytea not null,
+  json_value bytea not null,
   deleted boolean not null,
-  prev_version bigint,
-  primary key (deployment_id, commit_version, table_id, document_id)
+  prev_ts bigint,
+  primary key (deployment_id, ts, table_id, id)
 );
 
-current_documents (
+indexes (
   deployment_id text not null,
-  table_id bigint not null,
-  document_id text not null,
-  commit_version bigint not null,
-  json_value jsonb,
-  deleted boolean not null,
-  primary key (deployment_id, table_id, document_id)
+  index_id bytea not null,
+  ts bigint not null,
+  key_prefix bytea not null,
+  key_suffix bytea,
+  key_sha256 bytea not null,
+  deleted boolean,
+  table_id bytea,
+  document_id bytea,
+  primary key (deployment_id, index_id, key_sha256, ts)
 );
 
-index_entries (
+leases (
+  deployment_id text primary key,
+  ts bigint not null
+);
+
+read_only (
+  deployment_id text primary key
+);
+
+persistence_globals (
   deployment_id text not null,
-  index_id bigint not null,
-  encoded_key bytea not null,
-  commit_version bigint not null,
-  table_id bigint not null,
-  document_id text not null,
-  deleted boolean not null,
-  primary key (deployment_id, index_id, encoded_key, commit_version)
+  key text not null,
+  json_value bytea not null,
+  primary key (deployment_id, key)
 );
 
 commits (
   deployment_id text not null,
-  commit_version bigint not null,
+  ts bigint not null,
   source text not null,
   write_summary jsonb not null,
   committed_at timestamptz not null,
-  primary key (deployment_id, commit_version)
+  primary key (deployment_id, ts)
 );
 
 outbox (
   deployment_id text not null,
-  commit_version bigint not null,
+  ts bigint not null,
   sequence bigint not null,
   event jsonb not null,
   delivered_at timestamptz,
-  primary key (deployment_id, commit_version, sequence)
+  primary key (deployment_id, ts, sequence)
 );
 ```
 
-The `current_documents` table is an optimization, not the source of historical
-truth. The versioned `documents`, `index_entries`, `commits`, and `outbox`
-tables are what make OCC, sync invalidation, replay, and cache repair possible.
+The `documents`, `indexes`, `leases`, `read_only`, and `persistence_globals`
+tables are copied from Convex's multitenant Postgres persistence shape with
+`deployment_id` replacing Convex's `instance_name`.
+
+The `deployments`, `commits`, and `outbox` tables are Flarex-owned platform
+tables. They support hosted deployment metadata, commit ordering, and live sync
+fanout. They are deliberately separate from the Convex-like persistence tables.
+
+The earlier `current_documents`, `table_mapping`, and `index_definitions`
+sketch is deferred. Convex stores much of this as system metadata rather than
+SQL-native app tables. Flarex should avoid adding these until the source
+package/deployment metadata model proves which parts need SQL tables versus
+versioned system documents or `persistence_globals`.
 
 ## Logical Data Model
 
@@ -176,20 +177,20 @@ Postgres should not create physical `users` and `lessons` tables. Instead:
 
 ```txt
 table_mapping
-  users   -> table_id 1
-  lessons -> table_id 2
+  users   -> table_id bytes
+  lessons -> table_id bytes
 
-index_definitions
-  users.by_name   -> index_id 10
-  lessons.by_user -> index_id 11
+index metadata
+  users.by_name   -> index_id bytes
+  lessons.by_user -> index_id bytes
 
 documents
   deployment_id, table_id=1, document_id=...
   deployment_id, table_id=2, document_id=...
 
-index_entries
-  deployment_id, index_id=10, encoded_key=(name, _id)
-  deployment_id, index_id=11, encoded_key=(userId, _id)
+indexes
+  deployment_id, index_id=10, key_prefix/key_suffix/key_sha256=(name, _id)
+  deployment_id, index_id=11, key_prefix/key_suffix/key_sha256=(userId, _id)
 ```
 
 The developer still sees Convex-style IDs, validators, generated API refs, and

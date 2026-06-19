@@ -505,6 +505,98 @@ corepack pnpm --filter flarex-executor-nitro test
 git diff --check
 ```
 
+## Convex-Style Postgres Persistence Package
+
+Previous completed checkpoint: `39b9555` Keep executor core transport
+agnostic.
+
+What changed:
+
+- Added `packages/flarex-postgres`.
+- Added framework-neutral persistence interfaces:
+  `FlarexPersistence`, `FlarexPersistenceTx`, `check()`, `migrate()`, and
+  `transaction()`.
+- Added a PGlite adapter for local and fast test lanes.
+- Added a first migration named `convex_style_multitenant_persistence`.
+- Added tests for connectivity, idempotent migration, expected table shape, and
+  transaction rollback.
+
+Convex schema copied:
+
+- `documents`
+  - Convex-like columns: tenant, `id`, `ts`, `table_id`, `json_value`,
+    `deleted`, `prev_ts`.
+  - Primary key follows Convex's multitenant order:
+    `(deployment_id, ts, table_id, id)`.
+  - Added Convex-style table/id and table/ts indexes.
+- `indexes`
+  - Convex-like columns: tenant, `index_id`, `ts`, `key_prefix`,
+    `key_suffix`, `key_sha256`, `deleted`, `table_id`, `document_id`.
+  - Primary key follows Convex's multitenant shape:
+    `(deployment_id, index_id, key_sha256, ts)`.
+- `leases`
+- `read_only`
+- `persistence_globals`
+
+Flarex-owned additions:
+
+- `flarex_schema_migrations`
+  - local migration tracking.
+- `deployments`
+  - hosted platform deployment metadata.
+- `commits`
+  - explicit commit record for future OCC, sync, idempotency, and audit.
+- `outbox`
+  - durable live sync/cache invalidation stream.
+
+Why it changed:
+
+The earlier rough design used names like `document_revisions`,
+`index_entries`, and JSONB document values. Copying Convex more closely is the
+better base. Convex's current Postgres persistence stores generic document and
+index history as byte-encoded rows, not one SQL table per developer table.
+Flarex should keep that shape and layer platform metadata beside it.
+
+Convex references:
+
+- `crates/postgres/src/sql.rs`
+  - source for `documents`, `indexes`, `leases`, `read_only`, and
+    `persistence_globals` DDL.
+- `crates/postgres/src/lib.rs`
+  - source for multitenant `instance_name` option and persistence init flow.
+- `crates/postgres/src/connection.rs`
+  - source for schema/pool boundary and why persistence init must be
+    idempotent.
+
+Flarex differences:
+
+- Convex calls the tenant discriminator `instance_name`; Flarex uses
+  `deployment_id`.
+- Convex uses Rust/tokio-postgres and its own pool, timeout, lease, and
+  retention machinery. Flarex starts with a TypeScript interface and PGlite
+  adapter, then will add real Postgres separately.
+- Convex does not need Flarex's `deployments`, `commits`, or `outbox` tables in
+  this exact form. They support the hosted executor and Cloudflare sync/cache
+  architecture.
+
+Known limitations:
+
+- No real Postgres adapter yet.
+- No document codec yet, so the `bytea` value fields are schema-ready but not
+  used by executor sessions.
+- No OCC commit implementation yet.
+- No lease/read-only behavior beyond table creation yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-postgres typecheck
+corepack pnpm --filter flarex-postgres test
+corepack pnpm --filter flarex-executor typecheck
+corepack pnpm --filter flarex-executor-nitro typecheck
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
