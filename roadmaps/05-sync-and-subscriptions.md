@@ -33,6 +33,57 @@ Verification:
 git diff --check
 ```
 
+## Read-Set Freshness Checker
+
+Previous completed checkpoint: `3913b02` Add freshness delivery handler.
+
+What changed:
+
+- Added `checkReadSetFreshness(...)` for document/table read dependencies.
+- The checker returns:
+  - `fresh` when all supported dependencies are still at or before their
+    observed timestamps,
+  - `stale` when a document/table version is newer than the observed timestamp,
+    and
+  - `unsupported` when index/range dependencies are present.
+- Added durable Postgres-backed checker coverage.
+
+Why it matters for sync:
+
+Live query sync needs to know whether a saved query result is still valid after
+new commits arrive. This gives the first concrete dependency check for
+document and whole-table reads. A future scheduler can use it before rerunning
+queries and publishing new results.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - committed writes invalidate read dependencies.
+- `crates/sync/src/worker.rs`
+  - sync workers process invalidated queries into client transitions.
+- `crates/database/src/write_log.rs`
+  - write-log metadata supplies committed freshness.
+
+Flarex differences:
+
+- Convex keeps this logic inside backend subscription state. Flarex needs a
+  package-level checker because freshness, query execution, and connection
+  fanout are separate pieces.
+
+Known limitations:
+
+- Index/range reads are unsupported.
+- No query rerun scheduler uses the checker yet.
+- No `ConnectionDO` fanout uses the checker yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Reusable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

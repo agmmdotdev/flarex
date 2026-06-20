@@ -202,6 +202,48 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Read-Set Freshness Helper
+
+Previous completed checkpoint: `3913b02` Add freshness delivery handler.
+
+What changed:
+
+- Added `checkReadSetFreshness(...)` in `@flarex/freshness`.
+- It checks document and table read dependencies against memory or durable
+  Postgres freshness stores.
+- It returns explicit `unsupported` for index/range reads.
+
+Why it changed:
+
+The Postgres executor now records read sets and the freshness layer stores
+document/table versions. This helper connects those two concepts so future
+query rerun and cache code can decide whether a read set is stale.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - read dependency invalidation is a core backend concept.
+- `crates/sync/src/worker.rs`
+  - stale subscriptions are processed by sync workers.
+
+Flarex differences:
+
+- Convex does not expose this as a separate package helper. Flarex does because
+  read-set production, freshness projection, and live sync will be separated.
+
+Known limitations:
+
+- No scheduler or query rerun path uses the helper yet.
+- Index/range dependencies remain unsupported.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

@@ -238,6 +238,66 @@ Verification:
 git diff --check
 ```
 
+## Read-Set Freshness Checker
+
+Previous completed checkpoint: `3913b02` Add freshness delivery handler.
+
+What changed:
+
+- Added `checkReadSetFreshness(...)` to `@flarex/freshness`.
+- The checker compares document and table read dependencies against the
+  freshness mirror:
+  - document reads are fresh when the document version is `<= observedTs`,
+  - table reads are fresh when the table version is `<= observedTs`, and
+  - missing-document reads with `observedTs: null` become stale after a later
+    document freshness version exists.
+- Index/range dependencies return explicit `unsupported` results for now.
+- Added tests for fresh read sets, stale document/table read sets,
+  missing-document reads, unsupported index reads, and durable Postgres-backed
+  checks.
+
+Cache impact:
+
+This is the first reusable invalidation primitive for live query reruns:
+
+```txt
+query readSet
+  -> durable freshness mirror
+  -> fresh | stale | unsupported
+```
+
+Cached/live query code can now decide whether a document/table read set needs a
+rerun. Index/range reads still require a future freshness representation.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - subscription invalidation compares read dependencies with committed writes.
+- `crates/sync/src/worker.rs`
+  - sync workers rerun or update queries after dependency invalidation.
+- `crates/database/src/write_log.rs`
+  - write-log entries provide committed freshness.
+
+Flarex differences:
+
+- Convex's dependency invalidation is internal to its database/sync machinery.
+  Flarex exposes a package-level checker because cached query execution and
+  sync fanout will run across separate components.
+
+Known limitations:
+
+- Index/range freshness is unsupported.
+- No live query scheduler or `ConnectionDO` consumes the checker yet.
+- This checker reports invalidation state; it does not rerun user queries.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

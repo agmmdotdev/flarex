@@ -44,6 +44,14 @@ export interface FreshnessMirrorStore {
   applyCommitFreshness(
     input: ApplyCommitFreshnessInput,
   ): Promise<ApplyCommitFreshnessResult>;
+  getDocumentVersion(
+    deploymentId: string,
+    documentId: string,
+  ): DocumentFreshnessVersion | null | Promise<DocumentFreshnessVersion | null>;
+  getTableVersion(
+    deploymentId: string,
+    tableId: number,
+  ): TableFreshnessVersion | null | Promise<TableFreshnessVersion | null>;
 }
 
 export interface DurableFreshnessMirrorPersistence {
@@ -78,6 +86,51 @@ export interface ApplyOutboxEventsToFreshnessMirrorResult {
 export type FreshnessDeliveryHandler = (
   events: OutboxEventRecord[],
 ) => Promise<ApplyOutboxEventsToFreshnessMirrorResult>;
+
+export interface FreshnessReadSet {
+  documents?: Array<{
+    tableId: number;
+    id: string;
+    observedTs: number | null;
+  }>;
+  tables?: Array<{
+    tableId: number;
+    observedTs: number;
+  }>;
+  indexes?: Array<{
+    indexId: number;
+    observedTs: number;
+    lower?: string;
+    upper?: string;
+  }>;
+}
+
+export type ReadSetFreshnessStatus = "fresh" | "stale" | "unsupported";
+
+export interface ReadSetFreshnessStaleDependency {
+  kind: "document" | "table";
+  id: string;
+  observedTs: number | null;
+  version: number;
+}
+
+export interface ReadSetFreshnessUnsupportedDependency {
+  kind: "index";
+  indexId: number;
+  reason: string;
+}
+
+export interface CheckReadSetFreshnessInput {
+  store: FreshnessMirrorStore;
+  deploymentId: string;
+  readSet: FreshnessReadSet;
+}
+
+export interface CheckReadSetFreshnessResult {
+  status: ReadSetFreshnessStatus;
+  stale: ReadSetFreshnessStaleDependency[];
+  unsupported: ReadSetFreshnessUnsupportedDependency[];
+}
 
 export class FreshnessOutboxEventShapeError extends Error {
   constructor(message: string) {
@@ -272,6 +325,62 @@ export function createPostgresFreshnessDeliveryHandler(
   );
 }
 
+export async function checkReadSetFreshness(
+  input: CheckReadSetFreshnessInput,
+): Promise<CheckReadSetFreshnessResult> {
+  const stale: ReadSetFreshnessStaleDependency[] = [];
+  const unsupported: ReadSetFreshnessUnsupportedDependency[] = [];
+
+  for (const read of input.readSet.documents ?? []) {
+    const version = await input.store.getDocumentVersion(
+      input.deploymentId,
+      read.id,
+    );
+    if (version !== null && isStale(read.observedTs, version.version)) {
+      stale.push({
+        kind: "document",
+        id: read.id,
+        observedTs: read.observedTs,
+        version: version.version,
+      });
+    }
+  }
+
+  for (const read of input.readSet.tables ?? []) {
+    const version = await input.store.getTableVersion(
+      input.deploymentId,
+      read.tableId,
+    );
+    if (version !== null && isStale(read.observedTs, version.version)) {
+      stale.push({
+        kind: "table",
+        id: String(read.tableId),
+        observedTs: read.observedTs,
+        version: version.version,
+      });
+    }
+  }
+
+  for (const read of input.readSet.indexes ?? []) {
+    unsupported.push({
+      kind: "index",
+      indexId: read.indexId,
+      reason: "index/range freshness is not implemented yet",
+    });
+  }
+
+  return {
+    status:
+      unsupported.length > 0
+        ? "unsupported"
+        : stale.length > 0
+          ? "stale"
+          : "fresh",
+    stale,
+    unsupported,
+  };
+}
+
 function parseCommitOutboxEvent(input: OutboxEventRecord): {
   commitTs: number;
   changedTableIds: number[];
@@ -326,4 +435,8 @@ function parseStringArray(value: unknown, field: string): string[] {
 
 function freshnessEventKey(input: FreshnessOutboxEventKey): string {
   return `${input.deploymentId}:${input.ts}:${input.sequence}`;
+}
+
+function isStale(observedTs: number | null, version: number): boolean {
+  return observedTs === null || version > observedTs;
 }
