@@ -891,6 +891,64 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Maintenance Sweep Core Loop
+
+Previous completed checkpoint: `a0ac1fe` List deployments for maintenance.
+
+What changed:
+
+- Added the trusted executor core sweep that combines deployment discovery with
+  per-deployment invoke-session maintenance.
+- The sweep returns both deployment pagination state and per-deployment
+  `hasMoreSessions` state.
+- No generated user code, Dynamic Worker module, HTTP route, or cron binding
+  changed.
+
+Why it matters:
+
+The future scheduler shape is now a single core call:
+
+```txt
+runMaintenanceSweep
+  -> list one deployment page
+  -> abort one stale session batch per deployment
+  -> return deployment cursor and hot deployment flags
+```
+
+This keeps platform maintenance outside Cloudflare user execution and makes the
+Nitro/Vercel cron adapter a thin host integration.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend orchestration owns runtime lifecycle decisions.
+
+Flarex differences:
+
+- Flarex needs this explicit core loop because the trusted executor may run as
+  a Nitro/Vercel service while user code runs elsewhere.
+- Convex keeps equivalent lifecycle behavior internal to the backend service.
+
+Known limitations:
+
+- Cron wiring is still pending.
+- Hot deployments are reported but not looped until drained in one call.
+- Per-deployment TTL policy is still pending.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Runtime Failure Cleanup Boundary
 
 Previous completed checkpoint: `a08eddd` Verify artifact abort after staged

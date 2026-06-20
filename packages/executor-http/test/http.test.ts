@@ -966,6 +966,13 @@ function fakeExecutor(
     async listMaintenanceDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
     },
+    async runMaintenanceSweep() {
+      return {
+        deployments: [],
+        nextDeploymentCursor: null,
+        hasMoreDeployments: false,
+      };
+    },
     async invokeSyscall() {
       return invokeSyscallResult(null);
     },

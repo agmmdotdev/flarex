@@ -68,6 +68,155 @@ describe("executor invoke session maintenance", () => {
     ).rejects.toThrow(MaintenancePolicyError);
   });
 
+  it("runs one maintenance batch for each listed deployment", async () => {
+    const persistence = memoryPersistence(
+      [
+        {
+          ...deploymentMetadata({
+            deploymentId: "deployment_a",
+            projectId: "project_a",
+          }),
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        },
+        {
+          ...deploymentMetadata({
+            deploymentId: "deployment_b",
+            projectId: "project_b",
+          }),
+          createdAt: new Date("2026-06-20T01:00:00.000Z"),
+        },
+        {
+          ...deploymentMetadata({
+            deploymentId: "deployment_c",
+            projectId: "project_c",
+          }),
+          createdAt: new Date("2026-06-20T02:00:00.000Z"),
+        },
+      ],
+      [],
+      [
+        deploymentSession({
+          deploymentId: "deployment_a",
+          projectId: "project_a",
+          sessionId: "session_a_old",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        }),
+        deploymentSession({
+          deploymentId: "deployment_a",
+          projectId: "project_a",
+          sessionId: "session_a_recent",
+          createdAt: new Date("2026-06-20T00:59:00.000Z"),
+        }),
+        deploymentSession({
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+          sessionId: "session_b_old_1",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        }),
+        deploymentSession({
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+          sessionId: "session_b_old_2",
+          createdAt: new Date("2026-06-20T00:05:00.000Z"),
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      persistence,
+    });
+
+    await expect(
+      executor.runMaintenanceSweep({
+        deploymentLimit: 2,
+        staleAfterMs: 30 * 60 * 1000,
+        maxSessionsPerDeployment: 1,
+      }),
+    ).resolves.toEqual({
+      deployments: [
+        {
+          deploymentId: "deployment_a",
+          projectId: "project_a",
+          staleAborted: 1,
+          sessions: ["session_a_old"],
+          hasMoreSessions: false,
+        },
+        {
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+          staleAborted: 1,
+          sessions: ["session_b_old_1"],
+          hasMoreSessions: true,
+        },
+      ],
+      nextDeploymentCursor: {
+        deploymentId: "deployment_b",
+        createdAt: new Date("2026-06-20T01:00:00.000Z"),
+      },
+      hasMoreDeployments: true,
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_b", "session_b_old_2"),
+    ).resolves.toMatchObject({ state: "active" });
+  });
+
+  it("runs maintenance sweep after a deployment cursor", async () => {
+    const persistence = memoryPersistence(
+      [
+        {
+          ...deploymentMetadata({
+            deploymentId: "deployment_a",
+            projectId: "project_a",
+          }),
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        },
+        {
+          ...deploymentMetadata({
+            deploymentId: "deployment_b",
+            projectId: "project_b",
+          }),
+          createdAt: new Date("2026-06-20T01:00:00.000Z"),
+        },
+      ],
+      [],
+      [
+        deploymentSession({
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+          sessionId: "session_b_old",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      persistence,
+    });
+
+    await expect(
+      executor.runMaintenanceSweep({
+        deploymentLimit: 2,
+        deploymentCursor: {
+          deploymentId: "deployment_a",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        },
+        staleAfterMs: 30 * 60 * 1000,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+          staleAborted: 1,
+          sessions: ["session_b_old"],
+          hasMoreSessions: false,
+        },
+      ],
+      nextDeploymentCursor: null,
+      hasMoreDeployments: false,
+    });
+  });
+
   it("aborts sessions older than the configured stale window", async () => {
     const persistence = memoryPersistence(
       [
@@ -226,5 +375,37 @@ function activeSession(
       executionModule: "_flarex/execution.js",
     }),
     ...overrides,
+  };
+}
+
+function deploymentSession(input: {
+  deploymentId: string;
+  projectId: string;
+  sessionId: string;
+  createdAt: Date;
+}) {
+  return {
+    ...invokeSessionMetadata({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      packageId: "package_active",
+      functionPath: "messages:list",
+      functionKind: "query",
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        table: "teams",
+        selector: "byId",
+        partitionField: "_id",
+        argField: "teamId",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      beginTs: 1781913600123,
+      schemaVersion: 5,
+      executionModule: "_flarex/execution.js",
+    }),
+    createdAt: input.createdAt,
   };
 }

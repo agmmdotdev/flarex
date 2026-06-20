@@ -9,6 +9,7 @@ import { prepareInvoke } from "./invoke";
 import {
   listMaintenanceDeployments,
   runInvokeSessionMaintenance,
+  runMaintenanceSweep,
 } from "./maintenance";
 import {
   abortInvokeSession,
@@ -95,8 +96,11 @@ export type {
   Json,
   ListMaintenanceDeploymentsInput,
   ListMaintenanceDeploymentsResult,
+  MaintenanceSweepDeploymentResult,
   RunInvokeSessionMaintenanceInput,
   RunInvokeSessionMaintenanceResult,
+  RunMaintenanceSweepInput,
+  RunMaintenanceSweepResult,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
@@ -134,6 +138,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       runInvokeSessionMaintenance(persistence, clock, input),
     listMaintenanceDeployments: (input) =>
       listMaintenanceDeployments(persistence, input),
+    runMaintenanceSweep: (input) =>
+      runMaintenanceSweep(persistence, clock, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

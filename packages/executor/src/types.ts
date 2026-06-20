@@ -71,6 +71,9 @@ export interface FlarexExecutor {
   listMaintenanceDeployments(
     input?: ListMaintenanceDeploymentsInput,
   ): Promise<ListMaintenanceDeploymentsResult>;
+  runMaintenanceSweep(
+    input: RunMaintenanceSweepInput,
+  ): Promise<RunMaintenanceSweepResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -433,6 +436,27 @@ export interface ListMaintenanceDeploymentsResult {
   deployments: DeploymentMetadataRecord[];
   nextCursor: DeploymentMetadataCursor | null;
   hasMore: boolean;
+}
+
+export interface RunMaintenanceSweepInput {
+  staleAfterMs: number;
+  deploymentLimit?: number;
+  deploymentCursor?: DeploymentMetadataCursor;
+  maxSessionsPerDeployment?: number;
+}
+
+export interface MaintenanceSweepDeploymentResult {
+  deploymentId: string;
+  projectId: string;
+  staleAborted: number;
+  sessions: string[];
+  hasMoreSessions: boolean;
+}
+
+export interface RunMaintenanceSweepResult {
+  deployments: MaintenanceSweepDeploymentResult[];
+  nextDeploymentCursor: DeploymentMetadataCursor | null;
+  hasMoreDeployments: boolean;
 }
 
 export interface CommittedDocumentWrite {

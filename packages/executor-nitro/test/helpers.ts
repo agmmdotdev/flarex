@@ -232,6 +232,9 @@ export function fakeExecutor(
         "listMaintenanceDeployments is not implemented by test fake",
       );
     },
+    async runMaintenanceSweep() {
+      throw new Error("runMaintenanceSweep is not implemented by test fake");
+    },
     async invokeSyscall() {
       throw new Error("invokeSyscall is not implemented by test fake");
     },

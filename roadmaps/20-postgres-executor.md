@@ -1180,6 +1180,70 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Maintenance Sweep Core Loop
+
+Previous completed checkpoint: `a0ac1fe` List deployments for maintenance.
+
+What changed:
+
+- Added executor API:
+  `runMaintenanceSweep({ deploymentLimit, deploymentCursor, staleAfterMs, maxSessionsPerDeployment })`.
+- The sweep lists one deployment page and runs one bounded invoke-session
+  maintenance batch for each deployment in that page.
+- The result returns:
+  - per-deployment stale abort counts,
+  - per-deployment `hasMoreSessions`,
+  - `nextDeploymentCursor`,
+  - `hasMoreDeployments`.
+- Added executor tests for deployment paging, per-deployment batching, and
+  cursor resume behavior.
+- Updated HTTP/Nitro test fakes for the wider executor contract.
+
+Why it changed:
+
+The scheduler should call one framework-neutral executor operation, not
+manually coordinate deployment paging and invoke-session cleanup. This keeps the
+future Nitro/Vercel cron adapter thin and keeps maintenance behavior testable
+without a host framework.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned orchestration remains the reference for platform lifecycle
+    work.
+- `crates/database/src/transaction.rs`
+  - abandoned transaction state stays unpublished unless committed.
+
+Flarex differences:
+
+- Convex does not need a TypeScript maintenance sweep API because backend
+  lifecycle work is internal to the Rust service. Flarex exposes this through
+  executor core so Nitro, tests, and future platform adapters share behavior.
+- This is still not an HTTP route and not a cron binding.
+
+Known limitations:
+
+- The sweep processes one deployment page per call.
+- Hot deployments with `hasMoreSessions` are reported but not revisited inside
+  the same call.
+- No persisted per-deployment TTL policy yet.
+- No retention deletion for aborted session read/write rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Module Layout
 
 Previous completed checkpoint: `a86d1ff` Add executor deployment ensure
