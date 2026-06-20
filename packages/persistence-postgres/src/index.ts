@@ -43,6 +43,12 @@ import type {
   InvokeSessionDocumentWriteRecord,
 } from "./invokeSessionWrites";
 import type {
+  InsertOutboxEventInput,
+  ListOutboxEventsInput,
+  ListOutboxEventsResult,
+  OutboxEventRecord,
+} from "./outbox";
+import type {
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
 } from "./indexEntries";
@@ -150,6 +156,10 @@ export interface FlarexPersistence extends FlarexSqlClient {
   commitInvokeSessionWrites(
     input: CommitInvokeSessionWritesInput,
   ): Promise<CommitInvokeSessionWritesResult>;
+  insertOutboxEvent(input: InsertOutboxEventInput): Promise<OutboxEventRecord>;
+  listOutboxEvents(
+    input: ListOutboxEventsInput,
+  ): Promise<ListOutboxEventsResult>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -168,6 +178,7 @@ export * from "./invokeSessionReads";
 export * from "./invokeSessionTableReads";
 export * from "./invokeSessionIndexReads";
 export * from "./invokeSessionWrites";
+export * from "./outbox";
 export * from "./validation";
 export { flarexSchema } from "./schema";
 export * from "./schema";

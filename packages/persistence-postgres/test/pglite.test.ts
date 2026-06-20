@@ -1279,6 +1279,42 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({
       rows: [{ ts: 101, source: "invoke:messages:send" }],
     });
+    await expect(
+      persistence.listOutboxEvents({
+        deploymentId: "deployment_commit",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        {
+          deploymentId: "deployment_commit",
+          ts: 101,
+          sequence: 0,
+          deliveredAt: null,
+          event: {
+            type: "commit",
+            deploymentId: "deployment_commit",
+            commitTs: 101,
+            source: "invoke:messages:send",
+            changedTableIds: [1],
+            changedDocumentIds: ["1:message"],
+            writeSummary: {
+              writes: [
+                {
+                  tableId: 1,
+                  id: "1:message",
+                  prevTs: null,
+                  ts: 101,
+                  value: { text: "hello" },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
   });
 
   it("maintains enabled index entries for staged inserts", async () => {
@@ -2016,6 +2052,12 @@ describe("createPGlitePersistence", () => {
         ["deployment_patch_non_object"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+    await expect(
+      persistence.listOutboxEvents({
+        deploymentId: "deployment_patch_non_object",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({ events: [] });
   });
 
   it("commits staged invoke session deletes after read validation", async () => {

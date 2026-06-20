@@ -33,6 +33,57 @@ Verification:
 git diff --check
 ```
 
+## Postgres Commit Outbox Source
+
+Previous completed checkpoint: `c71110d` Expose ctx db replace.
+
+What changed:
+
+- The Postgres executor commit path now writes a durable outbox event for each
+  successful mutation commit.
+- The event includes commit timestamp, source, changed table ids, changed
+  document ids, and write summary.
+- Failed commits do not create outbox rows.
+
+Why it matters for sync:
+
+The forward sync design is Postgres-authoritative. `ConnectionDO` and future
+sync workers should consume committed outbox events rather than relying on the
+legacy `PartitionDO` subscription state. This gives Cloudflare sync/freshness
+components a replayable commit stream.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - Convex's committed write log is the freshness source.
+- `crates/sync/src/worker.rs`
+  - sync workers process committed changes into client transitions.
+- `crates/database/src/subscription.rs`
+  - subscriptions depend on committed write information.
+
+Flarex differences:
+
+- Convex keeps write-log and sync workers in its backend. Flarex uses a
+  Postgres outbox because trusted execution, WebSocket connection DOs, and
+  cache/freshness DOs are separate runtime components.
+
+Known limitations:
+
+- No outbox dispatcher or `ConnectionDO` consumer is wired yet.
+- Outbox events are coarse document/table summaries. Query-range invalidation
+  still needs a dependency encoding layer.
+- No retention, delivery claim, or retry policy exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Current Decision
 
 Subscriptions should be read-set based, inspired by Convex. A query result

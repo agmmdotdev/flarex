@@ -16,6 +16,7 @@ import type {
   StageInvokeSessionDocumentWriteInput,
   InsertInvokeSessionIndexReadInput,
   InsertInvokeSessionTableReadInput,
+  InsertOutboxEventInput,
   InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteRecord,
   InvokeSessionIndexReadRecord,
@@ -23,9 +24,12 @@ import type {
   InvokeSessionMetadataRecord,
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
+  ListOutboxEventsInput,
+  ListOutboxEventsResult,
   DocumentRevisionRecord,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
+  OutboxEventRecord,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -167,6 +171,10 @@ export interface FlarexExecutorPersistence {
   commitInvokeSessionWrites(
     input: CommitInvokeSessionWritesInput,
   ): Promise<CommitInvokeSessionWritesResult>;
+  insertOutboxEvent(input: InsertOutboxEventInput): Promise<OutboxEventRecord>;
+  listOutboxEvents(
+    input: ListOutboxEventsInput,
+  ): Promise<ListOutboxEventsResult>;
 }
 
 export interface ActivateDeploymentPackageInput {

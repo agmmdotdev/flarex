@@ -202,6 +202,78 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Commit Outbox Events
+
+Previous completed checkpoint: `c71110d` Expose ctx db replace.
+
+What changed:
+
+- Added a `packages/persistence-postgres/src/outbox.ts` helper module over the
+  existing `outbox` table.
+- `commitInvokeSessionWrites(...)` now writes one durable commit event with
+  `sequence = 0` after the commit row and before finishing the invoke session.
+- The event carries:
+  - `type: "commit"`,
+  - `deploymentId`,
+  - `commitTs`,
+  - `source`,
+  - sorted `changedTableIds`,
+  - sorted `changedDocumentIds`, and
+  - the commit `writeSummary`.
+- Exposed `insertOutboxEvent(...)` and `listOutboxEvents(...)` through the
+  PGlite persistence adapter and executor persistence interface.
+- Updated in-memory executor test persistence so successful commits append the
+  same outbox event shape.
+- Added PGlite and executor tests proving successful mutation commits create
+  outbox rows and failed commits do not.
+
+Why it changed:
+
+Postgres is now the authoritative mutation path. Live sync and Cloudflare
+freshness mirrors need a durable committed change stream they can replay. A
+commit row alone is useful for audit, but sync workers need a narrow, ordered
+outbox feed with the changed document/table ids.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write-log entries are the durable freshness source.
+- `crates/database/src/subscription.rs`
+  - subscriptions are invalidated from committed write information.
+- `crates/sync/src/worker.rs`
+  - sync workers turn committed database changes into client transitions.
+
+Flarex differences:
+
+- Convex does not need a separate Postgres transactional outbox table because
+  its database/write-log/sync worker stack is integrated. Flarex needs an
+  explicit outbox because Postgres, trusted executor, and Cloudflare sync
+  workers are separate runtime pieces.
+- This checkpoint only writes one commit event per mutation. It does not yet
+  dispatch, acknowledge, retain, or shard outbox events.
+
+Known limitations:
+
+- No outbox dispatcher exists yet.
+- `delivered_at` is still unused.
+- Event payloads are coarse document/table changes, not precise query-range
+  invalidation records.
+- Real Postgres concurrency and retention behavior still need a non-PGlite
+  correctness lane.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Invoke OCC Retry Coordinator
 
 Previous completed checkpoint: `3c81156` Document interactive invoke

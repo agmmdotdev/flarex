@@ -188,7 +188,8 @@ Replace:
 
 Do not build `VersionDO`, `DocCacheDO`, or `QueryCacheDO` before the Postgres
 executor can write commit/outbox records. Freshness mirrors need a durable
-commit stream first.
+commit stream first. The first commit outbox writer now exists, but no
+Cloudflare-side consumer has been built yet.
 
 ## Convex References
 
@@ -211,7 +212,8 @@ commit stream first.
 
 ## Known Limitations
 
-- No Postgres outbox implementation exists yet.
+- A Postgres commit outbox writer exists, but no dispatcher or Cloudflare cache
+  mirror consumes it yet.
 - No cache DOs exist yet.
 - Range freshness representation is still open.
 - QueryCacheDO invalidation can become expensive without careful canonical
@@ -233,5 +235,50 @@ What changed:
 Verification:
 
 ```sh
+git diff --check
+```
+
+## Commit Outbox Prerequisite
+
+Previous completed checkpoint: `c71110d` Expose ctx db replace.
+
+What changed:
+
+- The Postgres executor now writes one commit outbox event per successful
+  mutation commit.
+- The event includes the committed timestamp, changed document ids, changed
+  table ids, and write summary needed by future freshness mirrors.
+
+Cache impact:
+
+This unblocks the next cache/freshness implementation step: a worker or DO can
+page `outbox` events and update version mirrors. It does not make cached query
+results fresh by itself.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed freshness tokens come from a durable write log.
+- `crates/database/src/subscription.rs`
+  - subscription invalidation is driven by committed write metadata.
+
+Flarex differences:
+
+- Flarex needs a replayable Postgres outbox because cache and WebSocket logic
+  will live in Cloudflare, away from the trusted executor process.
+
+Known limitations:
+
+- No dispatcher has been implemented.
+- `delivered_at` is not used yet.
+- Query-range freshness still needs a compact invalidation representation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
 git diff --check
 ```

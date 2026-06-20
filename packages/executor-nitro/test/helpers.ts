@@ -187,6 +187,18 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         writes: [],
       };
     },
+    async insertOutboxEvent(input) {
+      return {
+        deploymentId: input.deploymentId,
+        ts: input.ts,
+        sequence: input.sequence,
+        event: input.event,
+        deliveredAt: null,
+      };
+    },
+    async listOutboxEvents() {
+      return { events: [], nextCursor: null, hasMore: false };
+    },
   };
 }
 

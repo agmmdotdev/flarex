@@ -22,6 +22,7 @@ import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
 import { listInvokeSessionIndexReads } from "./invokeSessionIndexReads";
 import { listInvokeSessionTableReads } from "./invokeSessionTableReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
+import { commitOutboxEvent, insertOutboxEvent } from "./outbox";
 import {
   schemaTableValidatorsFromAnalysis,
   validateDocumentValue,
@@ -351,6 +352,17 @@ export async function commitInvokeSessionWrites(
     writeSummary: {
       writes: committedWrites,
     },
+  });
+  await insertOutboxEvent(db, {
+    deploymentId: input.deploymentId,
+    ts: committedTs,
+    sequence: 0,
+    event: commitOutboxEvent({
+      deploymentId: input.deploymentId,
+      commitTs: committedTs,
+      source: input.source,
+      writes: committedWrites,
+    }),
   });
   await finishInvokeSessionMetadata(db, {
     deploymentId: input.deploymentId,

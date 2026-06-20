@@ -639,6 +639,40 @@ describe("executor invoke sessions", () => {
       state: "finished",
       finishedAt: new Date("2026-06-20T00:00:00.000Z"),
     });
+    await expect(
+      persistence.listOutboxEvents({
+        deploymentId: "deployment_session",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        {
+          deploymentId: "deployment_session",
+          ts: 101,
+          sequence: 0,
+          deliveredAt: null,
+          event: {
+            type: "commit",
+            deploymentId: "deployment_session",
+            commitTs: 101,
+            source: "invoke:messages:list",
+            changedTableIds: [1],
+            changedDocumentIds: ["1:team_insert"],
+            writeSummary: {
+              writes: [
+                {
+                  tableId: 1,
+                  id: "1:team_insert",
+                  prevTs: null,
+                  ts: 101,
+                  value: { name: "Team" },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
   });
 
   it("rejects mutation finish when an observed document changed", async () => {

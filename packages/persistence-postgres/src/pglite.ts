@@ -54,6 +54,10 @@ import {
   stageInvokeSessionDocumentWrite as stageInvokeSessionDocumentWriteWithDb,
   listInvokeSessionDocumentWrites as listInvokeSessionDocumentWritesWithDb,
 } from "./invokeSessionWrites";
+import {
+  insertOutboxEvent as insertOutboxEventWithDb,
+  listOutboxEvents as listOutboxEventsWithDb,
+} from "./outbox";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -165,6 +169,8 @@ export async function createPGlitePersistence(
           input,
         ),
       ),
+    insertOutboxEvent: (input) => insertOutboxEventWithDb(drizzleDb, input),
+    listOutboxEvents: (input) => listOutboxEventsWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

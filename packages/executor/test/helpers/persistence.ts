@@ -27,8 +27,13 @@ import {
   InvokeSessionReplaceTargetError,
   InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
+  commitOutboxEvent,
+  type InsertOutboxEventInput,
   type InvokeSessionTableReadRecord,
+  type OutboxEventRecord,
   type ListDeploymentMetadataInput,
+  type ListOutboxEventsInput,
+  type ListOutboxEventsResult,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
@@ -116,6 +121,7 @@ export function memoryPersistence(
   );
   const committedDocuments: DocumentRevisionRecord[] = [];
   const commits: Array<{ deploymentId: string; ts: number }> = [];
+  const outboxEvents: OutboxEventRecord[] = [];
 
   return {
     async check() {
@@ -744,6 +750,18 @@ export function memoryPersistence(
         throw new InvokeSessionUnsupportedStagedWriteError(write.op);
       }
       commits.push({ deploymentId: input.deploymentId, ts: committedTs });
+      outboxEvents.push({
+        deploymentId: input.deploymentId,
+        ts: committedTs,
+        sequence: 0,
+        event: commitOutboxEvent({
+          deploymentId: input.deploymentId,
+          commitTs: committedTs,
+          source: input.source,
+          writes: committedWrites,
+        }),
+        deliveredAt: null,
+      });
       const session = invokeSessions.get(
         sessionKey(input.deploymentId, input.sessionId),
       );
@@ -757,6 +775,49 @@ export function memoryPersistence(
       return {
         committedTs,
         writes: committedWrites,
+      };
+    },
+    async insertOutboxEvent(input: InsertOutboxEventInput) {
+      const event: OutboxEventRecord = {
+        deploymentId: input.deploymentId,
+        ts: input.ts,
+        sequence: input.sequence,
+        event: input.event,
+        deliveredAt: null,
+      };
+      outboxEvents.push(event);
+      return event;
+    },
+    async listOutboxEvents(
+      input: ListOutboxEventsInput,
+    ): Promise<ListOutboxEventsResult> {
+      const sorted = outboxEvents
+        .filter(
+          (event) =>
+            event.deploymentId === input.deploymentId &&
+            (input.cursor === undefined ||
+              event.ts > input.cursor.ts ||
+              (event.ts === input.cursor.ts &&
+                event.sequence > input.cursor.sequence)),
+        )
+        .sort(
+          (left, right) =>
+            left.ts - right.ts || left.sequence - right.sequence,
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const events = rows.slice(0, input.limit);
+      const hasMore = rows.length > input.limit;
+      const last = events.at(-1);
+      return {
+        events,
+        hasMore,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                ts: last.ts,
+                sequence: last.sequence,
+              }
+            : null,
       };
     },
   };
