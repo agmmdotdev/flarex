@@ -33,6 +33,65 @@ Verification:
 git diff --check
 ```
 
+## Outbox To Freshness Pipeline Test
+
+Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.
+
+What changed:
+
+- Added executor tests that run the outbox dispatcher with
+  `applyOutboxEventsToFreshnessMirror(...)` as the delivery handler.
+- Proved dispatch updates document/table freshness versions before marking the
+  outbox event delivered.
+- Proved a crash after projection but before acknowledgement is safe: replay
+  skips the already processed freshness event and then acknowledges the outbox
+  row.
+
+Why it matters for sync:
+
+This validates the first full internal sync invalidation handoff:
+
+```txt
+committed outbox event
+  -> dispatcher
+  -> freshness mirror
+  -> delivered acknowledgement
+```
+
+Future live query reruns can build on this mirror knowing replay does not
+double-apply document/table versions.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - committed changes are processed by worker logic before clients observe
+    transitions.
+- `crates/database/src/subscription.rs`
+  - read dependency invalidation depends on committed write metadata.
+- `crates/database/src/write_log.rs`
+  - write-log entries are the durability source.
+
+Flarex differences:
+
+- Convex's worker and write-log are internal. Flarex crosses package/runtime
+  boundaries, so it tests the dispatcher/projector handoff explicitly.
+
+Known limitations:
+
+- No live query rerun or `ConnectionDO` fanout consumes the mirror yet.
+- No range/index freshness exists yet.
+- The mirror used here is in-memory only.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Freshness Projector Core
 
 Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.

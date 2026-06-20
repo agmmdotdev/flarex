@@ -15,6 +15,7 @@
     "flarex": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/freshness": "workspace:*",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

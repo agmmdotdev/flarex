@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  applyOutboxEventsToFreshnessMirror,
+  createMemoryFreshnessMirrorStore,
+} from "@flarex/freshness";
 import { createFlarexExecutor, OutboxDeliveryPolicyError } from "../src";
 import { memoryPersistence } from "./helpers/persistence";
 
@@ -100,6 +104,123 @@ describe("executor outbox delivery", () => {
       }),
     ).resolves.toMatchObject({
       events: [{ ts: 11, sequence: 0, deliveredAt: null }],
+    });
+  });
+
+  it("projects outbox delivery batches into a freshness mirror", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const store = createMemoryFreshnessMirrorStore();
+
+    await insertCommitEvent(persistence, {
+      deploymentId: "deployment_freshness_pipeline",
+      ts: 10,
+      documentId: "1:message",
+    });
+
+    await expect(
+      executor.runOutboxDeliveryBatch({
+        deploymentId: "deployment_freshness_pipeline",
+        limit: 10,
+        async deliver(events) {
+          await applyOutboxEventsToFreshnessMirror({ store, events });
+        },
+      }),
+    ).resolves.toMatchObject({
+      events: [{ ts: 10, sequence: 0 }],
+      delivered: 1,
+      nextCursor: null,
+      hasMore: false,
+    });
+    expect(
+      store.getDocumentVersion("deployment_freshness_pipeline", "1:message"),
+    ).toMatchObject({
+      version: 10,
+      outboxTs: 10,
+      outboxSequence: 0,
+    });
+    expect(store.getTableVersion("deployment_freshness_pipeline", 1)).toMatchObject({
+      version: 10,
+      outboxTs: 10,
+      outboxSequence: 0,
+    });
+    await expect(
+      executor.listUndeliveredOutboxEvents({
+        deploymentId: "deployment_freshness_pipeline",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it("replays freshness projection safely after a delivery crash", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const store = createMemoryFreshnessMirrorStore();
+    const replayResults: Array<{ processed: number; skipped: number }> = [];
+
+    await insertCommitEvent(persistence, {
+      deploymentId: "deployment_freshness_replay",
+      ts: 10,
+      documentId: "1:message",
+    });
+
+    await expect(
+      executor.runOutboxDeliveryBatch({
+        deploymentId: "deployment_freshness_replay",
+        limit: 10,
+        async deliver(events) {
+          replayResults.push(
+            await applyOutboxEventsToFreshnessMirror({ store, events }),
+          );
+          throw new Error("crash after projection");
+        },
+      }),
+    ).rejects.toThrow("crash after projection");
+    await expect(
+      executor.listUndeliveredOutboxEvents({
+        deploymentId: "deployment_freshness_replay",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [{ ts: 10, sequence: 0, deliveredAt: null }],
+    });
+
+    await expect(
+      executor.runOutboxDeliveryBatch({
+        deploymentId: "deployment_freshness_replay",
+        limit: 10,
+        async deliver(events) {
+          replayResults.push(
+            await applyOutboxEventsToFreshnessMirror({ store, events }),
+          );
+        },
+      }),
+    ).resolves.toMatchObject({
+      delivered: 1,
+      hasMore: false,
+    });
+    expect(replayResults).toMatchObject([
+      { processed: 1, skipped: 0 },
+      { processed: 0, skipped: 1 },
+    ]);
+    expect(
+      store.getProcessedEvent({
+        deploymentId: "deployment_freshness_replay",
+        ts: 10,
+        sequence: 0,
+      }),
+    ).toBe(true);
+    await expect(
+      executor.listUndeliveredOutboxEvents({
+        deploymentId: "deployment_freshness_replay",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [],
     });
   });
 

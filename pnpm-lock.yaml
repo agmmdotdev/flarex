@@ -86,6 +86,9 @@ importers:
         specifier: workspace:*
         version: link:../flarex
     devDependencies:
+      '@flarex/freshness':
+        specifier: workspace:*
+        version: link:../freshness
       vite:
         specifier: 'catalog:'
         version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)

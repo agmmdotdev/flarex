@@ -238,6 +238,68 @@ Verification:
 git diff --check
 ```
 
+## Outbox To Freshness Pipeline Test
+
+Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.
+
+What changed:
+
+- Added `@flarex/freshness` as a test-time dependency of `@flarex/executor`.
+- Added executor tests that compose:
+
+```txt
+runOutboxDeliveryBatch(...)
+  -> applyOutboxEventsToFreshnessMirror(...)
+  -> markOutboxEventsDelivered(...)
+```
+
+- Proved a successful dispatch updates the in-memory freshness mirror and then
+  hides the event from undelivered outbox batches.
+- Proved at-least-once replay safety when projection succeeds but the delivery
+  handler crashes before acknowledgement: the event remains undelivered,
+  reruns, the projector skips the already processed event key, and the
+  dispatcher then marks it delivered.
+
+Cache impact:
+
+The in-process pipeline now proves the intended freshness handoff semantics.
+The next cache/freshness step can focus on durable mirror storage instead of
+the correctness of dispatcher/projector composition.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata feeds downstream freshness.
+- `crates/database/src/subscription.rs`
+  - subscription invalidation must tolerate committed changes being processed
+    by worker loops.
+- `crates/sync/src/worker.rs`
+  - sync workers process committed changes into client-visible transitions.
+
+Flarex differences:
+
+- Convex does not need this explicit test seam because the write-log and sync
+  worker are internal backend components. Flarex has a runtime handoff from
+  Postgres executor to freshness/cache components, so the at-least-once replay
+  behavior must be tested explicitly.
+
+Known limitations:
+
+- This is still an in-memory test pipeline, not durable storage.
+- No range/index freshness representation exists yet.
+- No query rerun, cache minimum-freshness check, or `ConnectionDO` fanout uses
+  these versions yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Freshness Mirror Projector Core
 
 Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.

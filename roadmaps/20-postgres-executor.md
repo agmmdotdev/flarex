@@ -202,6 +202,57 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Executor Freshness Pipeline Test
+
+Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.
+
+What changed:
+
+- Added `@flarex/freshness` as a dev/test dependency of `@flarex/executor`.
+- Added executor tests that run `runOutboxDeliveryBatch(...)` with
+  `applyOutboxEventsToFreshnessMirror(...)` as the delivery handler.
+- Proved successful dispatch marks outbox rows delivered only after freshness
+  projection.
+- Proved replay after a delivery crash is safe because the freshness mirror
+  skips an already processed `(deploymentId, ts, sequence)` event key.
+
+Why it changed:
+
+The executor dispatcher and freshness projector were separate verified pieces.
+This checkpoint proves their handoff semantics without introducing a durable
+store, Cloudflare DO, or WebSocket fanout.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the downstream freshness source.
+- `crates/sync/src/worker.rs`
+  - backend worker logic consumes committed changes.
+- `crates/database/src/subscription.rs`
+  - invalidation uses committed dependency metadata.
+
+Flarex differences:
+
+- Convex does not need an explicit package-level dispatcher/projector seam.
+  Flarex needs it because the trusted Postgres executor dispatches to separate
+  freshness/cache/sync components.
+
+Known limitations:
+
+- No durable freshness store is implemented yet.
+- No query rerun or cache minimum-freshness protocol uses the mirror yet.
+- No multi-dispatcher outbox lease protocol exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Freshness Projector Package Boundary
 
 Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.
