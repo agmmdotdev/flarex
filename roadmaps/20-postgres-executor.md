@@ -194,6 +194,63 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke Indexed Read-Your-Writes Overlay
+
+Previous completed checkpoint: `3ddfc33` Add invoke read-your-writes overlay.
+
+What changed:
+
+- Extended executor transaction-view reads to indexed query syscalls.
+- Indexed queries now merge persisted index results at `beginTs` with staged
+  inserts, patches, and deletes for the indexed table.
+- Staged index keys use the same `encodeIndexValues(...)` codec as
+  `@flarex/persistence-postgres` commit-time index maintenance.
+- Updated the executor memory persistence helper to model index keys and range
+  filtering instead of returning table-order placeholders.
+- Added executor coverage for:
+  - staged delete removing a document from the indexed result,
+  - staged patch moving a document into the indexed result,
+  - staged insert appearing in the indexed result, and
+  - staged patch moving a document out of the indexed result.
+
+Why it changed:
+
+Convex-style mutations commonly write and then query via
+`ctx.db.query(table).withIndex(...)`. Those indexed reads must observe the same
+transaction view as `db.get` and table scans.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction reads are evaluated against pending writes.
+- `crates/common/src/index.rs`
+  - index keys include indexed fields plus the document ID for total order.
+- `crates/database/src/committer.rs`
+  - document writes and index writes are computed together at commit.
+
+Flarex differences:
+
+- Flarex computes staged index overlay in executor TypeScript from persisted
+  session writes. Convex keeps this in the Rust transaction/database layer.
+- The overlay asks persistence for a conservative base index page and then
+  merges staged writes in memory.
+
+Known limitations:
+
+- Pagination is still conservative; exact Convex page interval behavior remains
+  future work.
+- The base persistence call still has its own page cap, so a storage-level
+  overlay path is needed before this is production-ready for very large ranges.
+- Multiple writes to the same document are still rejected instead of coalesced.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Documentation Synchronization Update
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

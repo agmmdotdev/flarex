@@ -118,6 +118,48 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke Indexed Read-Your-Writes Overlay
+
+Previous completed checkpoint: `3ddfc33` Add invoke read-your-writes overlay.
+
+What changed:
+
+- Added read-your-writes overlay for indexed query syscalls.
+- Indexed reads now use persisted index state plus staged write overlay for the
+  active invoke session.
+- Staged index keys use the same ordered encoded key shape as commit-time index
+  maintenance.
+- Added tests for staged insert, patch into range, patch out of range, and
+  delete.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - pending writes participate in transaction reads.
+- `crates/common/src/index.rs`
+  - index ordering is derived from indexed fields plus document ID.
+- `crates/database/src/committer.rs`
+  - index changes are part of the atomic document commit.
+
+Flarex differences:
+
+- Flarex rebuilds this view from persisted invoke-session rows per syscall.
+  Convex keeps transaction state process-local.
+
+Known limitations:
+
+- Pagination/read interval precision is still not Convex-exact.
+- Large range efficiency needs a storage-level overlay.
+- Same-document write coalescing is still pending.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Current Decision
 
 Normal `mutation` is single-shard. Inside one `PartitionDO`, Flarex should copy

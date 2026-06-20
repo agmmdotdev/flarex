@@ -32,6 +32,8 @@ import {
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
   type UpdateDeploymentMetadataActivationInput,
+  encodeIndexValues,
+  schemaIndexesFromAnalysis,
   validateDocumentValue,
 } from "@flarex/persistence-postgres";
 
@@ -302,19 +304,45 @@ export function memoryPersistence(
       return limit === undefined ? visible : visible.slice(0, limit);
     },
     async listDocumentsInIndexAtTs(input) {
-      const documents = await this.listDocumentsInTableAtTs(
-        input.deploymentId,
-        1,
-        input.ts,
-        input.limit,
-      );
+      const index = Array.from(packages.values())
+        .filter(
+          (deploymentPackage) =>
+            deploymentPackage.deploymentId === input.deploymentId,
+        )
+        .flatMap((deploymentPackage) =>
+          schemaIndexesFromAnalysis(deploymentPackage.analysisJson),
+        )
+        .find((candidate) => candidate.indexId === input.indexId);
+      const documents =
+        index === undefined
+          ? []
+          : (await this.listDocumentsInTableAtTs(
+              input.deploymentId,
+              index.tableId,
+              input.ts,
+            ))
+              .map((document) => ({
+                key: encodeIndexValues([
+                  ...index.fields.map((field) =>
+                    getField(document.value, field),
+                  ),
+                  document.id,
+                ]),
+                document,
+              }))
+              .filter(({ key }) => keyInRange(key, input.lower, input.upper))
+              .filter(({ key }) => cursorAllows(key, input.cursor, input.order))
+              .sort((left, right) =>
+                input.order === "desc"
+                  ? right.key.localeCompare(left.key)
+                  : left.key.localeCompare(right.key),
+              );
+      const limit = input.limit ?? documents.length;
+      const page = documents.slice(0, limit);
       return {
-        documents: documents.map((document) => ({
-          key: document.id,
-          document,
-        })),
-        isDone: true,
-        continueCursor: documents.at(-1)?.id ?? input.cursor ?? "",
+        documents: page,
+        isDone: documents.length <= limit,
+        continueCursor: page.at(-1)?.key ?? input.cursor ?? "",
       };
     },
     async insertInvokeSessionDocumentRead(
@@ -788,6 +816,32 @@ function latestDocumentAt(
       )
       .sort((left, right) => right.ts - left.ts)[0] ?? null
   );
+}
+
+function getField(
+  value: DocumentRevisionRecord["value"],
+  field: string,
+): DocumentRevisionRecord["value"] | undefined {
+  if (!isJsonObject(value)) return undefined;
+  let cursor: DocumentRevisionRecord["value"] | undefined = value;
+  for (const segment of field.split(".")) {
+    if (!isJsonObject(cursor)) return undefined;
+    cursor = cursor[segment];
+  }
+  return cursor;
+}
+
+function keyInRange(key: string, lower?: string, upper?: string): boolean {
+  return (lower === undefined || key >= lower) && (upper === undefined || key < upper);
+}
+
+function cursorAllows(
+  key: string,
+  cursor: string | undefined,
+  order: "asc" | "desc" | undefined,
+): boolean {
+  if (cursor === undefined) return true;
+  return order === "desc" ? key < cursor : key > cursor;
 }
 
 function isJsonObject(

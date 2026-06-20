@@ -14,9 +14,11 @@ import type {
   InvokeSyscallResult,
   InvokeReadSet,
   DeploymentSchemaMetadata,
+  SchemaIndexMetadata,
 } from "./types";
 import {
   parseFlarexDocumentId,
+  encodeIndexValues,
   indexBoundsForExpressions,
   type DocumentRevisionRecord,
   type PersistenceJson,
@@ -159,15 +161,15 @@ export async function invokeSyscall(
           }`,
         );
       }
-      const result = await persistence.listDocumentsInIndexAtTs({
-        deploymentId: input.deploymentId,
-        indexId: index.indexId,
-        ts: session.beginTs,
-        ...bounds,
-        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
-        ...(request.limit === undefined ? {} : { limit: request.limit }),
-        ...(request.order === undefined ? {} : { order: request.order }),
-      });
+      const result = await indexDocumentsAtTransactionView(
+        persistence,
+        session,
+        index,
+        bounds,
+        request.cursor,
+        request.order,
+        request.limit,
+      );
       await persistence.insertInvokeSessionIndexRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
@@ -178,7 +180,7 @@ export async function invokeSyscall(
       });
       return {
         value: {
-          page: result.documents.map(({ document }) =>
+          page: result.documents.map((document) =>
             documentValue(document.id, document.value),
           ),
           isDone: result.isDone,
@@ -596,6 +598,123 @@ async function tableDocumentsAtTransactionView(
   return limit === undefined ? sorted : sorted.slice(0, limit);
 }
 
+async function indexDocumentsAtTransactionView(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  index: SchemaIndexMetadata,
+  bounds: { lower?: string; upper?: string },
+  cursor: string | undefined,
+  order: "asc" | "desc" | undefined,
+  limit: number | undefined,
+): Promise<{
+  documents: Array<{ key: string; id: string; value: PersistenceJson }>;
+  isDone: boolean;
+  continueCursor: string;
+}> {
+  const base = await persistence.listDocumentsInIndexAtTs({
+    deploymentId: session.deploymentId,
+    indexId: index.indexId,
+    ts: session.beginTs,
+    ...bounds,
+  });
+  const visible = new Map<
+    string,
+    { key: string; id: string; value: PersistenceJson }
+  >();
+  for (const { key, document } of base.documents) {
+    visible.set(document.id, {
+      key,
+      id: document.id,
+      value: document.value,
+    });
+  }
+
+  const stagedWrites = await persistence.listInvokeSessionDocumentWrites(
+    session.deploymentId,
+    session.sessionId,
+  );
+  for (const write of stagedWrites.filter(
+    (candidate) => candidate.tableId === index.tableId,
+  )) {
+    await applyStagedWriteToIndexView(
+      persistence,
+      session,
+      visible,
+      index,
+      bounds,
+      write,
+    );
+  }
+
+  const sorted = Array.from(visible.values())
+    .filter((entry) => cursorAllows(entry.key, cursor, order))
+    .sort((left, right) =>
+      order === "desc"
+        ? right.key.localeCompare(left.key)
+        : left.key.localeCompare(right.key),
+    );
+  const page = limit === undefined ? sorted : sorted.slice(0, limit);
+  return {
+    documents: page,
+    isDone: limit === undefined || sorted.length <= limit,
+    continueCursor: page.at(-1)?.key ?? cursor ?? "",
+  };
+}
+
+async function applyStagedWriteToIndexView(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  visible: Map<string, { key: string; id: string; value: PersistenceJson }>,
+  index: SchemaIndexMetadata,
+  bounds: { lower?: string; upper?: string },
+  write: InvokeSessionDocumentWriteRecord,
+): Promise<void> {
+  visible.delete(write.documentId);
+
+  if (write.op === "delete") {
+    return;
+  }
+
+  const value =
+    write.op === "insert"
+      ? (write.valueJson as PersistenceJson)
+      : await patchedIndexDocumentValue(persistence, session, write);
+  if (value === null) {
+    return;
+  }
+
+  const key = indexKeyForDocument(index, write.documentId, value);
+  if (!keyInRange(key, bounds.lower, bounds.upper)) {
+    return;
+  }
+  visible.set(write.documentId, {
+    key,
+    id: write.documentId,
+    value,
+  });
+}
+
+async function patchedIndexDocumentValue(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  write: InvokeSessionDocumentWriteRecord,
+): Promise<PersistenceJson | null> {
+  const base = await persistence.getDocumentRevisionAtTs(
+    session.deploymentId,
+    write.documentId,
+    session.beginTs,
+  );
+  if (
+    base === null ||
+    base.deleted ||
+    !isJsonObject(base.value) ||
+    !isJsonObject(write.valueJson)
+  ) {
+    return null;
+  }
+  return { ...base.value, ...write.valueJson };
+}
+
 function applyStagedWriteToTableView(
   visible: Map<string, { id: string; value: PersistenceJson }>,
   write: InvokeSessionDocumentWriteRecord,
@@ -625,6 +744,50 @@ function applyStagedWriteToTableView(
       });
     }
   }
+}
+
+function indexKeyForDocument(
+  index: SchemaIndexMetadata,
+  documentId: string,
+  value: PersistenceJson,
+): string {
+  return encodeIndexValues([
+    ...index.fields.map((field) => getField(value, field)),
+    documentId,
+  ]);
+}
+
+function getField(
+  value: PersistenceJson,
+  field: string,
+): PersistenceJson | undefined {
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+  let cursor: PersistenceJson | undefined = value;
+  for (const segment of field.split(".")) {
+    if (!isJsonObject(cursor)) {
+      return undefined;
+    }
+    cursor = cursor[segment];
+  }
+  return cursor;
+}
+
+function keyInRange(key: string, lower?: string, upper?: string): boolean {
+  return (
+    (lower === undefined || key >= lower) &&
+    (upper === undefined || key < upper)
+  );
+}
+
+function cursorAllows(
+  key: string,
+  cursor: string | undefined,
+  order: "asc" | "desc" | undefined,
+): boolean {
+  if (cursor === undefined) return true;
+  return order === "desc" ? key < cursor : key > cursor;
 }
 
 async function stagedWriteForDocument(

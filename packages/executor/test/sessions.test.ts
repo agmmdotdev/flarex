@@ -1524,6 +1524,112 @@ describe("executor invoke sessions", () => {
       readSet: { tables: [{ tableId: 1 }] },
     });
   });
+
+  it("overlays staged writes onto indexed query results", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:a",
+          documentId: "a",
+          ts: 10,
+          value: { name: "Target", count: 1 },
+        }),
+        documentRevision({
+          id: "1:b",
+          documentId: "b",
+          ts: 10,
+          value: { name: "Old", count: 1 },
+        }),
+        documentRevision({
+          id: "1:d",
+          documentId: "d",
+          ts: 10,
+          value: { name: "Target", count: 1 },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "delete",
+        id: "1:a",
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:b",
+        value: { name: "Target", count: 2 },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:c",
+        value: { name: "Target", count: 3 },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:d",
+        value: { name: "Other", count: 4 },
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "query",
+          request: {
+            table: "teams",
+            index: "by_name",
+            range: {
+              expressions: [{ op: "eq", field: "name", value: "Target" }],
+            },
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      value: {
+        page: [
+          { _id: "1:b", name: "Target", count: 2 },
+          { _id: "1:c", name: "Target", count: 3 },
+        ],
+        isDone: true,
+        continueCursor: expect.any(String),
+      },
+      readSet: {
+        indexes: [
+          {
+            indexId: 1,
+            lower: expect.any(String),
+            upper: expect.any(String),
+          },
+        ],
+      },
+    });
+  });
 });
 
 function sourcePackage(): ArtifactSourcePackage {
@@ -1551,7 +1657,14 @@ function analysisJson(): Record<string, unknown> {
           placement: { kind: "partitionBy", field: "_id" },
         },
       ],
-      indexes: [],
+      indexes: [
+        {
+          indexId: 1,
+          tableId: 1,
+          name: "by_name",
+          fields: ["name"],
+        },
+      ],
     },
     functions: {
       functions: [
