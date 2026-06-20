@@ -204,15 +204,22 @@ export function memoryPersistence(
     async abortStaleInvokeSessionsMetadata(
       input: AbortStaleInvokeSessionsMetadataInput,
     ) {
+      const stale = Array.from(invokeSessions.values())
+        .filter(
+          (session) =>
+            session.deploymentId === input.deploymentId &&
+            session.state === "active" &&
+            session.createdAt < input.olderThan,
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            left.sessionId.localeCompare(right.sessionId),
+        );
+      const selected =
+        input.limit === undefined ? stale : stale.slice(0, input.limit);
       const aborted: InvokeSessionMetadataRecord[] = [];
-      for (const session of invokeSessions.values()) {
-        if (
-          session.deploymentId !== input.deploymentId ||
-          session.state !== "active" ||
-          session.createdAt >= input.olderThan
-        ) {
-          continue;
-        }
+      for (const session of selected) {
         const updated: InvokeSessionMetadataRecord = {
           ...session,
           state: "aborted",
@@ -221,9 +228,10 @@ export function memoryPersistence(
         invokeSessions.set(sessionKey(session.deploymentId, session.sessionId), updated);
         aborted.push(updated);
       }
-      return aborted.sort((left, right) =>
-        left.sessionId.localeCompare(right.sessionId),
-      );
+      return {
+        sessions: aborted,
+        hasMore: input.limit !== undefined && stale.length > input.limit,
+      };
     },
     async getDocumentRevisionAtTs(deploymentId: string, id: string, ts: number) {
       return (

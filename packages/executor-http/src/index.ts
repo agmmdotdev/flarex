@@ -637,12 +637,17 @@ function parseInvokeAbortStaleBody(
   if ("error" in projectId) return projectId;
   const olderThan = requiredDate(record, "olderThan");
   if ("error" in olderThan) return olderThan;
+  const maxSessions = optionalPositiveInteger(record, "maxSessions");
+  if ("error" in maxSessions) return maxSessions;
 
   return {
     value: {
       deploymentId: deploymentId.value,
       projectId: projectId.value,
       olderThan: olderThan.value,
+      ...(maxSessions.value === undefined
+        ? {}
+        : { limit: maxSessions.value }),
     },
   };
 }
@@ -667,12 +672,17 @@ function parseInvokeSessionMaintenanceBody(
   if ("error" in projectId) return projectId;
   const staleAfterMs = requiredPositiveInteger(record, "staleAfterMs");
   if ("error" in staleAfterMs) return staleAfterMs;
+  const maxSessions = optionalPositiveInteger(record, "maxSessions");
+  if ("error" in maxSessions) return maxSessions;
 
   return {
     value: {
       deploymentId: deploymentId.value,
       projectId: projectId.value,
       staleAfterMs: staleAfterMs.value,
+      ...(maxSessions.value === undefined
+        ? {}
+        : { maxSessions: maxSessions.value }),
     },
   };
 }
@@ -817,6 +827,16 @@ function requiredPositiveInteger(
     };
   }
   return { value };
+}
+
+function optionalPositiveInteger(
+  record: Record<string, unknown>,
+  field: string,
+):
+  | { value?: number }
+  | { error: { error: "bad_request"; message: string } } {
+  if (record[field] === undefined) return {};
+  return requiredPositiveInteger(record, field);
 }
 
 function jsonValue(

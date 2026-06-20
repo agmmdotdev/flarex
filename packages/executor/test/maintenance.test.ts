@@ -42,6 +42,7 @@ describe("executor invoke session maintenance", () => {
     ).resolves.toEqual({
       staleAborted: 1,
       sessions: ["session_old"],
+      hasMore: false,
     });
     await expect(
       persistence.getInvokeSessionMetadata(
@@ -60,6 +61,55 @@ describe("executor invoke session maintenance", () => {
     ).resolves.toMatchObject({ state: "active", finishedAt: null });
   });
 
+  it("limits maintenance to the oldest stale session batch", async () => {
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_maintenance",
+          projectId: "project_maintenance",
+        }),
+      ],
+      [],
+      [
+        activeSession({
+          sessionId: "session_b",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        }),
+        activeSession({
+          sessionId: "session_a",
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        }),
+        activeSession({
+          sessionId: "session_c",
+          createdAt: new Date("2026-06-20T00:10:00.000Z"),
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      persistence,
+    });
+
+    await expect(
+      executor.runInvokeSessionMaintenance({
+        deploymentId: "deployment_maintenance",
+        projectId: "project_maintenance",
+        staleAfterMs: 30 * 60 * 1000,
+        maxSessions: 2,
+      }),
+    ).resolves.toEqual({
+      staleAborted: 2,
+      sessions: ["session_a", "session_b"],
+      hasMore: true,
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_maintenance",
+        "session_c",
+      ),
+    ).resolves.toMatchObject({ state: "active" });
+  });
+
   it("rejects invalid stale windows", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence(),
@@ -70,6 +120,21 @@ describe("executor invoke session maintenance", () => {
         deploymentId: "deployment_maintenance",
         projectId: "project_maintenance",
         staleAfterMs: 0,
+      }),
+    ).rejects.toThrow(MaintenancePolicyError);
+  });
+
+  it("rejects invalid maintenance batch sizes", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+    });
+
+    await expect(
+      executor.runInvokeSessionMaintenance({
+        deploymentId: "deployment_maintenance",
+        projectId: "project_maintenance",
+        staleAfterMs: 30 * 60 * 1000,
+        maxSessions: 0,
       }),
     ).rejects.toThrow(MaintenancePolicyError);
   });

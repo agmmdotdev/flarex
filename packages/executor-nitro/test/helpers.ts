@@ -110,7 +110,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
       };
     },
     async abortStaleInvokeSessionsMetadata() {
-      return [];
+      return { sessions: [], hasMore: false };
     },
     async getDocumentRevisionAtTs() {
       return null;

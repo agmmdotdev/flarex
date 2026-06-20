@@ -469,14 +469,17 @@ describe("createPGlitePersistence", () => {
         olderThan: new Date("2026-06-19T12:00:00.000Z"),
         finishedAt,
       }),
-    ).resolves.toMatchObject([
-      {
-        deploymentId: "deployment_invoke_stale",
-        sessionId: "session_old_active",
-        state: "aborted",
-        finishedAt,
-      },
-    ]);
+    ).resolves.toMatchObject({
+      sessions: [
+        {
+          deploymentId: "deployment_invoke_stale",
+          sessionId: "session_old_active",
+          state: "aborted",
+          finishedAt,
+        },
+      ],
+      hasMore: false,
+    });
 
     await expect(
       persistence.getInvokeSessionMetadata(
@@ -490,6 +493,69 @@ describe("createPGlitePersistence", () => {
         "session_old_finished",
       ),
     ).resolves.toMatchObject({ state: "finished" });
+  });
+
+  it("aborts stale invoke session metadata in oldest-first batches", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const baseInput = {
+      deploymentId: "deployment_invoke_stale_batch",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query" as const,
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 44,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    };
+    for (const sessionId of ["session_b", "session_a", "session_c"]) {
+      await persistence.insertInvokeSessionMetadata({
+        ...baseInput,
+        sessionId,
+      });
+    }
+    await persistence.query(
+      `
+        update invoke_sessions
+        set created_at = case session_id
+          when 'session_b' then $1::timestamptz
+          when 'session_a' then $2::timestamptz
+          else $3::timestamptz
+        end
+        where deployment_id = $4
+      `,
+      [
+        "2026-06-19T00:00:00.000Z",
+        "2026-06-19T00:00:00.000Z",
+        "2026-06-19T01:00:00.000Z",
+        "deployment_invoke_stale_batch",
+      ],
+    );
+
+    await expect(
+      persistence.abortStaleInvokeSessionsMetadata({
+        deploymentId: "deployment_invoke_stale_batch",
+        olderThan: new Date("2026-06-19T12:00:00.000Z"),
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        limit: 2,
+      }),
+    ).resolves.toMatchObject({
+      sessions: [
+        { sessionId: "session_a", state: "aborted" },
+        { sessionId: "session_b", state: "aborted" },
+      ],
+      hasMore: true,
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_invoke_stale_batch",
+        "session_c",
+      ),
+    ).resolves.toMatchObject({ state: "active" });
   });
 
   it("rejects duplicate invoke session metadata clearly", async () => {

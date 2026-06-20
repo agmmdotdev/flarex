@@ -1,4 +1,4 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
 
 import { invokeSessions } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -38,6 +38,12 @@ export interface AbortStaleInvokeSessionsMetadataInput {
   deploymentId: string;
   olderThan: Date;
   finishedAt: Date;
+  limit?: number;
+}
+
+export interface AbortStaleInvokeSessionsMetadataResult {
+  sessions: InvokeSessionMetadataRecord[];
+  hasMore: boolean;
 }
 
 export type InvokeSessionMetadataRecord = typeof invokeSessions.$inferSelect;
@@ -154,8 +160,32 @@ export async function abortInvokeSessionMetadata(
 export async function abortStaleInvokeSessionsMetadata(
   db: FlarexMetadataDatabase,
   input: AbortStaleInvokeSessionsMetadataInput,
-): Promise<InvokeSessionMetadataRecord[]> {
-  return await db
+): Promise<AbortStaleInvokeSessionsMetadataResult> {
+  const staleQuery = db
+    .select({ sessionId: invokeSessions.sessionId })
+    .from(invokeSessions)
+    .where(
+      and(
+        eq(invokeSessions.deploymentId, input.deploymentId),
+        eq(invokeSessions.state, "active"),
+        lt(invokeSessions.createdAt, input.olderThan),
+      ),
+    )
+    .orderBy(asc(invokeSessions.createdAt), asc(invokeSessions.sessionId));
+  const stale =
+    input.limit === undefined
+      ? await staleQuery
+      : await staleQuery.limit(input.limit + 1);
+  const hasMore =
+    input.limit !== undefined && stale.length > input.limit;
+  const sessionIds = (input.limit === undefined ? stale : stale.slice(0, input.limit))
+    .map((session) => session.sessionId);
+
+  if (sessionIds.length === 0) {
+    return { sessions: [], hasMore };
+  }
+
+  const sessions = await db
     .update(invokeSessions)
     .set({
       state: "aborted",
@@ -165,8 +195,17 @@ export async function abortStaleInvokeSessionsMetadata(
       and(
         eq(invokeSessions.deploymentId, input.deploymentId),
         eq(invokeSessions.state, "active"),
-        lt(invokeSessions.createdAt, input.olderThan),
+        inArray(invokeSessions.sessionId, sessionIds),
       ),
     )
     .returning();
+
+  return {
+    sessions: sessions.sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        left.sessionId.localeCompare(right.sessionId),
+    ),
+    hasMore,
+  };
 }

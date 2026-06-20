@@ -1048,20 +1048,26 @@ git diff --check
 
 ## Invoke Session Maintenance Runner API
 
-Previous completed checkpoint: `471bc68` Abort stale invoke sessions.
+Previous completed checkpoint: `5358924` Add invoke session maintenance route.
 
 What changed:
 
 - Added `packages/executor/src/maintenance.ts`.
 - Added executor API:
-  `runInvokeSessionMaintenance({ deploymentId, projectId, staleAfterMs })`.
+  `runInvokeSessionMaintenance({ deploymentId, projectId, staleAfterMs, maxSessions })`.
 - The maintenance API computes `olderThan` from the executor clock and delegates
   to `abortStaleInvokeSessions`.
+- `abortStaleInvokeSessionsMetadata` now supports bounded oldest-first batches
+  ordered by `created_at, session_id`.
+- Maintenance defaults `maxSessions` to `100` and returns `hasMore` so cron can
+  call repeatedly without one large update transaction.
 - Added stable `MaintenancePolicyError` for invalid maintenance TTLs.
 - Added authenticated HTTP adapter route:
   `POST /maintenance/invoke-sessions`.
+- The HTTP route accepts optional `maxSessions`.
 - Nitro inherits the route through `@flarex/executor-http`.
-- Added executor and HTTP tests for TTL handling and route validation.
+- Added PGlite, executor, and HTTP tests for TTL handling, batch order,
+  `hasMore`, and route validation.
 
 Why it changed:
 
@@ -1069,6 +1075,10 @@ Why it changed:
 scheduler should not have to calculate timestamps manually. This maintenance
 API makes the scheduled operation policy-driven while keeping the durable state
 transition in the trusted Postgres executor.
+
+The batch limit is required before cron wiring. A stalled deployment could have
+many active sessions, and a single unbounded update would be the wrong
+production shape for a shared Postgres executor.
 
 Convex references:
 
@@ -1085,17 +1095,23 @@ Flarex differences:
   deployable boundaries.
 - This route computes stale policy only. It still does not retry or commit user
   code work.
+- Batch order is explicit in Flarex because the maintenance API is externalized
+  over HTTP. Convex keeps transaction cleanup inside backend runtime ownership.
 
 Known limitations:
 
 - No actual Vercel/Nitro cron binding is configured yet.
 - No persisted per-deployment maintenance policy yet.
-- No batch limit/pagination yet.
+- Batching is implemented, but there is no cursor because the next batch can be
+  found by rerunning the same stale policy while `hasMore` is true.
 - No retention deletion for aborted session read/write rows yet.
 
 Verification:
 
 ```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
 corepack pnpm --filter @flarex/executor-http typecheck
@@ -3942,7 +3958,8 @@ Known limitations:
 - No scheduler/cron runner is wired yet; this only adds the callable operation.
 - No retention deletion for aborted session reads/writes yet.
 - No per-deployment TTL policy yet; callers provide `olderThan`.
-- No pagination/limit yet. A production sweeper should batch large deployments.
+- Batching was added later through the maintenance runner API; callers should
+  prefer that scheduler-facing route over manually calling this primitive.
 
 Verification:
 

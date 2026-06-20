@@ -44,6 +44,7 @@ import {
   InvokeSessionProjectMismatchError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
+  MaintenancePolicyError,
 } from "./errors";
 
 export async function beginInvokeSession(
@@ -400,6 +401,15 @@ export async function abortStaleInvokeSessions(
   clock: Clock,
   input: AbortStaleInvokeSessionsInput,
 ): Promise<AbortStaleInvokeSessionsResult> {
+  if (
+    input.limit !== undefined &&
+    (!Number.isFinite(input.limit) ||
+      !Number.isInteger(input.limit) ||
+      input.limit <= 0)
+  ) {
+    throw new MaintenancePolicyError("limit must be a positive integer.");
+  }
+
   const deployment = await persistence.getDeploymentMetadata(input.deploymentId);
   if (deployment === null) {
     throw new DeploymentNotFoundError(input.deploymentId);
@@ -416,11 +426,13 @@ export async function abortStaleInvokeSessions(
     deploymentId: input.deploymentId,
     olderThan: input.olderThan,
     finishedAt: clock.now(),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
 
   return {
-    aborted: aborted.length,
-    sessions: aborted.map((session) => session.sessionId).sort(),
+    aborted: aborted.sessions.length,
+    sessions: aborted.sessions.map((session) => session.sessionId).sort(),
+    hasMore: aborted.hasMore,
   };
 }
 

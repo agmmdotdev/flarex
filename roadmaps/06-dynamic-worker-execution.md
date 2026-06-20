@@ -775,13 +775,15 @@ corepack pnpm --filter flarex-backend test
 
 ## Maintenance Policy Boundary
 
-Previous completed checkpoint: `471bc68` Abort stale invoke sessions.
+Previous completed checkpoint: `5358924` Add invoke session maintenance route.
 
 What changed:
 
 - Added the executor maintenance API for invoke sessions.
 - Added `POST /maintenance/invoke-sessions` as the route a scheduler should
   call instead of manually calculating `olderThan`.
+- Added optional `maxSessions` and `hasMore` so the scheduler can process stale
+  sessions in bounded batches.
 - Kept the operation outside generated user code and outside Dynamic Worker
   execution modules.
 
@@ -793,9 +795,10 @@ small policy wrapper needed for a future Vercel/Nitro cron job:
 
 ```txt
 scheduled job
-  -> /maintenance/invoke-sessions { staleAfterMs }
+  -> /maintenance/invoke-sessions { staleAfterMs, maxSessions }
   -> executor computes olderThan
-  -> abort stale active sessions
+  -> abort oldest stale active session batch
+  -> repeat while hasMore
 ```
 
 Convex references:
@@ -810,16 +813,21 @@ Flarex differences:
 - Flarex exposes an explicit maintenance route because the executor is
   framework-neutral and can be hosted behind Nitro/Vercel.
 - This is a hosted-platform operation, not a Convex-style user function.
+- The batch loop belongs to platform scheduling, not user code or generated
+  Dynamic Worker modules.
 
 Known limitations:
 
 - Cron wiring is still pending.
 - Per-deployment TTL configuration is still pending.
-- Batched retention cleanup is still pending.
+- Batched stale abort is implemented; batched retention deletion of old aborted
+  session rows is still pending.
 
 Verification:
 
 ```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
 corepack pnpm --filter @flarex/executor-http typecheck

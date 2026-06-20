@@ -5,6 +5,7 @@ import type {
   CommitInvokeSessionWritesResult,
   AbortInvokeSessionMetadataInput,
   AbortStaleInvokeSessionsMetadataInput,
+  AbortStaleInvokeSessionsMetadataResult,
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
@@ -105,7 +106,7 @@ export interface FlarexExecutorPersistence {
   ): Promise<InvokeSessionMetadataRecord | null>;
   abortStaleInvokeSessionsMetadata(
     input: AbortStaleInvokeSessionsMetadataInput,
-  ): Promise<InvokeSessionMetadataRecord[]>;
+  ): Promise<AbortStaleInvokeSessionsMetadataResult>;
   getDocumentRevisionAtTs(
     deploymentId: string,
     id: string,
@@ -392,22 +393,26 @@ export interface AbortStaleInvokeSessionsInput {
   deploymentId: string;
   projectId: string;
   olderThan: Date;
+  limit?: number;
 }
 
 export interface AbortStaleInvokeSessionsResult {
   aborted: number;
   sessions: string[];
+  hasMore: boolean;
 }
 
 export interface RunInvokeSessionMaintenanceInput {
   deploymentId: string;
   projectId: string;
   staleAfterMs: number;
+  maxSessions?: number;
 }
 
 export interface RunInvokeSessionMaintenanceResult {
   staleAborted: number;
   sessions: string[];
+  hasMore: boolean;
 }
 
 export interface CommittedDocumentWrite {

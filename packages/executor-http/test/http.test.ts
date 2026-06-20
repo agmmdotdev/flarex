@@ -594,7 +594,11 @@ describe("createFlarexHttpApp", () => {
       executor: fakeExecutor({
         async abortStaleInvokeSessions(input) {
           calls.push(input);
-          return { aborted: 2, sessions: ["session_a", "session_b"] };
+          return {
+            aborted: 2,
+            sessions: ["session_a", "session_b"],
+            hasMore: true,
+          };
         },
       }),
     });
@@ -604,6 +608,7 @@ describe("createFlarexHttpApp", () => {
         deploymentId: "deployment_active",
         projectId: "project_active",
         olderThan: "2026-06-20T00:00:00.000Z",
+        maxSessions: 2,
       }),
     );
 
@@ -613,11 +618,13 @@ describe("createFlarexHttpApp", () => {
         deploymentId: "deployment_active",
         projectId: "project_active",
         olderThan: new Date("2026-06-20T00:00:00.000Z"),
+        limit: 2,
       },
     ]);
     await expect(response.json()).resolves.toEqual({
       aborted: 2,
       sessions: ["session_a", "session_b"],
+      hasMore: true,
     });
   });
 
@@ -670,7 +677,7 @@ describe("createFlarexHttpApp", () => {
       executor: fakeExecutor({
         async runInvokeSessionMaintenance(input) {
           calls.push(input);
-          return { staleAborted: 1, sessions: ["session_old"] };
+          return { staleAborted: 1, sessions: ["session_old"], hasMore: true };
         },
       }),
     });
@@ -680,6 +687,7 @@ describe("createFlarexHttpApp", () => {
         deploymentId: "deployment_active",
         projectId: "project_active",
         staleAfterMs: 1800000,
+        maxSessions: 1,
       }),
     );
 
@@ -689,11 +697,13 @@ describe("createFlarexHttpApp", () => {
         deploymentId: "deployment_active",
         projectId: "project_active",
         staleAfterMs: 1800000,
+        maxSessions: 1,
       },
     ]);
     await expect(response.json()).resolves.toEqual({
       staleAborted: 1,
       sessions: ["session_old"],
+      hasMore: true,
     });
   });
 
@@ -948,10 +958,10 @@ function fakeExecutor(
       return { aborted: true };
     },
     async abortStaleInvokeSessions() {
-      return { aborted: 0, sessions: [] };
+      return { aborted: 0, sessions: [], hasMore: false };
     },
     async runInvokeSessionMaintenance() {
-      return { staleAborted: 0, sessions: [] };
+      return { staleAborted: 0, sessions: [], hasMore: false };
     },
     async invokeSyscall() {
       return invokeSyscallResult(null);

@@ -7,6 +7,8 @@ import type {
   RunInvokeSessionMaintenanceResult,
 } from "./types";
 
+const DEFAULT_MAX_SESSIONS = 100;
+
 export async function runInvokeSessionMaintenance(
   persistence: FlarexExecutorPersistence,
   clock: Clock,
@@ -19,6 +21,14 @@ export async function runInvokeSessionMaintenance(
   ) {
     throw new MaintenancePolicyError("staleAfterMs must be a positive integer.");
   }
+  const maxSessions = input.maxSessions ?? DEFAULT_MAX_SESSIONS;
+  if (
+    !Number.isFinite(maxSessions) ||
+    !Number.isInteger(maxSessions) ||
+    maxSessions <= 0
+  ) {
+    throw new MaintenancePolicyError("maxSessions must be a positive integer.");
+  }
 
   const now = clock.now();
   const olderThan = new Date(now.getTime() - input.staleAfterMs);
@@ -26,10 +36,12 @@ export async function runInvokeSessionMaintenance(
     deploymentId: input.deploymentId,
     projectId: input.projectId,
     olderThan,
+    limit: maxSessions,
   });
 
   return {
     staleAborted: result.aborted,
     sessions: result.sessions,
+    hasMore: result.hasMore,
   };
 }

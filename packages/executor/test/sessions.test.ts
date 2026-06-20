@@ -611,6 +611,7 @@ describe("executor invoke sessions", () => {
     ).resolves.toEqual({
       aborted: 1,
       sessions: ["session_old"],
+      hasMore: false,
     });
     await expect(
       persistence.getInvokeSessionMetadata("deployment_session", "session_old"),
