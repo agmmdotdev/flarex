@@ -170,6 +170,10 @@ export class ExecutionDO extends DurableObject<Env> {
       await writer.patch(request.id, request.value);
       return null;
     }
+    if (request.op === "replace") {
+      await writer.replace(request.id, request.value);
+      return null;
+    }
     if (request.op === "delete") {
       await writer.delete(request.id);
       return null;

@@ -56,6 +56,10 @@ export type DatabaseWriter<DataModel extends GenericDataModel = AnyDataModel> =
     id: Id<Table>,
     value: Partial<WithoutSystemFields<DocumentByName<DataModel, Table>>>,
   ): Promise<void>;
+  replace<Table extends TableNamesInDataModel<DataModel>>(
+    id: Id<Table>,
+    value: WithoutSystemFields<DocumentByName<DataModel, Table>>,
+  ): Promise<void>;
   delete<Table extends TableNamesInDataModel<DataModel>>(id: Id<Table>): Promise<void>;
 };
 
@@ -72,6 +76,10 @@ export type DatabaseWriterForTables<
   patch<Table extends WritableTables>(
     id: Id<Table>,
     value: Partial<WithoutSystemFields<DocumentByName<DataModel, Table>>>,
+  ): Promise<void>;
+  replace<Table extends WritableTables>(
+    id: Id<Table>,
+    value: WithoutSystemFields<DocumentByName<DataModel, Table>>,
   ): Promise<void>;
   delete<Table extends WritableTables>(id: Id<Table>): Promise<void>;
 };

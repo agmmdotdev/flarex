@@ -81,6 +81,11 @@ describe("ExecutionDO sessions", () => {
       id: "1:progress-intro",
       value: { completed: true },
     });
+    await syscall("execution-mutation-deployment", start.sessionId, {
+      op: "replace",
+      id: "1:progress-intro",
+      value: { userId: "u1", lessonId: "intro", completed: true },
+    });
 
     const finish = await finishExecution("execution-mutation-deployment", start.sessionId, {
       ok: true,

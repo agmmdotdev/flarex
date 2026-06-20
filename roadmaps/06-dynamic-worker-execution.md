@@ -773,6 +773,56 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime `ctx.db.replace` Syscall
+
+Previous completed checkpoint: `0e3b118` Add invoke replace syscall.
+
+What changed:
+
+- The generated Worker runtime and local execution artifact materializer now
+  expose `ctx.db.replace(id, value)`.
+- Materialized mutation artifacts emit backend syscalls shaped as
+  `{ op: "replace", id, value }`.
+- The full stored-source-package runtime test now performs
+  `insert -> patch -> replace` in user code and verifies the committed final
+  document.
+- The legacy `ExecutionDO` syscall route now accepts `replace` so the retained
+  DO prototype does not break while Postgres remains the forward path.
+
+Convex references:
+
+- `npm-packages/convex/src/server/impl/database_impl.ts`
+  - Convex's user-code writer forwards `replace` to the backend syscall layer.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - storage operations remain behind a controlled syscall boundary.
+
+Flarex differences:
+
+- Convex executes this syscall inside its backend isolate/runtime stack.
+  Flarex emits it from Cloudflare-hosted user code to either the legacy
+  `ExecutionDO` route or the trusted Postgres executor route.
+- The DO route is compatibility scaffolding. The Postgres executor remains the
+  target authoritative path.
+
+Known limitations:
+
+- The generated runtime still has no table-scoped writer object.
+- Per-session syscall capability tokens remain future hardening.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Maintenance Policy Boundary
 
 Previous completed checkpoint: `5358924` Add invoke session maintenance route.

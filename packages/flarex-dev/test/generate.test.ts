@@ -306,6 +306,7 @@ export const create = mutation({
     expect(api).toContain('"users:create": {');
     expect(api).toContain('"type": "partitionCreateRoot"');
     expect(worker).toContain('...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey })');
+    expect(worker).toContain('await syscall({ op: "replace", id, value });');
     expect(worker).not.toContain("A partitionKey or x-flarex-partition header is required.");
   });
 

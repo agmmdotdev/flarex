@@ -261,6 +261,47 @@ describe("runtime materializer", () => {
     ]);
   });
 
+  it("emits replace syscalls from materialized mutation artifacts", async () => {
+    const syscalls: unknown[] = [];
+    const finishes: unknown[] = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        if (url.pathname === "/deployments/deployment-replace/executions/start") {
+          return Response.json({ sessionId: "session-replace", kind: "mutation" });
+        }
+        if (url.pathname === "/deployments/deployment-replace/executions/session-replace/syscall") {
+          syscalls.push(body);
+          return Response.json(null);
+        }
+        if (url.pathname === "/deployments/deployment-replace/executions/session-replace/finish") {
+          finishes.push(body);
+          return Response.json({ value: (body as { value: unknown }).value });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = replaceMutationPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: { replaced: true },
+      });
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(syscalls).toEqual([
+      {
+        op: "replace",
+        id: "2:message",
+        value: { lessonId: "1:lesson", text: "final", done: true },
+      },
+    ]);
+    expect(finishes).toEqual([{ value: { replaced: true } }]);
+  });
+
   it("can target Postgres executor invoke routes from materialized artifacts", async () => {
     const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
@@ -457,7 +498,8 @@ export const create = mutation({
   returns: v.object({ id: v.id("messages") }),
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("messages", { lessonId: args.lessonId, text: args.text, done: false });
-    await ctx.db.patch(id, { done: true });
+    await ctx.db.patch(id, { text: "intermediate", done: true });
+    await ctx.db.replace(id, { lessonId: args.lessonId, text: args.text, done: true });
     return { id };
   },
 });
@@ -552,6 +594,51 @@ function failingMutationPayload(): MaterializedExecutionArtifactPayload {
     sourcePackage,
     request: {
       path: "messages:fail",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "mutation",
+    },
+  };
+}
+
+function replaceMutationPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "c".repeat(64),
+        source: `export default {
+  messages: {
+    replace: {
+      isMutation: true,
+      _handler: async ({ db }) => {
+        await db.replace("2:message", {
+          lessonId: "1:lesson",
+          text: "final",
+          done: true,
+        });
+        return { replaced: true };
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-replace",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-replace",
+      sourcePackageHash: "c".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:replace",
       args: { lessonId: "1:lesson" },
       partitionKey: "1:lesson",
       kind: "mutation",

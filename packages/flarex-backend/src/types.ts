@@ -334,6 +334,7 @@ export type ExecutionSyscallRequest =
     }
   | { op: "insert"; table: string; value: Json; id?: string }
   | { op: "patch"; id: string; value: { [key: string]: Json } }
+  | { op: "replace"; id: string; value: Json }
   | { op: "delete"; id: string };
 
 export type ExecutionFinishRequest = {

@@ -145,6 +145,63 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Generated Replace API Over Executor Syscalls
+
+Previous completed checkpoint: `0e3b118` Add invoke replace syscall.
+
+What changed:
+
+- The SDK/runtime layer now exposes the Postgres executor's `replace` syscall
+  through `ctx.db.replace(id, value)`.
+- Generated Worker and materialized artifact runtime both forward replacement
+  writes to `/invoke/syscall` when using the Postgres executor transport.
+- Added a materialized runtime test that pins the emitted `replace` syscall
+  body and a full backend runtime test that commits a replacement from user
+  code.
+
+Why it changed:
+
+The executor already understood staged replacement writes. Without the
+generated/user-code surface, developers still could not use the Convex-style
+API. This closes the API-to-executor path for full-document updates.
+
+Convex references:
+
+- `npm-packages/convex/src/server/database.ts`
+  - mutation writer includes `replace`.
+- `npm-packages/convex/src/server/impl/database_impl.ts`
+  - user code forwards replacement operations to the backend.
+
+Flarex differences:
+
+- Flarex keeps Postgres executor calls over HTTP/service-boundary style
+  syscalls. Convex keeps the equivalent syscall inside its backend runtime.
+- This checkpoint also updates the retained `ExecutionDO` prototype so local
+  artifact tests continue to prove behavior while the Postgres path matures.
+
+Known limitations:
+
+- The replace API is still method-level only; generated table writer objects
+  are not implemented.
+- Replacement values use Flarex's `WithoutSystemFields` typing for now.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Invoke OCC Retry Coordinator
 
 Previous completed checkpoint: `3c81156` Document interactive invoke

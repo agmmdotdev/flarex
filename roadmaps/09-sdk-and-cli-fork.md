@@ -1015,8 +1015,10 @@ Verification:
 ```sh
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test
+corepack pnpm --filter flarex build
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
@@ -2063,4 +2065,50 @@ corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex-dev build
 corepack pnpm --filter @flarex/example typecheck
 corepack pnpm --filter @flarex/example test
+```
+
+### Generated `ctx.db.replace`
+
+Previous completed checkpoint: `0e3b118` Add invoke replace syscall.
+
+What changed:
+
+- Added `ctx.db.replace(id, value)` to the public `DatabaseWriter` and
+  scoped `DatabaseWriterForTables` types.
+- Generated Worker source now includes `replace` on its syscall-backed
+  `ctx.db`.
+- The local execution artifact materializer now exposes the same `replace`
+  method to user functions.
+- Added generation coverage that pins the generated Worker syscall body.
+
+Convex references:
+
+- `npm-packages/convex/src/server/database.ts`
+  - `DatabaseWriter.replace` is part of the mutation writer surface.
+- `npm-packages/convex/src/server/impl/database_impl.ts`
+  - Convex forwards `replace` through a distinct backend syscall.
+
+Flarex differences:
+
+- Convex's replacement value type allows optional system fields. Flarex keeps
+  this first slice aligned with its current insert/patch convention and accepts
+  `WithoutSystemFields<Document>`.
+- Convex's syscall name is `"1.0/replace"`. Flarex's executor syscall shape is
+  `{ op: "replace", id, value }`.
+
+Known limitations:
+
+- Table-scoped writer helpers like `ctx.db.table("users").replace(...)` are
+  not part of the current Flarex API surface.
+- The generated scoped writer narrows writable tables, but deeper Convex-style
+  table writer overloads remain future SDK parity work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+git diff --check
 ```

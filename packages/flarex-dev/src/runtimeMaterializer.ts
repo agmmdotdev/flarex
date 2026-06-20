@@ -335,6 +335,10 @@ function databaseForSession(backend, deploymentId, sessionId, kind, transport, p
       if (kind !== "mutation") throw new Error("Cannot patch during a query.");
       await syscall({ op: "patch", id, value });
     },
+    replace: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot replace during a query.");
+      await syscall({ op: "replace", id, value });
+    },
     delete: async id => {
       if (kind !== "mutation") throw new Error("Cannot delete during a query.");
       await syscall({ op: "delete", id });
