@@ -7,6 +7,10 @@ import type {
   InvokeSyscallInput,
   InvokeSyscallResult,
 } from "./types";
+import {
+  parseFlarexDocumentId,
+  type PersistenceJson,
+} from "@flarex/persistence-postgres";
 import { prepareInvoke } from "./invoke";
 import {
   InvokeSessionNotActiveError,
@@ -89,11 +93,41 @@ export async function invokeSyscall(
     );
   }
 
+  if (input.syscall.op === "get") {
+    const parsed = parseFlarexDocumentId(input.syscall.id);
+    const document = await persistence.getDocumentRevisionAtTs(
+      input.deploymentId,
+      input.syscall.id,
+      session.beginTs,
+    );
+    return {
+      value:
+        document === null || document.deleted
+          ? null
+          : documentValue(document.id, document.value),
+      readSet: {
+        documents: [
+          {
+            tableId: parsed.tableId,
+            id: input.syscall.id,
+          },
+        ],
+      },
+    };
+  }
+
   throw new InvokeSyscallNotImplementedError(input.syscall.op);
 }
 
 function isWriteSyscall(op: string): boolean {
   return op === "insert" || op === "patch" || op === "delete";
+}
+
+function documentValue(id: string, value: PersistenceJson): PersistenceJson {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return { ...value, _id: id };
+  }
+  return value;
 }
 
 export const defaultIds: IdGenerator = {

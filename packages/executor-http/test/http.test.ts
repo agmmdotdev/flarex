@@ -3,6 +3,7 @@ import {
   DeploymentNotFoundError,
   DeploymentPackageNotActivatedError,
   DeploymentProjectMismatchError,
+  FlarexDocumentIdFormatError,
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
@@ -291,7 +292,10 @@ describe("createFlarexHttpApp", () => {
       executor: fakeExecutor({
         async invokeSyscall(input) {
           calls.push(input);
-          return { value: { _id: input.syscall.op === "get" ? "1:message" : null } };
+          return {
+            value: { _id: input.syscall.op === "get" ? "1:message" : null },
+            readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+          };
         },
       }),
     });
@@ -320,6 +324,7 @@ describe("createFlarexHttpApp", () => {
     ]);
     await expect(response.json()).resolves.toEqual({
       value: { _id: "1:message" },
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
     });
   });
 
@@ -489,6 +494,11 @@ describe("createFlarexHttpApp", () => {
       .resolves.toMatchObject({
         status: 501,
         body: { error: "InvokeSyscallNotImplementedError" },
+      });
+    await expect(expectSyscallError(new FlarexDocumentIdFormatError("bad")))
+      .resolves.toMatchObject({
+        status: 400,
+        body: { error: "FlarexDocumentIdFormatError" },
       });
   });
 });

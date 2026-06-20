@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
-import { InvokeSessionMetadataAlreadyExistsError } from "@flarex/persistence-postgres";
+import {
+  FlarexDocumentIdFormatError,
+  InvokeSessionMetadataAlreadyExistsError,
+  type DocumentRevisionRecord,
+} from "@flarex/persistence-postgres";
 
 import {
   createFlarexExecutor,
@@ -193,7 +197,37 @@ describe("executor invoke sessions", () => {
     ).rejects.toThrow(InvokeSyscallNotAllowedError);
   });
 
-  it("keeps document read syscalls behind the pending Postgres transaction layer", async () => {
+  it("reads a document revision at the session begin timestamp", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession({ beginTs: 15 })], [
+        documentRevision({
+          ts: 10,
+          value: { text: "old" },
+        }),
+        documentRevision({
+          ts: 20,
+          value: { text: "new" },
+          prevTs: 10,
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:message", text: "old" },
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message" }],
+      },
+    });
+  });
+
+  it("returns null and a document read for missing document revisions", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence([], [], [activeSession()]),
     });
@@ -203,7 +237,73 @@ describe("executor invoke sessions", () => {
         deploymentId: "deployment_session",
         projectId: "project_session",
         sessionId: "session_active",
+        syscall: { op: "get", id: "1:missing" },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:missing" }],
+      },
+    });
+  });
+
+  it("returns null for deleted document revisions", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession()], [
+        documentRevision({
+          ts: 10,
+          value: { text: "old" },
+        }),
+        documentRevision({
+          ts: 20,
+          value: null,
+          deleted: true,
+          prevTs: 10,
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
         syscall: { op: "get", id: "1:message" },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message" }],
+      },
+    });
+  });
+
+  it("rejects malformed document ids before persistence lookup", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession()]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "bad" },
+      }),
+    ).rejects.toThrow(FlarexDocumentIdFormatError);
+  });
+
+  it("keeps query syscalls behind the pending Postgres transaction layer", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession()]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "query", request: { table: "messages" } },
       }),
     ).rejects.toThrow(InvokeSyscallNotImplementedError);
   });
@@ -297,4 +397,20 @@ function activeSession(
     executionModule: "_flarex/execution.js",
     ...overrides,
   });
+}
+
+function documentRevision(
+  overrides: Partial<DocumentRevisionRecord> = {},
+): DocumentRevisionRecord {
+  return {
+    deploymentId: "deployment_session",
+    id: "1:message",
+    tableId: 1,
+    documentId: "message",
+    ts: 10,
+    value: { text: "old" },
+    deleted: false,
+    prevTs: null,
+    ...overrides,
+  };
 }

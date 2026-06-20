@@ -6,6 +6,7 @@ import type {
   InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataRecord,
+  DocumentRevisionRecord,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -71,6 +72,11 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionMetadataRecord | null>;
+  getDocumentRevisionAtTs(
+    deploymentId: string,
+    id: string,
+    ts: number,
+  ): Promise<DocumentRevisionRecord | null>;
 }
 
 export interface ActivateDeploymentPackageInput {
@@ -281,6 +287,14 @@ export interface InvokeSyscallInput {
 
 export interface InvokeSyscallResult {
   value: Json;
+  readSet?: InvokeReadSet;
+}
+
+export interface InvokeReadSet {
+  documents?: Array<{
+    tableId: number;
+    id: string;
+  }>;
 }
 
 export interface EnsureDeploymentInput {

@@ -20,6 +20,10 @@ import {
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
 } from "./deployments";
 import {
+  getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
+  insertDocumentRevision as insertDocumentRevisionWithDb,
+} from "./documents";
+import {
   getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
   insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
 } from "./invokeSessions";
@@ -89,6 +93,10 @@ export async function createPGlitePersistence(
       insertInvokeSessionMetadataWithDb(drizzleDb, input),
     getInvokeSessionMetadata: (deploymentId, sessionId) =>
       getInvokeSessionMetadataWithDb(drizzleDb, deploymentId, sessionId),
+    insertDocumentRevision: (input) =>
+      insertDocumentRevisionWithDb(drizzleDb, input),
+    getDocumentRevisionAtTs: (deploymentId, id, ts) =>
+      getDocumentRevisionAtTsWithDb(drizzleDb, deploymentId, id, ts),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

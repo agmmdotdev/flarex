@@ -6,6 +6,7 @@ import {
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
   DeploymentSchemaMetadataUnavailableError,
+  FlarexDocumentIdFormatError,
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
@@ -456,6 +457,7 @@ function executorErrorBody(error: unknown): {
   if (
     error instanceof FunctionKindMismatchError ||
     error instanceof FunctionNotInvokableError ||
+    error instanceof FlarexDocumentIdFormatError ||
     error instanceof InvokeSyscallNotAllowedError ||
     error instanceof PartitionValidationError
   ) {

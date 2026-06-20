@@ -429,6 +429,9 @@ function healthyPersistence() {
     async getInvokeSessionMetadata() {
       return null;
     },
+    async getDocumentRevisionAtTs() {
+      return null;
+    },
   };
 }
 

@@ -2244,6 +2244,110 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Document Get Syscall
+
+Previous completed checkpoint: `422ac15` Add invoke syscall boundary.
+
+What changed:
+
+- Added `packages/persistence-postgres/src/documents.ts`.
+- Added low-level document persistence helpers:
+  - `insertDocumentRevision(...)`
+  - `getDocumentRevisionAtTs(...)`
+  - `parseFlarexDocumentId(...)`
+- The helper stores documents in the existing Convex-style `documents` table:
+  - `deployment_id`
+  - bytea document id suffix
+  - timestamp
+  - bytea table id
+  - bytea JSON value
+  - deletion flag
+  - previous timestamp
+- Wired the helpers through `FlarexPersistence` and the PGlite adapter.
+- Wired `executor.invokeSyscall({ op: "get" })` to:
+  - validate the Flarex document id,
+  - read the latest document revision at the session `beginTs`,
+  - return `null` for missing or deleted documents,
+  - add `_id` to object documents like the legacy backend reader,
+  - return the first read-set shape:
+
+  ```ts
+  {
+    documents: [{ tableId, id }]
+  }
+  ```
+
+- Re-exported `FlarexDocumentIdFormatError` through `@flarex/executor` and
+  mapped it to HTTP `400`.
+- Added PGlite, executor, HTTP, and Nitro fixture coverage.
+
+Why it changed:
+
+This is the first real document read through the trusted Postgres executor
+path. Dynamic Worker user code can now call a backend-owned `get` syscall and
+receive a snapshot read at the session timestamp without receiving a database
+connection. Returning the read-set with the syscall result creates the shape
+future `finish`/commit validation will use.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction reads are recorded by the backend-owned transaction state.
+- `crates/database/src/committer.rs`
+  - commit validates accumulated reads/writes at the authoritative boundary.
+- `crates/postgres/src/sql.rs`
+  - generic multitenant document history lives in `documents` rather than one
+    SQL table per developer table.
+
+Flarex references:
+
+- `packages/flarex-backend/src/transaction.ts`
+  - legacy `SingleShardTransaction.get(...)` reads at `beginTs` and merges a
+    document read-set.
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy `readerFor(...).get(...)` adds `_id` to object documents before
+    returning them to user code.
+- `packages/persistence-postgres/src/schema.ts`
+  - existing Convex-style `documents` table.
+
+Flarex differences:
+
+- Convex stores values with its Rust value codec. Flarex currently stores JSON
+  bytes encoded with `JSON.stringify(...)`; a future codec can replace this
+  without changing the high-level repository contract.
+- Convex keeps read-set state inside the transaction object. Flarex currently
+  returns the read-set from the syscall response because durable session
+  read-set accumulation is not implemented yet.
+- The current document id encoding keeps the table id as text bytes and the id
+  suffix as text bytes inside bytea columns. This preserves the generic bytea
+  table shape while keeping the first TypeScript implementation simple.
+
+Known limitations:
+
+- `query`, `insert`, `patch`, `delete`, `finish`, and `abort` remain pending
+  in the new executor packages.
+- Read-sets are returned per syscall but not yet accumulated in
+  `invoke_sessions` or a separate session read table.
+- No OCC validation uses the read-set yet.
+- No document validator, placement validator, or index maintenance runs in the
+  new Postgres path yet.
+- No real Postgres adapter lane has been added; PGlite covers the fast local
+  lane only.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

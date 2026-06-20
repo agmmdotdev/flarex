@@ -4,6 +4,7 @@ import {
   DeploymentMetadataAlreadyExistsError,
   DeploymentPackageMetadataAlreadyExistsError,
   InvokeSessionMetadataAlreadyExistsError,
+  FlarexDocumentIdFormatError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -390,5 +391,93 @@ describe("createPGlitePersistence", () => {
     await expect(
       persistence.insertInvokeSessionMetadata(input),
     ).rejects.toThrow(InvokeSessionMetadataAlreadyExistsError);
+  });
+
+  it("inserts and reads document revisions at a timestamp", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_docs",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_docs",
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+      prevTs: 10,
+    });
+
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_docs", "1:message", 15),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_docs",
+      id: "1:message",
+      tableId: 1,
+      documentId: "message",
+      ts: 10,
+      value: { text: "old" },
+      deleted: false,
+      prevTs: null,
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_docs", "1:message", 20),
+    ).resolves.toMatchObject({
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+      prevTs: 10,
+    });
+  });
+
+  it("returns deleted document revisions so callers can record the read", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_docs_deleted",
+      id: "2:lesson",
+      ts: 10,
+      value: { title: "Intro" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_docs_deleted",
+      id: "2:lesson",
+      ts: 20,
+      value: null,
+      deleted: true,
+      prevTs: 10,
+    });
+
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_docs_deleted",
+        "2:lesson",
+        30,
+      ),
+    ).resolves.toMatchObject({
+      id: "2:lesson",
+      ts: 20,
+      value: null,
+      deleted: true,
+      prevTs: 10,
+    });
+  });
+
+  it("rejects malformed document ids in document persistence helpers", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.insertDocumentRevision({
+        deploymentId: "deployment_docs_bad_id",
+        id: "bad",
+        ts: 10,
+        value: null,
+      }),
+    ).rejects.toThrow(FlarexDocumentIdFormatError);
   });
 });

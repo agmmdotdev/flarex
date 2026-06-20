@@ -27,6 +27,7 @@ export {
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
 } from "./errors";
+export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
 export type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,

@@ -3,6 +3,7 @@ import {
   type DeploymentPackageMetadataRecord,
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
+  type DocumentRevisionRecord,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionMetadataInput,
@@ -21,6 +22,7 @@ export function memoryPersistence(
   initialDeployments: DeploymentMetadataRecord[] = [],
   initialPackages: DeploymentPackageMetadataRecord[] = [],
   initialInvokeSessions: InvokeSessionMetadataRecord[] = [],
+  initialDocuments: DocumentRevisionRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -40,6 +42,7 @@ export function memoryPersistence(
       session,
     ]),
   );
+  const documentRevisions = [...initialDocuments];
 
   return {
     async check() {
@@ -103,6 +106,18 @@ export function memoryPersistence(
     },
     async getInvokeSessionMetadata(deploymentId: string, sessionId: string) {
       return invokeSessions.get(sessionKey(deploymentId, sessionId)) ?? null;
+    },
+    async getDocumentRevisionAtTs(deploymentId: string, id: string, ts: number) {
+      return (
+        documentRevisions
+          .filter(
+            (document) =>
+              document.deploymentId === deploymentId &&
+              document.id === id &&
+              document.ts <= ts,
+          )
+          .sort((left, right) => right.ts - left.ts)[0] ?? null
+      );
     },
   };
 }

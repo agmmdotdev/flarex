@@ -9,6 +9,10 @@ import type {
   UpdateDeploymentMetadataActivationInput,
 } from "./deployments";
 import type {
+  DocumentRevisionRecord,
+  InsertDocumentRevisionInput,
+} from "./documents";
+import type {
   InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataRecord,
 } from "./invokeSessions";
@@ -56,6 +60,14 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionMetadataRecord | null>;
+  insertDocumentRevision(
+    input: InsertDocumentRevisionInput,
+  ): Promise<DocumentRevisionRecord>;
+  getDocumentRevisionAtTs(
+    deploymentId: string,
+    id: string,
+    ts: number,
+  ): Promise<DocumentRevisionRecord | null>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -66,6 +78,7 @@ export interface FlarexPersistenceCheck {
 
 export * from "./deploymentPackages";
 export * from "./deployments";
+export * from "./documents";
 export * from "./invokeSessions";
 export { flarexSchema } from "./schema";
 export * from "./schema";
