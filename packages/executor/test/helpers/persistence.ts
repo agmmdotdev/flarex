@@ -26,6 +26,7 @@ import {
   InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
   type InvokeSessionTableReadRecord,
+  type ListDeploymentMetadataInput,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
@@ -135,6 +136,36 @@ export function memoryPersistence(
     },
     async getDeploymentMetadata(deploymentId: string) {
       return deployments.get(deploymentId) ?? null;
+    },
+    async listDeploymentMetadata(input: ListDeploymentMetadataInput) {
+      const sorted = Array.from(deployments.values())
+        .filter(
+          (deployment) =>
+            input.cursor === undefined ||
+            deployment.createdAt > input.cursor.createdAt ||
+            (deployment.createdAt.getTime() === input.cursor.createdAt.getTime() &&
+              deployment.deploymentId > input.cursor.deploymentId),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            left.deploymentId.localeCompare(right.deploymentId),
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const hasMore = rows.length > input.limit;
+      const page = rows.slice(0, input.limit);
+      const last = page.at(-1);
+      return {
+        deployments: page,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                createdAt: last.createdAt,
+                deploymentId: last.deploymentId,
+              }
+            : null,
+        hasMore,
+      };
     },
     async insertDeploymentMetadata(input: InsertDeploymentMetadataInput) {
       if (deployments.has(input.deploymentId)) {

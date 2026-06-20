@@ -8,6 +8,8 @@ import type {
   InsertDeploymentPackageMetadataInput,
 } from "./deploymentPackages";
 import type {
+  ListDeploymentMetadataInput,
+  ListDeploymentMetadataResult,
   DeploymentMetadataRecord,
   InsertDeploymentMetadataInput,
   UpdateDeploymentMetadataActivationInput,
@@ -78,6 +80,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   getDeploymentMetadata(
     deploymentId: string,
   ): Promise<DeploymentMetadataRecord | null>;
+  listDeploymentMetadata(
+    input: ListDeploymentMetadataInput,
+  ): Promise<ListDeploymentMetadataResult>;
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;

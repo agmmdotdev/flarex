@@ -1121,6 +1121,65 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Maintenance Deployment Discovery
+
+Previous completed checkpoint: `69b1d73` Batch invoke session maintenance.
+
+What changed:
+
+- Added `listDeploymentMetadata({ limit, cursor })` in
+  `@flarex/persistence-postgres`.
+- Deployment listing is ordered by `created_at, deployment_id` and returns
+  `{ deployments, nextCursor, hasMore }`.
+- Added `executor.listMaintenanceDeployments({ limit, cursor })` as the
+  framework-neutral core API.
+- Added in-memory executor persistence support and PGlite coverage for stable
+  cursor batches.
+- Updated Nitro and HTTP adapter fakes to satisfy the wider executor contract.
+
+Why it changed:
+
+The maintenance route can now process one deployment, but a platform cron needs
+to discover deployments without hardcoding IDs. Listing deployments in stable
+batches is the next prerequisite before wiring a Vercel/Nitro scheduled job.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned orchestration remains the reference for platform lifecycle
+    work.
+- `crates/database/src/transaction.rs`
+  - transaction cleanup remains backend-owned and unpublished until committed.
+
+Flarex differences:
+
+- Convex does not need to expose deployment discovery through a TypeScript
+  executor package. Flarex keeps this as framework-neutral core behavior so
+  Nitro, local tests, and future schedulers can share the same logic.
+- This slice does not add an HTTP route. It intentionally keeps deployment
+  discovery internal until the scheduled runner shape is clearer.
+
+Known limitations:
+
+- No cron loop is wired yet.
+- No project-level filter exists yet; this is platform-wide deployment listing.
+- No persisted per-deployment maintenance policy yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Module Layout
 
 Previous completed checkpoint: `a86d1ff` Add executor deployment ensure

@@ -963,6 +963,9 @@ function fakeExecutor(
     async runInvokeSessionMaintenance() {
       return { staleAborted: 0, sessions: [], hasMore: false };
     },
+    async listMaintenanceDeployments() {
+      return { deployments: [], nextCursor: null, hasMore: false };
+    },
     async invokeSyscall() {
       return invokeSyscallResult(null);
     },

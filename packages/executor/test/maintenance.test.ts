@@ -8,6 +8,66 @@ import {
 } from "./helpers/persistence";
 
 describe("executor invoke session maintenance", () => {
+  it("lists maintenance deployments in stable cursor batches", async () => {
+    const persistence = memoryPersistence([
+      {
+        ...deploymentMetadata({
+          deploymentId: "deployment_b",
+          projectId: "project_b",
+        }),
+        createdAt: new Date("2026-06-20T00:00:00.000Z"),
+      },
+      {
+        ...deploymentMetadata({
+          deploymentId: "deployment_a",
+          projectId: "project_a",
+        }),
+        createdAt: new Date("2026-06-20T00:00:00.000Z"),
+      },
+      {
+        ...deploymentMetadata({
+          deploymentId: "deployment_c",
+          projectId: "project_c",
+        }),
+        createdAt: new Date("2026-06-20T01:00:00.000Z"),
+      },
+    ]);
+    const executor = createFlarexExecutor({ persistence });
+
+    const first = await executor.listMaintenanceDeployments({ limit: 2 });
+    expect(first.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_a",
+      "deployment_b",
+    ]);
+    expect(first.nextCursor).toEqual({
+      deploymentId: "deployment_b",
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).not.toBeNull();
+
+    await expect(
+      executor.listMaintenanceDeployments({
+        limit: 2,
+        cursor: first.nextCursor!,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [{ deploymentId: "deployment_c" }],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it("rejects invalid maintenance deployment list limits", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+    });
+
+    await expect(
+      executor.listMaintenanceDeployments({ limit: 0 }),
+    ).rejects.toThrow(MaintenancePolicyError);
+  });
+
   it("aborts sessions older than the configured stale window", async () => {
     const persistence = memoryPersistence(
       [

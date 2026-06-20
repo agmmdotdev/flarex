@@ -20,6 +20,7 @@ import {
 import {
   getDeploymentMetadata as getDeploymentMetadataWithDb,
   insertDeploymentMetadata as insertDeploymentMetadataWithDb,
+  listDeploymentMetadata as listDeploymentMetadataWithDb,
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
 } from "./deployments";
 import {
@@ -113,6 +114,8 @@ export async function createPGlitePersistence(
       insertDeploymentMetadataWithDb(drizzleDb, input),
     getDeploymentMetadata: (deploymentId) =>
       getDeploymentMetadataWithDb(drizzleDb, deploymentId),
+    listDeploymentMetadata: (input) =>
+      listDeploymentMetadataWithDb(drizzleDb, input),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
     insertInvokeSessionMetadata: (input) =>

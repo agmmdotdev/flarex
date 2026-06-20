@@ -6,7 +6,10 @@ import {
 import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
-import { runInvokeSessionMaintenance } from "./maintenance";
+import {
+  listMaintenanceDeployments,
+  runInvokeSessionMaintenance,
+} from "./maintenance";
 import {
   abortInvokeSession,
   abortStaleInvokeSessions,
@@ -90,6 +93,8 @@ export type {
   InvokeSyscallRequest,
   InvokeSyscallResult,
   Json,
+  ListMaintenanceDeploymentsInput,
+  ListMaintenanceDeploymentsResult,
   RunInvokeSessionMaintenanceInput,
   RunInvokeSessionMaintenanceResult,
   GetActiveFunctionInput,
@@ -127,6 +132,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       abortStaleInvokeSessions(persistence, clock, input),
     runInvokeSessionMaintenance: (input) =>
       runInvokeSessionMaintenance(persistence, clock, input),
+    listMaintenanceDeployments: (input) =>
+      listMaintenanceDeployments(persistence, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

@@ -1,6 +1,7 @@
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
+  DeploymentMetadataCursor,
   CommitInvokeSessionWritesInput,
   CommitInvokeSessionWritesResult,
   AbortInvokeSessionMetadataInput,
@@ -20,6 +21,8 @@ import type {
   InvokeSessionIndexReadRecord,
   InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
+  ListDeploymentMetadataInput,
+  ListDeploymentMetadataResult,
   DocumentRevisionRecord,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
@@ -65,6 +68,9 @@ export interface FlarexExecutor {
   runInvokeSessionMaintenance(
     input: RunInvokeSessionMaintenanceInput,
   ): Promise<RunInvokeSessionMaintenanceResult>;
+  listMaintenanceDeployments(
+    input?: ListMaintenanceDeploymentsInput,
+  ): Promise<ListMaintenanceDeploymentsResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -85,6 +91,9 @@ export interface FlarexExecutorPersistence {
   getDeploymentMetadata(
     deploymentId: string,
   ): Promise<DeploymentMetadataRecord | null>;
+  listDeploymentMetadata(
+    input: ListDeploymentMetadataInput,
+  ): Promise<ListDeploymentMetadataResult>;
   insertDeploymentMetadata(
     input: InsertDeploymentMetadataInput,
   ): Promise<DeploymentMetadataRecord>;
@@ -412,6 +421,17 @@ export interface RunInvokeSessionMaintenanceInput {
 export interface RunInvokeSessionMaintenanceResult {
   staleAborted: number;
   sessions: string[];
+  hasMore: boolean;
+}
+
+export interface ListMaintenanceDeploymentsInput {
+  limit?: number;
+  cursor?: DeploymentMetadataCursor;
+}
+
+export interface ListMaintenanceDeploymentsResult {
+  deployments: DeploymentMetadataRecord[];
+  nextCursor: DeploymentMetadataCursor | null;
   hasMore: boolean;
 }
 

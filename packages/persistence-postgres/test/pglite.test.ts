@@ -186,6 +186,63 @@ describe("createPGlitePersistence", () => {
     ).resolves.toBeNull();
   });
 
+  it("lists deployment metadata in stable cursor batches", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    for (const deploymentId of [
+      "deployment_b",
+      "deployment_a",
+      "deployment_c",
+    ]) {
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: `project_${deploymentId}`,
+      });
+    }
+    await persistence.query(
+      `
+        update deployments
+        set created_at = case deployment_id
+          when 'deployment_b' then $1::timestamptz
+          when 'deployment_a' then $1::timestamptz
+          else $2::timestamptz
+        end
+      `,
+      ["2026-06-19T00:00:00.000Z", "2026-06-19T01:00:00.000Z"],
+    );
+
+    const first = await persistence.listDeploymentMetadata({ limit: 2 });
+    expect(first.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_a",
+      "deployment_b",
+    ]);
+    expect(first).toMatchObject({
+      nextCursor: {
+        deploymentId: "deployment_b",
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+      },
+      hasMore: true,
+    });
+    expect(first.nextCursor).not.toBeNull();
+
+    await expect(
+      persistence.listDeploymentMetadata({
+        limit: 2,
+        cursor: first.nextCursor!,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_c",
+          createdAt: new Date("2026-06-19T01:00:00.000Z"),
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("updates deployment activation metadata", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

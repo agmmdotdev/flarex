@@ -3,11 +3,29 @@ import { abortStaleInvokeSessions } from "./sessions";
 import type {
   Clock,
   FlarexExecutorPersistence,
+  ListMaintenanceDeploymentsInput,
+  ListMaintenanceDeploymentsResult,
   RunInvokeSessionMaintenanceInput,
   RunInvokeSessionMaintenanceResult,
 } from "./types";
 
 const DEFAULT_MAX_SESSIONS = 100;
+const DEFAULT_MAINTENANCE_DEPLOYMENT_LIMIT = 100;
+
+export async function listMaintenanceDeployments(
+  persistence: FlarexExecutorPersistence,
+  input: ListMaintenanceDeploymentsInput = {},
+): Promise<ListMaintenanceDeploymentsResult> {
+  const limit = input.limit ?? DEFAULT_MAINTENANCE_DEPLOYMENT_LIMIT;
+  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
+    throw new MaintenancePolicyError("limit must be a positive integer.");
+  }
+
+  return await persistence.listDeploymentMetadata({
+    limit,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
 
 export async function runInvokeSessionMaintenance(
   persistence: FlarexExecutorPersistence,

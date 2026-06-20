@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import { deployments, flarexSchema } from "./schema";
@@ -17,6 +17,22 @@ export interface UpdateDeploymentMetadataActivationInput {
 }
 
 export type DeploymentMetadataRecord = typeof deployments.$inferSelect;
+
+export interface DeploymentMetadataCursor {
+  createdAt: Date;
+  deploymentId: string;
+}
+
+export interface ListDeploymentMetadataInput {
+  limit: number;
+  cursor?: DeploymentMetadataCursor;
+}
+
+export interface ListDeploymentMetadataResult {
+  deployments: DeploymentMetadataRecord[];
+  nextCursor: DeploymentMetadataCursor | null;
+  hasMore: boolean;
+}
 
 export class DeploymentMetadataAlreadyExistsError extends Error {
   constructor(readonly deploymentId: string) {
@@ -64,6 +80,43 @@ export async function getDeploymentMetadata(
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+export async function listDeploymentMetadata(
+  db: FlarexMetadataDatabase,
+  input: ListDeploymentMetadataInput,
+): Promise<ListDeploymentMetadataResult> {
+  const cursorFilter =
+    input.cursor === undefined
+      ? undefined
+      : or(
+          gt(deployments.createdAt, input.cursor.createdAt),
+          and(
+            eq(deployments.createdAt, input.cursor.createdAt),
+            gt(deployments.deploymentId, input.cursor.deploymentId),
+          ),
+        );
+  const rows = await db
+    .select()
+    .from(deployments)
+    .where(cursorFilter)
+    .orderBy(asc(deployments.createdAt), asc(deployments.deploymentId))
+    .limit(input.limit + 1);
+  const hasMore = rows.length > input.limit;
+  const page = rows.slice(0, input.limit);
+  const last = page.at(-1);
+
+  return {
+    deployments: page,
+    nextCursor:
+      hasMore && last !== undefined
+        ? {
+            createdAt: last.createdAt,
+            deploymentId: last.deploymentId,
+          }
+        : null,
+    hasMore,
+  };
 }
 
 export async function updateDeploymentMetadataActivation(

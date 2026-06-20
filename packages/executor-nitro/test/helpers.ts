@@ -14,6 +14,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async getDeploymentMetadata() {
       return null;
     },
+    async listDeploymentMetadata() {
+      return { deployments: [], nextCursor: null, hasMore: false };
+    },
     async getDeploymentPackageMetadata() {
       return null;
     },
@@ -222,6 +225,11 @@ export function fakeExecutor(
     async runInvokeSessionMaintenance() {
       throw new Error(
         "runInvokeSessionMaintenance is not implemented by test fake",
+      );
+    },
+    async listMaintenanceDeployments() {
+      throw new Error(
+        "listMaintenanceDeployments is not implemented by test fake",
       );
     },
     async invokeSyscall() {

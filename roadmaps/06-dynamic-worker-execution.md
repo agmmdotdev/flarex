@@ -837,6 +837,60 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Maintenance Deployment Discovery
+
+Previous completed checkpoint: `69b1d73` Batch invoke session maintenance.
+
+What changed:
+
+- Added platform-wide deployment listing to the trusted executor core.
+- Listing is cursor based and stable across deployments with equal timestamps.
+- No generated user code or Dynamic Worker module changed.
+
+Why it matters:
+
+A future scheduled job needs two loops:
+
+```txt
+list deployment batch
+  -> for each deployment, run invoke-session maintenance batch
+  -> repeat by deployment cursor
+```
+
+The Dynamic Worker should not discover deployments or own platform maintenance.
+That belongs to the trusted executor side.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend orchestration owns runtime lifecycle decisions.
+
+Flarex differences:
+
+- Flarex needs explicit deployment discovery because the scheduler will live in
+  the Nitro/Vercel executor side, not inside Cloudflare user-code execution.
+- This is executor-core only; no HTTP route or cron binding is added yet.
+
+Known limitations:
+
+- Cron wiring is still pending.
+- No project-level filter exists yet.
+- Per-deployment TTL policy is still pending.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Runtime Failure Cleanup Boundary
 
 Previous completed checkpoint: `a08eddd` Verify artifact abort after staged
