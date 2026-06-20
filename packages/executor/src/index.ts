@@ -46,6 +46,7 @@ export {
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
+  InvokeSessionIndexOccConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
   InvokeSessionTableOccConflictError,

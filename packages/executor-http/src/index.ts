@@ -24,6 +24,7 @@ import {
   InvokeSessionProjectMismatchError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
+  InvokeSessionIndexOccConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
   InvokeSessionTableOccConflictError,
@@ -573,6 +574,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentValidatorMetadataError ||
     error instanceof InvokeSessionDeleteTargetError ||
     error instanceof InvokeSessionInsertConflictError ||
+    error instanceof InvokeSessionIndexOccConflictError ||
     error instanceof InvokeSessionOccConflictError ||
     error instanceof InvokeSessionPatchTargetError ||
     error instanceof InvokeSessionTableOccConflictError ||

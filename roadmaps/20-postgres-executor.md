@@ -3384,6 +3384,106 @@ corepack pnpm test:integration
 git diff --check
 ```
 
+## Indexed Query Syscall And Index Read OCC
+
+Previous completed checkpoint: `ada19b5` Maintain index entries on mutation
+commit.
+
+What changed:
+
+- Added `invoke_session_index_reads` to the Postgres/PGlite schema.
+- Added persistence helpers for:
+  - inserting/listing invoke session index reads,
+  - building Convex-style ordered index bounds from range expressions,
+  - reading visible documents through the maintained `indexes` history table,
+  - checking whether committed index entries overlap a recorded index range.
+- Extended `invokeSyscall({ op: "query" })` request shape:
+  - existing table scan remains `{ table, limit? }`,
+  - indexed query is now `{ table, index, range?, limit?, cursor?, order? }`,
+  - `range.expressions` uses the existing legacy/Convex-like expression shape:
+    `{ op: "eq" | "gt" | "gte" | "lt" | "lte", field, value }`.
+- Query syscalls now resolve named schema indexes from deployment package
+  analysis metadata, compute ordered bounds, read through the Postgres index
+  table, and persist an index read dependency.
+- Query finish now returns persisted index read sets with `{ indexId, lower,
+  upper }`.
+- Mutation commit now validates persisted index reads before writing:
+  if an index entry was written in the recorded range after the query snapshot
+  and before commit, it fails with `InvokeSessionIndexOccConflictError`.
+- Added PGlite tests for:
+  - reading documents through maintained index entries,
+  - rejecting mutation commit after a concurrent write enters a recorded index
+    range.
+- Added Nitro integration coverage for indexed query syscall through HTTP.
+
+Why it changed:
+
+Convex-style `withIndex()` is the first scalable query primitive after table
+scans. Table-read OCC is correct but very conservative. Index-read OCC gives us
+the same core shape as Convex: query execution records a structured index
+interval, and mutation commit checks later writes against that interval.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - indexed searches record read dependencies into transaction reads.
+- `crates/database/src/committer.rs`
+  - commit validation checks transaction reads against pending and persisted
+    writes before publishing.
+- `npm-packages/convex/src/server/index_range_builder.ts`
+  - client/server query builder shape with `q.eq`, ordered fields, and range
+    operators.
+
+Legacy Flarex references:
+
+- `packages/flarex-backend/src/indexKeys.ts`
+  - ordered key codec and bound construction.
+- `packages/flarex-backend/src/transaction.ts`
+  - `queryIndexPage` merges index reads into the transaction read set.
+- `packages/flarex-backend/src/partitionDO.ts`
+  - index queries read latest non-deleted entries at the transaction snapshot.
+- `packages/flarex-backend/src/occ.ts`
+  - read-set overlap uses index ranges.
+
+Flarex differences:
+
+- Convex stores and evaluates index reads in the Rust transaction engine.
+  Flarex Postgres stores invoke-session index reads in SQL so the
+  framework-neutral executor can validate them at commit.
+- The v1 Postgres index reader materializes latest rows in application code
+  after fetching matching index history. This is correct for the prototype but
+  not the final high-volume query plan.
+- Range requests are accepted directly by the syscall object. Later generated
+  client code should hide this behind Convex-style `withIndex("by_x", q =>
+  q.eq(...))`.
+
+Known limitations:
+
+- No generated client `withIndex()` API yet.
+- No colocated-table placement enforcement on index ranges in the Postgres
+  executor path yet.
+- No reverse pagination cursor contract beyond opaque ordered key strings.
+- No index compaction/current-row table, so range reads are not production
+  efficient yet.
+- No staged-index backfill lifecycle.
+- Index metadata still comes from package analysis lookup per session.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm test:integration
+git diff --check
+```
+
 ## Mutation Commit Index Maintenance V1
 
 Previous completed checkpoint: `4096b2b` Add query table scan syscall.

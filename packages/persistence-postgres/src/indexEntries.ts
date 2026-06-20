@@ -1,6 +1,12 @@
+import { and, eq, gt, lt, lte } from "drizzle-orm";
+
 import { indexes } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
-import type { PersistenceJson } from "./documents";
+import {
+  getDocumentRevisionAtTs,
+  type DocumentRevisionRecord,
+  type PersistenceJson,
+} from "./documents";
 
 export interface SchemaIndexRecord {
   indexId: number;
@@ -17,6 +23,32 @@ export interface PlannedIndexDocumentWrite {
   previousValue: PersistenceJson | null;
   value: PersistenceJson | null;
   deleted: boolean;
+}
+
+export type IndexRangeExpression = {
+  op: "eq" | "gt" | "gte" | "lt" | "lte";
+  field: string;
+  value: PersistenceJson;
+};
+
+export interface ListDocumentsInIndexAtTsInput {
+  deploymentId: string;
+  indexId: number;
+  ts: number;
+  lower?: string;
+  upper?: string;
+  cursor?: string;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
+export interface IndexedDocumentPage {
+  documents: Array<{
+    key: string;
+    document: DocumentRevisionRecord;
+  }>;
+  isDone: boolean;
+  continueCursor: string;
 }
 
 interface EncodedIndexEntry {
@@ -76,6 +108,147 @@ export async function insertIndexEntriesForDocumentWrites(
       }
     }
   }
+}
+
+export async function listDocumentsInIndexAtTs(
+  db: FlarexMetadataDatabase,
+  input: ListDocumentsInIndexAtTsInput,
+): Promise<IndexedDocumentPage> {
+  const pageLimit = Math.max(1, Math.min(input.limit ?? 100, 1000));
+  const order = input.order ?? "asc";
+  const rows = await db
+    .select()
+    .from(indexes)
+    .where(
+      and(
+        eq(indexes.deploymentId, input.deploymentId),
+        eq(indexes.indexId, encodeString(String(input.indexId))),
+        lte(indexes.ts, input.ts),
+      ),
+    );
+
+  const latestByKey = new Map<string, typeof indexes.$inferSelect>();
+  for (const row of rows) {
+    const key = toHex(Array.from(row.keyPrefix));
+    if (!keyInRange(key, input.lower, input.upper)) continue;
+    if (input.cursor !== undefined) {
+      if (order === "asc" && key <= input.cursor) continue;
+      if (order === "desc" && key >= input.cursor) continue;
+    }
+    const current = latestByKey.get(key);
+    if (current === undefined || row.ts > current.ts) {
+      latestByKey.set(key, row);
+    }
+  }
+
+  const visible = Array.from(latestByKey.values())
+    .filter((row) => row.deleted !== true)
+    .sort((left, right) => {
+      const leftKey = toHex(Array.from(left.keyPrefix));
+      const rightKey = toHex(Array.from(right.keyPrefix));
+      return order === "asc"
+        ? leftKey.localeCompare(rightKey)
+        : rightKey.localeCompare(leftKey);
+    });
+  const pageRows = visible.slice(0, pageLimit + 1);
+  const documents: IndexedDocumentPage["documents"] = [];
+  for (const row of pageRows.slice(0, pageLimit)) {
+    if (row.documentId === null) continue;
+    const documentId = decodeString(row.documentId);
+    const document = await getDocumentRevisionAtTs(
+      db,
+      input.deploymentId,
+      documentId,
+      input.ts,
+    );
+    if (document === null || document.deleted) continue;
+    documents.push({
+      key: toHex(Array.from(row.keyPrefix)),
+      document,
+    });
+  }
+  return {
+    documents,
+    isDone: pageRows.length <= pageLimit,
+    continueCursor: documents.at(-1)?.key ?? input.cursor ?? "",
+  };
+}
+
+export async function hasIndexEntryBetweenTs(
+  db: FlarexMetadataDatabase,
+  input: {
+    deploymentId: string;
+    indexId: number;
+    afterTs: number;
+    beforeTs: number;
+    lower?: string;
+    upper?: string;
+  },
+): Promise<boolean> {
+  const rows = await db
+    .select({ keyPrefix: indexes.keyPrefix })
+    .from(indexes)
+    .where(
+      and(
+        eq(indexes.deploymentId, input.deploymentId),
+        eq(indexes.indexId, encodeString(String(input.indexId))),
+        gt(indexes.ts, input.afterTs),
+        lt(indexes.ts, input.beforeTs),
+      ),
+    );
+  return rows.some((row) =>
+    keyInRange(toHex(Array.from(row.keyPrefix)), input.lower, input.upper),
+  );
+}
+
+export function indexBoundsForExpressions(
+  fields: string[],
+  expressions: IndexRangeExpression[],
+): { lower?: string; upper?: string } {
+  const equalities: PersistenceJson[] = [];
+  let lowerExpression: IndexRangeExpression | undefined;
+  let upperExpression: IndexRangeExpression | undefined;
+
+  for (const expression of expressions) {
+    const expectedField = fields[equalities.length];
+    if (expression.op === "eq") {
+      if (lowerExpression || upperExpression || expression.field !== expectedField) {
+        throw new Error("Index equality expressions must follow index fields in order.");
+      }
+      equalities.push(expression.value);
+      continue;
+    }
+    if (expression.field !== expectedField) {
+      throw new Error("Index inequality must target the field after equality expressions.");
+    }
+    if (expression.op === "gt" || expression.op === "gte") {
+      if (lowerExpression) throw new Error("Index range can have only one lower bound.");
+      lowerExpression = expression;
+    } else {
+      if (upperExpression) throw new Error("Index range can have only one upper bound.");
+      upperExpression = expression;
+    }
+  }
+
+  const prefix = encodeIndexValues(equalities);
+  const lower =
+    lowerExpression === undefined
+      ? prefix || undefined
+      : lowerExpression.op === "gt"
+        ? indexKeyAfterPrefix(encodeIndexValues([...equalities, lowerExpression.value]))
+        : encodeIndexValues([...equalities, lowerExpression.value]);
+  const upper =
+    upperExpression === undefined
+      ? prefix
+        ? indexKeyAfterPrefix(prefix)
+        : undefined
+      : upperExpression.op === "lte"
+        ? indexKeyAfterPrefix(encodeIndexValues([...equalities, upperExpression.value]))
+        : encodeIndexValues([...equalities, upperExpression.value]);
+  return {
+    ...(lower === undefined ? {} : { lower }),
+    ...(upper === undefined ? {} : { upper }),
+  };
 }
 
 function schemaIndexFromJson(value: unknown, index: number): SchemaIndexRecord {
@@ -165,8 +338,23 @@ function getField(value: PersistenceJson, field: string): PersistenceJson | unde
   return cursor;
 }
 
-function encodeIndexValues(values: Array<PersistenceJson | undefined>): string {
+export function encodeIndexValues(values: Array<PersistenceJson | undefined>): string {
   return toHex(values.flatMap(encodeValue));
+}
+
+export function indexKeyAfterPrefix(prefix: string): string | undefined {
+  const bytes = hexToNumberArray(prefix);
+  for (let index = bytes.length - 1; index >= 0; index -= 1) {
+    if (bytes[index] !== 0xff) {
+      bytes[index] += 1;
+      return toHex(bytes.slice(0, index + 1));
+    }
+  }
+  return undefined;
+}
+
+function keyInRange(key: string, lower?: string, upper?: string): boolean {
+  return (lower === undefined || key >= lower) && (upper === undefined || key < upper);
 }
 
 function encodeValue(value: PersistenceJson | undefined): number[] {
@@ -215,16 +403,22 @@ function toHex(bytes: number[]): string {
 }
 
 function hexToBytes(value: string): Uint8Array {
+  return new Uint8Array(hexToNumberArray(value));
+}
+
+function hexToNumberArray(value: string): number[] {
   if (value.length % 2 !== 0) throw new Error("Invalid hexadecimal index key.");
-  return new Uint8Array(
-    Array.from({ length: value.length / 2 }, (_, index) =>
-      Number.parseInt(value.slice(index * 2, index * 2 + 2), 16),
-    ),
+  return Array.from({ length: value.length / 2 }, (_, index) =>
+    Number.parseInt(value.slice(index * 2, index * 2 + 2), 16),
   );
 }
 
 function encodeString(value: string): Uint8Array {
   return textEncoder.encode(value);
+}
+
+function decodeString(value: Uint8Array): string {
+  return new TextDecoder().decode(value);
 }
 
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {

@@ -30,9 +30,17 @@ import type {
   InvokeSessionTableReadRecord,
 } from "./invokeSessionTableReads";
 import type {
+  InsertInvokeSessionIndexReadInput,
+  InvokeSessionIndexReadRecord,
+} from "./invokeSessionIndexReads";
+import type {
   InsertInvokeSessionDocumentWriteInput,
   InvokeSessionDocumentWriteRecord,
 } from "./invokeSessionWrites";
+import type {
+  IndexedDocumentPage,
+  ListDocumentsInIndexAtTsInput,
+} from "./indexEntries";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -94,6 +102,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
     ts: number,
     limit?: number,
   ): Promise<DocumentRevisionRecord[]>;
+  listDocumentsInIndexAtTs(
+    input: ListDocumentsInIndexAtTsInput,
+  ): Promise<IndexedDocumentPage>;
   insertInvokeSessionDocumentRead(
     input: InsertInvokeSessionDocumentReadInput,
   ): Promise<InvokeSessionDocumentReadRecord>;
@@ -108,6 +119,13 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionTableReadRecord[]>;
+  insertInvokeSessionIndexRead(
+    input: InsertInvokeSessionIndexReadInput,
+  ): Promise<InvokeSessionIndexReadRecord>;
+  listInvokeSessionIndexReads(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionIndexReadRecord[]>;
   insertInvokeSessionDocumentWrite(
     input: InsertInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
@@ -134,6 +152,7 @@ export * from "./indexEntries";
 export * from "./invokeSessions";
 export * from "./invokeSessionReads";
 export * from "./invokeSessionTableReads";
+export * from "./invokeSessionIndexReads";
 export * from "./invokeSessionWrites";
 export * from "./validation";
 export { flarexSchema } from "./schema";

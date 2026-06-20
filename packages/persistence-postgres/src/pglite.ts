@@ -28,6 +28,9 @@ import {
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
 } from "./documents";
 import {
+  listDocumentsInIndexAtTs as listDocumentsInIndexAtTsWithDb,
+} from "./indexEntries";
+import {
   finishInvokeSessionMetadata as finishInvokeSessionMetadataWithDb,
   getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
   insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
@@ -40,6 +43,10 @@ import {
   insertInvokeSessionTableRead as insertInvokeSessionTableReadWithDb,
   listInvokeSessionTableReads as listInvokeSessionTableReadsWithDb,
 } from "./invokeSessionTableReads";
+import {
+  insertInvokeSessionIndexRead as insertInvokeSessionIndexReadWithDb,
+  listInvokeSessionIndexReads as listInvokeSessionIndexReadsWithDb,
+} from "./invokeSessionIndexReads";
 import {
   insertInvokeSessionDocumentWrite as insertInvokeSessionDocumentWriteWithDb,
   listInvokeSessionDocumentWrites as listInvokeSessionDocumentWritesWithDb,
@@ -124,6 +131,8 @@ export async function createPGlitePersistence(
         ts,
         limit,
       ),
+    listDocumentsInIndexAtTs: (input) =>
+      listDocumentsInIndexAtTsWithDb(drizzleDb, input),
     insertInvokeSessionDocumentRead: (input) =>
       insertInvokeSessionDocumentReadWithDb(drizzleDb, input),
     listInvokeSessionDocumentReads: (deploymentId, sessionId) =>
@@ -132,6 +141,10 @@ export async function createPGlitePersistence(
       insertInvokeSessionTableReadWithDb(drizzleDb, input),
     listInvokeSessionTableReads: (deploymentId, sessionId) =>
       listInvokeSessionTableReadsWithDb(drizzleDb, deploymentId, sessionId),
+    insertInvokeSessionIndexRead: (input) =>
+      insertInvokeSessionIndexReadWithDb(drizzleDb, input),
+    listInvokeSessionIndexReads: (deploymentId, sessionId) =>
+      listInvokeSessionIndexReadsWithDb(drizzleDb, deploymentId, sessionId),
     insertInvokeSessionDocumentWrite: (input) =>
       insertInvokeSessionDocumentWriteWithDb(drizzleDb, input),
     listInvokeSessionDocumentWrites: (deploymentId, sessionId) =>

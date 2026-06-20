@@ -95,6 +95,13 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async listDocumentsInTableAtTs() {
       return [];
     },
+    async listDocumentsInIndexAtTs(input) {
+      return {
+        documents: [],
+        isDone: true,
+        continueCursor: input.cursor ?? "",
+      };
+    },
     async insertInvokeSessionDocumentRead(input) {
       return {
         deploymentId: input.deploymentId,
@@ -118,6 +125,20 @@ export function healthyPersistence(): FlarexExecutorPersistence {
       };
     },
     async listInvokeSessionTableReads() {
+      return [];
+    },
+    async insertInvokeSessionIndexRead(input) {
+      return {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        indexId: input.indexId,
+        lowerKey: input.lowerKey ?? "",
+        upperKey: input.upperKey ?? "",
+        observedTs: input.observedTs,
+        readAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
+    async listInvokeSessionIndexReads() {
       return [];
     },
     async insertInvokeSessionDocumentWrite(input) {

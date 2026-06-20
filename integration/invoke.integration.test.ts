@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFlarexExecutor } from "@flarex/executor";
 import { createFlarexNitroHandler } from "@flarex/executor-nitro";
+import { indexBoundsForExpressions } from "@flarex/persistence-postgres";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
 
@@ -126,6 +127,54 @@ describe("Nitro invoke integration", () => {
     await expect(finishQuery.json()).resolves.toEqual({
       value: { ok: true },
       readSet: { tables: [{ tableId: 2 }] },
+    });
+
+    nextSessionId = "session_index_query";
+    nowMs = 1781913600001;
+    const indexBounds = indexBoundsForExpressions(["text"], [
+      { op: "eq", field: "text", value: "hello" },
+    ]);
+    const indexQueryStart = await postJson(handler, "/invoke/start", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "1:team" },
+      partitionKey: "1:team",
+    });
+    expect(indexQueryStart.status).toBe(200);
+    const indexQuery = await postJson(handler, "/invoke/syscall", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      sessionId: "session_index_query",
+      op: "query",
+      request: {
+        table: "messages",
+        index: "by_text",
+        range: {
+          expressions: [{ op: "eq", field: "text", value: "hello" }],
+        },
+      },
+    });
+    expect(indexQuery.status).toBe(200);
+    await expect(indexQuery.json()).resolves.toEqual({
+      value: {
+        page: [{ _id: "2:message", text: "hello", count: 1 }],
+        isDone: true,
+        continueCursor: expect.any(String),
+      },
+      readSet: { indexes: [{ indexId: 1, ...indexBounds }] },
+    });
+    const finishIndexQuery = await postJson(handler, "/invoke/finish", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      sessionId: "session_index_query",
+      value: { ok: true },
+    });
+    expect(finishIndexQuery.status).toBe(200);
+    await expect(finishIndexQuery.json()).resolves.toEqual({
+      value: { ok: true },
+      readSet: { indexes: [{ indexId: 1, ...indexBounds }] },
     });
 
     nextSessionId = "session_patch";
@@ -316,7 +365,15 @@ function analysisJson(): Record<string, unknown> {
           },
         },
       ],
-      indexes: [],
+      indexes: [
+        {
+          indexId: 1,
+          tableId: 2,
+          name: "by_text",
+          fields: ["text"],
+          state: "enabled",
+        },
+      ],
     },
     functions: {
       functions: [

@@ -9,9 +9,11 @@ import {
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
+  InvokeSessionIndexOccConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
   InvokeSessionTableOccConflictError,
+  indexBoundsForExpressions,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -47,6 +49,7 @@ describe("createPGlitePersistence", () => {
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
+      "invoke_session_index_reads",
       "invoke_session_table_reads",
       "invoke_sessions",
       "leases",
@@ -855,6 +858,118 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({
       rows: [{ ts: 101, deleted: false, rows: 1 }],
     });
+  });
+
+  it("lists documents through maintained index entries at a snapshot", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_query",
+      sessionId: "session_insert",
+      beginTs: 100,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_query",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_query",
+      sessionId: "session_insert",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 100,
+    });
+
+    const bounds = indexBoundsForExpressions(["text"], [
+      { op: "eq", field: "text", value: "hello" },
+    ]);
+    await expect(
+      persistence.listDocumentsInIndexAtTs({
+        deploymentId: "deployment_index_query",
+        indexId: 1,
+        ts: 101,
+        ...bounds,
+      }),
+    ).resolves.toMatchObject({
+      documents: [
+        {
+          document: {
+            id: "1:message",
+            value: { text: "hello", count: 1 },
+          },
+        },
+      ],
+      isDone: true,
+    });
+  });
+
+  it("rejects mutation commits when an index read range changed", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const bounds = indexBoundsForExpressions(["text"], [
+      { op: "eq", field: "text", value: "new" },
+    ]);
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_read",
+      beginTs: 101,
+    });
+    await persistence.insertInvokeSessionIndexRead({
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_read",
+      indexId: 1,
+      ...bounds,
+      observedTs: 101,
+    });
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_concurrent",
+      beginTs: 101,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_concurrent",
+      tableId: 1,
+      documentId: "1:concurrent",
+      op: "insert",
+      valueJson: { text: "new", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_concurrent",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 101,
+    });
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_occ",
+      sessionId: "session_read",
+      tableId: 1,
+      documentId: "1:other",
+      op: "insert",
+      valueJson: { text: "other", count: 1 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_index_occ",
+        sessionId: "session_read",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 101,
+      }),
+    ).rejects.toThrow(InvokeSessionIndexOccConflictError);
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_index_occ", "1:other", 103),
+    ).resolves.toBeNull();
   });
 
   it("maintains enabled index tombstones and replacement entries for staged patches", async () => {

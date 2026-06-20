@@ -9,11 +9,14 @@ import type {
   InvokeSyscallInput,
   InvokeSyscallResult,
   InvokeReadSet,
+  DeploymentSchemaMetadata,
 } from "./types";
 import {
   parseFlarexDocumentId,
+  indexBoundsForExpressions,
   type PersistenceJson,
   type InvokeSessionMetadataRecord,
+  type IndexRangeExpression,
 } from "@flarex/persistence-postgres";
 import { prepareInvoke } from "./invoke";
 import {
@@ -121,7 +124,65 @@ export async function invokeSyscall(
 
   if (input.syscall.op === "query") {
     const request = queryRequest(input.syscall.request);
-    const table = await tableForSession(persistence, session, request.table);
+    const schema = await schemaForSession(persistence, session);
+    const table = tableForName(schema, request.table);
+    if (request.index !== undefined) {
+      const index = schema.indexes.find(
+        (candidate) =>
+          candidate.tableId === table.tableId &&
+          candidate.name === request.index &&
+          (candidate.state === undefined || candidate.state === "enabled"),
+      );
+      if (index === undefined) {
+        throw new InvokeQueryRequestError(
+          `unknown index ${request.table}.${request.index}.`,
+        );
+      }
+      let bounds: { lower?: string; upper?: string };
+      try {
+        bounds = indexBoundsForExpressions(index.fields, request.range);
+      } catch (error) {
+        throw new InvokeQueryRequestError(
+          `invalid range for index ${request.table}.${request.index}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      const result = await persistence.listDocumentsInIndexAtTs({
+        deploymentId: input.deploymentId,
+        indexId: index.indexId,
+        ts: session.beginTs,
+        ...bounds,
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+        ...(request.order === undefined ? {} : { order: request.order }),
+      });
+      await persistence.insertInvokeSessionIndexRead({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        indexId: index.indexId,
+        ...(bounds.lower === undefined ? {} : { lowerKey: bounds.lower }),
+        ...(bounds.upper === undefined ? {} : { upperKey: bounds.upper }),
+        observedTs: session.beginTs,
+      });
+      return {
+        value: {
+          page: result.documents.map(({ document }) =>
+            documentValue(document.id, document.value),
+          ),
+          isDone: result.isDone,
+          continueCursor: result.continueCursor,
+        },
+        readSet: {
+          indexes: [
+            {
+              indexId: index.indexId,
+              ...bounds,
+            },
+          ],
+        },
+      };
+    }
     const documents = await persistence.listDocumentsInTableAtTs(
       input.deploymentId,
       table.tableId,
@@ -274,6 +335,10 @@ export async function finishInvokeSession(
       input.deploymentId,
       input.sessionId,
     );
+    const indexReads = await persistence.listInvokeSessionIndexReads(
+      input.deploymentId,
+      input.sessionId,
+    );
     const finished = await persistence.finishInvokeSessionMetadata({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
@@ -285,7 +350,7 @@ export async function finishInvokeSession(
 
     return {
       value: input.value,
-      readSet: readSetFromReads(documentReads, tableReads),
+      readSet: readSetFromReads(documentReads, tableReads, indexReads),
     };
   }
 
@@ -339,6 +404,7 @@ async function requireActiveSession(
 function readSetFromReads(
   documentReads: Array<{ tableId: number; documentId: string }>,
   tableReads: Array<{ tableId: number }>,
+  indexReads: Array<{ indexId: number; lowerKey: string; upperKey: string }>,
 ): InvokeReadSet {
   const readSet: InvokeReadSet = {};
   if (documentReads.length > 0) {
@@ -350,6 +416,13 @@ function readSetFromReads(
   if (tableReads.length > 0) {
     readSet.tables = tableReads.map((read) => ({
       tableId: read.tableId,
+    }));
+  }
+  if (indexReads.length > 0) {
+    readSet.indexes = indexReads.map((read) => ({
+      indexId: read.indexId,
+      ...(read.lowerKey === "" ? {} : { lower: read.lowerKey }),
+      ...(read.upperKey === "" ? {} : { upper: read.upperKey }),
     }));
   }
   return readSet;
@@ -364,6 +437,14 @@ async function tableForSession(
   session: InvokeSessionMetadataRecord,
   tableName: string,
 ) {
+  const schema = await schemaForSession(persistence, session);
+  return tableForName(schema, tableName);
+}
+
+async function schemaForSession(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+): Promise<DeploymentSchemaMetadata> {
   const deploymentPackage = await persistence.getDeploymentPackageMetadata(
     session.deploymentId,
     session.packageId,
@@ -379,10 +460,17 @@ async function tableForSession(
     deploymentPackage.deploymentId,
     deploymentPackage.packageId,
   );
-  return tableForName(schema, tableName);
+  return schema;
 }
 
-function queryRequest(value: PersistenceJson): { table: string; limit?: number } {
+function queryRequest(value: PersistenceJson): {
+  table: string;
+  index?: string;
+  range: IndexRangeExpression[];
+  limit?: number;
+  cursor?: string;
+  order?: "asc" | "desc";
+} {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new InvokeQueryRequestError("request must be an object.");
   }
@@ -390,12 +478,78 @@ function queryRequest(value: PersistenceJson): { table: string; limit?: number }
   if (typeof table !== "string" || table.length === 0) {
     throw new InvokeQueryRequestError("request.table must be a non-empty string.");
   }
+  const index = value.index;
+  if (index !== undefined && (typeof index !== "string" || index.length === 0)) {
+    throw new InvokeQueryRequestError("request.index must be a non-empty string.");
+  }
+  const range = queryRange(value.range);
+  const cursor = value.cursor;
+  if (cursor !== undefined && typeof cursor !== "string") {
+    throw new InvokeQueryRequestError("request.cursor must be a string.");
+  }
+  const rawOrder = value.order;
+  if (rawOrder !== undefined && rawOrder !== "asc" && rawOrder !== "desc") {
+    throw new InvokeQueryRequestError("request.order must be asc or desc.");
+  }
+  const order: "asc" | "desc" | undefined = rawOrder;
   const limit = value.limit;
-  if (limit === undefined) return { table };
+  const result = {
+    table,
+    range,
+    ...(index === undefined ? {} : { index }),
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(order === undefined ? {} : { order }),
+  };
+  if (limit === undefined) return result;
   if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0) {
     throw new InvokeQueryRequestError("request.limit must be a non-negative integer.");
   }
-  return { table, limit };
+  return { ...result, limit };
+}
+
+function queryRange(value: PersistenceJson | undefined): IndexRangeExpression[] {
+  if (value === undefined) return [];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new InvokeQueryRequestError("request.range must be an object.");
+  }
+  const expressions = value.expressions;
+  if (expressions === undefined) return [];
+  if (!Array.isArray(expressions)) {
+    throw new InvokeQueryRequestError("request.range.expressions must be an array.");
+  }
+  return expressions.map((expression, index) => {
+    if (typeof expression !== "object" || expression === null || Array.isArray(expression)) {
+      throw new InvokeQueryRequestError(
+        `request.range.expressions[${index}] must be an object.`,
+      );
+    }
+    if (
+      expression.op !== "eq" &&
+      expression.op !== "gt" &&
+      expression.op !== "gte" &&
+      expression.op !== "lt" &&
+      expression.op !== "lte"
+    ) {
+      throw new InvokeQueryRequestError(
+        `request.range.expressions[${index}].op is invalid.`,
+      );
+    }
+    if (typeof expression.field !== "string" || expression.field.length === 0) {
+      throw new InvokeQueryRequestError(
+        `request.range.expressions[${index}].field must be a non-empty string.`,
+      );
+    }
+    if (!("value" in expression)) {
+      throw new InvokeQueryRequestError(
+        `request.range.expressions[${index}].value is required.`,
+      );
+    }
+    return {
+      op: expression.op,
+      field: expression.field,
+      value: expression.value as PersistenceJson,
+    };
+  });
 }
 
 function idForInsert(tableId: number, requestedId?: string): string {

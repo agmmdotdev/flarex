@@ -14,10 +14,12 @@ import {
   getInvokeSessionMetadata,
 } from "./invokeSessions";
 import {
+  hasIndexEntryBetweenTs,
   insertIndexEntriesForDocumentWrites,
   schemaIndexesFromAnalysis,
 } from "./indexEntries";
 import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
+import { listInvokeSessionIndexReads } from "./invokeSessionIndexReads";
 import { listInvokeSessionTableReads } from "./invokeSessionTableReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
 import {
@@ -101,6 +103,20 @@ export class InvokeSessionTableOccConflictError extends Error {
   }
 }
 
+export class InvokeSessionIndexOccConflictError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly indexId: number,
+    readonly observedTs: number,
+    readonly currentTs: number,
+  ) {
+    super(
+      `OCC conflict for ${deploymentId}/index ${indexId}: observed ${observedTs}, current ${currentTs}`,
+    );
+    this.name = "InvokeSessionIndexOccConflictError";
+  }
+}
+
 export class InvokeSessionPatchTargetError extends Error {
   constructor(
     readonly deploymentId: string,
@@ -140,6 +156,7 @@ export async function commitInvokeSessionWrites(
 
   await validateDocumentReads(db, input, committedTs);
   await validateTableReads(db, input, committedTs);
+  await validateIndexReads(db, input, committedTs);
 
   const tableValidators = await tableValidatorsForSession(db, input);
   const plannedWrites: PlannedDocumentWrite[] = [];
@@ -363,6 +380,36 @@ async function validateTableReads(
       throw new InvokeSessionTableOccConflictError(
         input.deploymentId,
         read.tableId,
+        read.observedTs,
+        commitTs - 1,
+      );
+    }
+  }
+}
+
+async function validateIndexReads(
+  db: FlarexMetadataDatabase,
+  input: CommitInvokeSessionWritesInput,
+  commitTs: number,
+): Promise<void> {
+  const reads = await listInvokeSessionIndexReads(
+    db,
+    input.deploymentId,
+    input.sessionId,
+  );
+  for (const read of reads) {
+    const changed = await hasIndexEntryBetweenTs(db, {
+      deploymentId: input.deploymentId,
+      indexId: read.indexId,
+      afterTs: read.observedTs,
+      beforeTs: commitTs,
+      ...(read.lowerKey === "" ? {} : { lower: read.lowerKey }),
+      ...(read.upperKey === "" ? {} : { upper: read.upperKey }),
+    });
+    if (changed) {
+      throw new InvokeSessionIndexOccConflictError(
+        input.deploymentId,
+        read.indexId,
         read.observedTs,
         commitTs - 1,
       );

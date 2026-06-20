@@ -10,12 +10,16 @@ import type {
   InsertInvokeSessionMetadataInput,
   InsertInvokeSessionDocumentReadInput,
   InsertInvokeSessionDocumentWriteInput,
+  InsertInvokeSessionIndexReadInput,
   InsertInvokeSessionTableReadInput,
   InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteRecord,
+  InvokeSessionIndexReadRecord,
   InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
   DocumentRevisionRecord,
+  IndexedDocumentPage,
+  ListDocumentsInIndexAtTsInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -98,6 +102,9 @@ export interface FlarexExecutorPersistence {
     ts: number,
     limit?: number,
   ): Promise<DocumentRevisionRecord[]>;
+  listDocumentsInIndexAtTs(
+    input: ListDocumentsInIndexAtTsInput,
+  ): Promise<IndexedDocumentPage>;
   insertInvokeSessionDocumentRead(
     input: InsertInvokeSessionDocumentReadInput,
   ): Promise<InvokeSessionDocumentReadRecord>;
@@ -112,6 +119,13 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionTableReadRecord[]>;
+  insertInvokeSessionIndexRead(
+    input: InsertInvokeSessionIndexReadInput,
+  ): Promise<InvokeSessionIndexReadRecord>;
+  listInvokeSessionIndexReads(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionIndexReadRecord[]>;
   insertInvokeSessionDocumentWrite(
     input: InsertInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
@@ -364,6 +378,11 @@ export interface InvokeReadSet {
   }>;
   tables?: Array<{
     tableId: number;
+  }>;
+  indexes?: Array<{
+    indexId: number;
+    lower?: string;
+    upper?: string;
   }>;
 }
 

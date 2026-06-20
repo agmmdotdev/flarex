@@ -11,7 +11,9 @@ import {
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionDocumentReadInput,
   type InsertInvokeSessionDocumentWriteInput,
+  type InsertInvokeSessionIndexReadInput,
   type InsertInvokeSessionTableReadInput,
+  type InvokeSessionIndexReadRecord,
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   type InvokeSessionDocumentWriteRecord,
@@ -44,6 +46,7 @@ export function memoryPersistence(
   initialDocumentReads: InvokeSessionDocumentReadRecord[] = [],
   initialDocumentWrites: InvokeSessionDocumentWriteRecord[] = [],
   initialTableReads: InvokeSessionTableReadRecord[] = [],
+  initialIndexReads: InvokeSessionIndexReadRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -78,6 +81,18 @@ export function memoryPersistence(
   const tableReads = new Map<string, InvokeSessionTableReadRecord>(
     initialTableReads.map((read) => [
       tableReadKey(read.deploymentId, read.sessionId, read.tableId),
+      read,
+    ]),
+  );
+  const indexReads = new Map<string, InvokeSessionIndexReadRecord>(
+    initialIndexReads.map((read) => [
+      indexReadKey(
+        read.deploymentId,
+        read.sessionId,
+        read.indexId,
+        read.lowerKey,
+        read.upperKey,
+      ),
       read,
     ]),
   );
@@ -208,6 +223,22 @@ export function memoryPersistence(
         .sort((left, right) => left.id.localeCompare(right.id));
       return limit === undefined ? visible : visible.slice(0, limit);
     },
+    async listDocumentsInIndexAtTs(input) {
+      const documents = await this.listDocumentsInTableAtTs(
+        input.deploymentId,
+        1,
+        input.ts,
+        input.limit,
+      );
+      return {
+        documents: documents.map((document) => ({
+          key: document.id,
+          document,
+        })),
+        isDone: true,
+        continueCursor: documents.at(-1)?.id ?? input.cursor ?? "",
+      };
+    },
     async insertInvokeSessionDocumentRead(
       input: InsertInvokeSessionDocumentReadInput,
     ) {
@@ -267,6 +298,43 @@ export function memoryPersistence(
             read.deploymentId === deploymentId && read.sessionId === sessionId,
         )
         .sort((left, right) => left.tableId - right.tableId);
+    },
+    async insertInvokeSessionIndexRead(input: InsertInvokeSessionIndexReadInput) {
+      const lowerKey = input.lowerKey ?? "";
+      const upperKey = input.upperKey ?? "";
+      const key = indexReadKey(
+        input.deploymentId,
+        input.sessionId,
+        input.indexId,
+        lowerKey,
+        upperKey,
+      );
+      const existing = indexReads.get(key);
+      if (existing !== undefined) return existing;
+      const read: InvokeSessionIndexReadRecord = {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        indexId: input.indexId,
+        lowerKey,
+        upperKey,
+        observedTs: input.observedTs,
+        readAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+      indexReads.set(key, read);
+      return read;
+    },
+    async listInvokeSessionIndexReads(deploymentId: string, sessionId: string) {
+      return Array.from(indexReads.values())
+        .filter(
+          (read) =>
+            read.deploymentId === deploymentId && read.sessionId === sessionId,
+        )
+        .sort(
+          (left, right) =>
+            left.indexId - right.indexId ||
+            left.lowerKey.localeCompare(right.lowerKey) ||
+            left.upperKey.localeCompare(right.upperKey),
+        );
     },
     async insertInvokeSessionDocumentWrite(
       input: InsertInvokeSessionDocumentWriteInput,
@@ -605,6 +673,16 @@ function tableReadKey(
   tableId: number,
 ): string {
   return `${deploymentId}/${sessionId}/${tableId}`;
+}
+
+function indexReadKey(
+  deploymentId: string,
+  sessionId: string,
+  indexId: number,
+  lowerKey: string,
+  upperKey: string,
+): string {
+  return `${deploymentId}/${sessionId}/${indexId}/${lowerKey}/${upperKey}`;
 }
 
 function documentWriteKey(

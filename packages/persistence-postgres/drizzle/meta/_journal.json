@@ -43,6 +43,13 @@
       "when": 1781943069541,
       "tag": "0005_round_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781944999660,
+      "tag": "0006_lyrical_hex",
+      "breakpoints": true
     }
   ]
 }
