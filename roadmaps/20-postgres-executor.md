@@ -202,6 +202,54 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Durable Freshness Delivery Handler
+
+Previous completed checkpoint: `f0fd56f` Add durable freshness store.
+
+What changed:
+
+- Added reusable freshness delivery handler helpers:
+  - `createFreshnessDeliveryHandler(store)`, and
+  - `createPostgresFreshnessDeliveryHandler(persistence)`.
+- The helpers compose `applyOutboxEventsToFreshnessMirror(...)` with the
+  selected mirror store.
+- Executor tests now use the reusable handler for the normal outbox-to-
+  freshness path.
+
+Why it changed:
+
+Future Nitro cron, scheduled workers, or test harnesses should not repeat the
+projector wiring. The executor continues to own outbox delivery and
+acknowledgement; the freshness package now owns the reusable projection
+handler.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - worker code composes committed changes with downstream sync processing.
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the durable input stream.
+
+Flarex differences:
+
+- Convex's composition is internal to the backend. Flarex exports a helper
+  because execution, scheduling, and freshness projection are split packages.
+
+Known limitations:
+
+- The helper is not yet called by Nitro, cron, or a Cloudflare scheduler.
+- No query rerun or cache protocol consumes durable freshness rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Freshness Persistence
 
 Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.

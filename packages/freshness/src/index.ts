@@ -75,6 +75,10 @@ export interface ApplyOutboxEventsToFreshnessMirrorResult {
   tableVersions: TableFreshnessVersion[];
 }
 
+export type FreshnessDeliveryHandler = (
+  events: OutboxEventRecord[],
+) => Promise<ApplyOutboxEventsToFreshnessMirrorResult>;
+
 export class FreshnessOutboxEventShapeError extends Error {
   constructor(message: string) {
     super(`Invalid freshness outbox event: ${message}`);
@@ -251,6 +255,21 @@ export function createPostgresFreshnessMirrorStore(
   persistence: DurableFreshnessMirrorPersistence,
 ): PostgresFreshnessMirrorStore {
   return new PostgresFreshnessMirrorStore(persistence);
+}
+
+export function createFreshnessDeliveryHandler(
+  store: FreshnessMirrorStore,
+): FreshnessDeliveryHandler {
+  return async (events) =>
+    await applyOutboxEventsToFreshnessMirror({ store, events });
+}
+
+export function createPostgresFreshnessDeliveryHandler(
+  persistence: DurableFreshnessMirrorPersistence,
+): FreshnessDeliveryHandler {
+  return createFreshnessDeliveryHandler(
+    createPostgresFreshnessMirrorStore(persistence),
+  );
 }
 
 function parseCommitOutboxEvent(input: OutboxEventRecord): {

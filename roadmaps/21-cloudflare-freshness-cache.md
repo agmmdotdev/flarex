@@ -238,6 +238,65 @@ Verification:
 git diff --check
 ```
 
+## Durable Freshness Delivery Handler
+
+Previous completed checkpoint: `f0fd56f` Add durable freshness store.
+
+What changed:
+
+- Added `createFreshnessDeliveryHandler(store)` in `@flarex/freshness`.
+- Added `createPostgresFreshnessDeliveryHandler(persistence)` for the durable
+  Postgres/PGlite-backed freshness store.
+- Updated executor pipeline tests to use the reusable handler for the normal
+  projection path.
+- Added freshness package tests for memory and Postgres delivery handlers.
+
+Cache impact:
+
+The production composition is now a reusable function:
+
+```ts
+await executor.runOutboxDeliveryBatch({
+  deploymentId,
+  deliver: async (events) => {
+    await createPostgresFreshnessDeliveryHandler(persistence)(events);
+  },
+});
+```
+
+The executor still owns outbox acknowledgement. The freshness package owns
+projection into the durable mirror. This keeps the boundary explicit while
+removing duplicated handler code from future schedulers.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - worker logic composes committed changes with downstream update handling.
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the durable input.
+
+Flarex differences:
+
+- Convex does not need an exported delivery handler because its worker runs
+  inside the backend. Flarex exposes this composition helper because schedulers,
+  Nitro routes, or Cloudflare workers may invoke the dispatcher.
+
+Known limitations:
+
+- No scheduler/Nitro route calls this helper yet.
+- No range/index freshness is represented.
+- No query rerun or `ConnectionDO` fanout consumes the durable versions yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Postgres Freshness Store
 
 Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.

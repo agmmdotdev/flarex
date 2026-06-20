@@ -33,6 +33,51 @@ Verification:
 git diff --check
 ```
 
+## Reusable Freshness Delivery Handler
+
+Previous completed checkpoint: `f0fd56f` Add durable freshness store.
+
+What changed:
+
+- Added reusable delivery-handler helpers in `@flarex/freshness`.
+- The Postgres helper creates the durable mirror store and applies outbox
+  events through the existing projector.
+- Executor tests now use the helper for normal outbox-to-freshness projection.
+
+Why it matters for sync:
+
+This gives future sync schedulers a single handler to plug into
+`runOutboxDeliveryBatch(...)`. It keeps replay/idempotency in the freshness
+store and acknowledgement in the executor dispatcher.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker code owns the committed-change processing loop.
+- `crates/database/src/subscription.rs`
+  - committed write metadata drives dependency invalidation.
+
+Flarex differences:
+
+- Flarex needs this exported handler because the scheduler/dispatcher and
+  freshness projection are separate deployable/runtime concerns.
+
+Known limitations:
+
+- No live query rerun or `ConnectionDO` fanout uses the handler yet.
+- No range/index freshness exists yet.
+- No scheduler invokes the handler yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Document And Table Freshness
 
 Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOutboxEventsToFreshnessMirror,
+  createFreshnessDeliveryHandler,
   createMemoryFreshnessMirrorStore,
 } from "@flarex/freshness";
 import { createFlarexExecutor, OutboxDeliveryPolicyError } from "../src";
@@ -117,13 +118,14 @@ describe("executor outbox delivery", () => {
       ts: 10,
       documentId: "1:message",
     });
+    const deliver = createFreshnessDeliveryHandler(store);
 
     await expect(
       executor.runOutboxDeliveryBatch({
         deploymentId: "deployment_freshness_pipeline",
         limit: 10,
-        async deliver(events) {
-          await applyOutboxEventsToFreshnessMirror({ store, events });
+        deliver: async (events) => {
+          await deliver(events);
         },
       }),
     ).resolves.toMatchObject({

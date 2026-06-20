@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { OutboxEventRecord } from "@flarex/persistence-postgres";
 import {
   applyOutboxEventsToFreshnessMirror,
+  createFreshnessDeliveryHandler,
   createMemoryFreshnessMirrorStore,
+  createPostgresFreshnessDeliveryHandler,
   createPostgresFreshnessMirrorStore,
   FreshnessOutboxEventShapeError,
 } from "../src";
@@ -216,6 +218,62 @@ describe("freshness outbox projector", () => {
         sequence: 0,
       }),
     ).resolves.toBe(true);
+  });
+
+  it("creates a reusable freshness delivery handler", async () => {
+    const store = createMemoryFreshnessMirrorStore();
+    const deliver = createFreshnessDeliveryHandler(store);
+
+    await expect(
+      deliver([
+        commitOutboxEvent({
+          deploymentId: "deployment_delivery_handler",
+          ts: 10,
+          commitTs: 10,
+          tableIds: [1],
+          documentIds: ["1:message"],
+        }),
+      ]),
+    ).resolves.toMatchObject({
+      processed: 1,
+      skipped: 0,
+    });
+    expect(
+      store.getDocumentVersion("deployment_delivery_handler", "1:message"),
+    ).toMatchObject({
+      version: 10,
+    });
+  });
+
+  it("creates a reusable Postgres freshness delivery handler", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const deliver = createPostgresFreshnessDeliveryHandler(persistence);
+
+    await expect(
+      deliver([
+        commitOutboxEvent({
+          deploymentId: "deployment_postgres_delivery_handler",
+          ts: 10,
+          commitTs: 10,
+          tableIds: [1],
+          documentIds: ["1:message"],
+        }),
+      ]),
+    ).resolves.toMatchObject({
+      processed: 1,
+      skipped: 0,
+    });
+    await expect(
+      persistence.getDocumentFreshnessVersion(
+        "deployment_postgres_delivery_handler",
+        "1:message",
+      ),
+    ).resolves.toMatchObject({
+      version: 10,
+      outboxTs: 10,
+      outboxSequence: 0,
+    });
   });
 });
 
