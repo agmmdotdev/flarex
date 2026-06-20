@@ -38,6 +38,7 @@ describe("createPGlitePersistence", () => {
       "deployments",
       "documents",
       "indexes",
+      "invoke_session_document_reads",
       "invoke_sessions",
       "leases",
       "outbox",
@@ -479,5 +480,54 @@ describe("createPGlitePersistence", () => {
         value: null,
       }),
     ).rejects.toThrow(FlarexDocumentIdFormatError);
+  });
+
+  it("dedupes and lists invoke session document reads", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_reads",
+      sessionId: "session_reads",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_reads",
+      sessionId: "session_reads",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 20,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_reads",
+      sessionId: "session_reads",
+      tableId: 2,
+      documentId: "2:lesson",
+      observedTs: null,
+    });
+
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_reads",
+        "session_reads",
+      ),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_reads",
+        sessionId: "session_reads",
+        tableId: 1,
+        documentId: "1:message",
+        observedTs: 10,
+      },
+      {
+        deploymentId: "deployment_reads",
+        sessionId: "session_reads",
+        tableId: 2,
+        documentId: "2:lesson",
+        observedTs: null,
+      },
+    ]);
   });
 });

@@ -27,6 +27,10 @@ import {
   getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
   insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
 } from "./invokeSessions";
+import {
+  insertInvokeSessionDocumentRead as insertInvokeSessionDocumentReadWithDb,
+  listInvokeSessionDocumentReads as listInvokeSessionDocumentReadsWithDb,
+} from "./invokeSessionReads";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -97,6 +101,10 @@ export async function createPGlitePersistence(
       insertDocumentRevisionWithDb(drizzleDb, input),
     getDocumentRevisionAtTs: (deploymentId, id, ts) =>
       getDocumentRevisionAtTsWithDb(drizzleDb, deploymentId, id, ts),
+    insertInvokeSessionDocumentRead: (input) =>
+      insertInvokeSessionDocumentReadWithDb(drizzleDb, input),
+    listInvokeSessionDocumentReads: (deploymentId, sessionId) =>
+      listInvokeSessionDocumentReadsWithDb(drizzleDb, deploymentId, sessionId),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

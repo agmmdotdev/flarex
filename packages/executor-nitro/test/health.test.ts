@@ -432,6 +432,25 @@ function healthyPersistence() {
     async getDocumentRevisionAtTs() {
       return null;
     },
+    async insertInvokeSessionDocumentRead(input: {
+      deploymentId: string;
+      sessionId: string;
+      tableId: number;
+      documentId: string;
+      observedTs?: number | null;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: input.tableId,
+        documentId: input.documentId,
+        observedTs: input.observedTs ?? null,
+        readAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
+    async listInvokeSessionDocumentReads() {
+      return [];
+    },
   };
 }
 

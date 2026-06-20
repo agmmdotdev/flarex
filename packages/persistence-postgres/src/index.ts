@@ -16,6 +16,10 @@ import type {
   InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataRecord,
 } from "./invokeSessions";
+import type {
+  InsertInvokeSessionDocumentReadInput,
+  InvokeSessionDocumentReadRecord,
+} from "./invokeSessionReads";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -68,6 +72,13 @@ export interface FlarexPersistence extends FlarexSqlClient {
     id: string,
     ts: number,
   ): Promise<DocumentRevisionRecord | null>;
+  insertInvokeSessionDocumentRead(
+    input: InsertInvokeSessionDocumentReadInput,
+  ): Promise<InvokeSessionDocumentReadRecord>;
+  listInvokeSessionDocumentReads(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionDocumentReadRecord[]>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -80,5 +91,6 @@ export * from "./deploymentPackages";
 export * from "./deployments";
 export * from "./documents";
 export * from "./invokeSessions";
+export * from "./invokeSessionReads";
 export { flarexSchema } from "./schema";
 export * from "./schema";

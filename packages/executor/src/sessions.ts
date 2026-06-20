@@ -100,6 +100,13 @@ export async function invokeSyscall(
       input.syscall.id,
       session.beginTs,
     );
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      observedTs: document?.ts ?? null,
+    });
     return {
       value:
         document === null || document.deleted

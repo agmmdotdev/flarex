@@ -198,18 +198,19 @@ describe("executor invoke sessions", () => {
   });
 
   it("reads a document revision at the session begin timestamp", async () => {
+    const persistence = memoryPersistence([], [], [activeSession({ beginTs: 15 })], [
+      documentRevision({
+        ts: 10,
+        value: { text: "old" },
+      }),
+      documentRevision({
+        ts: 20,
+        value: { text: "new" },
+        prevTs: 10,
+      }),
+    ]);
     const executor = createFlarexExecutor({
-      persistence: memoryPersistence([], [], [activeSession({ beginTs: 15 })], [
-        documentRevision({
-          ts: 10,
-          value: { text: "old" },
-        }),
-        documentRevision({
-          ts: 20,
-          value: { text: "new" },
-          prevTs: 10,
-        }),
-      ]),
+      persistence,
     });
 
     await expect(
@@ -225,11 +226,26 @@ describe("executor invoke sessions", () => {
         documents: [{ tableId: 1, id: "1:message" }],
       },
     });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_session",
+        sessionId: "session_active",
+        tableId: 1,
+        documentId: "1:message",
+        observedTs: 10,
+      },
+    ]);
   });
 
   it("returns null and a document read for missing document revisions", async () => {
+    const persistence = memoryPersistence([], [], [activeSession()]);
     const executor = createFlarexExecutor({
-      persistence: memoryPersistence([], [], [activeSession()]),
+      persistence,
     });
 
     await expect(
@@ -245,22 +261,35 @@ describe("executor invoke sessions", () => {
         documents: [{ tableId: 1, id: "1:missing" }],
       },
     });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:missing",
+        observedTs: null,
+      },
+    ]);
   });
 
   it("returns null for deleted document revisions", async () => {
+    const persistence = memoryPersistence([], [], [activeSession()], [
+      documentRevision({
+        ts: 10,
+        value: { text: "old" },
+      }),
+      documentRevision({
+        ts: 20,
+        value: null,
+        deleted: true,
+        prevTs: 10,
+      }),
+    ]);
     const executor = createFlarexExecutor({
-      persistence: memoryPersistence([], [], [activeSession()], [
-        documentRevision({
-          ts: 10,
-          value: { text: "old" },
-        }),
-        documentRevision({
-          ts: 20,
-          value: null,
-          deleted: true,
-          prevTs: 10,
-        }),
-      ]),
+      persistence,
     });
 
     await expect(
@@ -276,6 +305,50 @@ describe("executor invoke sessions", () => {
         documents: [{ tableId: 1, id: "1:message" }],
       },
     });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:message",
+        observedTs: 20,
+      },
+    ]);
+  });
+
+  it("dedupes persisted document reads for repeated get syscalls", async () => {
+    const persistence = memoryPersistence([], [], [activeSession()], [
+      documentRevision({
+        ts: 10,
+        value: { text: "old" },
+      }),
+    ]);
+    const executor = createFlarexExecutor({
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "get", id: "1:message" },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "get", id: "1:message" },
+    });
+
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toHaveLength(1);
   });
 
   it("rejects malformed document ids before persistence lookup", async () => {

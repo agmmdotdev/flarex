@@ -6,6 +6,8 @@ import {
   type DocumentRevisionRecord,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
+  type InsertInvokeSessionDocumentReadInput,
+  type InvokeSessionDocumentReadRecord,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
@@ -23,6 +25,7 @@ export function memoryPersistence(
   initialPackages: DeploymentPackageMetadataRecord[] = [],
   initialInvokeSessions: InvokeSessionMetadataRecord[] = [],
   initialDocuments: DocumentRevisionRecord[] = [],
+  initialDocumentReads: InvokeSessionDocumentReadRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -43,6 +46,17 @@ export function memoryPersistence(
     ]),
   );
   const documentRevisions = [...initialDocuments];
+  const documentReads = new Map<string, InvokeSessionDocumentReadRecord>(
+    initialDocumentReads.map((read) => [
+      documentReadKey(
+        read.deploymentId,
+        read.sessionId,
+        read.tableId,
+        read.documentId,
+      ),
+      read,
+    ]),
+  );
 
   return {
     async check() {
@@ -119,6 +133,40 @@ export function memoryPersistence(
           .sort((left, right) => right.ts - left.ts)[0] ?? null
       );
     },
+    async insertInvokeSessionDocumentRead(
+      input: InsertInvokeSessionDocumentReadInput,
+    ) {
+      const key = documentReadKey(
+        input.deploymentId,
+        input.sessionId,
+        input.tableId,
+        input.documentId,
+      );
+      const existing = documentReads.get(key);
+      if (existing !== undefined) return existing;
+      const read: InvokeSessionDocumentReadRecord = {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: input.tableId,
+        documentId: input.documentId,
+        observedTs: input.observedTs ?? null,
+        readAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+      documentReads.set(key, read);
+      return read;
+    },
+    async listInvokeSessionDocumentReads(deploymentId: string, sessionId: string) {
+      return Array.from(documentReads.values())
+        .filter(
+          (read) =>
+            read.deploymentId === deploymentId && read.sessionId === sessionId,
+        )
+        .sort(
+          (left, right) =>
+            left.tableId - right.tableId ||
+            left.documentId.localeCompare(right.documentId),
+        );
+    },
   };
 }
 
@@ -177,4 +225,13 @@ function packageKey(deploymentId: string, packageId: string): string {
 
 function sessionKey(deploymentId: string, sessionId: string): string {
   return `${deploymentId}/${sessionId}`;
+}
+
+function documentReadKey(
+  deploymentId: string,
+  sessionId: string,
+  tableId: number,
+  documentId: string,
+): string {
+  return `${deploymentId}/${sessionId}/${tableId}/${documentId}`;
 }

@@ -2348,6 +2348,99 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Durable Document Read-Set Accumulation
+
+Previous completed checkpoint: `ff7210c` Implement document get syscall.
+
+What changed:
+
+- Added a new Postgres table:
+
+  ```txt
+  invoke_session_document_reads
+  ```
+
+- Added Drizzle migration `0003_confused_raza.sql` and snapshot metadata.
+- Added low-level persistence helpers:
+  - `insertInvokeSessionDocumentRead(...)`
+  - `listInvokeSessionDocumentReads(...)`
+- The table dedupes document reads by:
+  - deployment id
+  - session id
+  - table id
+  - full document id
+- Each read stores `observedTs`, which is:
+  - the document revision timestamp read by the session, or
+  - `null` when the document was missing at the session snapshot.
+- `executor.invokeSyscall({ op: "get" })` now persists a document read after
+  reading the snapshot revision.
+- PGlite tests cover migration presence, insert/list behavior, and dedupe.
+- Executor tests cover persisted reads for found, missing, deleted, and
+  repeated document gets.
+
+Why it changed:
+
+Flarex user code runs outside the trusted Postgres transaction executor. That
+means the backend cannot rely on an in-memory transaction object to remember
+reads across many remote `ctx.db` syscalls. The session read-set must be
+durable and backend-owned so a later `finish` route can validate OCC conflicts
+before returning or committing.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - Convex transaction state records reads during user code execution.
+- `crates/database/src/committer.rs`
+  - commit-time validation compares accumulated reads against current
+    database state.
+- `crates/model/src/session_requests/mod.rs`
+  - system-owned session/request metadata is persisted for protocol
+    correctness and idempotency.
+
+Flarex references:
+
+- `packages/flarex-backend/src/transaction.ts`
+  - legacy `SingleShardTransaction` keeps read-set state in memory while the
+    Durable Object owns the execution session.
+- `packages/executor/src/sessions.ts`
+  - Postgres executor now persists reads during `get` syscalls.
+- `packages/persistence-postgres/src/invokeSessionReads.ts`
+  - persistence boundary for durable document read records.
+
+Flarex differences:
+
+- Convex can keep read-set state inside a local transaction object because user
+  code and the database transaction engine are colocated. Flarex has a network
+  boundary between Cloudflare user code and the trusted executor, so read-set
+  state is persisted per syscall.
+- This table stores only document reads. Predicate/table/index reads for
+  queries will need separate tables or a generalized read-set table.
+- `observedTs` is stored for future OCC diagnostics and validation. The exact
+  validation algorithm is still pending.
+
+Known limitations:
+
+- Only `get` syscalls persist reads.
+- No `finish` route consumes the read-set yet.
+- No OCC validation exists yet.
+- Query predicate/index reads are not represented yet.
+- There is no cleanup/retention policy for abandoned session read rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
