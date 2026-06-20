@@ -412,6 +412,59 @@ corepack pnpm --filter @flarex/persistence-postgres db:check
 git diff --check
 ```
 
+## Executor Live-Query Registry Writer
+
+Previous completed checkpoint: `f32cc4f` Add durable live query registry.
+
+What changed:
+
+- Added executor helpers to record and remove live-query subscription rows.
+- Recording stores a timestamped freshness read set, last result, and stable
+  result fingerprint.
+- The result fingerprint uses stable JSON key ordering, matching the legacy
+  Cloudflare sync prototype.
+
+Cache impact:
+
+The future freshness scheduler now has the expected write-side API:
+
+```txt
+query finished
+  -> recordLiveQuerySubscription(...)
+  -> live_query_subscriptions
+  -> future freshness scan and rerun
+```
+
+This keeps the cache/sync layer from needing to know how to normalize read sets
+or fingerprint results.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - active query state is updated after query execution and rerun.
+- `crates/database/src/subscription.rs`
+  - read dependency state is tied to query validity.
+
+Flarex differences:
+
+- Convex keeps active query state internal. Flarex writes explicit durable rows
+  so Cloudflare connection/session owners and the trusted executor can hand off
+  sync work cleanly.
+
+Known limitations:
+
+- No cache scheduler scans `live_query_subscriptions` yet.
+- No `ConnectionDO` calls the writer yet.
+- No result-hash comparison is used to suppress future transitions yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

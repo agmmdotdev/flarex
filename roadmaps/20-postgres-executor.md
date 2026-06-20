@@ -244,6 +244,55 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Executor Live-Query Registry Writer
+
+Previous completed checkpoint: `f32cc4f` Add durable live query registry.
+
+What changed:
+
+- Added `recordLiveQuerySubscription(...)` and
+  `removeLiveQuerySubscription(...)` to `@flarex/executor`.
+- Moved `@flarex/freshness` to an executor runtime dependency because the
+  executor now converts read sets before persisting query state.
+- Added `fingerprintJson(...)`, matching the stable JSON fingerprint shape used
+  by the legacy Cloudflare sync prototype.
+- Extended test persistence with live-query subscription storage.
+
+Why it changed:
+
+Finished query execution has the pieces needed to create durable sync state:
+function path, args, begin timestamp, read set, and result. Persisting that at
+the executor boundary gives future sync transports a framework-neutral operation
+instead of duplicating registry writes in Nitro, tests, and Cloudflare code.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - active query results and transitions are tracked inside the sync worker.
+- `crates/database/src/subscription.rs`
+  - read dependencies are registered after query execution.
+
+Flarex differences:
+
+- Convex does not expose a separate registry writer because sync and execution
+  share backend machinery. Flarex exposes this helper because execution,
+  registry persistence, and connection fanout are separate runtime concerns.
+
+Known limitations:
+
+- The helper must be called by future sync code; `finishInvokeSession(...)` does
+  not automatically record live subscriptions.
+- No scheduler scans the rows yet.
+- No rerun path compares the stored `resultHash` yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

@@ -205,6 +205,27 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async markOutboxEventsDelivered() {
       return { delivered: 0 };
     },
+    async upsertLiveQuerySubscription(input) {
+      return {
+        deploymentId: input.deploymentId,
+        connectionId: input.connectionId,
+        queryId: input.queryId,
+        functionPath: input.functionPath,
+        argsJson: input.argsJson,
+        beginTs: input.beginTs,
+        readSetJson: input.readSetJson,
+        resultJson: input.resultJson,
+        resultHash: input.resultHash,
+        createdAt: input.updatedAt ?? new Date("2026-06-19T00:00:00.000Z"),
+        updatedAt: input.updatedAt ?? new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
+    async deleteLiveQuerySubscription() {
+      return { deleted: 0 };
+    },
+    async listLiveQuerySubscriptions() {
+      return [];
+    },
   };
 }
 
@@ -262,6 +283,16 @@ export function fakeExecutor(
     },
     async runOutboxDeliveryBatch() {
       throw new Error("runOutboxDeliveryBatch is not implemented by test fake");
+    },
+    async recordLiveQuerySubscription() {
+      throw new Error(
+        "recordLiveQuerySubscription is not implemented by test fake",
+      );
+    },
+    async removeLiveQuerySubscription() {
+      throw new Error(
+        "removeLiveQuerySubscription is not implemented by test fake",
+      );
     },
     async runMaintenanceSweep() {
       throw new Error("runMaintenanceSweep is not implemented by test fake");

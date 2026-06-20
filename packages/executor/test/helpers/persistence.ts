@@ -32,15 +32,19 @@ import {
   type InvokeSessionTableReadRecord,
   type OutboxEventRecord,
   type ListDeploymentMetadataInput,
+  type ListLiveQuerySubscriptionsInput,
   type ListOutboxEventsInput,
   type ListOutboxEventsResult,
   type ListUndeliveredOutboxEventsInput,
+  type LiveQuerySubscriptionKey,
+  type LiveQuerySubscriptionRecord,
   type MarkOutboxEventsDeliveredInput,
   type MarkOutboxEventsDeliveredResult,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
+  type UpsertLiveQuerySubscriptionInput,
   type UpdateDeploymentMetadataActivationInput,
   encodeIndexValues,
   schemaIndexesFromAnalysis,
@@ -125,6 +129,7 @@ export function memoryPersistence(
   const committedDocuments: DocumentRevisionRecord[] = [];
   const commits: Array<{ deploymentId: string; ts: number }> = [];
   const outboxEvents: OutboxEventRecord[] = [];
+  const liveQuerySubscriptions = new Map<string, LiveQuerySubscriptionRecord>();
 
   return {
     async check() {
@@ -824,6 +829,52 @@ export function memoryPersistence(
       }
       return { delivered };
     },
+    async upsertLiveQuerySubscription(
+      input: UpsertLiveQuerySubscriptionInput,
+    ): Promise<LiveQuerySubscriptionRecord> {
+      const key = liveQuerySubscriptionKey(input);
+      const existing = liveQuerySubscriptions.get(key);
+      const now = input.updatedAt ?? new Date("2026-06-20T00:00:00.000Z");
+      const subscription: LiveQuerySubscriptionRecord = {
+        deploymentId: input.deploymentId,
+        connectionId: input.connectionId,
+        queryId: input.queryId,
+        functionPath: input.functionPath,
+        argsJson: input.argsJson,
+        beginTs: input.beginTs,
+        readSetJson: input.readSetJson,
+        resultJson: input.resultJson,
+        resultHash: input.resultHash,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      liveQuerySubscriptions.set(key, subscription);
+      return subscription;
+    },
+    async deleteLiveQuerySubscription(
+      input: LiveQuerySubscriptionKey,
+    ): Promise<{ deleted: number }> {
+      const deleted = liveQuerySubscriptions.delete(
+        liveQuerySubscriptionKey(input),
+      );
+      return { deleted: deleted ? 1 : 0 };
+    },
+    async listLiveQuerySubscriptions(
+      input: ListLiveQuerySubscriptionsInput,
+    ): Promise<LiveQuerySubscriptionRecord[]> {
+      return Array.from(liveQuerySubscriptions.values())
+        .filter(
+          (subscription) =>
+            subscription.deploymentId === input.deploymentId &&
+            (input.connectionId === undefined ||
+              subscription.connectionId === input.connectionId),
+        )
+        .sort(
+          (left, right) =>
+            left.connectionId.localeCompare(right.connectionId) ||
+            left.queryId - right.queryId,
+        );
+    },
   };
 }
 
@@ -860,6 +911,14 @@ function listOutboxEventsInternal(
           }
         : null,
   };
+}
+
+function liveQuerySubscriptionKey(input: {
+  deploymentId: string;
+  connectionId: string;
+  queryId: number;
+}): string {
+  return `${input.deploymentId}:${input.connectionId}:${input.queryId}`;
 }
 
 export function deploymentPackageMetadata(

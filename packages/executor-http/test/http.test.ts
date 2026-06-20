@@ -975,6 +975,16 @@ function fakeExecutor(
     async runOutboxDeliveryBatch() {
       return { events: [], delivered: 0, nextCursor: null, hasMore: false };
     },
+    async recordLiveQuerySubscription() {
+      throw new Error(
+        "recordLiveQuerySubscription is not implemented by test fake",
+      );
+    },
+    async removeLiveQuerySubscription() {
+      throw new Error(
+        "removeLiveQuerySubscription is not implemented by test fake",
+      );
+    },
     async runMaintenanceSweep() {
       return {
         deployments: [],

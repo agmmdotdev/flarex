@@ -144,6 +144,63 @@ corepack pnpm --filter @flarex/persistence-postgres db:check
 git diff --check
 ```
 
+## Executor Live-Query Registry Writer
+
+Previous completed checkpoint: `f32cc4f` Add durable live query registry.
+
+What changed:
+
+- Added executor methods:
+  - `recordLiveQuerySubscription(...)`,
+  - `removeLiveQuerySubscription(...)`.
+- Recording converts the query read set plus `beginTs` into a timestamped
+  freshness read set.
+- Recording computes a deterministic result fingerprint before upserting the
+  live-query row.
+- Added executor tests for record, replace, remove, richer observed timestamps,
+  and stable result fingerprints.
+
+Why it matters for sync:
+
+The durable registry is now populated through executor behavior instead of only
+being a low-level table. A future `ConnectionDO` or HTTP sync layer can call the
+executor after a successful query run:
+
+```txt
+query execution result
+  -> recordLiveQuerySubscription(...)
+  -> durable live_query_subscriptions row
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - active query results are tracked and compared before publishing
+    transitions.
+- `crates/database/src/subscription.rs`
+  - query dependencies are registered after execution.
+
+Flarex differences:
+
+- Convex keeps this inside the integrated sync worker. Flarex exposes explicit
+  executor helpers because Cloudflare connection ownership and the trusted
+  executor are split.
+
+Known limitations:
+
+- No `ConnectionDO` or sync HTTP route calls these methods yet.
+- No stale-query scheduler consumes the registry yet.
+- Result fingerprints suppress nothing yet; they are only stored for the future
+  rerun path.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

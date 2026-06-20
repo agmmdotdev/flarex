@@ -1,4 +1,7 @@
 import type {
+  FreshnessSourceReadSet,
+} from "@flarex/freshness";
+import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
   DeploymentMetadataCursor,
@@ -22,11 +25,15 @@ import type {
   InvokeSessionIndexReadRecord,
   InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
+  DeleteLiveQuerySubscriptionResult,
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
+  ListLiveQuerySubscriptionsInput,
   ListOutboxEventsInput,
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  LiveQuerySubscriptionKey,
+  LiveQuerySubscriptionRecord,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
   DocumentRevisionRecord,
@@ -34,6 +41,7 @@ import type {
   ListDocumentsInIndexAtTsInput,
   OutboxEventCursor,
   OutboxEventRecord,
+  UpsertLiveQuerySubscriptionInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -96,6 +104,12 @@ export interface FlarexExecutor {
   runOutboxDeliveryBatch(
     input: RunOutboxDeliveryBatchInput,
   ): Promise<RunOutboxDeliveryBatchResult>;
+  recordLiveQuerySubscription(
+    input: RecordLiveQuerySubscriptionInput,
+  ): Promise<RecordLiveQuerySubscriptionResult>;
+  removeLiveQuerySubscription(
+    input: RemoveLiveQuerySubscriptionInput,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -202,6 +216,15 @@ export interface FlarexExecutorPersistence {
   markOutboxEventsDelivered(
     input: MarkOutboxEventsDeliveredInput,
   ): Promise<MarkOutboxEventsDeliveredResult>;
+  upsertLiveQuerySubscription(
+    input: UpsertLiveQuerySubscriptionInput,
+  ): Promise<LiveQuerySubscriptionRecord>;
+  deleteLiveQuerySubscription(
+    input: LiveQuerySubscriptionKey,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
+  listLiveQuerySubscriptions(
+    input: ListLiveQuerySubscriptionsInput,
+  ): Promise<LiveQuerySubscriptionRecord[]>;
 }
 
 export interface RunOutboxDeliveryBatchInput {
@@ -218,6 +241,25 @@ export interface RunOutboxDeliveryBatchResult {
   nextCursor: OutboxEventCursor | null;
   hasMore: boolean;
 }
+
+export interface RecordLiveQuerySubscriptionInput {
+  deploymentId: string;
+  connectionId: string;
+  queryId: number;
+  functionPath: string;
+  argsJson: Json;
+  beginTs: number;
+  readSet: FreshnessSourceReadSet;
+  resultJson: Json;
+  updatedAt?: Date;
+}
+
+export interface RecordLiveQuerySubscriptionResult {
+  subscription: LiveQuerySubscriptionRecord;
+  resultHash: string;
+}
+
+export type RemoveLiveQuerySubscriptionInput = LiveQuerySubscriptionKey;
 
 export interface ActivateDeploymentPackageInput {
   deploymentId: string;

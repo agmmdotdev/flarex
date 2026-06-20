@@ -12,6 +12,11 @@ import {
   runOutboxDeliveryBatch,
 } from "./outbox";
 import {
+  fingerprintJson,
+  recordLiveQuerySubscription,
+  removeLiveQuerySubscription,
+} from "./liveQueries";
+import {
   listMaintenanceDeployments,
   runInvokeSessionMaintenance,
   runMaintenanceSweep,
@@ -128,12 +133,16 @@ export type {
   RegisterDeploymentPackageResult,
   RunOutboxDeliveryBatchInput,
   RunOutboxDeliveryBatchResult,
+  RecordLiveQuerySubscriptionInput,
+  RecordLiveQuerySubscriptionResult,
+  RemoveLiveQuerySubscriptionInput,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
   SchemaTableMetadata,
   TablePlacement,
 } from "./types";
+export { fingerprintJson } from "./liveQueries";
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {
   const clock = config.clock ?? defaultClock;
@@ -165,6 +174,10 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       markOutboxEventsDelivered(persistence, input),
     runOutboxDeliveryBatch: (input) =>
       runOutboxDeliveryBatch(persistence, clock, input),
+    recordLiveQuerySubscription: (input) =>
+      recordLiveQuerySubscription(persistence, input),
+    removeLiveQuerySubscription: (input) =>
+      removeLiveQuerySubscription(persistence, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>
