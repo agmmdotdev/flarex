@@ -3142,6 +3142,71 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Nitro Adapter Test Utilities Split
+
+Previous completed checkpoint: `e9c0dc4` Validate mutation document writes.
+
+What changed:
+
+- Kept the Nitro adapter test entrypoint as
+  `packages/executor-nitro/test/health.test.ts`.
+- Moved reusable test helpers into
+  `packages/executor-nitro/test/helpers.ts`:
+  - `healthyPersistence()`,
+  - `fakeExecutor(...)`,
+  - `preparedInvokeResult(...)`,
+  - `jsonRequest(...)`,
+  - `expectPrepareError(...)`.
+- `health.test.ts` now contains the adapter behavior tests only and imports the
+  shared helpers.
+
+Why it changed:
+
+Nitro adapter tests should remain adapter-focused: route dispatch, JSON
+responses, request validation, and executor error mapping. The fake executor is
+appropriate at this layer, but keeping a large fake inline in `health.test.ts`
+made the file harder to scan and harder to reuse. Splitting helpers keeps the
+test entrypoint stable while making future Nitro adapter cases smaller.
+
+Convex references:
+
+- `crates/local_backend` and `crates/application`
+  - Convex separates HTTP/application boundary tests from lower-level database
+    transaction correctness.
+- `npm-packages/convex/src/cli/lib/localDeployment`
+  - local adapter code keeps runtime wiring separate from test fixtures.
+
+Flarex references:
+
+- `packages/executor-nitro/test/health.test.ts`
+  - remains the Nitro adapter test entrypoint.
+- `packages/executor-nitro/test/helpers.ts`
+  - owns reusable fakes and request helpers.
+- `packages/persistence-postgres/test/pglite.test.ts`
+  - remains the real persistence correctness lane.
+
+Flarex differences:
+
+- The Nitro adapter still uses fakes for unit-style route tests. Real
+  HTTP/Nitro-to-PGlite integration should be a separate test lane, not folded
+  into the adapter unit test file.
+
+Known limitations:
+
+- HTTP adapter tests still have their own inline fake executor. If the same
+  fake grows further, extract a shared adapter-test helper package or duplicate
+  only the minimal HTTP-specific utility intentionally.
+- No new end-to-end `/invoke/start -> /invoke/syscall -> /invoke/finish` test
+  was added in this cleanup.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
