@@ -376,6 +376,60 @@ corepack pnpm test:integration
 git diff --check
 ```
 
+## Real Artifact Abort After Staged Write
+
+Previous completed checkpoint: `ae4575d` Add postgres invoke abort sessions.
+
+What changed:
+
+- Extended the real execution-artifact-to-Postgres integration test.
+- The materialized user-code artifact now includes a mutation that:
+  1. calls `ctx.db.insert("messages", ...)`,
+  2. throws an error before returning.
+- The test verifies:
+  - the artifact invoke rejects with the user-code error,
+  - the trusted executor session is marked `aborted`,
+  - the staged write is not committed to PGlite,
+  - the previously committed document remains the only visible row.
+
+Why it changed:
+
+The previous abort slice proved the raw executor abort route and a fake
+materializer abort call. This checkpoint proves the actual combined runtime
+behavior we care about: Convex-style user code can stage writes through
+`ctx.db`, fail, and the Postgres executor will not publish those writes.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - failed function execution must not publish a transaction.
+- `crates/database/src/transaction.rs`
+  - writes are staged until successful commit.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned execution result controls final transaction outcome.
+
+Flarex differences:
+
+- Flarex represents the failed outcome through `/invoke/abort` over the
+  Cloudflare-to-executor transport. Convex handles this inside its backend
+  runtime boundary.
+
+Known limitations:
+
+- This still uses local Miniflare and PGlite, not hosted Dynamic Workers and
+  real Postgres.
+- There is still no retry loop around OCC conflicts from user-code execution.
+- A session sweeper is still needed for runtime crashes that happen before the
+  abort request reaches the executor.
+
+Verification:
+
+```sh
+corepack pnpm test:integration
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Partition Scope Runtime Update
 
 ## Required Partition Scope Update

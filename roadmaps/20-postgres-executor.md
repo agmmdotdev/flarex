@@ -3675,6 +3675,52 @@ corepack pnpm test:integration
 git diff --check
 ```
 
+## Artifact Failure Abort Integration
+
+Previous completed checkpoint: `ae4575d` Add postgres invoke abort sessions.
+
+What changed:
+
+- Extended `integration/execution-artifact-postgres.integration.test.ts` so a
+  real materialized execution artifact stages a mutation write and then throws.
+- The test now verifies the executor session becomes `aborted`.
+- It also verifies PGlite has no committed row for the failed staged write.
+
+Why it changed:
+
+Executor-level abort tests prove the endpoint. The stronger platform proof is
+that user-code execution over the generated `ctx.db` syscall client can fail
+after staging writes and still leave the Postgres document history unchanged.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - staged writes are not visible until commit.
+- `crates/function_runner/src/lib.rs`
+  - failed function execution does not produce a commit.
+- `crates/database/src/committer.rs`
+  - publishing writes is a distinct final commit step.
+
+Flarex differences:
+
+- Flarex must send an explicit abort over HTTP from the Cloudflare-shaped
+  execution artifact to the trusted executor. Convex does not expose that as a
+  separate adapter route.
+
+Known limitations:
+
+- This is still the local PGlite integration lane. Real Postgres concurrency
+  and connection failure behavior are not covered here.
+- Staged rows remain in session tables until future retention cleanup.
+
+Verification:
+
+```sh
+corepack pnpm test:integration
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Mutation Commit Index Maintenance V1
 
 Previous completed checkpoint: `4096b2b` Add query table scan syscall.

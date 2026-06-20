@@ -18,7 +18,7 @@ describe("execution artifact to Postgres executor integration", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    const sessionIds = ["session_create", "session_list"];
+    const sessionIds = ["session_create", "session_list", "session_fail"];
     let nowMs = 1781913600000;
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
@@ -109,6 +109,36 @@ describe("execution artifact to Postgres executor integration", () => {
           indexes: [expect.objectContaining({ indexId: 1 })],
         },
       });
+
+      await expect(
+        artifact.invoke({
+          ...payloadBase,
+          request: {
+            path: "messages:failAfterInsert",
+            kind: "mutation",
+            args: { teamId: "1:team", text: "fail" },
+            partitionKey: "1:team",
+          },
+        }),
+      ).rejects.toThrow("fail after insert");
+      await expect(
+        persistence.getInvokeSessionMetadata(
+          "deployment_artifact_postgres",
+          "session_fail",
+        ),
+      ).resolves.toMatchObject({ state: "aborted" });
+      await expect(
+        persistence.listDocumentsInTableAtTs(
+          "deployment_artifact_postgres",
+          2,
+          1781913609999,
+        ),
+      ).resolves.toMatchObject([
+        expect.objectContaining({
+          id: created.value.id,
+          value: { teamId: "1:team", text: "hello", count: 1 },
+        }),
+      ]);
     } finally {
       await artifact.dispose?.();
     }
@@ -144,6 +174,17 @@ function executionSourcePackage(): SourcePackageWithSource {
             q.eq("teamId", args.teamId).eq("text", args.text)
           )
           .collect();
+      },
+    },
+    failAfterInsert: {
+      isMutation: true,
+      _handler: async ({ db }, args) => {
+        await db.insert("messages", {
+          teamId: args.teamId,
+          text: args.text,
+          count: 1,
+        });
+        throw new Error("fail after insert");
       },
     },
   },
@@ -208,6 +249,17 @@ function executionAnalysisJson(): Record<string, unknown> {
         {
           path: "messages:list",
           kind: "query",
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
+        {
+          path: "messages:failAfterInsert",
+          kind: "mutation",
           partition: {
             type: "partition",
             table: "teams",
