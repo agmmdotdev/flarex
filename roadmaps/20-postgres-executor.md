@@ -3384,6 +3384,98 @@ corepack pnpm test:integration
 git diff --check
 ```
 
+## Mutation Commit Index Maintenance V1
+
+Previous completed checkpoint: `4096b2b` Add query table scan syscall.
+
+What changed:
+
+- Added `packages/persistence-postgres/src/indexEntries.ts`.
+- Added schema-index metadata parsing from deployment package analysis JSON.
+- Added a Postgres persistence index-key codec copied from the legacy Flarex
+  ordered index-key shape:
+  - declared index fields first,
+  - document ID last,
+  - deterministic byte encoding for missing, null, booleans, numbers, strings,
+    arrays, and objects.
+- Mutation commit planning now carries the previous document value alongside the
+  final value.
+- `commitInvokeSessionWrites` now writes enabled index history in the same
+  transaction as document revisions and the commit row:
+  - insert writes a live index row,
+  - patch tombstones the old key and writes the new key when the key changes,
+  - delete tombstones the old key,
+  - staged and disabled indexes are ignored for now.
+- Added PGlite tests for insert, patch, and delete index maintenance.
+
+Why it changed:
+
+The next Convex-style query step is `ctx.db.query(table).withIndex(...)`.
+Before reads can use indexes, committed mutations must maintain index history
+authoritatively. Keeping this inside `@flarex/persistence-postgres` matches the
+Postgres executor design: framework adapters and HTTP routes call executor
+behavior, while durable document/index state is written by the persistence
+transaction.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - `compute_writes` computes document writes and index writes together before
+    publishing a commit.
+- `crates/database/src/transaction.rs`
+  - transaction state updates the index and document views together.
+- `crates/common/src/index.rs`
+  - Convex index keys include indexed fields plus the document ID to produce a
+    stable total order.
+
+Legacy Flarex references:
+
+- `packages/flarex-backend/src/indexKeys.ts`
+  - source for the ordered JavaScript index-key codec copied into Postgres
+    persistence.
+- `packages/flarex-backend/src/partitionDO.ts`
+  - `applyDocumentWrite`, `insertIndexEntries`, and `deleteIndexEntries`
+    maintain index tombstones inside commit.
+
+Flarex differences:
+
+- Convex's Rust backend computes full `DatabaseIndexUpdate` values from the
+  active in-memory snapshot and index registry. Flarex Postgres v1 computes
+  index entries from package analysis metadata stored with the invoke session's
+  package.
+- The physical Postgres table stores byte-encoded keys in the existing
+  Convex-like `indexes` table. There is no separate `current_index_entries`
+  materialization yet.
+- SHA-256 is computed with Web Crypto to avoid leaking Node-only types into
+  packages that consume the persistence source.
+
+Known limitations:
+
+- No indexed query syscall reads from this table yet.
+- No index read-set OCC validation yet.
+- No staged index backfill or schema-diff lifecycle.
+- No index compaction/current-row projection.
+- Existing document revisions inserted directly through test helpers do not
+  backfill index rows; index maintenance only runs through mutation commit.
+- Index metadata is read from package analysis each commit. A later deployment
+  metadata layer should make active schema/index lookup explicit and cached.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm test:integration
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

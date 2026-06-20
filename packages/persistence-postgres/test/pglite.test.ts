@@ -815,6 +815,195 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("maintains enabled index entries for staged inserts", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_insert",
+      sessionId: "session_insert",
+      beginTs: 100,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_insert",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello", count: 1 },
+    });
+
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_insert",
+      sessionId: "session_insert",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 100,
+    });
+
+    await expect(
+      persistence.query<{ ts: number; deleted: boolean; rows: number }>(
+        `
+        select ts, deleted, count(*)::int as rows
+        from indexes
+        where deployment_id = $1
+        group by ts, deleted
+        order by ts, deleted
+        `,
+        ["deployment_index_insert"],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ ts: 101, deleted: false, rows: 1 }],
+    });
+  });
+
+  it("maintains enabled index tombstones and replacement entries for staged patches", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_insert",
+      beginTs: 100,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "old", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_insert",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 100,
+    });
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_patch",
+      beginTs: 101,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 101,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { text: "new" },
+    });
+
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_patch",
+      sessionId: "session_patch",
+      source: "invoke:messages:update",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 101,
+    });
+
+    await expect(
+      persistence.query<{ ts: number; deleted: boolean; rows: number }>(
+        `
+        select ts, deleted, count(*)::int as rows
+        from indexes
+        where deployment_id = $1
+        group by ts, deleted
+        order by ts, deleted
+        `,
+        ["deployment_index_patch"],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { ts: 101, deleted: false, rows: 1 },
+        { ts: 102, deleted: false, rows: 1 },
+        { ts: 102, deleted: true, rows: 1 },
+      ],
+    });
+  });
+
+  it("maintains enabled index tombstones for staged deletes", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_insert",
+      beginTs: 100,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "old", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_insert",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 100,
+    });
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_delete",
+      beginTs: 101,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 101,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      op: "delete",
+      valueJson: null,
+    });
+
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_delete",
+      sessionId: "session_delete",
+      source: "invoke:messages:delete",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 101,
+    });
+
+    await expect(
+      persistence.query<{ ts: number; deleted: boolean; rows: number }>(
+        `
+        select ts, deleted, count(*)::int as rows
+        from indexes
+        where deployment_id = $1
+        group by ts, deleted
+        order by ts, deleted
+        `,
+        ["deployment_index_delete"],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { ts: 101, deleted: false, rows: 1 },
+        { ts: 102, deleted: true, rows: 1 },
+      ],
+    });
+  });
+
   it("commits staged invoke session patches after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -1602,6 +1791,69 @@ async function insertValidatedPackageAndSession(
     sessionId: input.sessionId,
     projectId: "project_validate",
     packageId: "package_validated",
+    functionPath: "messages:send",
+    functionKind: "mutation",
+    partitionKey: "team:1",
+    scopeJson: { kind: "partition", partitionKey: "team:1" },
+    argsJson: { teamId: "team:1" },
+    beginTs: input.beginTs ?? 100,
+    schemaVersion: 1,
+    executionModule: "_flarex/execution.js",
+  });
+}
+
+async function insertIndexedPackageAndSession(
+  persistence: TestPersistence,
+  input: {
+    deploymentId: string;
+    sessionId: string;
+    beginTs?: number;
+  },
+): Promise<void> {
+  await persistence.insertDeploymentPackageMetadata({
+    deploymentId: input.deploymentId,
+    packageId: `package_indexed_${input.sessionId}`,
+    sourcePackageHash: "c".repeat(64),
+    executionModule: "_flarex/execution.js",
+    sourcePackageJson: {
+      modules: [],
+      functions: [],
+      execution: "_flarex/execution.js",
+    },
+    analysisJson: {
+      schema: {
+        version: 1,
+        tables: [
+          {
+            tableId: 1,
+            name: "messages",
+            placement: { kind: "partitionBy", field: "_id" },
+          },
+        ],
+        indexes: [
+          {
+            indexId: 1,
+            tableId: 1,
+            name: "by_text",
+            fields: ["text"],
+            state: "enabled",
+          },
+          {
+            indexId: 2,
+            tableId: 1,
+            name: "by_count_staged",
+            fields: ["count"],
+            state: "staged",
+          },
+        ],
+      },
+    },
+  });
+  await persistence.insertInvokeSessionMetadata({
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    projectId: "project_indexed",
+    packageId: `package_indexed_${input.sessionId}`,
     functionPath: "messages:send",
     functionKind: "mutation",
     partitionKey: "team:1",

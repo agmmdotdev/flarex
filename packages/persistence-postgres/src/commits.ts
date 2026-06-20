@@ -13,6 +13,10 @@ import {
   finishInvokeSessionMetadata,
   getInvokeSessionMetadata,
 } from "./invokeSessions";
+import {
+  insertIndexEntriesForDocumentWrites,
+  schemaIndexesFromAnalysis,
+} from "./indexEntries";
 import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
 import { listInvokeSessionTableReads } from "./invokeSessionTableReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
@@ -47,6 +51,7 @@ interface PlannedDocumentWrite {
   id: string;
   prevTs: number | null;
   ts: number;
+  previousValue: PersistenceJson | null;
   value: PersistenceJson | null;
   deleted: boolean;
 }
@@ -165,6 +170,7 @@ export async function commitInvokeSessionWrites(
         id: write.documentId,
         prevTs: null,
         ts: committedTs,
+        previousValue: null,
         value,
         deleted: false,
       });
@@ -214,6 +220,7 @@ export async function commitInvokeSessionWrites(
         id: write.documentId,
         prevTs: current.ts,
         ts: committedTs,
+        previousValue: current.value,
         value,
         deleted: false,
       });
@@ -239,6 +246,7 @@ export async function commitInvokeSessionWrites(
         id: write.documentId,
         prevTs: current.ts,
         ts: committedTs,
+        previousValue: current.value,
         value: null,
         deleted: true,
       });
@@ -258,6 +266,12 @@ export async function commitInvokeSessionWrites(
       prevTs: write.prevTs,
     });
   }
+
+  await insertIndexEntriesForDocumentWrites(db, {
+    deploymentId: input.deploymentId,
+    indexes: await tableIndexesForSession(db, input),
+    writes: plannedWrites,
+  });
 
   const committedWrites = plannedWrites.map(
     (write): CommittedDocumentWriteRecord => ({
@@ -306,6 +320,25 @@ async function tableValidatorsForSession(
   );
   if (deploymentPackage === null) return [];
   return schemaTableValidatorsFromAnalysis(deploymentPackage.analysisJson);
+}
+
+async function tableIndexesForSession(
+  db: FlarexMetadataDatabase,
+  input: CommitInvokeSessionWritesInput,
+) {
+  const session = await getInvokeSessionMetadata(
+    db,
+    input.deploymentId,
+    input.sessionId,
+  );
+  if (session === null) return [];
+  const deploymentPackage = await getDeploymentPackageMetadata(
+    db,
+    input.deploymentId,
+    session.packageId,
+  );
+  if (deploymentPackage === null) return [];
+  return schemaIndexesFromAnalysis(deploymentPackage.analysisJson);
 }
 
 async function validateTableReads(

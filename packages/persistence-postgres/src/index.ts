@@ -130,6 +130,7 @@ export * from "./deploymentPackages";
 export * from "./deployments";
 export * from "./documents";
 export * from "./commits";
+export * from "./indexEntries";
 export * from "./invokeSessions";
 export * from "./invokeSessionReads";
 export * from "./invokeSessionTableReads";
