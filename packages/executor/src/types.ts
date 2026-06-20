@@ -74,6 +74,9 @@ export interface FlarexExecutor {
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
+  runInvokeWithRetries(
+    input: RunInvokeWithRetriesInput,
+  ): Promise<RunInvokeWithRetriesResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -375,6 +378,22 @@ export interface InvokeSyscallInput {
 export interface InvokeSyscallResult {
   value: Json;
   readSet?: InvokeReadSet;
+}
+
+export interface InvokeAttemptContext {
+  attempt: number;
+  maxAttempts: number;
+  session: BeginInvokeSessionResult;
+  syscall(syscall: InvokeSyscallRequest): Promise<InvokeSyscallResult>;
+}
+
+export interface RunInvokeWithRetriesInput extends BeginInvokeSessionInput {
+  maxAttempts?: number;
+  runAttempt(attempt: InvokeAttemptContext): Promise<Json>;
+}
+
+export interface RunInvokeWithRetriesResult extends FinishInvokeSessionResult {
+  attempts: number;
 }
 
 export interface FinishInvokeSessionInput {

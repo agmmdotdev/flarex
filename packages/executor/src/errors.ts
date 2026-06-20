@@ -231,6 +231,23 @@ export class InvokeFinishNotImplementedError extends Error {
   }
 }
 
+export class InvokeRetryPolicyError extends Error {
+  constructor(message: string) {
+    super(`Invalid invoke retry policy: ${message}`);
+    this.name = "InvokeRetryPolicyError";
+  }
+}
+
+export class InvokeRetryExhaustedError extends Error {
+  constructor(
+    readonly attempts: number,
+    readonly lastError: unknown,
+  ) {
+    super(`Invoke mutation retry budget exhausted after ${attempts} attempts.`);
+    this.name = "InvokeRetryExhaustedError";
+  }
+}
+
 export class FlarexInsertIdTableMismatchError extends Error {
   constructor(
     readonly id: string,

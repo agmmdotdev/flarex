@@ -5,6 +5,7 @@ import {
   InvokeSessionMetadataAlreadyExistsError,
   InvokeSessionOccConflictError,
   type DocumentRevisionRecord,
+  type PersistenceJson,
 } from "@flarex/persistence-postgres";
 
 import {
@@ -15,6 +16,7 @@ import {
   InvokePatchDocumentNotFoundError,
   InvokePatchValueError,
   InvokeQueryRequestError,
+  InvokeRetryExhaustedError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -142,6 +144,191 @@ describe("executor invoke sessions", () => {
         partitionKey: "team:1",
       }),
     ).rejects.toThrow(InvokeSessionMetadataAlreadyExistsError);
+  });
+
+  it("retries mutation attempts after commit-time OCC conflicts", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [],
+      [],
+      [
+        documentRevision({
+          id: "1:team",
+          documentId: "team",
+          ts: 10,
+          value: { name: "old", count: 0 },
+        }),
+      ],
+    );
+    let nowMs = 15;
+    let nextSession = 0;
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date(nowMs) },
+      ids: { nextId: () => `session_retry_${++nextSession}` },
+      persistence,
+    });
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      packageId: registered.package.packageId,
+      schemaVersion: 5,
+    });
+
+    const observedAttempts: Array<{ attempt: number; value: unknown }> = [];
+    const result = await executor.runInvokeWithRetries({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:send",
+      kind: "mutation",
+      args: { teamId: "1:team", text: "hello" },
+      partitionKey: "1:team",
+      maxAttempts: 2,
+      runAttempt: async (attempt) => {
+        const team = await attempt.syscall({ op: "get", id: "1:team" });
+        observedAttempts.push({ attempt: attempt.attempt, value: team.value });
+
+        if (attempt.attempt === 1) {
+          await commitConcurrentTeamPatch({
+            persistence,
+            packageId: registered.package.packageId,
+            sessionId: "session_concurrent",
+            minimumTs: nowMs,
+            value: { name: "new", count: 1 },
+          });
+          nowMs = 20;
+        }
+
+        await attempt.syscall({
+          op: "patch",
+          id: "1:team",
+          value: { count: 2 },
+        });
+        return { ok: true, attempt: attempt.attempt };
+      },
+    });
+
+    expect(result).toMatchObject({
+      value: { ok: true, attempt: 2 },
+      attempts: 2,
+      committedTs: 21,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:team",
+          prevTs: 16,
+          ts: 21,
+          value: { name: "new", count: 2 },
+        },
+      ],
+    });
+    expect(observedAttempts).toEqual([
+      {
+        attempt: 1,
+        value: { _id: "1:team", name: "old", count: 0 },
+      },
+      {
+        attempt: 2,
+        value: { _id: "1:team", name: "new", count: 1 },
+      },
+    ]);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_retry_1",
+      ),
+    ).resolves.toMatchObject({ state: "aborted" });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_retry_2",
+      ),
+    ).resolves.toMatchObject({ state: "finished" });
+  });
+
+  it("returns a retry-exhausted error after repeated OCC conflicts", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [],
+      [],
+      [
+        documentRevision({
+          id: "1:team",
+          documentId: "team",
+          ts: 10,
+          value: { name: "old", count: 0 },
+        }),
+      ],
+    );
+    let nowMs = 15;
+    let nextSession = 0;
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date(nowMs) },
+      ids: { nextId: () => `session_retry_${++nextSession}` },
+      persistence,
+    });
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      packageId: registered.package.packageId,
+      schemaVersion: 5,
+    });
+
+    const attempts: number[] = [];
+    await expect(
+      executor.runInvokeWithRetries({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        path: "messages:send",
+        kind: "mutation",
+        args: { teamId: "1:team", text: "hello" },
+        partitionKey: "1:team",
+        maxAttempts: 2,
+        runAttempt: async (attempt) => {
+          attempts.push(attempt.attempt);
+          await attempt.syscall({ op: "get", id: "1:team" });
+          const concurrent = await commitConcurrentTeamPatch({
+            persistence,
+            packageId: registered.package.packageId,
+            sessionId: `session_concurrent_${attempt.attempt}`,
+            minimumTs: nowMs,
+            value: { name: "concurrent", count: attempt.attempt },
+          });
+          nowMs = concurrent.committedTs + 4;
+          await attempt.syscall({
+            op: "patch",
+            id: "1:team",
+            value: { count: 100 + attempt.attempt },
+          });
+          return { ok: true };
+        },
+      }),
+    ).rejects.toThrow(InvokeRetryExhaustedError);
+
+    expect(attempts).toEqual([1, 2]);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_retry_1",
+      ),
+    ).resolves.toMatchObject({ state: "aborted" });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_retry_2",
+      ),
+    ).resolves.toMatchObject({ state: "aborted" });
   });
 
   it("rejects syscalls for missing sessions", async () => {
@@ -1186,6 +1373,18 @@ function analysisJson(): Record<string, unknown> {
             argField: "teamId",
           },
         },
+        {
+          path: "messages:send",
+          kind: "mutation",
+          route: { type: "args", field: "teamId" },
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
       ],
     },
   };
@@ -1258,4 +1457,56 @@ function documentRead(overrides: {
     observedTs: overrides.observedTs ?? null,
     readAt: new Date("2026-06-19T00:00:00.000Z"),
   };
+}
+
+async function commitConcurrentTeamPatch(input: {
+  persistence: ReturnType<typeof memoryPersistence>;
+  packageId: string;
+  sessionId: string;
+  minimumTs: number;
+  value: PersistenceJson;
+}) {
+  await input.persistence.insertInvokeSessionMetadata({
+    deploymentId: "deployment_session",
+    sessionId: input.sessionId,
+    projectId: "project_session",
+    packageId: input.packageId,
+    functionPath: "messages:send",
+    functionKind: "mutation",
+    partitionKey: "1:team",
+    scopeJson: {
+      kind: "partition",
+      table: "teams",
+      selector: "byId",
+      partitionField: "_id",
+      argField: "teamId",
+      partitionKey: "1:team",
+    },
+    argsJson: { teamId: "1:team", text: "concurrent" },
+    beginTs: input.minimumTs,
+    schemaVersion: 5,
+    executionModule: "_flarex/execution.js",
+  });
+  await input.persistence.insertInvokeSessionDocumentRead({
+    deploymentId: "deployment_session",
+    sessionId: input.sessionId,
+    tableId: 1,
+    documentId: "1:team",
+    observedTs: input.minimumTs <= 15 ? 10 : input.minimumTs - 4,
+  });
+  await input.persistence.insertInvokeSessionDocumentWrite({
+    deploymentId: "deployment_session",
+    sessionId: input.sessionId,
+    tableId: 1,
+    documentId: "1:team",
+    op: "patch",
+    valueJson: input.value,
+  });
+  return await input.persistence.commitInvokeSessionWrites({
+    deploymentId: "deployment_session",
+    sessionId: input.sessionId,
+    source: "invoke:messages:send",
+    finishedAt: new Date(input.minimumTs),
+    minimumTs: input.minimumTs,
+  });
 }

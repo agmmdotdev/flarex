@@ -76,6 +76,67 @@ Verification:
 git diff --check
 ```
 
+## Invoke OCC Retry Coordinator
+
+Previous completed checkpoint: `3c81156` Document interactive invoke
+transactions.
+
+What changed:
+
+- Added `runInvokeWithRetries(...)` to `@flarex/executor`.
+- The coordinator begins a fresh invoke session for each attempt, runs a
+  framework-provided attempt callback, finishes the session, and retries the
+  whole mutation when commit-time OCC rejects the attempt.
+- Failed attempts are aborted so staged writes do not remain active until the
+  stale-session cleanup sweep.
+- Added `InvokeRetryExhaustedError` and `InvokeRetryPolicyError`.
+- Added executor tests proving:
+  - the first stale attempt can hit OCC internally,
+  - the second attempt sees the newer snapshot and succeeds,
+  - the client-visible result is success with `attempts: 2`, and
+  - repeated OCC conflicts produce a retry-exhausted error after the configured
+    budget.
+
+Why it changed:
+
+The client should not see the first OCC conflict for a deterministic mutation.
+Convex-style behavior is to rerun the whole mutation against a newer snapshot.
+Retrying only `/invoke/finish` would be incorrect because user code decisions
+can change when the first read changes.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit-time conflicts are part of the transaction path.
+- `crates/database/src/transaction.rs`
+  - mutation state is attempt-local and unpublished until commit.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application function execution owns the retry boundary, not the client.
+
+Flarex differences:
+
+- Convex reruns inside the trusted Rust backend/isolate integration. Flarex's
+  retry coordinator is framework-neutral executor core and receives an attempt
+  callback so the future Dynamic Worker bridge can rerun user TypeScript.
+- This does not expose retry attempts over HTTP yet. HTTP/Nitro routes still
+  expose the primitive begin/syscall/finish API.
+
+Known limitations:
+
+- No exponential backoff or jitter yet.
+- No retry telemetry beyond returning `attempts`.
+- No integration with the generated Dynamic Worker runtime yet.
+- Read-your-own-writes overlay is still the next missing correctness piece for
+  reads inside a single open attempt.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- sessions.test.ts
+git diff --check
+```
+
 ## Documentation Synchronization Update
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

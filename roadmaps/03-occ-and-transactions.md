@@ -35,6 +35,47 @@ Verification:
 git diff --check
 ```
 
+## Invoke OCC Retry Coordinator
+
+Previous completed checkpoint: `3c81156` Document interactive invoke
+transactions.
+
+What changed:
+
+- Implemented a framework-neutral executor retry coordinator for full mutation
+  attempts.
+- A retry attempt creates a new invoke session and reruns the supplied attempt
+  callback from the beginning.
+- Commit-time document/table/index OCC errors are treated as retryable for
+  mutations.
+- Exhausting the retry budget now produces `InvokeRetryExhaustedError` instead
+  of leaking an arbitrary internal OCC error.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - retryable work must be attempt-local and unpublished until commit.
+- `crates/database/src/committer.rs`
+  - OCC conflict is detected during commit validation.
+- `crates/application/src/application_function_runner/mod.rs`
+  - the backend owns the function execution boundary.
+
+Flarex differences:
+
+- Flarex retry is currently exposed as executor-core API
+  `runInvokeWithRetries(...)`; the Dynamic Worker bridge still needs to use it
+  for hosted user code.
+- Aborted failed attempts remain as session metadata for now; retention cleanup
+  is handled by the existing stale-session maintenance path.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- sessions.test.ts
+git diff --check
+```
+
 ## Current Decision
 
 Normal `mutation` is single-shard. Inside one `PartitionDO`, Flarex should copy

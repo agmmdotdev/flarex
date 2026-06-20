@@ -11,6 +11,7 @@ import {
   runInvokeSessionMaintenance,
   runMaintenanceSweep,
 } from "./maintenance";
+import { runInvokeWithRetries } from "./retry";
 import {
   abortInvokeSession,
   abortStaleInvokeSessions,
@@ -39,6 +40,8 @@ export {
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
   InvokeQueryRequestError,
+  InvokeRetryExhaustedError,
+  InvokeRetryPolicyError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -93,6 +96,7 @@ export type {
   InvokeSyscallInput,
   InvokeSyscallRequest,
   InvokeSyscallResult,
+  InvokeAttemptContext,
   Json,
   ListMaintenanceDeploymentsInput,
   ListMaintenanceDeploymentsResult,
@@ -109,6 +113,8 @@ export type {
   PrepareInvokeResult,
   RegisterDeploymentPackageInput,
   RegisterDeploymentPackageResult,
+  RunInvokeWithRetriesInput,
+  RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
   SchemaTableMetadata,
   TablePlacement,
@@ -140,6 +146,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       listMaintenanceDeployments(persistence, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
+    runInvokeWithRetries: (input) =>
+      runInvokeWithRetries(persistence, clock, ids, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
