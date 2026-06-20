@@ -182,6 +182,77 @@ corepack pnpm --filter flarex-backend typecheck
 git diff --check
 ```
 
+## Materialized Artifact To Postgres Executor Integration
+
+Previous completed checkpoint: `3e705f4` Add postgres executor transport
+bridge.
+
+What changed:
+
+- Added an integration test where a local Miniflare execution artifact runs
+  real user-code handlers through the Postgres executor transport.
+- The test registers and activates a deployment package in
+  `@flarex/executor`, backed by PGlite persistence.
+- The materialized artifact calls:
+  - `/invoke/start`,
+  - `/invoke/syscall`,
+  - `/invoke/finish`.
+- The mutation handler uses `ctx.db.insert(...)`; the query handler uses the
+  Convex-style `ctx.db.query(...).withIndex(...).collect()` API.
+- The test verifies committed document writes and indexed query read-set
+  output from the trusted executor.
+
+Why it changed:
+
+The previous bridge proved the materialized runtime could call the Postgres
+route shape with a fake backend. This checkpoint proves the actual forward
+architecture works through real layers:
+
+```txt
+materialized execution artifact
+  -> restricted ctx.db syscall client
+  -> @flarex/executor-nitro HTTP adapter
+  -> @flarex/executor session/syscall/finish methods
+  -> @flarex/persistence-postgres PGlite transaction path
+```
+
+Convex references:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code talks to storage through syscalls, not direct database handles.
+- `crates/function_runner/src/lib.rs`
+  - function execution receives a backend-owned transaction context.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application execution combines active deployment metadata with executor
+    invocation.
+
+Flarex differences:
+
+- Convex runs the function runner near its database engine. Flarex's target
+  keeps the user-code runtime in Cloudflare and the trusted transaction
+  executor near Postgres.
+- This integration uses local Miniflare and PGlite. Production still needs the
+  hosted Dynamic Worker materializer and real Postgres lane.
+- Legacy DO execution remains available as the default compatibility transport;
+  this test explicitly selects `postgres`.
+
+Known limitations:
+
+- The local dev server still uses the legacy backend for push/artifact storage
+  and public invoke routing.
+- No executor authorization token is enforced between the materialized
+  artifact and the Postgres executor route yet.
+- The test covers mutation insert and indexed query, but not patch/delete,
+  actions, sync fanout, or retry-on-OCC-conflict behavior through user code.
+
+Verification:
+
+```sh
+corepack pnpm test:integration
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Partition Scope Runtime Update
 
 ## Required Partition Scope Update

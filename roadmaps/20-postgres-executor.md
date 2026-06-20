@@ -3483,6 +3483,60 @@ corepack pnpm test:integration
 git diff --check
 ```
 
+## Execution Artifact Integration Lane
+
+Previous completed checkpoint: `3e705f4` Add postgres executor transport
+bridge.
+
+What changed:
+
+- Added `integration/execution-artifact-postgres.integration.test.ts`.
+- The integration lane now has a real materialized user-code artifact calling
+  the Postgres executor over `/invoke/start`, `/invoke/syscall`, and
+  `/invoke/finish`.
+- The executor side is real `@flarex/executor` plus the Nitro HTTP adapter and
+  PGlite persistence.
+- The user-code side is the existing
+  `LocalMiniflareExecutionArtifactMaterializer` with `executorTransport:
+  "postgres"`.
+
+Why it changed:
+
+Raw syscall integration tests prove the executor protocol. This test proves
+the next architecture boundary: Convex-style user code can execute in a
+Cloudflare-shaped artifact while the trusted Postgres executor owns session
+state, read tracking, writes, OCC, and commit.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - backend-owned function runner and transaction context.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - syscall boundary between user code and storage.
+- `crates/database/src/transaction.rs`
+  - reads and writes accumulate before finish/commit.
+
+Flarex differences:
+
+- Flarex's user-code runtime and transaction executor are separated by an HTTP
+  transport boundary. Convex keeps this closer inside its backend runtime.
+- The test is PGlite/local only; real Postgres latency, locks, pool behavior,
+  and concurrency still need a separate correctness lane.
+
+Known limitations:
+
+- No live sync/outbox assertion is included.
+- No capability-token auth is enforced between the artifact and executor.
+- Local dev has not been switched to the Postgres executor by default.
+
+Verification:
+
+```sh
+corepack pnpm test:integration
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Mutation Commit Index Maintenance V1
 
 Previous completed checkpoint: `4096b2b` Add query table scan syscall.
