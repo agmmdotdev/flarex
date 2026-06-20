@@ -40,6 +40,8 @@ export {
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
 export {
+  DeploymentValidatorMetadataError,
+  InvokeSessionDocumentValidationError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,

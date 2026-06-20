@@ -7,9 +7,17 @@ import {
   getDocumentRevisionAtTs,
   insertDocumentRevision,
 } from "./documents";
-import { finishInvokeSessionMetadata } from "./invokeSessions";
+import { getDeploymentPackageMetadata } from "./deploymentPackages";
+import {
+  finishInvokeSessionMetadata,
+  getInvokeSessionMetadata,
+} from "./invokeSessions";
 import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
+import {
+  schemaTableValidatorsFromAnalysis,
+  validateDocumentValue,
+} from "./validation";
 
 export interface CommitInvokeSessionWritesInput {
   deploymentId: string;
@@ -30,6 +38,15 @@ export interface CommittedDocumentWriteRecord {
 export interface CommitInvokeSessionWritesResult {
   committedTs: number;
   writes: CommittedDocumentWriteRecord[];
+}
+
+interface PlannedDocumentWrite {
+  tableId: number;
+  id: string;
+  prevTs: number | null;
+  ts: number;
+  value: PersistenceJson | null;
+  deleted: boolean;
 }
 
 export class InvokeSessionUnsupportedStagedWriteError extends Error {
@@ -99,9 +116,11 @@ export async function commitInvokeSessionWrites(
     input.deploymentId,
     input.minimumTs,
   );
-  const committedWrites: CommittedDocumentWriteRecord[] = [];
 
   await validateDocumentReads(db, input, committedTs);
+
+  const tableValidators = await tableValidatorsForSession(db, input);
+  const plannedWrites: PlannedDocumentWrite[] = [];
 
   for (const write of stagedWrites) {
     if (write.op === "insert") {
@@ -118,19 +137,19 @@ export async function commitInvokeSessionWrites(
         );
       }
       const value = write.valueJson as PersistenceJson;
-      await insertDocumentRevision(db, {
-        deploymentId: input.deploymentId,
-        id: write.documentId,
-        ts: committedTs,
+      validateDocumentValue(
+        tableValidators,
+        write.tableId,
+        write.documentId,
         value,
-        prevTs: null,
-      });
-      committedWrites.push({
+      );
+      plannedWrites.push({
         tableId: write.tableId,
         id: write.documentId,
         prevTs: null,
         ts: committedTs,
         value,
+        deleted: false,
       });
       continue;
     }
@@ -167,19 +186,19 @@ export async function commitInvokeSessionWrites(
         ...current.value,
         ...write.valueJson,
       };
-      await insertDocumentRevision(db, {
-        deploymentId: input.deploymentId,
-        id: write.documentId,
-        ts: committedTs,
+      validateDocumentValue(
+        tableValidators,
+        write.tableId,
+        write.documentId,
         value,
-        prevTs: current.ts,
-      });
-      committedWrites.push({
+      );
+      plannedWrites.push({
         tableId: write.tableId,
         id: write.documentId,
         prevTs: current.ts,
         ts: committedTs,
         value,
+        deleted: false,
       });
       continue;
     }
@@ -198,26 +217,40 @@ export async function commitInvokeSessionWrites(
           "document does not exist",
         );
       }
-      await insertDocumentRevision(db, {
-        deploymentId: input.deploymentId,
-        id: write.documentId,
-        ts: committedTs,
-        value: null,
-        deleted: true,
-        prevTs: current.ts,
-      });
-      committedWrites.push({
+      plannedWrites.push({
         tableId: write.tableId,
         id: write.documentId,
         prevTs: current.ts,
         ts: committedTs,
         value: null,
+        deleted: true,
       });
       continue;
     }
 
     throw new InvokeSessionUnsupportedStagedWriteError(write.op);
   }
+
+  for (const write of plannedWrites) {
+    await insertDocumentRevision(db, {
+      deploymentId: input.deploymentId,
+      id: write.id,
+      ts: write.ts,
+      value: write.value,
+      deleted: write.deleted,
+      prevTs: write.prevTs,
+    });
+  }
+
+  const committedWrites = plannedWrites.map(
+    (write): CommittedDocumentWriteRecord => ({
+      tableId: write.tableId,
+      id: write.id,
+      prevTs: write.prevTs,
+      ts: write.ts,
+      value: write.value,
+    }),
+  );
 
   await db.insert(commits).values({
     deploymentId: input.deploymentId,
@@ -237,6 +270,25 @@ export async function commitInvokeSessionWrites(
     committedTs,
     writes: committedWrites,
   };
+}
+
+async function tableValidatorsForSession(
+  db: FlarexMetadataDatabase,
+  input: CommitInvokeSessionWritesInput,
+) {
+  const session = await getInvokeSessionMetadata(
+    db,
+    input.deploymentId,
+    input.sessionId,
+  );
+  if (session === null) return [];
+  const deploymentPackage = await getDeploymentPackageMetadata(
+    db,
+    input.deploymentId,
+    session.packageId,
+  );
+  if (deploymentPackage === null) return [];
+  return schemaTableValidatorsFromAnalysis(deploymentPackage.analysisJson);
 }
 
 function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {

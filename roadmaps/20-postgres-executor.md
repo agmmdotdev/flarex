@@ -3027,11 +3027,106 @@ Flarex differences:
 
 Known limitations:
 
-- No validator enforcement for insert/patch/delete writes yet.
+- Document validators are now enforced for insert/patch writes when package
+  analysis metadata is available.
 - No index maintenance or tombstone index cleanup.
 - No outbox/sync invalidation.
 - No cleanup of staged reads/writes after finish.
 - No real Postgres concurrency stress lane yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
+## Mutation Document Validator Enforcement
+
+Previous completed checkpoint: `6ec14de` Commit mutation delete writes.
+
+What changed:
+
+- Added a persistence-local validator module for serialized schema validator
+  metadata.
+- `commitInvokeSessionWrites(...)` now loads the invoke session package
+  analysis, extracts `analysisJson.schema.tables[].validator`, and validates
+  final document values before inserting revisions.
+- Validation applies to:
+  - `insert`: validates the inserted document value,
+  - `patch`: validates the merged final document, not only the patch object.
+- `delete` still validates the target/read state but does not validate a
+  document value because the committed revision is a tombstone.
+- Commit now builds a planned write set first, validates the final values, then
+  inserts document revisions and the commit row.
+- Added public errors:
+  - `InvokeSessionDocumentValidationError`,
+  - `DeploymentValidatorMetadataError`.
+- HTTP maps document validation failures as request/user data errors and
+  malformed deployment validator metadata as deployment-state conflicts.
+- The executor in-memory persistence test double now validates staged writes
+  using the same package analysis metadata when available.
+- Added PGlite tests for:
+  - valid schema-checked insert,
+  - invalid schema-checked insert rollback,
+  - valid schema-checked patch after final merge,
+  - invalid schema-checked patch rollback.
+
+Why it changed:
+
+Convex validates written documents against the active schema before transaction
+commit. After Flarex gained insert, patch, delete, and point-read OCC, the next
+correctness gap was allowing invalid table documents into authoritative
+storage. This slice moves validation into the trusted Postgres commit path,
+where it cannot be bypassed by user code running through the syscall boundary.
+
+Convex references:
+
+- `crates/common/src/schemas/validator.rs`
+  - schema validator metadata defines the backend validation contract.
+- `crates/database/src/bootstrap_model/import_facing.rs`
+  - documents are constructed and checked before validated writes are applied.
+- `crates/database/src/committer.rs`
+  - commit applies an already validated transaction write set.
+- `npm-packages/convex/src/server/schema.ts`
+  - developer-facing schema/table validators are the public API inspiration.
+
+Flarex references:
+
+- `packages/persistence-postgres/src/validation.ts`
+  - parses and enforces serialized validator metadata.
+- `packages/persistence-postgres/src/commits.ts`
+  - loads active package analysis and validates final planned writes before
+    inserting revisions.
+- `packages/executor/test/helpers/persistence.ts`
+  - mirrors validation in the in-memory executor test double.
+
+Flarex differences:
+
+- Convex uses its richer Rust validator/value model. Flarex currently supports
+  the serialized validator JSON already used by the Flarex analysis pipeline.
+- Low-level persistence tests may still create invoke sessions without package
+  metadata. In that corrupted/bootstrap state, validation is skipped. Real
+  executor-created sessions carry package metadata from deployment activation.
+- ID validation currently checks table id prefixes only when the referenced
+  table name exists in the analyzed schema.
+
+Known limitations:
+
+- Validator support is still JSON-only: `bigint` and `bytes` validators are
+  recognized but rejected because their transport encoding is not implemented.
+- No document size limit enforcement yet.
+- No placement validator in the Postgres commit path yet.
+- No index maintenance or outbox/sync invalidation.
+- Missing package metadata should become a hard commit error once all low-level
+  tests use realistic package/session setup.
 
 Verification:
 

@@ -5,6 +5,7 @@ import {
   DeploymentPackageMetadataAlreadyExistsError,
   InvokeSessionMetadataAlreadyExistsError,
   FlarexDocumentIdFormatError,
+  InvokeSessionDocumentValidationError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
@@ -791,6 +792,181 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("validates staged inserts against package schema before commit", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertValidatedPackageAndSession(persistence, {
+      deploymentId: "deployment_validate_insert",
+      sessionId: "session_validate",
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_validate_insert",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello", count: 1 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_validate_insert",
+        sessionId: "session_validate",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 100,
+      }),
+    ).resolves.toMatchObject({
+      committedTs: 101,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          value: { text: "hello", count: 1 },
+        },
+      ],
+    });
+  });
+
+  it("rejects staged inserts that fail package schema validation", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await insertValidatedPackageAndSession(persistence, {
+      deploymentId: "deployment_validate_bad_insert",
+      sessionId: "session_validate",
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_validate_bad_insert",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: 123, count: 1 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_validate_bad_insert",
+        sessionId: "session_validate",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 100,
+      }),
+    ).rejects.toThrow(InvokeSessionDocumentValidationError);
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_validate_bad_insert",
+        "1:message",
+        101,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_validate_bad_insert",
+        "session_validate",
+      ),
+    ).resolves.toMatchObject({ state: "active", finishedAt: null });
+  });
+
+  it("validates staged patches against the merged final document", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_validate_patch",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old", count: 1 },
+    });
+    await insertValidatedPackageAndSession(persistence, {
+      deploymentId: "deployment_validate_patch",
+      sessionId: "session_validate",
+      beginTs: 15,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_validate_patch",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_validate_patch",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { count: 2 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_validate_patch",
+        sessionId: "session_validate",
+        source: "invoke:messages:update",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).resolves.toMatchObject({
+      committedTs: 16,
+      writes: [{ id: "1:message", value: { text: "old", count: 2 } }],
+    });
+  });
+
+  it("rejects staged patches when the merged final document is invalid", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_validate_bad_patch",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old", count: 1 },
+    });
+    await insertValidatedPackageAndSession(persistence, {
+      deploymentId: "deployment_validate_bad_patch",
+      sessionId: "session_validate",
+      beginTs: 15,
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_validate_bad_patch",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_validate_bad_patch",
+      sessionId: "session_validate",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { count: "bad" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_validate_bad_patch",
+        sessionId: "session_validate",
+        source: "invoke:messages:update",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionDocumentValidationError);
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_validate_bad_patch",
+        "1:message",
+        16,
+      ),
+    ).resolves.toMatchObject({
+      ts: 10,
+      value: { text: "old", count: 1 },
+    });
+  });
+
   it("rolls back staged patch commits when the target is not an object", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -1223,3 +1399,66 @@ describe("createPGlitePersistence", () => {
     ).rejects.toThrow(InvokeSessionOccConflictError);
   });
 });
+
+type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
+
+async function insertValidatedPackageAndSession(
+  persistence: TestPersistence,
+  input: {
+    deploymentId: string;
+    sessionId: string;
+    beginTs?: number;
+  },
+): Promise<void> {
+  await persistence.insertDeploymentPackageMetadata({
+    deploymentId: input.deploymentId,
+    packageId: "package_validated",
+    sourcePackageHash: "a".repeat(64),
+    executionModule: "_flarex/execution.js",
+    sourcePackageJson: {
+      modules: [],
+      functions: [],
+      execution: "_flarex/execution.js",
+    },
+    analysisJson: {
+      schema: {
+        version: 1,
+        tables: [
+          {
+            tableId: 1,
+            name: "messages",
+            placement: { kind: "partitionBy", field: "_id" },
+            validator: {
+              type: "object",
+              value: {
+                text: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+                count: {
+                  fieldType: { type: "number" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        ],
+        indexes: [],
+      },
+    },
+  });
+  await persistence.insertInvokeSessionMetadata({
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    projectId: "project_validate",
+    packageId: "package_validated",
+    functionPath: "messages:send",
+    functionKind: "mutation",
+    partitionKey: "team:1",
+    scopeJson: { kind: "partition", partitionKey: "team:1" },
+    argsJson: { teamId: "team:1" },
+    beginTs: input.beginTs ?? 100,
+    schemaVersion: 1,
+    executionModule: "_flarex/execution.js",
+  });
+}

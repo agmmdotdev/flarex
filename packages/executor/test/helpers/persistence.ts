@@ -19,10 +19,12 @@ import {
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
   InvokeSessionUnsupportedStagedWriteError,
+  schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
   type UpdateDeploymentMetadataActivationInput,
+  validateDocumentValue,
 } from "@flarex/persistence-postgres";
 
 import type { FlarexExecutorPersistence } from "../../src";
@@ -262,6 +264,17 @@ export function memoryPersistence(
       const committedTs =
         Math.max(latestCommitTs, latestDocumentTs, input.minimumTs) + 1;
       const committedWrites: CommitInvokeSessionWritesResult["writes"] = [];
+      const commitSession = invokeSessions.get(
+        sessionKey(input.deploymentId, input.sessionId),
+      );
+      const deploymentPackage =
+        commitSession === undefined
+          ? undefined
+          : packages.get(packageKey(input.deploymentId, commitSession.packageId));
+      const tableValidators =
+        deploymentPackage === undefined
+          ? []
+          : schemaTableValidatorsFromAnalysis(deploymentPackage.analysisJson);
       for (const read of documentReads.values()) {
         if (
           read.deploymentId !== input.deploymentId ||
@@ -300,6 +313,12 @@ export function memoryPersistence(
             );
           }
           const value = write.valueJson as DocumentRevisionRecord["value"];
+          validateDocumentValue(
+            tableValidators,
+            write.tableId,
+            write.documentId,
+            value,
+          );
           committedDocuments.push({
             deploymentId: input.deploymentId,
             id: write.documentId,
@@ -349,6 +368,12 @@ export function memoryPersistence(
             );
           }
           const value = { ...current.value, ...write.valueJson };
+          validateDocumentValue(
+            tableValidators,
+            write.tableId,
+            write.documentId,
+            value,
+          );
           committedDocuments.push({
             deploymentId: input.deploymentId,
             id: write.documentId,

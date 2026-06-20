@@ -6,6 +6,7 @@ import {
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
   DeploymentSchemaMetadataUnavailableError,
+  DeploymentValidatorMetadataError,
   FlarexDocumentIdFormatError,
   FlarexInsertIdTableMismatchError,
   FunctionKindMismatchError,
@@ -16,6 +17,7 @@ import {
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
+  InvokeSessionDocumentValidationError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -554,6 +556,7 @@ function executorErrorBody(error: unknown): {
     error instanceof FlarexInsertIdTableMismatchError ||
     error instanceof InvokePatchNonObjectDocumentError ||
     error instanceof InvokePatchValueError ||
+    error instanceof InvokeSessionDocumentValidationError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
     error instanceof PartitionValidationError
@@ -564,6 +567,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentPackageNotActivatedError ||
     error instanceof DeploymentFunctionMetadataUnavailableError ||
     error instanceof DeploymentSchemaMetadataUnavailableError ||
+    error instanceof DeploymentValidatorMetadataError ||
     error instanceof InvokeSessionDeleteTargetError ||
     error instanceof InvokeSessionInsertConflictError ||
     error instanceof InvokeSessionOccConflictError ||
