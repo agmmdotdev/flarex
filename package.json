@@ -6,7 +6,8 @@
     "build": "pnpm -r build",
     "generate": "pnpm --filter @flarex/example generate",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:integration": "vitest run --config integration/vitest.config.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",

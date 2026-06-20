@@ -3207,6 +3207,85 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Nitro Invoke Integration Lane
+
+Previous completed checkpoint: `9e1a7b1` Extract Nitro adapter test helpers.
+
+What changed:
+
+- Added a separate root `integration/` test lane instead of putting real
+  route-to-persistence checks inside package unit tests.
+- Added `integration/vitest.config.ts` with source aliases for workspace
+  packages.
+- Added `integration/invoke.integration.test.ts`.
+- Added root script:
+  - `pnpm test:integration`
+- The integration test wires real components:
+  - `createPGlitePersistence()`,
+  - `createFlarexExecutor(...)`,
+  - `createFlarexNitroHandler(...)`.
+- The test drives real HTTP/Nitro routes:
+  - `POST /invoke/start`,
+  - `POST /invoke/syscall`,
+  - `POST /invoke/finish`.
+- Covered real mutation syscall flows:
+  - insert commits a document revision,
+  - patch reads the committed insert from a later snapshot and commits a merged
+    revision,
+  - delete reads the committed patch from a later snapshot and commits a
+    tombstone,
+  - invalid insert value fails document validator enforcement before commit.
+
+Why it changed:
+
+Adapter unit tests intentionally use fakes to prove route parsing and error
+mapping. The platform still needs a real integration lane where the HTTP/Nitro
+adapter, executor core, PGlite persistence, invoke sessions, OCC snapshots, and
+document validators run together. Keeping this under `integration/` preserves
+the rule that package test files remain unit-focused.
+
+Convex references:
+
+- `crates/local_backend`
+  - local backend tests exercise API boundaries against real backend behavior.
+- `crates/application`
+  - application API tests sit above lower-level database tests.
+- `crates/database/src/committer.rs`
+  - commit behavior remains the correctness boundary validated indirectly by
+    route-level mutation flows.
+
+Flarex references:
+
+- `integration/invoke.integration.test.ts`
+  - real Nitro invoke route-to-PGlite coverage.
+- `integration/vitest.config.ts`
+  - integration-only Vitest configuration and workspace source aliases.
+- `packages/executor-nitro/test/health.test.ts`
+  - remains unit-style adapter coverage with fakes.
+
+Flarex differences:
+
+- This is not full user-code execution. It tests the backend syscall protocol
+  directly over HTTP/Nitro routes.
+- PGlite is the local reduced integration lane. Real PostgreSQL concurrency and
+  advisory-lock behavior still need a separate production-grade lane.
+
+Known limitations:
+
+- No dynamic worker/user bundle execution is covered.
+- No query syscall or live `/sync` coverage is included.
+- No index maintenance or outbox/sync invalidation is covered.
+- The integration test uses source aliases instead of installed package
+  artifacts.
+
+Verification:
+
+```sh
+corepack pnpm test:integration
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
