@@ -9,6 +9,7 @@ import {
   createPostgresFreshnessDeliveryHandler,
   createPostgresFreshnessMirrorStore,
   FreshnessOutboxEventShapeError,
+  readSetToFreshnessReadSet,
 } from "../src";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 
@@ -304,6 +305,87 @@ describe("freshness outbox projector", () => {
     ).resolves.toEqual({
       status: "fresh",
       stale: [],
+      unsupported: [],
+    });
+  });
+
+  it("converts executor-shaped read sets into freshness read sets", () => {
+    expect(
+      readSetToFreshnessReadSet(
+        {
+          documents: [
+            { tableId: 1, id: "1:message" },
+            { tableId: 1, id: "1:missing", observedTs: null },
+            { tableId: 1, id: "1:old", observedTs: 7 },
+          ],
+          tables: [{ tableId: 1 }, { tableId: 2, observedTs: 8 }],
+          indexes: [
+            { indexId: 1, lower: "a", upper: "m" },
+            { indexId: 2, observedTs: 9 },
+          ],
+        },
+        10,
+      ),
+    ).toEqual({
+      documents: [
+        { tableId: 1, id: "1:message", observedTs: 10 },
+        { tableId: 1, id: "1:missing", observedTs: null },
+        { tableId: 1, id: "1:old", observedTs: 7 },
+      ],
+      tables: [
+        { tableId: 1, observedTs: 10 },
+        { tableId: 2, observedTs: 8 },
+      ],
+      indexes: [
+        { indexId: 1, observedTs: 10, lower: "a", upper: "m" },
+        { indexId: 2, observedTs: 9 },
+      ],
+    });
+  });
+
+  it("checks converted executor read sets against freshness", async () => {
+    const store = createMemoryFreshnessMirrorStore();
+    await applyOutboxEventsToFreshnessMirror({
+      store,
+      events: [
+        commitOutboxEvent({
+          deploymentId: "deployment_converted_readset",
+          ts: 20,
+          commitTs: 20,
+          tableIds: [1],
+          documentIds: ["1:message"],
+        }),
+      ],
+    });
+
+    await expect(
+      checkReadSetFreshness({
+        store,
+        deploymentId: "deployment_converted_readset",
+        readSet: readSetToFreshnessReadSet(
+          {
+            documents: [{ tableId: 1, id: "1:message" }],
+            tables: [{ tableId: 1 }],
+          },
+          10,
+        ),
+      }),
+    ).resolves.toEqual({
+      status: "stale",
+      stale: [
+        {
+          kind: "document",
+          id: "1:message",
+          observedTs: 10,
+          version: 20,
+        },
+        {
+          kind: "table",
+          id: "1",
+          observedTs: 10,
+          version: 20,
+        },
+      ],
       unsupported: [],
     });
   });

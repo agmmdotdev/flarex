@@ -244,6 +244,55 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Executor Read-Set Freshness Adapter
+
+Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.
+
+What changed:
+
+- Added `readSetToFreshnessReadSet(...)` in `@flarex/freshness`.
+- The adapter converts the executor's `InvokeReadSet` shape into
+  `FreshnessReadSet` by applying the query session `beginTs` as the default
+  observed timestamp.
+- If a future/internal read-set entry already includes `observedTs`, the helper
+  keeps that value instead of overwriting it.
+
+Why it changed:
+
+Executor query sessions collect reads while user code runs through syscalls.
+The freshness checker needs timestamps to decide whether a saved query is
+stale. This helper bridges those two shapes without making the executor package
+depend on the freshness package in production.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - query read dependencies are stored with subscription state.
+- `crates/database/src/transaction.rs`
+  - transaction read tracking keeps the timestamp semantics inside the backend.
+
+Flarex differences:
+
+- Convex does not need a public conversion helper because its database,
+  transaction, and sync layers live together. Flarex keeps them package-separated
+  so the bridge is explicit.
+
+Known limitations:
+
+- Finished executor query responses still expose the timestamp-free
+  `InvokeReadSet`; a durable live-query registry must store `beginTs` alongside
+  it or use richer internal read rows.
+- Index/range read dependencies are converted but remain unsupported by
+  freshness validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

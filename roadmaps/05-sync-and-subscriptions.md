@@ -84,6 +84,58 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Executor Read-Set Freshness Adapter
+
+Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.
+
+What changed:
+
+- Added `readSetToFreshnessReadSet(...)` in `@flarex/freshness`.
+- The adapter accepts executor-shaped read sets and applies a session snapshot
+  timestamp as the default `observedTs`.
+- If a richer internal read already has `observedTs`, the adapter preserves it.
+- Index/range reads are carried through with timestamps, but still evaluate as
+  `unsupported` until range freshness exists.
+
+Why it matters for sync:
+
+The executor can already return query read sets. The freshness checker requires
+timestamps. This adapter gives the future live-query registry a simple bridge:
+
+```txt
+finished query readSet + query beginTs
+  -> freshness readSet
+  -> checkReadSetFreshness(...)
+```
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - read dependencies are stored with the query/subscription.
+- `crates/sync/src/worker.rs`
+  - stale queries are rerun from their stored dependency state.
+
+Flarex differences:
+
+- Convex keeps the read dependency and timestamp metadata inside the backend
+  transaction/subscription machinery. Flarex exposes a small adapter because
+  the executor and Cloudflare sync/cache layers are separate packages.
+
+Known limitations:
+
+- This is only a conversion helper; no live-query registry consumes it yet.
+- Public executor read sets currently do not expose per-document `observedTs`,
+  so callers using that shape should pass the query `beginTs`.
+- Index/range freshness still returns `unsupported`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Reusable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

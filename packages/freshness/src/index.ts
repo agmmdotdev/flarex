@@ -105,6 +105,24 @@ export interface FreshnessReadSet {
   }>;
 }
 
+export interface FreshnessSourceReadSet {
+  documents?: Array<{
+    tableId: number;
+    id: string;
+    observedTs?: number | null;
+  }>;
+  tables?: Array<{
+    tableId: number;
+    observedTs?: number;
+  }>;
+  indexes?: Array<{
+    indexId: number;
+    observedTs?: number;
+    lower?: string;
+    upper?: string;
+  }>;
+}
+
 export type ReadSetFreshnessStatus = "fresh" | "stale" | "unsupported";
 
 export interface ReadSetFreshnessStaleDependency {
@@ -325,6 +343,41 @@ export function createPostgresFreshnessDeliveryHandler(
   );
 }
 
+export function readSetToFreshnessReadSet(
+  readSet: FreshnessSourceReadSet,
+  observedTs: number,
+): FreshnessReadSet {
+  return {
+    ...(readSet.documents === undefined
+      ? {}
+      : {
+          documents: readSet.documents.map((read) => ({
+            tableId: read.tableId,
+            id: read.id,
+            observedTs: optionalObservedTimestamp(read.observedTs, observedTs),
+          })),
+        }),
+    ...(readSet.tables === undefined
+      ? {}
+      : {
+          tables: readSet.tables.map((read) => ({
+            tableId: read.tableId,
+            observedTs: read.observedTs ?? observedTs,
+          })),
+        }),
+    ...(readSet.indexes === undefined
+      ? {}
+      : {
+          indexes: readSet.indexes.map((read) => ({
+            indexId: read.indexId,
+            observedTs: read.observedTs ?? observedTs,
+            ...(read.lower === undefined ? {} : { lower: read.lower }),
+            ...(read.upper === undefined ? {} : { upper: read.upper }),
+          })),
+        }),
+  };
+}
+
 export async function checkReadSetFreshness(
   input: CheckReadSetFreshnessInput,
 ): Promise<CheckReadSetFreshnessResult> {
@@ -439,4 +492,11 @@ function freshnessEventKey(input: FreshnessOutboxEventKey): string {
 
 function isStale(observedTs: number | null, version: number): boolean {
   return observedTs === null || version > observedTs;
+}
+
+function optionalObservedTimestamp(
+  observedTs: number | null | undefined,
+  fallback: number,
+): number | null {
+  return observedTs === undefined ? fallback : observedTs;
 }

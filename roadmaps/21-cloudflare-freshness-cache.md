@@ -298,6 +298,59 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Executor Read-Set Freshness Adapter
+
+Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.
+
+What changed:
+
+- Added `readSetToFreshnessReadSet(...)` to `@flarex/freshness`.
+- The adapter turns executor-shaped read dependencies into freshness read
+  dependencies by attaching a default observed timestamp.
+- It preserves per-read `observedTs` when present, including `null` for
+  missing-document reads.
+- Added tests proving conversion and freshness checking of converted read sets.
+
+Cache impact:
+
+Cloudflare cache/live-query code can now store this compact state for a query:
+
+```txt
+function path + args + result + readSet + beginTs
+```
+
+Then it can convert the read set and ask the freshness mirror whether the saved
+result is still usable. This is still a validity check only; cache code must
+rerun user queries before publishing stale results.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - read dependencies drive invalidation.
+- `crates/sync/src/worker.rs`
+  - invalidated queries are rerun before client transitions are published.
+
+Flarex differences:
+
+- Convex stores read dependency freshness inside one backend. Flarex exposes a
+  conversion helper because Cloudflare cache/fanout code will consume executor
+  output across package/runtime boundaries.
+
+Known limitations:
+
+- No `QueryCacheDO`, scheduler, or `ConnectionDO` consumes the helper yet.
+- Index/range reads still convert to an unsupported freshness dependency.
+- Public executor read sets need the query `beginTs` attached by the future
+  live-query registry.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.
