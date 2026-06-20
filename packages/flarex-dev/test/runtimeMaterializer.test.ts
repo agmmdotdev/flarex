@@ -260,6 +260,99 @@ describe("runtime materializer", () => {
       { value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }] },
     ]);
   });
+
+  it("can target Postgres executor invoke routes from materialized artifacts", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-index",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-index",
+            function: { path: "messages:list", kind: "query" },
+            beginTs: 1,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "1:lesson" },
+            executionModule: "_flarex/execution.js",
+          });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({
+            value: {
+              page: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+              isDone: true,
+              continueCursor: "cursor-index",
+            },
+            readSet: { indexes: [{ indexId: 1 }] },
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({
+            value: (body as { value: unknown }).value,
+            readSet: { indexes: [{ indexId: 1 }] },
+          });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = indexedQueryPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+        readSet: { indexes: [{ indexId: 1 }] },
+      });
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-index",
+          projectId: "project-index",
+          path: "messages:list",
+          args: { lessonId: "1:lesson" },
+          kind: "query",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-index",
+          projectId: "project-index",
+          sessionId: "session-index",
+          op: "query",
+          request: {
+            table: "messages",
+            index: "by_lesson_text",
+            range: {
+              expressions: [
+                { op: "eq", field: "lessonId", value: "1:lesson" },
+                { op: "eq", field: "text", value: "hello" },
+              ],
+            },
+            limit: 2,
+          },
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-index",
+          projectId: "project-index",
+          sessionId: "session-index",
+          value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+        },
+      },
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {

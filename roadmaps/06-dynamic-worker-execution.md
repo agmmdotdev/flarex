@@ -111,6 +111,77 @@ analysis, candidate push, and activation lifecycle.
 - Index reads through the wrapper do not yet overlay staged writes.
 - Cross-shard calls remain intentionally out of scope for normal mutations.
 
+## Postgres Executor Transport Bridge
+
+Previous completed checkpoint: `6c7c80a` Harden generated indexed query API.
+
+What changed:
+
+- Generated execution Workers now support an explicit executor transport:
+  - `legacy` keeps the existing `/deployments/:id/executions/*` route shape.
+  - `postgres` calls the new trusted executor routes:
+    `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
+- The generated Worker accepts `FLAREX_EXECUTOR_TRANSPORT`,
+  `x-flarex-executor-transport`, `FLAREX_PROJECT_ID`, `x-flarex-project`, and
+  `projectId` for the Postgres executor route.
+- The local Miniflare execution-artifact materializer has the same transport
+  bindings so dev/runtime tests can execute the hosted-shape contract.
+- Postgres syscall responses are unwrapped from `{ value, readSet? }` before
+  being returned to user `ctx.db` helpers.
+- Postgres start responses can return the function kind as
+  `function.kind`; legacy start responses can still return top-level `kind`.
+- The legacy transport remains the default until the public backend path is
+  fully migrated off the Durable Object execution session prototype.
+
+Why it changed:
+
+The Postgres executor now owns the forward authoritative transaction protocol,
+but generated/materialized user-code artifacts still spoke only to the older
+Cloudflare Durable Object execution-session routes. This bridge lets the same
+restricted `ctx.db` user-code runtime target the new executor without changing
+developer function code.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - user function execution talks to a backend-owned transaction context.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - isolate code reaches storage through a syscall boundary.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application execution resolves deployment/function metadata before running
+    user code.
+
+Flarex differences:
+
+- Convex's runner and database transaction engine are inside the same backend
+  system. Flarex runs user code in a managed Cloudflare runtime and calls a
+  trusted executor over a transport boundary.
+- The legacy DO route remains as a compatibility/default path while the
+  Postgres executor matures. The Postgres route requires `projectId` because
+  the new executor is explicitly multitenant at the platform/project level.
+- The Postgres executor currently has no abort endpoint; failed user-code
+  executions skip abort on that transport.
+
+Known limitations:
+
+- This is an opt-in transport bridge, not a full migration of backend public
+  invoke to the Postgres executor.
+- Runtime authorization between Cloudflare execution artifacts and the trusted
+  Postgres executor still needs a capability-token design.
+- The generated public `/invoke` path still exists; hosted Flarex should route
+  real platform invocations through managed execution artifacts.
+- The Postgres executor must still gain live sync/outbox integration before it
+  replaces the DO prototype end to end.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Partition Scope Runtime Update
 
 ## Required Partition Scope Update

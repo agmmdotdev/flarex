@@ -10,17 +10,23 @@ export type RuntimeBackendDispatcher = (request: Request) => Response | Promise<
 
 export type LocalMiniflareExecutionArtifactMaterializerOptions = {
   backend: RuntimeBackendDispatcher;
+  executorTransport?: "legacy" | "postgres";
+  projectId?: string;
   internalToken?: string;
   compatibilityDate?: string;
 };
 
 export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArtifactMaterializer {
   private readonly backend: RuntimeBackendDispatcher;
+  private readonly executorTransport: "legacy" | "postgres" | undefined;
+  private readonly projectId: string | undefined;
   private readonly internalToken: string | undefined;
   private readonly compatibilityDate: string;
 
   constructor(options: LocalMiniflareExecutionArtifactMaterializerOptions) {
     this.backend = options.backend;
+    this.executorTransport = options.executorTransport;
+    this.projectId = options.projectId;
     this.internalToken = options.internalToken;
     this.compatibilityDate = options.compatibilityDate ?? "2026-06-14";
   }
@@ -47,9 +53,13 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
         }),
       ],
       compatibilityDate: this.compatibilityDate,
-      ...(this.internalToken === undefined
-        ? {}
-        : { bindings: { FLAREX_INTERNAL_TOKEN: this.internalToken } }),
+      bindings: {
+        ...(this.executorTransport === undefined
+          ? {}
+          : { FLAREX_EXECUTOR_TRANSPORT: this.executorTransport }),
+        ...(this.projectId === undefined ? {} : { FLAREX_PROJECT_ID: this.projectId }),
+        ...(this.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: this.internalToken }),
+      },
       serviceBindings: {
         FLAREX_BACKEND: async (request: Request) => this.backend(request),
       },
@@ -141,28 +151,115 @@ async function invokeWithBackend(body, env, request) {
   }
   const deploymentId = request.headers.get("x-flarex-deployment") ?? body.deploymentId;
   if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
+  const transport = executorTransport(request, env);
+  const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
 
-  const start = await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/start\`, {
+  const start = await startExecution(env.FLAREX_BACKEND, {
+    transport,
+    deploymentId,
+    projectId,
     path: body.path,
     args: body.args ?? null,
     kind,
-    ...(partitionKey === undefined ? {} : { partitionKey }),
-    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+    partitionKey,
+    idempotencyKey: body.idempotencyKey,
   });
+  const startedKind = executionKind(start);
   try {
     const handler = handlerFor(fn);
-    const db = databaseForSession(env.FLAREX_BACKEND, deploymentId, start.sessionId, start.kind);
+    const db = databaseForSession(
+      env.FLAREX_BACKEND,
+      deploymentId,
+      start.sessionId,
+      startedKind,
+      transport,
+      projectId,
+    );
     const value = await handler({ db }, body.args ?? null);
-    return await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/finish\`, {
+    return await finishExecution(env.FLAREX_BACKEND, {
+      transport,
+      deploymentId,
+      projectId,
+      sessionId: start.sessionId,
       value,
     });
   } catch (error) {
-    await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/abort\`, {}).catch(
-      () => undefined,
-    );
+    await abortExecution(env.FLAREX_BACKEND, {
+      transport,
+      deploymentId,
+      sessionId: start.sessionId,
+    });
     throw error;
   }
+}
+
+function executorTransport(request, env) {
+  const transport =
+    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
+  if (transport === "legacy" || transport === "postgres") return transport;
+  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
+}
+
+function projectIdForTransport(transport, body, env, request) {
+  if (transport === "legacy") return undefined;
+  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
+  }
+  return projectId;
+}
+
+async function startExecution(backend, input) {
+  if (input.transport === "postgres") {
+    return await postBackend(backend, "/invoke/start", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    });
+  }
+  return await postBackend(backend, \`/deployments/\${input.deploymentId}/executions/start\`, {
+    path: input.path,
+    args: input.args,
+    kind: input.kind,
+    ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+  });
+}
+
+function executionKind(start) {
+  const kind = start.kind ?? start.function?.kind;
+  if (kind === "query" || kind === "mutation") return kind;
+  throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+async function finishExecution(backend, input) {
+  if (input.transport === "postgres") {
+    return await postBackend(backend, "/invoke/finish", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      value: input.value,
+    });
+  }
+  return await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
+    { value: input.value },
+  );
+}
+
+async function abortExecution(backend, input) {
+  if (input.transport === "postgres") return;
+  await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
+    {},
+  ).catch(() => undefined);
 }
 
 async function resolveFunction(path) {
@@ -196,9 +293,19 @@ function handlerFor(value) {
   throw new Error("Flarex function handler is not executable.");
 }
 
-function databaseForSession(backend, deploymentId, sessionId, kind) {
-  const syscall = (body) =>
-    postBackend(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
+function databaseForSession(backend, deploymentId, sessionId, kind, transport, projectId) {
+  const syscall = async (body) => {
+    if (transport === "postgres") {
+      const response = await postBackend(backend, "/invoke/syscall", {
+        deploymentId,
+        projectId,
+        sessionId,
+        ...body,
+      });
+      return response.value;
+    }
+    return await postBackend(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
+  };
   const query = (queryRequest) =>
     syscall({ op: "query", request: queryRequest });
   return {

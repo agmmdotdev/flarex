@@ -86,6 +86,12 @@ export const helper = "not a function";
     expect(worker).not.toContain("validateFunctionArgs(fn.args");
     expect(worker).toContain('url.pathname === "/invoke"');
     expect(worker).toContain('url.pathname === "/__flarex_internal/invoke"');
+    expect(worker).toContain("FLAREX_PROJECT_ID");
+    expect(worker).toContain("FLAREX_EXECUTOR_TRANSPORT");
+    expect(worker).toContain('"/invoke/start"');
+    expect(worker).toContain('"/invoke/syscall"');
+    expect(worker).toContain('"/invoke/finish"');
+    expect(worker).toContain("x-flarex-project");
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });
 
@@ -297,7 +303,7 @@ export const create = mutation({
     expect(functionMetadata).toContain('"table": "users"');
     expect(api).toContain('"users:create": {');
     expect(api).toContain('"type": "partitionCreateRoot"');
-    expect(worker).toContain('...(partitionKey === undefined ? {} : { partitionKey })');
+    expect(worker).toContain('...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey })');
     expect(worker).not.toContain("A partitionKey or x-flarex-partition header is required.");
   });
 

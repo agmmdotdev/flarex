@@ -290,6 +290,7 @@ export type InvokeRequest = {
   path: string;
   args: Json;
   partitionKey?: string;
+  projectId?: string;
   kind?: BackendFunctionKind;
   idempotencyKey?: string;
 };

@@ -412,6 +412,8 @@ export interface Env {
   CONNECTIONS: DurableObjectNamespace<ConnectionDO>;
   FLAREX_BACKEND: Fetcher;
   FLAREX_DEPLOYMENT_ID?: string;
+  FLAREX_PROJECT_ID?: string;
+  FLAREX_EXECUTOR_TRANSPORT?: string;
   FLAREX_INTERNAL_TOKEN?: string;
 }
 
@@ -457,12 +459,16 @@ type InvokeBody = {
   args: unknown;
   partitionKey?: string;
   deploymentId?: string;
+  projectId?: string;
   idempotencyKey?: string;
 };
 
+type ExecutorTransport = "legacy" | "postgres";
+
 type ExecutionStartResponse = {
   sessionId: string;
-  kind: "query" | "mutation";
+  kind?: "query" | "mutation";
+  function?: { kind: "query" | "mutation" };
 };
 
 async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): Promise<unknown> {
@@ -478,32 +484,152 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
   const deploymentId =
     request.headers.get("x-flarex-deployment") ?? body.deploymentId ?? env.FLAREX_DEPLOYMENT_ID;
   if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
+  const transport = executorTransport(request, env);
+  const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
 
-  const start = await postBackend<ExecutionStartResponse>(
-    env.FLAREX_BACKEND,
-    \`/deployments/\${deploymentId}/executions/start\`,
-    {
-      path: body.path,
-      args: body.args,
-      kind: metadata.kind,
-      ...(partitionKey === undefined ? {} : { partitionKey }),
-      ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-    },
-  );
+  const start = await startExecution(env.FLAREX_BACKEND, {
+    transport,
+    deploymentId,
+    projectId,
+    path: body.path,
+    args: body.args,
+    kind: metadata.kind,
+    partitionKey,
+    idempotencyKey: body.idempotencyKey,
+  });
+  const startedKind = executionKind(start);
   try {
-    const db = databaseForSession(env.FLAREX_BACKEND, deploymentId, start.sessionId, start.kind);
+    const db = databaseForSession(
+      env.FLAREX_BACKEND,
+      deploymentId,
+      start.sessionId,
+      startedKind,
+      transport,
+      projectId,
+    );
     const value = await fn._handler({ db } as never, body.args as never);
     validateFunctionReturn(metadata.returns, value);
-    return await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/finish\`, {
+    return await finishExecution(env.FLAREX_BACKEND, {
+      transport,
+      deploymentId,
+      projectId,
+      sessionId: start.sessionId,
       value,
     });
   } catch (error) {
-    await postBackend(env.FLAREX_BACKEND, \`/deployments/\${deploymentId}/executions/\${start.sessionId}/abort\`, {}).catch(
-      () => undefined,
-    );
+    await abortExecution(env.FLAREX_BACKEND, {
+      transport,
+      deploymentId,
+      sessionId: start.sessionId,
+    });
     throw error;
   }
+}
+
+function executorTransport(request: Request, env: Env): ExecutorTransport {
+  const transport =
+    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
+  if (transport === "legacy" || transport === "postgres") return transport;
+  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
+}
+
+function projectIdForTransport(
+  transport: ExecutorTransport,
+  body: InvokeBody,
+  env: Env,
+  request: Request,
+): string | undefined {
+  if (transport === "legacy") return undefined;
+  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
+  }
+  return projectId;
+}
+
+async function startExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    projectId?: string;
+    path: string;
+    args: unknown;
+    kind: "query" | "mutation";
+    partitionKey?: string;
+    idempotencyKey?: string;
+  },
+): Promise<ExecutionStartResponse> {
+  if (input.transport === "postgres") {
+    return await postBackend<ExecutionStartResponse>(backend, "/invoke/start", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    });
+  }
+  return await postBackend<ExecutionStartResponse>(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/start\`,
+    {
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    },
+  );
+}
+
+function executionKind(start: ExecutionStartResponse): "query" | "mutation" {
+  const kind = start.kind ?? start.function?.kind;
+  if (kind === "query" || kind === "mutation") return kind;
+  throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+async function finishExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    projectId?: string;
+    sessionId: string;
+    value: unknown;
+  },
+): Promise<unknown> {
+  if (input.transport === "postgres") {
+    return await postBackend(backend, "/invoke/finish", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      value: input.value,
+    });
+  }
+  return await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
+    { value: input.value },
+  );
+}
+
+async function abortExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    sessionId: string;
+  },
+): Promise<void> {
+  if (input.transport === "postgres") return;
+  await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
+    {},
+  ).catch(() => undefined);
 }
 
 function databaseForSession(
@@ -511,9 +637,25 @@ function databaseForSession(
   deploymentId: string,
   sessionId: string,
   kind: "query" | "mutation",
+  transport: ExecutorTransport,
+  projectId?: string,
 ): DatabaseWriter {
-  const syscall = (body: unknown) =>
-    postBackend<unknown>(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
+  const syscall = async (body: Record<string, unknown>) => {
+    if (transport === "postgres") {
+      const response = await postBackend<{ value: unknown }>(backend, "/invoke/syscall", {
+        deploymentId,
+        projectId,
+        sessionId,
+        ...body,
+      });
+      return response.value;
+    }
+    return await postBackend<unknown>(
+      backend,
+      \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`,
+      body,
+    );
+  };
   const query = (request: DatabaseQueryRequest) =>
     syscall({ op: "query", request }) as Promise<DatabaseQueryResult>;
   return {
