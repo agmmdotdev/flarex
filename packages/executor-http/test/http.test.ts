@@ -245,6 +245,59 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("requires the configured capability token for invoke routes", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      capabilityToken: "executor-secret",
+      executor: fakeExecutor({
+        async beginInvokeSession(input) {
+          called = true;
+          return beginInvokeSessionResult({
+            sessionId: "session_authorized",
+            beginTs: 1781913600123,
+            path: input.path,
+            kind: input.kind ?? "query",
+            schemaVersion: 12,
+            executionModule: "_flarex/execution.js",
+          });
+        },
+      }),
+    });
+
+    const unauthorized = await app.handle(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+      }),
+    );
+    expect(called).toBe(false);
+    expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toEqual({
+      error: "unauthorized",
+      message: "Unauthorized Flarex executor request.",
+    });
+
+    const authorized = await app.handle(
+      jsonRequest(
+        "https://executor.test/invoke/start",
+        {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          path: "messages:list",
+          kind: "query",
+          args: { teamId: "team:1" },
+          partitionKey: "team:1",
+        },
+        { authorization: "Bearer executor-secret" },
+      ),
+    );
+    expect(authorized.status).toBe(200);
+  });
+
   it("validates invoke start idempotency keys before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -770,10 +823,14 @@ function preparedInvokeResult(input: {
   };
 }
 
-function jsonRequest(url: string, body: unknown): Request {
+function jsonRequest(
+  url: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Request {
   return new Request(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }

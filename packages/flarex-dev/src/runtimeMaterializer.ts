@@ -12,6 +12,7 @@ export type LocalMiniflareExecutionArtifactMaterializerOptions = {
   backend: RuntimeBackendDispatcher;
   executorTransport?: "legacy" | "postgres";
   projectId?: string;
+  executorToken?: string;
   internalToken?: string;
   compatibilityDate?: string;
 };
@@ -20,6 +21,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
   private readonly backend: RuntimeBackendDispatcher;
   private readonly executorTransport: "legacy" | "postgres" | undefined;
   private readonly projectId: string | undefined;
+  private readonly executorToken: string | undefined;
   private readonly internalToken: string | undefined;
   private readonly compatibilityDate: string;
 
@@ -27,6 +29,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
     this.backend = options.backend;
     this.executorTransport = options.executorTransport;
     this.projectId = options.projectId;
+    this.executorToken = options.executorToken;
     this.internalToken = options.internalToken;
     this.compatibilityDate = options.compatibilityDate ?? "2026-06-14";
   }
@@ -58,6 +61,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
           ? {}
           : { FLAREX_EXECUTOR_TRANSPORT: this.executorTransport }),
         ...(this.projectId === undefined ? {} : { FLAREX_PROJECT_ID: this.projectId }),
+        ...(this.executorToken === undefined ? {} : { FLAREX_EXECUTOR_TOKEN: this.executorToken }),
         ...(this.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: this.internalToken }),
       },
       serviceBindings: {
@@ -159,6 +163,7 @@ async function invokeWithBackend(body, env, request) {
     transport,
     deploymentId,
     projectId,
+    executorToken: env.FLAREX_EXECUTOR_TOKEN,
     path: body.path,
     args: body.args ?? null,
     kind,
@@ -175,12 +180,14 @@ async function invokeWithBackend(body, env, request) {
       startedKind,
       transport,
       projectId,
+      env.FLAREX_EXECUTOR_TOKEN,
     );
     const value = await handler({ db }, body.args ?? null);
     return await finishExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
       projectId,
+      executorToken: env.FLAREX_EXECUTOR_TOKEN,
       sessionId: start.sessionId,
       value,
     });
@@ -220,7 +227,7 @@ async function startExecution(backend, input) {
       kind: input.kind,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-    });
+    }, executorHeaders(input.executorToken));
   }
   return await postBackend(backend, \`/deployments/\${input.deploymentId}/executions/start\`, {
     path: input.path,
@@ -244,7 +251,7 @@ async function finishExecution(backend, input) {
       projectId: input.projectId,
       sessionId: input.sessionId,
       value: input.value,
-    });
+    }, executorHeaders(input.executorToken));
   }
   return await postBackend(
     backend,
@@ -293,7 +300,7 @@ function handlerFor(value) {
   throw new Error("Flarex function handler is not executable.");
 }
 
-function databaseForSession(backend, deploymentId, sessionId, kind, transport, projectId) {
+function databaseForSession(backend, deploymentId, sessionId, kind, transport, projectId, executorToken) {
   const syscall = async (body) => {
     if (transport === "postgres") {
       const response = await postBackend(backend, "/invoke/syscall", {
@@ -301,7 +308,7 @@ function databaseForSession(backend, deploymentId, sessionId, kind, transport, p
         projectId,
         sessionId,
         ...body,
-      });
+      }, executorHeaders(executorToken));
       return response.value;
     }
     return await postBackend(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
@@ -369,10 +376,14 @@ function rangeBuilder(expressions = []) {
   };
 }
 
-async function postBackend(backend, path, body) {
+function executorHeaders(executorToken) {
+  return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
+}
+
+async function postBackend(backend, path, body, headers = {}) {
   const response = await backend.fetch(\`https://flarex-backend.internal\${path}\`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const value = await response.json().catch(() => null);

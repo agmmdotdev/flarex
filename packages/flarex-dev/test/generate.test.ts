@@ -88,6 +88,7 @@ export const helper = "not a function";
     expect(worker).toContain('url.pathname === "/__flarex_internal/invoke"');
     expect(worker).toContain("FLAREX_PROJECT_ID");
     expect(worker).toContain("FLAREX_EXECUTOR_TRANSPORT");
+    expect(worker).toContain("FLAREX_EXECUTOR_TOKEN");
     expect(worker).toContain('"/invoke/start"');
     expect(worker).toContain('"/invoke/syscall"');
     expect(worker).toContain('"/invoke/finish"');

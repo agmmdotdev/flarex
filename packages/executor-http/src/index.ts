@@ -45,6 +45,7 @@ import {
 
 export interface FlarexHttpAppConfig {
   executor: FlarexExecutor;
+  capabilityToken?: string;
   healthPath?: string;
   invokePreparePath?: string;
   invokeStartPath?: string;
@@ -67,20 +68,21 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeFinishPath = normalizePath(
     config.invokeFinishPath ?? "/invoke/finish",
   );
+  const capabilityToken = config.capabilityToken;
 
   return new Elysia()
     .get(healthPath, () => executor.health())
     .post(invokePreparePath, ({ request, set }) =>
-      handleInvokePrepare(executor, request, set),
+      handleInvokePrepare(executor, request, set, capabilityToken),
     )
     .post(invokeStartPath, ({ request, set }) =>
-      handleInvokeStart(executor, request, set),
+      handleInvokeStart(executor, request, set, capabilityToken),
     )
     .post(invokeSyscallPath, ({ request, set }) =>
-      handleInvokeSyscall(executor, request, set),
+      handleInvokeSyscall(executor, request, set, capabilityToken),
     )
     .post(invokeFinishPath, ({ request, set }) =>
-      handleInvokeFinish(executor, request, set),
+      handleInvokeFinish(executor, request, set, capabilityToken),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -131,7 +133,11 @@ async function handleInvokePrepare(
   executor: FlarexExecutor,
   request: Request,
   set: { status?: number | string },
+  capabilityToken: string | undefined,
 ): Promise<Record<string, unknown>> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -171,7 +177,11 @@ async function handleInvokeStart(
   executor: FlarexExecutor,
   request: Request,
   set: { status?: number | string },
+  capabilityToken: string | undefined,
 ): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -202,7 +212,11 @@ async function handleInvokeSyscall(
   executor: FlarexExecutor,
   request: Request,
   set: { status?: number | string },
+  capabilityToken: string | undefined,
 ): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -233,7 +247,11 @@ async function handleInvokeFinish(
   executor: FlarexExecutor,
   request: Request,
   set: { status?: number | string },
+  capabilityToken: string | undefined,
 ): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -258,6 +276,21 @@ async function handleInvokeFinish(
     set.status = response.status;
     return response.body;
   }
+}
+
+function authorizeExecutorRequest(
+  request: Request,
+  capabilityToken: string | undefined,
+  set: { status?: number | string },
+): { error: "unauthorized"; message: string } | null {
+  if (capabilityToken === undefined) return null;
+  const expected = `Bearer ${capabilityToken}`;
+  if (request.headers.get("authorization") === expected) return null;
+  set.status = 401;
+  return {
+    error: "unauthorized",
+    message: "Unauthorized Flarex executor request.",
+  };
 }
 
 function parsePrepareInvokeBody(

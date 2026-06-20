@@ -240,8 +240,6 @@ Known limitations:
 
 - The local dev server still uses the legacy backend for push/artifact storage
   and public invoke routing.
-- No executor authorization token is enforced between the materialized
-  artifact and the Postgres executor route yet.
 - The test covers mutation insert and indexed query, but not patch/delete,
   actions, sync fanout, or retry-on-OCC-conflict behavior through user code.
 
@@ -250,6 +248,70 @@ Verification:
 ```sh
 corepack pnpm test:integration
 corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
+## Postgres Executor Capability Token Bridge
+
+Previous completed checkpoint: `1a58000` Test execution artifacts against
+postgres executor.
+
+What changed:
+
+- Generated execution Workers now accept `FLAREX_EXECUTOR_TOKEN`.
+- Local materialized execution artifacts accept `executorToken` and bind it as
+  `FLAREX_EXECUTOR_TOKEN`.
+- When `executorTransport` is `postgres`, generated/materialized artifacts add
+  `Authorization: Bearer <token>` to `/invoke/start`, `/invoke/syscall`, and
+  `/invoke/finish`.
+- Legacy execution-session routes do not receive this executor token.
+- Runtime materializer tests now assert the Authorization header on all three
+  Postgres executor calls.
+- The real execution-artifact-to-Postgres integration now runs with a protected
+  executor route.
+
+Why it changed:
+
+The user-code runtime is an internal Flarex-managed artifact. Once it calls the
+trusted Postgres executor over HTTP, that route needs an explicit capability
+boundary. This mirrors the existing artifact-runtime internal token pattern
+while keeping the developer-facing API unchanged.
+
+Convex references:
+
+- `crates/node_executor/src/executor.rs`
+  - executor requests carry backend-controlled callback/auth material.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application code execution is initiated by the backend, not by arbitrary
+    public callers.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code can only perform storage work through the authorized syscall
+    channel.
+
+Flarex differences:
+
+- Convex does not need a separate HTTP bearer token between Cloudflare user
+  code and a Nitro/Postgres executor. Flarex does because those are separate
+  deployment/runtime boundaries.
+- This is a shared capability token for the executor route. Per-session syscall
+  tokens and token rotation are still future work.
+
+Known limitations:
+
+- Token generation, rotation, and tenant/project-specific secret management
+  are not implemented.
+- No per-session syscall capability is enforced yet; the token protects the
+  executor route as a whole.
+- The local dev server still defaults to the legacy execution route.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm test:integration
 git diff --check
 ```
 

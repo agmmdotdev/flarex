@@ -414,6 +414,7 @@ export interface Env {
   FLAREX_DEPLOYMENT_ID?: string;
   FLAREX_PROJECT_ID?: string;
   FLAREX_EXECUTOR_TRANSPORT?: string;
+  FLAREX_EXECUTOR_TOKEN?: string;
   FLAREX_INTERNAL_TOKEN?: string;
 }
 
@@ -492,6 +493,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
     transport,
     deploymentId,
     projectId,
+    executorToken: env.FLAREX_EXECUTOR_TOKEN,
     path: body.path,
     args: body.args,
     kind: metadata.kind,
@@ -507,6 +509,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
       startedKind,
       transport,
       projectId,
+      env.FLAREX_EXECUTOR_TOKEN,
     );
     const value = await fn._handler({ db } as never, body.args as never);
     validateFunctionReturn(metadata.returns, value);
@@ -514,6 +517,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
       transport,
       deploymentId,
       projectId,
+      executorToken: env.FLAREX_EXECUTOR_TOKEN,
       sessionId: start.sessionId,
       value,
     });
@@ -554,6 +558,7 @@ async function startExecution(
     transport: ExecutorTransport;
     deploymentId: string;
     projectId?: string;
+    executorToken?: string;
     path: string;
     args: unknown;
     kind: "query" | "mutation";
@@ -570,7 +575,7 @@ async function startExecution(
       kind: input.kind,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-    });
+    }, executorHeaders(input.executorToken));
   }
   return await postBackend<ExecutionStartResponse>(
     backend,
@@ -597,6 +602,7 @@ async function finishExecution(
     transport: ExecutorTransport;
     deploymentId: string;
     projectId?: string;
+    executorToken?: string;
     sessionId: string;
     value: unknown;
   },
@@ -607,7 +613,7 @@ async function finishExecution(
       projectId: input.projectId,
       sessionId: input.sessionId,
       value: input.value,
-    });
+    }, executorHeaders(input.executorToken));
   }
   return await postBackend(
     backend,
@@ -639,6 +645,7 @@ function databaseForSession(
   kind: "query" | "mutation",
   transport: ExecutorTransport,
   projectId?: string,
+  executorToken?: string,
 ): DatabaseWriter {
   const syscall = async (body: Record<string, unknown>) => {
     if (transport === "postgres") {
@@ -647,7 +654,7 @@ function databaseForSession(
         projectId,
         sessionId,
         ...body,
-      });
+      }, executorHeaders(executorToken));
       return response.value;
     }
     return await postBackend<unknown>(
@@ -676,10 +683,19 @@ function databaseForSession(
   };
 }
 
-async function postBackend<T>(backend: Fetcher, path: string, body: unknown): Promise<T> {
+function executorHeaders(executorToken: string | undefined): Record<string, string> {
+  return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
+}
+
+async function postBackend<T>(
+  backend: Fetcher,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
   const response = await backend.fetch(\`https://flarex-backend.internal\${path}\`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const value = await response.json().catch(() => null);

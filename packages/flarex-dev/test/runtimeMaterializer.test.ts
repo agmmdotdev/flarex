@@ -262,14 +262,19 @@ describe("runtime materializer", () => {
   });
 
   it("can target Postgres executor invoke routes from materialized artifacts", async () => {
-    const calls: Array<{ path: string; body: unknown }> = [];
+    const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId: "project-index",
+      executorToken: "executor-secret",
       backend: async (request) => {
         const url = new URL(request.url);
         const body = await request.json().catch(() => null);
-        calls.push({ path: url.pathname, body });
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
         if (url.pathname === "/invoke/start") {
           return Response.json({
             sessionId: "session-index",
@@ -313,6 +318,7 @@ describe("runtime materializer", () => {
     expect(calls).toEqual([
       {
         path: "/invoke/start",
+        authorization: "Bearer executor-secret",
         body: {
           deploymentId: "deployment-index",
           projectId: "project-index",
@@ -324,6 +330,7 @@ describe("runtime materializer", () => {
       },
       {
         path: "/invoke/syscall",
+        authorization: "Bearer executor-secret",
         body: {
           deploymentId: "deployment-index",
           projectId: "project-index",
@@ -344,6 +351,7 @@ describe("runtime materializer", () => {
       },
       {
         path: "/invoke/finish",
+        authorization: "Bearer executor-secret",
         body: {
           deploymentId: "deployment-index",
           projectId: "project-index",

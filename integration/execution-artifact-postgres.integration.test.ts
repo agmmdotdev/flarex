@@ -25,7 +25,10 @@ describe("execution artifact to Postgres executor integration", () => {
       ids: { nextId: () => sessionIds.shift() ?? `session_extra_${sessionIds.length}` },
       persistence,
     });
-    const handler = createFlarexNitroHandler({ executor });
+    const handler = createFlarexNitroHandler({
+      executor,
+      capabilityToken: "executor-secret",
+    });
     const sourcePackage = executionSourcePackage();
     const registered = await executor.registerDeploymentPackage({
       deploymentId: "deployment_artifact_postgres",
@@ -43,6 +46,7 @@ describe("execution artifact to Postgres executor integration", () => {
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId: "project_artifact_postgres",
+      executorToken: "executor-secret",
       backend: request => handler({ request }),
     });
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);

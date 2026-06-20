@@ -3526,7 +3526,6 @@ Flarex differences:
 Known limitations:
 
 - No live sync/outbox assertion is included.
-- No capability-token auth is enforced between the artifact and executor.
 - Local dev has not been switched to the Postgres executor by default.
 
 Verification:
@@ -3534,6 +3533,71 @@ Verification:
 ```sh
 corepack pnpm test:integration
 corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
+## Executor HTTP Capability Token
+
+Previous completed checkpoint: `1a58000` Test execution artifacts against
+postgres executor.
+
+What changed:
+
+- Added optional `capabilityToken` to `@flarex/executor-http`.
+- `@flarex/executor-nitro` inherits the option through its adapter config.
+- Protected invoke routes now require:
+
+```txt
+Authorization: Bearer <capabilityToken>
+```
+
+- The protected routes are:
+  - `POST /invoke/prepare`,
+  - `POST /invoke/start`,
+  - `POST /invoke/syscall`,
+  - `POST /invoke/finish`.
+- `GET /health` stays public because health checks should not need the
+  user-code execution capability.
+- Added HTTP adapter tests for unauthorized and authorized invoke requests.
+- Updated the real execution-artifact integration to run through the protected
+  Nitro executor route.
+
+Why it changed:
+
+The trusted Postgres executor is a platform-internal authority. Cloudflare
+execution artifacts should not be able to call it unless they carry a
+backend-issued capability. This is the first route-level protection before
+adding per-session syscall capabilities.
+
+Convex references:
+
+- `crates/node_executor/src/executor.rs`
+  - executor requests include backend-controlled auth/callback material.
+- `crates/application/src/application_function_runner/mod.rs`
+  - execution flows originate from backend-controlled application state.
+- `crates/database/src/transaction.rs`
+  - storage work must be mediated by the authorized transaction layer.
+
+Flarex differences:
+
+- Flarex has a network/runtime boundary between Cloudflare user-code artifacts
+  and the trusted Postgres executor. Convex's equivalent boundary is internal
+  to its backend/executor deployment.
+- This is route-level bearer auth, not the final token lifecycle.
+
+Known limitations:
+
+- No token minting, rotation, revocation, or project-specific secret store yet.
+- No per-session syscall token yet.
+- Method-not-allowed responses are still route-shape responses, not protected
+  capability checks.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm test:integration
 git diff --check
 ```
 
