@@ -221,6 +221,45 @@ export const tableFreshnessVersions = pgTable(
   ],
 );
 
+export const liveQuerySubscriptions = pgTable(
+  "live_query_subscriptions",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    queryId: bigint("query_id", { mode: "number" }).notNull(),
+    functionPath: text("function_path").notNull(),
+    argsJson: jsonb("args_json").$type<unknown>().notNull(),
+    beginTs: bigint("begin_ts", { mode: "number" }).notNull(),
+    readSetJson: jsonb("read_set_json")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    resultJson: jsonb("result_json").$type<unknown>().notNull(),
+    resultHash: text("result_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.connectionId, table.queryId],
+    }),
+    index("live_query_subscriptions_by_deployment_updated").on(
+      table.deploymentId,
+      table.updatedAt,
+      table.connectionId,
+      table.queryId,
+    ),
+    index("live_query_subscriptions_by_connection").on(
+      table.deploymentId,
+      table.connectionId,
+      table.queryId,
+    ),
+  ],
+);
+
 export const invokeSessions = pgTable(
   "invoke_sessions",
   {
@@ -378,6 +417,7 @@ export const flarexSchema = {
   invokeSessionDocumentWrites,
   invokeSessions,
   leases,
+  liveQuerySubscriptions,
   outbox,
   persistenceGlobals,
   readOnly,

@@ -57,6 +57,7 @@ describe("createPGlitePersistence", () => {
       "invoke_session_table_reads",
       "invoke_sessions",
       "leases",
+      "live_query_subscriptions",
       "outbox",
       "persistence_globals",
       "read_only",
@@ -2302,6 +2303,152 @@ describe("createPGlitePersistence", () => {
       outboxTs: 20,
       outboxSequence: 0,
     });
+  });
+
+  it("upserts and lists live query subscriptions", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.upsertLiveQuerySubscription({
+        deploymentId: "deployment_live_queries",
+        connectionId: "connection_a",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: { teamId: "team_a" },
+        beginTs: 10,
+        readSetJson: {
+          documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
+        },
+        resultJson: [{ _id: "1:message", text: "hello" }],
+        resultHash: "hash_a",
+        updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_live_queries",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 10,
+      readSetJson: {
+        documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
+      },
+      resultJson: [{ _id: "1:message", text: "hello" }],
+      resultHash: "hash_a",
+      updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_queries",
+      connectionId: "connection_a",
+      queryId: 2,
+      functionPath: "messages:count",
+      argsJson: { teamId: "team_a" },
+      beginTs: 11,
+      readSetJson: { tables: [{ tableId: 1, observedTs: 11 }] },
+      resultJson: 1,
+      resultHash: "hash_b",
+      updatedAt: new Date("2026-06-20T00:00:01.000Z"),
+    });
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_queries",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_b" },
+      beginTs: 12,
+      readSetJson: { tables: [{ tableId: 2, observedTs: 12 }] },
+      resultJson: [],
+      resultHash: "hash_c",
+      updatedAt: new Date("2026-06-20T00:00:02.000Z"),
+    });
+
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_queries",
+        connectionId: "connection_a",
+      }),
+    ).resolves.toMatchObject([
+      { connectionId: "connection_a", queryId: 1, resultHash: "hash_a" },
+      { connectionId: "connection_a", queryId: 2, resultHash: "hash_b" },
+    ]);
+
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_queries",
+      }),
+    ).resolves.toMatchObject([
+      { connectionId: "connection_a", queryId: 1 },
+      { connectionId: "connection_a", queryId: 2 },
+      { connectionId: "connection_b", queryId: 1 },
+    ]);
+  });
+
+  it("replaces and deletes live query subscriptions by key", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_replace",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 10,
+      readSetJson: { tables: [{ tableId: 1, observedTs: 10 }] },
+      resultJson: ["old"],
+      resultHash: "hash_old",
+      updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_replace",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 20,
+      readSetJson: { tables: [{ tableId: 1, observedTs: 20 }] },
+      resultJson: ["new"],
+      resultHash: "hash_new",
+      updatedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_replace",
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_a",
+        queryId: 1,
+        beginTs: 20,
+        readSetJson: { tables: [{ tableId: 1, observedTs: 20 }] },
+        resultJson: ["new"],
+        resultHash: "hash_new",
+        updatedAt: new Date("2026-06-20T00:01:00.000Z"),
+      },
+    ]);
+
+    await expect(
+      persistence.deleteLiveQuerySubscription({
+        deploymentId: "deployment_live_query_replace",
+        connectionId: "connection_a",
+        queryId: 1,
+      }),
+    ).resolves.toEqual({ deleted: 1 });
+    await expect(
+      persistence.deleteLiveQuerySubscription({
+        deploymentId: "deployment_live_query_replace",
+        connectionId: "connection_a",
+        queryId: 1,
+      }),
+    ).resolves.toEqual({ deleted: 0 });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_replace",
+      }),
+    ).resolves.toEqual([]);
   });
 
   it("commits staged invoke session deletes after read validation", async () => {

@@ -57,6 +57,13 @@
       "when": 1781976805952,
       "tag": "0007_moaning_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781980101579,
+      "tag": "0008_awesome_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

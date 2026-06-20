@@ -351,6 +351,67 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Durable Live-Query Registry
+
+Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.
+
+What changed:
+
+- Added durable `live_query_subscriptions` rows in Postgres.
+- Each subscription records:
+  - deployment id,
+  - connection id,
+  - query id,
+  - function path and args,
+  - query begin timestamp,
+  - timestamped read set,
+  - last result and result hash.
+- Added persistence helpers and PGlite tests.
+
+Cache impact:
+
+The freshness/cache path now has durable query state to inspect:
+
+```txt
+live query registry
+  -> readSetToFreshnessReadSet(...)
+  -> checkReadSetFreshness(...)
+  -> rerun stale query later
+```
+
+This does not make the cache live yet, but it gives the future scheduler a
+durable source of subscriptions to evaluate.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - active query state drives client transitions.
+- `crates/database/src/subscription.rs`
+  - read dependency state drives invalidation.
+
+Flarex differences:
+
+- Convex stores this inside its integrated sync backend. Flarex persists it in
+  Postgres because Cloudflare `ConnectionDO`/future cache workers and the
+  trusted executor are split.
+
+Known limitations:
+
+- No Cloudflare `ConnectionDO` writes registry rows yet.
+- No scheduler checks registry rows against freshness yet.
+- Result hashes are stored, but no rerun path uses them for transition
+  suppression yet.
+- Index/range freshness remains unsupported.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

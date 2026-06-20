@@ -63,6 +63,13 @@ import type {
   FreshnessProcessedEventRecord,
   TableFreshnessVersionRecord,
 } from "./freshness";
+import type {
+  DeleteLiveQuerySubscriptionResult,
+  ListLiveQuerySubscriptionsInput,
+  LiveQuerySubscriptionKey,
+  LiveQuerySubscriptionRecord,
+  UpsertLiveQuerySubscriptionInput,
+} from "./liveQuerySubscriptions";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -191,6 +198,15 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     tableId: number,
   ): Promise<TableFreshnessVersionRecord | null>;
+  upsertLiveQuerySubscription(
+    input: UpsertLiveQuerySubscriptionInput,
+  ): Promise<LiveQuerySubscriptionRecord>;
+  deleteLiveQuerySubscription(
+    input: LiveQuerySubscriptionKey,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
+  listLiveQuerySubscriptions(
+    input: ListLiveQuerySubscriptionsInput,
+  ): Promise<LiveQuerySubscriptionRecord[]>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -211,6 +227,7 @@ export * from "./invokeSessionIndexReads";
 export * from "./invokeSessionWrites";
 export * from "./outbox";
 export * from "./freshness";
+export * from "./liveQuerySubscriptions";
 export * from "./validation";
 export { flarexSchema } from "./schema";
 export * from "./schema";

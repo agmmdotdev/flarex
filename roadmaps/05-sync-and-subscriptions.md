@@ -84,6 +84,66 @@ corepack pnpm --filter @flarex/freshness test
 git diff --check
 ```
 
+## Durable Live-Query Registry
+
+Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.
+
+What changed:
+
+- Added a Postgres-backed `live_query_subscriptions` table.
+- Added persistence helpers:
+  - `upsertLiveQuerySubscription(...)`,
+  - `deleteLiveQuerySubscription(...)`,
+  - `listLiveQuerySubscriptions(...)`.
+- The row key is `{deploymentId, connectionId, queryId}`.
+- Each row stores function path, args, query `beginTs`, timestamped read set,
+  last result, result hash, and update time.
+- Added PGlite tests for migration, upsert/list/update/delete behavior.
+
+Why it matters for sync:
+
+This is the durable representation of an active live query:
+
+```txt
+connection + query id
+  -> function path + args
+  -> last result + result hash
+  -> read set + beginTs
+```
+
+Future schedulers can list active queries, check their read sets against the
+freshness mirror, rerun stale queries, and send transitions to connection owners.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - tracks active client query state and produces transitions.
+- `crates/database/src/subscription.rs`
+  - stores read dependencies for invalidation.
+
+Flarex differences:
+
+- Convex keeps active query state inside its backend/sync machinery. Flarex
+  stores this explicitly in Postgres because executor, freshness projection,
+  Cloudflare socket ownership, and rerun scheduling are separate components.
+
+Known limitations:
+
+- No scheduler consumes this registry yet.
+- No `ConnectionDO` writes or deletes these rows yet.
+- No query rerun updates the stored result hash yet.
+- Index/range read sets may be stored, but freshness still reports them as
+  unsupported.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

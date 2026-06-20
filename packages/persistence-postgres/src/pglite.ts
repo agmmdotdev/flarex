@@ -66,6 +66,11 @@ import {
   listUndeliveredOutboxEvents as listUndeliveredOutboxEventsWithDb,
   markOutboxEventsDelivered as markOutboxEventsDeliveredWithDb,
 } from "./outbox";
+import {
+  deleteLiveQuerySubscription as deleteLiveQuerySubscriptionWithDb,
+  listLiveQuerySubscriptions as listLiveQuerySubscriptionsWithDb,
+  upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
+} from "./liveQuerySubscriptions";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -196,6 +201,12 @@ export async function createPGlitePersistence(
       getDocumentFreshnessVersionWithDb(drizzleDb, deploymentId, documentId),
     getTableFreshnessVersion: (deploymentId, tableId) =>
       getTableFreshnessVersionWithDb(drizzleDb, deploymentId, tableId),
+    upsertLiveQuerySubscription: (input) =>
+      upsertLiveQuerySubscriptionWithDb(drizzleDb, input),
+    deleteLiveQuerySubscription: (input) =>
+      deleteLiveQuerySubscriptionWithDb(drizzleDb, input),
+    listLiveQuerySubscriptions: (input) =>
+      listLiveQuerySubscriptionsWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });
