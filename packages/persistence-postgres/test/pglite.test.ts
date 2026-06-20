@@ -6,6 +6,7 @@ import {
   InvokeSessionMetadataAlreadyExistsError,
   FlarexDocumentIdFormatError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionInsertConflictError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -641,5 +642,134 @@ describe("createPGlitePersistence", () => {
     await expect(
       persistence.insertInvokeSessionDocumentWrite(input),
     ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
+  });
+
+  it("commits staged invoke session inserts atomically", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_commit",
+      sessionId: "session_commit",
+      projectId: "project_commit",
+      packageId: "package_commit",
+      functionPath: "messages:send",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 100,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_commit",
+      sessionId: "session_commit",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_commit",
+        sessionId: "session_commit",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 100,
+      }),
+    ).resolves.toEqual({
+      committedTs: 101,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          prevTs: null,
+          ts: 101,
+          value: { text: "hello" },
+        },
+      ],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_commit", "1:message", 101),
+    ).resolves.toMatchObject({
+      id: "1:message",
+      ts: 101,
+      value: { text: "hello" },
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_commit", "session_commit"),
+    ).resolves.toMatchObject({
+      state: "finished",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await expect(
+      persistence.query<{ ts: number; source: string }>(
+        "select ts, source from commits where deployment_id = $1",
+        ["deployment_commit"],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ ts: 101, source: "invoke:messages:send" }],
+    });
+  });
+
+  it("rolls back staged invoke insert commits on document id conflict", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_commit_conflict",
+      id: "1:message",
+      ts: 50,
+      value: { text: "existing" },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_commit_conflict",
+      sessionId: "session_commit",
+      projectId: "project_commit",
+      packageId: "package_commit",
+      functionPath: "messages:send",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 100,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_commit_conflict",
+      sessionId: "session_commit",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "new" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_commit_conflict",
+        sessionId: "session_commit",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 100,
+      }),
+    ).rejects.toThrow(InvokeSessionInsertConflictError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_commit_conflict",
+        "session_commit",
+      ),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
+    });
+    await expect(
+      persistence.query<{ count: number }>(
+        "select count(*)::int as count from commits where deployment_id = $1",
+        ["deployment_commit_conflict"],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
   });
 });

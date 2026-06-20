@@ -496,6 +496,18 @@ function healthyPersistence() {
     async listInvokeSessionDocumentWrites() {
       return [];
     },
+    async commitInvokeSessionInserts(input: {
+      deploymentId: string;
+      sessionId: string;
+      source: string;
+      finishedAt: Date;
+      minimumTs: number;
+    }) {
+      return {
+        committedTs: input.minimumTs + 1,
+        writes: [],
+      };
+    },
   };
 }
 

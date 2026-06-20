@@ -2626,6 +2626,98 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Mutation Insert Commit
+
+Previous completed checkpoint: `007fda1` Stage mutation insert writes.
+
+What changed:
+
+- Added `packages/persistence-postgres/src/commits.ts`.
+- Added `commitInvokeSessionInserts(...)` to the persistence interface and
+  PGlite adapter.
+- The PGlite adapter wraps commit in a Drizzle transaction.
+- Mutation `finishInvokeSession(...)` now:
+  - validates the session is active,
+  - loads staged insert writes,
+  - allocates a commit timestamp greater than the session `beginTs` and latest
+    deployment commit,
+  - inserts document revisions into the Convex-style `documents` table,
+  - inserts a `commits` row with a write summary,
+  - marks the invoke session `finished`,
+  - returns `{ value, committedTs, writes }`.
+- Added persistence tests for successful insert commit and rollback on insert
+  conflict.
+- Updated executor tests so mutation finish now commits staged inserts instead
+  of returning `501`.
+
+Why it changed:
+
+This is the first real mutation commit path in the Postgres executor. It moves
+Flarex from durable write-intent staging to actual document history writes,
+while keeping the scope narrow enough to verify:
+
+```txt
+/invoke/start
+  -> /invoke/syscall insert
+  -> durable staged write
+  -> /invoke/finish
+  -> commits row + documents rows + finished session
+```
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - mutation writes accumulate before commit.
+- `crates/database/src/committer.rs`
+  - commit applies writes atomically after validation.
+- `crates/postgres/src/sql.rs`
+  - document history is stored in generic multitenant `documents` rows.
+
+Flarex references:
+
+- `packages/flarex-backend/src/transaction.ts`
+  - legacy `SingleShardTransaction.commit(...)` applies staged writes and
+    returns committed write metadata.
+- `packages/executor/src/sessions.ts`
+  - mutation finish now calls persistence commit.
+- `packages/persistence-postgres/src/commits.ts`
+  - owns the atomic staged-insert commit implementation.
+
+Flarex differences:
+
+- Convex validates the full read set and write predicates during commit. Flarex
+  currently only detects insert conflicts for existing document ids.
+- Convex updates indexes and sync invalidation as part of the full backend
+  commit path. Flarex currently writes `documents` and `commits` only.
+- Commit timestamp allocation is currently package-level logic based on latest
+  commit and session begin timestamp. A production Postgres lane should harden
+  this with transaction isolation/advisory locking or a dedicated timestamp
+  allocator.
+
+Known limitations:
+
+- No read-set OCC validation yet.
+- No `patch` or `delete` commit path yet.
+- No index maintenance.
+- No outbox/sync invalidation.
+- No return validator or document validator is applied before commit.
+- No cleanup of staged writes/read rows after finish.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

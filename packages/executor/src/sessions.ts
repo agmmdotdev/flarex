@@ -137,27 +137,42 @@ export async function finishInvokeSession(
   input: FinishInvokeSessionInput,
 ): Promise<FinishInvokeSessionResult> {
   const session = await requireActiveSession(persistence, input);
-  if (session.functionKind !== "query") {
-    throw new InvokeFinishNotImplementedError(session.functionKind);
+  if (session.functionKind === "query") {
+    const documentReads = await persistence.listInvokeSessionDocumentReads(
+      input.deploymentId,
+      input.sessionId,
+    );
+    const finished = await persistence.finishInvokeSessionMetadata({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      finishedAt: clock.now(),
+    });
+    if (finished === null) {
+      throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+    }
+
+    return {
+      value: input.value,
+      readSet: readSetFromDocumentReads(documentReads),
+    };
   }
 
-  const documentReads = await persistence.listInvokeSessionDocumentReads(
-    input.deploymentId,
-    input.sessionId,
-  );
-  const finished = await persistence.finishInvokeSessionMetadata({
-    deploymentId: input.deploymentId,
-    sessionId: input.sessionId,
-    finishedAt: clock.now(),
-  });
-  if (finished === null) {
-    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+  if (session.functionKind === "mutation") {
+    const commit = await persistence.commitInvokeSessionInserts({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      source: `invoke:${session.functionPath}`,
+      finishedAt: clock.now(),
+      minimumTs: session.beginTs,
+    });
+    return {
+      value: input.value,
+      committedTs: commit.committedTs,
+      writes: commit.writes,
+    };
   }
 
-  return {
-    value: input.value,
-    readSet: readSetFromDocumentReads(documentReads),
-  };
+  throw new InvokeFinishNotImplementedError(session.functionKind);
 }
 
 async function requireActiveSession(

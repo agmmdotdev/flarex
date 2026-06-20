@@ -16,6 +16,8 @@ import {
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionInsertConflictError,
+  InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
@@ -551,12 +553,14 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentPackageNotActivatedError ||
     error instanceof DeploymentFunctionMetadataUnavailableError ||
     error instanceof DeploymentSchemaMetadataUnavailableError ||
+    error instanceof InvokeSessionInsertConflictError ||
     error instanceof InvokeSessionNotActiveError
   ) {
     return knownErrorBody(error, 409);
   }
   if (
     error instanceof InvokeFinishNotImplementedError ||
+    error instanceof InvokeSessionUnsupportedStagedWriteError ||
     error instanceof InvokeSyscallNotImplementedError
   ) {
     return knownErrorBody(error, 501);

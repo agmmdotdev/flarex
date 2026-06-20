@@ -1,5 +1,7 @@
 import {
   DeploymentPackageMetadataAlreadyExistsError,
+  type CommitInvokeSessionInsertsInput,
+  type CommitInvokeSessionInsertsResult,
   type DeploymentPackageMetadataRecord,
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
@@ -73,6 +75,8 @@ export function memoryPersistence(
       write,
     ]),
   );
+  const committedDocuments: DocumentRevisionRecord[] = [];
+  const commits: Array<{ deploymentId: string; ts: number }> = [];
 
   return {
     async check() {
@@ -152,7 +156,7 @@ export function memoryPersistence(
     },
     async getDocumentRevisionAtTs(deploymentId: string, id: string, ts: number) {
       return (
-        documentRevisions
+        [...documentRevisions, ...committedDocuments]
           .filter(
             (document) =>
               document.deploymentId === deploymentId &&
@@ -237,6 +241,62 @@ export function memoryPersistence(
             left.tableId - right.tableId ||
             left.documentId.localeCompare(right.documentId),
         );
+    },
+    async commitInvokeSessionInserts(input: CommitInvokeSessionInsertsInput) {
+      const writes = Array.from(documentWrites.values()).filter(
+        (write) =>
+          write.deploymentId === input.deploymentId &&
+          write.sessionId === input.sessionId,
+      );
+      const latestCommitTs = commits
+        .filter((commit) => commit.deploymentId === input.deploymentId)
+        .reduce((latest, commit) => Math.max(latest, commit.ts), 0);
+      const committedTs = Math.max(latestCommitTs, input.minimumTs) + 1;
+      const committedWrites: CommitInvokeSessionInsertsResult["writes"] = [];
+      for (const write of writes) {
+        const existing = [...documentRevisions, ...committedDocuments].find(
+          (document) =>
+            document.deploymentId === input.deploymentId &&
+            document.id === write.documentId &&
+            document.ts <= committedTs,
+        );
+        if (existing !== undefined) {
+          throw new Error(`Cannot insert existing document ${write.documentId}.`);
+        }
+        const value = write.valueJson as DocumentRevisionRecord["value"];
+        committedDocuments.push({
+          deploymentId: input.deploymentId,
+          id: write.documentId,
+          tableId: write.tableId,
+          documentId: write.documentId.slice(`${write.tableId}:`.length),
+          ts: committedTs,
+          value,
+          deleted: false,
+          prevTs: null,
+        });
+        committedWrites.push({
+          tableId: write.tableId,
+          id: write.documentId,
+          prevTs: null,
+          ts: committedTs,
+          value,
+        });
+      }
+      commits.push({ deploymentId: input.deploymentId, ts: committedTs });
+      const session = invokeSessions.get(
+        sessionKey(input.deploymentId, input.sessionId),
+      );
+      if (session !== undefined) {
+        invokeSessions.set(sessionKey(input.deploymentId, input.sessionId), {
+          ...session,
+          state: "finished",
+          finishedAt: input.finishedAt,
+        });
+      }
+      return {
+        committedTs,
+        writes: committedWrites,
+      };
     },
   };
 }

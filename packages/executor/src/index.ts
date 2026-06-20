@@ -35,7 +35,11 @@ export {
   PartitionValidationError,
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
-export { InvokeSessionDocumentWriteAlreadyExistsError } from "@flarex/persistence-postgres";
+export {
+  InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionInsertConflictError,
+  InvokeSessionUnsupportedStagedWriteError,
+} from "@flarex/persistence-postgres";
 export type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,

@@ -11,6 +11,7 @@ import {
   InvokeFinishNotImplementedError,
   InvokeSessionNotFoundError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionInsertConflictError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
@@ -613,6 +614,12 @@ describe("createFlarexHttpApp", () => {
         status: 501,
         body: { error: "InvokeFinishNotImplementedError" },
       });
+    await expect(
+      expectFinishError(new InvokeSessionInsertConflictError("d", "1:id")),
+    ).resolves.toMatchObject({
+      status: 409,
+      body: { error: "InvokeSessionInsertConflictError" },
+    });
   });
 });
 

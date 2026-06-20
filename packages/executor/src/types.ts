@@ -1,6 +1,8 @@
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
+  CommitInvokeSessionInsertsInput,
+  CommitInvokeSessionInsertsResult,
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
@@ -102,6 +104,9 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentWriteRecord[]>;
+  commitInvokeSessionInserts(
+    input: CommitInvokeSessionInsertsInput,
+  ): Promise<CommitInvokeSessionInsertsResult>;
 }
 
 export interface ActivateDeploymentPackageInput {
@@ -324,7 +329,17 @@ export interface FinishInvokeSessionInput {
 
 export interface FinishInvokeSessionResult {
   value: Json;
-  readSet: InvokeReadSet;
+  readSet?: InvokeReadSet;
+  committedTs?: number;
+  writes?: CommittedDocumentWrite[];
+}
+
+export interface CommittedDocumentWrite {
+  tableId: number;
+  id: string;
+  prevTs: number | null;
+  ts: number;
+  value: Json | null;
 }
 
 export interface InvokeReadSet {

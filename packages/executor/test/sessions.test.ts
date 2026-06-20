@@ -12,7 +12,6 @@ import {
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
-  InvokeFinishNotImplementedError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
 } from "../src";
@@ -394,11 +393,27 @@ describe("executor invoke sessions", () => {
     });
   });
 
-  it("rejects mutation session finish until write commit exists", async () => {
+  it("finishes mutation sessions by committing staged inserts", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 100 })],
+    );
     const executor = createFlarexExecutor({
-      persistence: memoryPersistence([], [], [
-        activeSession({ functionKind: "mutation" }),
-      ]),
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
     });
 
     await expect(
@@ -406,9 +421,30 @@ describe("executor invoke sessions", () => {
         deploymentId: "deployment_session",
         projectId: "project_session",
         sessionId: "session_active",
-        value: null,
+        value: "ok",
       }),
-    ).rejects.toThrow(InvokeFinishNotImplementedError);
+    ).resolves.toEqual({
+      value: "ok",
+      committedTs: 101,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:team_insert",
+          prevTs: null,
+          ts: 101,
+          value: { name: "Team" },
+        },
+      ],
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({
+      state: "finished",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
   });
 
   it("rejects finishing inactive sessions", async () => {
