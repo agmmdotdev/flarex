@@ -194,6 +194,73 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke Same-Document Write Coalescing
+
+Previous completed checkpoint: `0d6431e` Add indexed read-your-writes overlay.
+
+What changed:
+
+- Changed `insertInvokeSessionDocumentWrite(...)` from insert-only semantics to
+  stage-or-coalesce semantics while preserving the same public persistence
+  method name.
+- Coalescing now supports:
+  - `insert -> patch` as one final insert,
+  - `patch -> patch` as one merged patch,
+  - `insert -> delete` as no staged write,
+  - `patch -> delete` as one delete, and
+  - duplicate `insert -> insert` as the existing duplicate-insert error.
+- Added `InvokeSessionDocumentWriteConflictError` for invalid sequences such as
+  `delete -> patch`.
+- Updated executor `patch` and `delete` syscalls to validate against the
+  transaction view, not only the persisted `beginTs` snapshot.
+- Added PGlite and executor tests for coalescing and Convex-style
+  `insert -> patch`, repeated patch, and `insert -> delete` mutation flows.
+
+Why it changed:
+
+Convex mutations allow helpers, loops, and sequential writes to touch the same
+document inside one mutation. Flarex needs the same effective behavior inside a
+single invoke session so ordinary mutation code does not fail because an
+earlier helper already staged a write.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - pending writes live in transaction state and are collapsed into effective
+    document changes before commit.
+- `crates/database/src/committer.rs`
+  - commit consumes final document writes, not every intermediate user-level
+    operation.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code can issue multiple database syscalls during one mutation.
+
+Flarex differences:
+
+- Convex coalesces in memory inside the Rust transaction object. Flarex
+  coalesces persisted invoke-session rows so the Dynamic Worker/executor split
+  can survive process boundaries.
+- `insert -> delete` removes the staged row; the commit still finishes the
+  invoke session but writes no document revision for that document.
+
+Known limitations:
+
+- `replace` is still not exposed or coalesced.
+- Coalescing is shallow object merge for patches, matching current patch
+  semantics.
+- The persistence method name still says `insert...`; a later API cleanup can
+  rename it to `stageInvokeSessionDocumentWrite(...)`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Invoke Indexed Read-Your-Writes Overlay
 
 Previous completed checkpoint: `3ddfc33` Add invoke read-your-writes overlay.

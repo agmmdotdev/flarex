@@ -118,6 +118,51 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke Same-Document Write Coalescing
+
+Previous completed checkpoint: `0d6431e` Add indexed read-your-writes overlay.
+
+What changed:
+
+- Added same-document staged write coalescing for invoke sessions.
+- Executor patch/delete syscalls now validate against the transaction view, so
+  `insert -> patch` and `insert -> delete` work before commit.
+- Added tests for repeated patch, insert then patch, insert then delete, patch
+  then delete, and invalid delete then patch.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state owns pending writes and presents their effective document
+    view to later reads.
+- `crates/database/src/committer.rs`
+  - the committer validates and persists the final write set.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - multiple user syscalls can target the same document in one mutation.
+
+Flarex differences:
+
+- Flarex stores and coalesces the effective staged write in Postgres invoke
+  session rows instead of keeping it only in process memory.
+
+Known limitations:
+
+- No replace syscall yet.
+- Patch merging is shallow.
+- Method naming still says `insertInvokeSessionDocumentWrite`, although the
+  behavior is now stage/coalesce.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Invoke Indexed Read-Your-Writes Overlay
 
 Previous completed checkpoint: `3ddfc33` Add invoke read-your-writes overlay.

@@ -245,12 +245,12 @@ export async function invokeSyscall(
   if (input.syscall.op === "patch") {
     const patch = requireJsonObject(input.syscall.value);
     const parsed = parseFlarexDocumentId(input.syscall.id);
-    const document = await persistence.getDocumentRevisionAtTs(
-      input.deploymentId,
+    const document = await documentAtTransactionView(
+      persistence,
+      session,
       input.syscall.id,
-      session.beginTs,
     );
-    if (document === null || document.deleted) {
+    if (document.value === null) {
       throw new InvokePatchDocumentNotFoundError(
         input.deploymentId,
         input.syscall.id,
@@ -262,13 +262,15 @@ export async function invokeSyscall(
         input.syscall.id,
       );
     }
-    await persistence.insertInvokeSessionDocumentRead({
-      deploymentId: input.deploymentId,
-      sessionId: input.sessionId,
-      tableId: parsed.tableId,
-      documentId: input.syscall.id,
-      observedTs: document.ts,
-    });
+    if (document.recordRead) {
+      await persistence.insertInvokeSessionDocumentRead({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: parsed.tableId,
+        documentId: input.syscall.id,
+        observedTs: document.observedTs,
+      });
+    }
     await persistence.insertInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
@@ -292,24 +294,26 @@ export async function invokeSyscall(
 
   if (input.syscall.op === "delete") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
-    const document = await persistence.getDocumentRevisionAtTs(
-      input.deploymentId,
+    const document = await documentAtTransactionView(
+      persistence,
+      session,
       input.syscall.id,
-      session.beginTs,
     );
-    if (document === null || document.deleted) {
+    if (document.value === null) {
       throw new InvokeDeleteDocumentNotFoundError(
         input.deploymentId,
         input.syscall.id,
       );
     }
-    await persistence.insertInvokeSessionDocumentRead({
-      deploymentId: input.deploymentId,
-      sessionId: input.sessionId,
-      tableId: parsed.tableId,
-      documentId: input.syscall.id,
-      observedTs: document.ts,
-    });
+    if (document.recordRead) {
+      await persistence.insertInvokeSessionDocumentRead({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: parsed.tableId,
+        documentId: input.syscall.id,
+        observedTs: document.observedTs,
+      });
+    }
     await persistence.insertInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,

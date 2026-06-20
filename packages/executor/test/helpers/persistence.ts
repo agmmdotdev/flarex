@@ -18,6 +18,7 @@ import {
   type InvokeSessionIndexReadRecord,
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionDocumentWriteConflictError,
   type InvokeSessionDocumentWriteRecord,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
@@ -452,11 +453,23 @@ export function memoryPersistence(
         input.documentId,
       );
       if (documentWrites.has(key)) {
-        throw new InvokeSessionDocumentWriteAlreadyExistsError(
-          input.deploymentId,
-          input.sessionId,
-          input.documentId,
-        );
+        const existing = documentWrites.get(key)!;
+        const coalesced = coalesceDocumentWrite(existing, input);
+        if (coalesced === null) {
+          documentWrites.delete(key);
+          return {
+            ...existing,
+            op: input.op,
+            valueJson: input.valueJson ?? null,
+          };
+        }
+        const updated = {
+          ...existing,
+          op: coalesced.op,
+          valueJson: coalesced.valueJson,
+        };
+        documentWrites.set(key, updated);
+        return updated;
       }
       const write: InvokeSessionDocumentWriteRecord = {
         deploymentId: input.deploymentId,
@@ -815,6 +828,71 @@ function latestDocumentAt(
           document.ts <= ts,
       )
       .sort((left, right) => right.ts - left.ts)[0] ?? null
+  );
+}
+
+function coalesceDocumentWrite(
+  existing: InvokeSessionDocumentWriteRecord,
+  input: InsertInvokeSessionDocumentWriteInput,
+): { op: InvokeSessionDocumentWriteRecord["op"]; valueJson: unknown } | null {
+  if (existing.op === "insert") {
+    if (input.op === "patch") {
+      return {
+        op: "insert",
+        valueJson: mergeJsonObjects(existing.valueJson, input.valueJson, existing, input),
+      };
+    }
+    if (input.op === "delete") {
+      return null;
+    }
+    if (input.op === "insert") {
+      throw new InvokeSessionDocumentWriteAlreadyExistsError(
+        input.deploymentId,
+        input.sessionId,
+        input.documentId,
+      );
+    }
+    throw writeConflict(existing, input);
+  }
+
+  if (existing.op === "patch") {
+    if (input.op === "patch") {
+      return {
+        op: "patch",
+        valueJson: mergeJsonObjects(existing.valueJson, input.valueJson, existing, input),
+      };
+    }
+    if (input.op === "delete") {
+      return { op: "delete", valueJson: null };
+    }
+    throw writeConflict(existing, input);
+  }
+
+  throw writeConflict(existing, input);
+}
+
+function mergeJsonObjects(
+  left: unknown,
+  right: unknown,
+  existing: InvokeSessionDocumentWriteRecord,
+  input: InsertInvokeSessionDocumentWriteInput,
+) {
+  if (!isJsonObject(left) || !isJsonObject(right)) {
+    throw writeConflict(existing, input);
+  }
+  return { ...left, ...right };
+}
+
+function writeConflict(
+  existing: InvokeSessionDocumentWriteRecord,
+  input: InsertInvokeSessionDocumentWriteInput,
+) {
+  return new InvokeSessionDocumentWriteConflictError(
+    input.deploymentId,
+    input.sessionId,
+    input.documentId,
+    existing.op,
+    input.op,
   );
 }
 

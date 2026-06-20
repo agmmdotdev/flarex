@@ -1018,6 +1018,81 @@ describe("executor invoke sessions", () => {
     ).resolves.toEqual([]);
   });
 
+  it("coalesces insert then patch inside one mutation session", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Draft", count: 0 },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:team_insert",
+        value: { name: "Final", count: 1 },
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_insert" },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:team_insert", name: "Final", count: 1 },
+      readSet: { documents: [{ tableId: 1, id: "1:team_insert" }] },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:team_insert",
+        op: "insert",
+        valueJson: { name: "Final", count: 1 },
+      },
+    ]);
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: "1:team_insert",
+      }),
+    ).resolves.toMatchObject({
+      value: "1:team_insert",
+      writes: [
+        {
+          id: "1:team_insert",
+          prevTs: null,
+          value: { name: "Final", count: 1 },
+        },
+      ],
+    });
+  });
+
   it("generates ids for insert syscalls without caller supplied ids", async () => {
     const persistence = memoryPersistence(
       [],
@@ -1144,6 +1219,75 @@ describe("executor invoke sessions", () => {
     ).resolves.toEqual({
       value: { _id: "1:team_patch", name: "Old", count: 2 },
       readSet: { documents: [{ tableId: 1, id: "1:team_patch" }] },
+    });
+  });
+
+  it("coalesces repeated patches inside one mutation session", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_patch",
+          documentId: "team_patch",
+          ts: 10,
+          value: { name: "Old", count: 1, keep: true },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:team_patch",
+        value: { name: "First" },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:team_patch",
+        value: { count: 2 },
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_patch" },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:team_patch", name: "First", count: 2, keep: true },
+      readSet: { documents: [{ tableId: 1, id: "1:team_patch" }] },
+    });
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).resolves.toMatchObject({
+      writes: [
+        {
+          id: "1:team_patch",
+          prevTs: 10,
+          value: { name: "First", count: 2, keep: true },
+        },
+      ],
     });
   });
 
@@ -1339,6 +1483,108 @@ describe("executor invoke sessions", () => {
       value: null,
       readSet: { documents: [{ tableId: 1, id: "1:team_delete" }] },
     });
+  });
+
+  it("coalesces insert then delete into no committed write", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:temporary",
+        value: { name: "Temporary" },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "delete", id: "1:temporary" },
+    });
+
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:temporary" },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: { documents: [{ tableId: 1, id: "1:temporary" }] },
+    });
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).resolves.toMatchObject({
+      writes: [],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_session",
+        "1:temporary",
+        20,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects patch after a staged delete", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_delete",
+          documentId: "team_delete",
+          ts: 10,
+          value: { name: "Team" },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "delete", id: "1:team_delete" },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "patch",
+          id: "1:team_delete",
+          value: { name: "Bad" },
+        },
+      }),
+    ).rejects.toThrow(InvokePatchDocumentNotFoundError);
   });
 
   it("commits mutation delete syscalls after OCC validation", async () => {

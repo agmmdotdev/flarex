@@ -55,6 +55,7 @@ export {
   DeploymentValidatorMetadataError,
   InvokeSessionDocumentValidationError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionDocumentWriteConflictError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionIndexOccConflictError,

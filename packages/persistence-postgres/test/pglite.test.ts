@@ -7,6 +7,7 @@ import {
   FlarexDocumentIdFormatError,
   InvokeSessionDocumentValidationError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionDocumentWriteConflictError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionIndexOccConflictError,
@@ -947,6 +948,140 @@ describe("createPGlitePersistence", () => {
     await expect(
       persistence.insertInvokeSessionDocumentWrite(input),
     ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
+  });
+
+  it("coalesces repeated staged writes for one document", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { text: "hello", count: 1 },
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { count: 2 },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_patch",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:message",
+        op: "patch",
+        valueJson: { text: "hello", count: 2 },
+      },
+    ]);
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:new",
+      op: "insert",
+      valueJson: { text: "draft", count: 0 },
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert",
+      tableId: 1,
+      documentId: "1:new",
+      op: "patch",
+      valueJson: { count: 1 },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_insert",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:new",
+        op: "insert",
+        valueJson: { text: "draft", count: 1 },
+      },
+    ]);
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert_delete",
+      tableId: 1,
+      documentId: "1:gone",
+      op: "insert",
+      valueJson: { text: "temporary" },
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert_delete",
+      tableId: 1,
+      documentId: "1:gone",
+      op: "delete",
+      valueJson: null,
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_insert_delete",
+      ),
+    ).resolves.toEqual([]);
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch_delete",
+      tableId: 1,
+      documentId: "1:old",
+      op: "patch",
+      valueJson: { text: "updated" },
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch_delete",
+      tableId: 1,
+      documentId: "1:old",
+      op: "delete",
+      valueJson: null,
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_patch_delete",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:old",
+        op: "delete",
+        valueJson: null,
+      },
+    ]);
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_delete_patch",
+      tableId: 1,
+      documentId: "1:deleted",
+      op: "delete",
+      valueJson: null,
+    });
+    await expect(
+      persistence.insertInvokeSessionDocumentWrite({
+        deploymentId: "deployment_writes_coalesce",
+        sessionId: "session_delete_patch",
+        tableId: 1,
+        documentId: "1:deleted",
+        op: "patch",
+        valueJson: { text: "bad" },
+      }),
+    ).rejects.toThrow(InvokeSessionDocumentWriteConflictError);
   });
 
   it("commits staged invoke session inserts atomically", async () => {
