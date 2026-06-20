@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, or } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 
 import { outbox } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -39,6 +39,22 @@ export interface ListOutboxEventsResult {
   events: OutboxEventRecord[];
   nextCursor: OutboxEventCursor | null;
   hasMore: boolean;
+}
+
+export interface ListUndeliveredOutboxEventsInput {
+  deploymentId: string;
+  cursor?: OutboxEventCursor;
+  limit: number;
+}
+
+export interface MarkOutboxEventsDeliveredInput {
+  deploymentId: string;
+  events: OutboxEventCursor[];
+  deliveredAt: Date;
+}
+
+export interface MarkOutboxEventsDeliveredResult {
+  delivered: number;
 }
 
 export type OutboxEventRecord = typeof outbox.$inferSelect;
@@ -89,6 +105,62 @@ export async function listOutboxEvents(
   db: FlarexMetadataDatabase,
   input: ListOutboxEventsInput,
 ): Promise<ListOutboxEventsResult> {
+  return await listOutboxEventsInternal(db, {
+    deploymentId: input.deploymentId,
+    limit: input.limit,
+    undeliveredOnly: false,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
+export async function listUndeliveredOutboxEvents(
+  db: FlarexMetadataDatabase,
+  input: ListUndeliveredOutboxEventsInput,
+): Promise<ListOutboxEventsResult> {
+  return await listOutboxEventsInternal(db, {
+    deploymentId: input.deploymentId,
+    limit: input.limit,
+    undeliveredOnly: true,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
+export async function markOutboxEventsDelivered(
+  db: FlarexMetadataDatabase,
+  input: MarkOutboxEventsDeliveredInput,
+): Promise<MarkOutboxEventsDeliveredResult> {
+  if (input.events.length === 0) {
+    return { delivered: 0 };
+  }
+
+  const eventFilter = or(
+    ...input.events.map((event) =>
+      and(eq(outbox.ts, event.ts), eq(outbox.sequence, event.sequence)),
+    ),
+  );
+  const rows = await db
+    .update(outbox)
+    .set({
+      deliveredAt: input.deliveredAt,
+    })
+    .where(
+      and(
+        eq(outbox.deploymentId, input.deploymentId),
+        isNull(outbox.deliveredAt),
+        eventFilter,
+      ),
+    )
+    .returning();
+
+  return {
+    delivered: rows.length,
+  };
+}
+
+async function listOutboxEventsInternal(
+  db: FlarexMetadataDatabase,
+  input: ListOutboxEventsInput & { undeliveredOnly: boolean },
+): Promise<ListOutboxEventsResult> {
   const cursorFilter =
     input.cursor === undefined
       ? undefined
@@ -99,14 +171,17 @@ export async function listOutboxEvents(
             gt(outbox.sequence, input.cursor.sequence),
           ),
         );
+  const baseFilter = input.undeliveredOnly
+    ? and(eq(outbox.deploymentId, input.deploymentId), isNull(outbox.deliveredAt))
+    : eq(outbox.deploymentId, input.deploymentId);
 
   const rows = await db
     .select()
     .from(outbox)
     .where(
       cursorFilter === undefined
-        ? eq(outbox.deploymentId, input.deploymentId)
-        : and(eq(outbox.deploymentId, input.deploymentId), cursorFilter),
+        ? baseFilter
+        : and(baseFilter, cursorFilter),
     )
     .orderBy(asc(outbox.ts), asc(outbox.sequence))
     .limit(input.limit + 1);

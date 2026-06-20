@@ -26,6 +26,9 @@ import type {
   ListDeploymentMetadataResult,
   ListOutboxEventsInput,
   ListOutboxEventsResult,
+  ListUndeliveredOutboxEventsInput,
+  MarkOutboxEventsDeliveredInput,
+  MarkOutboxEventsDeliveredResult,
   DocumentRevisionRecord,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
@@ -33,6 +36,13 @@ import type {
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
+
+export type {
+  ListOutboxEventsResult,
+  ListUndeliveredOutboxEventsInput,
+  MarkOutboxEventsDeliveredInput,
+  MarkOutboxEventsDeliveredResult,
+} from "@flarex/persistence-postgres";
 
 export interface Clock {
   now(): Date;
@@ -75,6 +85,12 @@ export interface FlarexExecutor {
   listMaintenanceDeployments(
     input?: ListMaintenanceDeploymentsInput,
   ): Promise<ListMaintenanceDeploymentsResult>;
+  listUndeliveredOutboxEvents(
+    input: ListUndeliveredOutboxEventsInput,
+  ): Promise<ListOutboxEventsResult>;
+  markOutboxEventsDelivered(
+    input: MarkOutboxEventsDeliveredInput,
+  ): Promise<MarkOutboxEventsDeliveredResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -175,6 +191,12 @@ export interface FlarexExecutorPersistence {
   listOutboxEvents(
     input: ListOutboxEventsInput,
   ): Promise<ListOutboxEventsResult>;
+  listUndeliveredOutboxEvents(
+    input: ListUndeliveredOutboxEventsInput,
+  ): Promise<ListOutboxEventsResult>;
+  markOutboxEventsDelivered(
+    input: MarkOutboxEventsDeliveredInput,
+  ): Promise<MarkOutboxEventsDeliveredResult>;
 }
 
 export interface ActivateDeploymentPackageInput {

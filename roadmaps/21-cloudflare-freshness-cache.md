@@ -238,6 +238,68 @@ Verification:
 git diff --check
 ```
 
+## Outbox Delivery Prerequisite
+
+Previous completed checkpoint: `b4f98a4` Write commit outbox events.
+
+What changed:
+
+- The executor can now list undelivered Postgres outbox events and mark them
+  delivered after a consumer applies them.
+- The implementation uses the existing `outbox.delivered_at` field and keeps
+  full outbox history visible through `listOutboxEvents(...)`.
+- The delivery API is exposed through the executor, not only the raw Postgres
+  persistence package.
+
+Cache impact:
+
+This gives a future Cloudflare freshness/cache updater a minimal durable loop:
+
+```txt
+page undelivered commit events
+  -> update document/table/range version mirrors
+  -> mark delivered
+```
+
+The updater itself is not implemented yet. Cached query freshness is still not
+proved until events are applied into version mirrors and query reruns require a
+minimum freshness token.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the durable freshness source.
+- `crates/database/src/subscription.rs`
+  - subscription invalidation uses committed write information.
+
+Flarex differences:
+
+- Convex does not need a separate `delivered_at` acknowledgement for cache
+  freshness because the write-log and sync/cache invalidation workers are part
+  of the backend. Flarex needs an explicit handoff between Postgres executor
+  and Cloudflare freshness/cache workers.
+
+Known limitations:
+
+- No freshness mirror or dispatcher exists yet.
+- No multi-worker claim/lease protocol exists yet.
+- Query-range freshness still needs compact invalidation metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Commit Outbox Prerequisite
 
 Previous completed checkpoint: `c71110d` Expose ctx db replace.

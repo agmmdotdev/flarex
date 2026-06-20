@@ -34,6 +34,9 @@ import {
   type ListDeploymentMetadataInput,
   type ListOutboxEventsInput,
   type ListOutboxEventsResult,
+  type ListUndeliveredOutboxEventsInput,
+  type MarkOutboxEventsDeliveredInput,
+  type MarkOutboxEventsDeliveredResult,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
@@ -791,35 +794,71 @@ export function memoryPersistence(
     async listOutboxEvents(
       input: ListOutboxEventsInput,
     ): Promise<ListOutboxEventsResult> {
-      const sorted = outboxEvents
-        .filter(
-          (event) =>
-            event.deploymentId === input.deploymentId &&
-            (input.cursor === undefined ||
-              event.ts > input.cursor.ts ||
-              (event.ts === input.cursor.ts &&
-                event.sequence > input.cursor.sequence)),
-        )
-        .sort(
-          (left, right) =>
-            left.ts - right.ts || left.sequence - right.sequence,
-        );
-      const rows = sorted.slice(0, input.limit + 1);
-      const events = rows.slice(0, input.limit);
-      const hasMore = rows.length > input.limit;
-      const last = events.at(-1);
-      return {
-        events,
-        hasMore,
-        nextCursor:
-          hasMore && last !== undefined
-            ? {
-                ts: last.ts,
-                sequence: last.sequence,
-              }
-            : null,
-      };
+      return listOutboxEventsInternal(outboxEvents, input, false);
     },
+    async listUndeliveredOutboxEvents(
+      input: ListUndeliveredOutboxEventsInput,
+    ): Promise<ListOutboxEventsResult> {
+      return listOutboxEventsInternal(outboxEvents, input, true);
+    },
+    async markOutboxEventsDelivered(
+      input: MarkOutboxEventsDeliveredInput,
+    ): Promise<MarkOutboxEventsDeliveredResult> {
+      const eventKeys = new Set(
+        input.events.map((event) => `${event.ts}:${event.sequence}`),
+      );
+      let delivered = 0;
+      for (let index = 0; index < outboxEvents.length; index += 1) {
+        const event = outboxEvents[index]!;
+        if (
+          event.deploymentId === input.deploymentId &&
+          event.deliveredAt === null &&
+          eventKeys.has(`${event.ts}:${event.sequence}`)
+        ) {
+          outboxEvents[index] = {
+            ...event,
+            deliveredAt: input.deliveredAt,
+          };
+          delivered += 1;
+        }
+      }
+      return { delivered };
+    },
+  };
+}
+
+function listOutboxEventsInternal(
+  outboxEvents: OutboxEventRecord[],
+  input: ListOutboxEventsInput | ListUndeliveredOutboxEventsInput,
+  undeliveredOnly: boolean,
+): ListOutboxEventsResult {
+  const sorted = outboxEvents
+    .filter(
+      (event) =>
+        event.deploymentId === input.deploymentId &&
+        (!undeliveredOnly || event.deliveredAt === null) &&
+        (input.cursor === undefined ||
+          event.ts > input.cursor.ts ||
+          (event.ts === input.cursor.ts &&
+            event.sequence > input.cursor.sequence)),
+    )
+    .sort(
+      (left, right) => left.ts - right.ts || left.sequence - right.sequence,
+    );
+  const rows = sorted.slice(0, input.limit + 1);
+  const events = rows.slice(0, input.limit);
+  const hasMore = rows.length > input.limit;
+  const last = events.at(-1);
+  return {
+    events,
+    hasMore,
+    nextCursor:
+      hasMore && last !== undefined
+        ? {
+            ts: last.ts,
+            sequence: last.sequence,
+          }
+        : null,
   };
 }
 

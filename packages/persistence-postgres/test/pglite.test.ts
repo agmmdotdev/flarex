@@ -2060,6 +2060,138 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({ events: [] });
   });
 
+  it("lists and marks undelivered outbox events", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertOutboxEvent({
+      deploymentId: "deployment_outbox_delivery",
+      ts: 10,
+      sequence: 0,
+      event: {
+        type: "commit",
+        deploymentId: "deployment_outbox_delivery",
+        commitTs: 10,
+        source: "invoke:messages:create",
+        changedTableIds: [1],
+        changedDocumentIds: ["1:message_a"],
+        writeSummary: { writes: [] },
+      },
+    });
+    await persistence.insertOutboxEvent({
+      deploymentId: "deployment_outbox_delivery",
+      ts: 11,
+      sequence: 0,
+      event: {
+        type: "commit",
+        deploymentId: "deployment_outbox_delivery",
+        commitTs: 11,
+        source: "invoke:messages:update",
+        changedTableIds: [1],
+        changedDocumentIds: ["1:message_b"],
+        writeSummary: { writes: [] },
+      },
+    });
+
+    const undelivered = await persistence.listUndeliveredOutboxEvents({
+      deploymentId: "deployment_outbox_delivery",
+      limit: 10,
+    });
+    expect(undelivered.events.map((event) => event.ts)).toEqual([10, 11]);
+
+    await expect(
+      persistence.markOutboxEventsDelivered({
+        deploymentId: "deployment_outbox_delivery",
+        events: [{ ts: 10, sequence: 0 }],
+        deliveredAt: new Date("2026-06-20T01:00:00.000Z"),
+      }),
+    ).resolves.toEqual({ delivered: 1 });
+
+    await expect(
+      persistence.listUndeliveredOutboxEvents({
+        deploymentId: "deployment_outbox_delivery",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [{ ts: 11, sequence: 0, deliveredAt: null }],
+      nextCursor: null,
+      hasMore: false,
+    });
+    await expect(
+      persistence.listOutboxEvents({
+        deploymentId: "deployment_outbox_delivery",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        {
+          ts: 10,
+          sequence: 0,
+          deliveredAt: new Date("2026-06-20T01:00:00.000Z"),
+        },
+        { ts: 11, sequence: 0, deliveredAt: null },
+      ],
+    });
+  });
+
+  it("pages undelivered outbox events and ignores already delivered marks", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    for (const ts of [10, 11, 12]) {
+      await persistence.insertOutboxEvent({
+        deploymentId: "deployment_outbox_page",
+        ts,
+        sequence: 0,
+        event: {
+          type: "commit",
+          deploymentId: "deployment_outbox_page",
+          commitTs: ts,
+          source: "invoke:messages:create",
+          changedTableIds: [1],
+          changedDocumentIds: [`1:message_${ts}`],
+          writeSummary: { writes: [] },
+        },
+      });
+    }
+
+    const first = await persistence.listUndeliveredOutboxEvents({
+      deploymentId: "deployment_outbox_page",
+      limit: 2,
+    });
+    expect(first.events.map((event) => event.ts)).toEqual([10, 11]);
+    expect(first.nextCursor).toEqual({ ts: 11, sequence: 0 });
+    expect(first.hasMore).toBe(true);
+
+    await expect(
+      persistence.listUndeliveredOutboxEvents({
+        deploymentId: "deployment_outbox_page",
+        cursor: first.nextCursor!,
+        limit: 2,
+      }),
+    ).resolves.toMatchObject({
+      events: [{ ts: 12, sequence: 0 }],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    await persistence.markOutboxEventsDelivered({
+      deploymentId: "deployment_outbox_page",
+      events: [
+        { ts: 10, sequence: 0 },
+        { ts: 999, sequence: 0 },
+      ],
+      deliveredAt: new Date("2026-06-20T01:00:00.000Z"),
+    });
+    await expect(
+      persistence.markOutboxEventsDelivered({
+        deploymentId: "deployment_outbox_page",
+        events: [{ ts: 10, sequence: 0 }],
+        deliveredAt: new Date("2026-06-20T02:00:00.000Z"),
+      }),
+    ).resolves.toEqual({ delivered: 0 });
+  });
+
   it("commits staged invoke session deletes after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

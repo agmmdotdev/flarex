@@ -46,6 +46,9 @@ import type {
   InsertOutboxEventInput,
   ListOutboxEventsInput,
   ListOutboxEventsResult,
+  ListUndeliveredOutboxEventsInput,
+  MarkOutboxEventsDeliveredInput,
+  MarkOutboxEventsDeliveredResult,
   OutboxEventRecord,
 } from "./outbox";
 import type {
@@ -160,6 +163,12 @@ export interface FlarexPersistence extends FlarexSqlClient {
   listOutboxEvents(
     input: ListOutboxEventsInput,
   ): Promise<ListOutboxEventsResult>;
+  listUndeliveredOutboxEvents(
+    input: ListUndeliveredOutboxEventsInput,
+  ): Promise<ListOutboxEventsResult>;
+  markOutboxEventsDelivered(
+    input: MarkOutboxEventsDeliveredInput,
+  ): Promise<MarkOutboxEventsDeliveredResult>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }

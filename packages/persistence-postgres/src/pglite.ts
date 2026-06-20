@@ -57,6 +57,8 @@ import {
 import {
   insertOutboxEvent as insertOutboxEventWithDb,
   listOutboxEvents as listOutboxEventsWithDb,
+  listUndeliveredOutboxEvents as listUndeliveredOutboxEventsWithDb,
+  markOutboxEventsDelivered as markOutboxEventsDeliveredWithDb,
 } from "./outbox";
 import { flarexSchema } from "./schema";
 
@@ -171,6 +173,10 @@ export async function createPGlitePersistence(
       ),
     insertOutboxEvent: (input) => insertOutboxEventWithDb(drizzleDb, input),
     listOutboxEvents: (input) => listOutboxEventsWithDb(drizzleDb, input),
+    listUndeliveredOutboxEvents: (input) =>
+      listUndeliveredOutboxEventsWithDb(drizzleDb, input),
+    markOutboxEventsDelivered: (input) =>
+      markOutboxEventsDeliveredWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

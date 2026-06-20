@@ -202,6 +202,86 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Outbox Delivery Primitives
+
+Previous completed checkpoint: `b4f98a4` Write commit outbox events.
+
+What changed:
+
+- Added `listUndeliveredOutboxEvents(...)` and
+  `markOutboxEventsDelivered(...)` to `@flarex/persistence-postgres`.
+- Reused the existing `outbox.delivered_at` column, so this checkpoint does
+  not require a migration.
+- Exposed the delivery lifecycle through the PGlite adapter, executor
+  persistence interface, and `createFlarexExecutor(...)`.
+- Added a small `packages/executor/src/outbox.ts` facade so future dispatcher
+  code can depend on executor behavior instead of raw persistence helpers.
+- Updated in-memory and HTTP/Nitro test fakes to satisfy the expanded executor
+  contract.
+- Added PGlite tests for undelivered listing, cursor ordering, delivery
+  marking, and idempotent already-delivered marks.
+- Added an executor test proving the public executor facade lists and marks
+  undelivered events.
+
+Why it changed:
+
+The previous checkpoint made mutation commits write durable outbox rows. This
+checkpoint makes those rows consumable. A sync/cache dispatcher needs a stable
+loop:
+
+```txt
+list undelivered events -> apply to sync/cache mirror -> mark delivered
+```
+
+Without this boundary, the next live-sync layer would either poll all outbox
+rows forever or couple itself directly to Postgres table details.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write-log entries are the durable freshness source.
+- `crates/sync/src/worker.rs`
+  - sync workers consume committed database changes and publish client
+    transitions.
+- `crates/database/src/subscription.rs`
+  - subscriptions are invalidated from committed write metadata.
+
+Flarex differences:
+
+- Convex does not expose a Postgres-style delivery acknowledgement table
+  because its write-log and sync workers are integrated inside the backend.
+  Flarex needs an explicit `delivered_at` acknowledgement because the trusted
+  executor, Cloudflare cache/freshness mirrors, and WebSocket connection DOs
+  are separate runtime components.
+- This is a single-dispatcher primitive. It does not yet claim or lease events
+  for multiple concurrent dispatchers.
+
+Known limitations:
+
+- No outbox dispatcher loop exists yet.
+- No `ConnectionDO`, freshness DO, or cache mirror consumes these events yet.
+- No claim/lease columns exist, so two independent dispatchers could read the
+  same undelivered events before either marks them delivered.
+- Event payloads are still coarse document/table summaries, not precise
+  query-range invalidation records.
+- Real Postgres concurrency and retention behavior still need the non-PGlite
+  correctness lane.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Commit Outbox Events
 
 Previous completed checkpoint: `c71110d` Expose ctx db replace.

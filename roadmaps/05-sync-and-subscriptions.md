@@ -33,6 +33,67 @@ Verification:
 git diff --check
 ```
 
+## Outbox Delivery Boundary
+
+Previous completed checkpoint: `b4f98a4` Write commit outbox events.
+
+What changed:
+
+- Added executor-accessible primitives for sync workers to page undelivered
+  commit outbox events and mark them delivered after applying them.
+- The delivery marker uses `outbox.delivered_at`; no new schema is required for
+  the first single-dispatcher implementation.
+- Tests now prove undelivered events can be listed, acknowledged, hidden from
+  future undelivered batches, and still visible in the full outbox history.
+
+Why it matters for sync:
+
+This is the first concrete bridge from the trusted Postgres executor toward
+Cloudflare live sync. The future sync worker can now be shaped around:
+
+```txt
+read undelivered Postgres outbox events
+  -> update freshness/subscription state
+  -> mark events delivered
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync workers consume committed changes and publish client transitions.
+- `crates/database/src/write_log.rs`
+  - committed write-log entries are the durable source of sync invalidation.
+- `crates/database/src/subscription.rs`
+  - subscriptions are invalidated from committed write metadata.
+
+Flarex differences:
+
+- Convex keeps sync workers close to the write log. Flarex must explicitly
+  acknowledge delivered outbox events because the producer is Postgres and the
+  consumer will run separately in Cloudflare/Nitro infrastructure.
+
+Known limitations:
+
+- No dispatcher loop or `ConnectionDO` consumer exists yet.
+- This is not a multi-dispatcher lease protocol. Concurrent dispatchers can
+  still race until claim/lease semantics are added.
+- Query-range invalidation is still coarse and needs a dependency encoding
+  layer.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Postgres Commit Outbox Source
 
 Previous completed checkpoint: `c71110d` Expose ctx db replace.

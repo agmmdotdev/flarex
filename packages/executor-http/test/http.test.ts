@@ -966,6 +966,12 @@ function fakeExecutor(
     async listMaintenanceDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
     },
+    async listUndeliveredOutboxEvents() {
+      return { events: [], nextCursor: null, hasMore: false };
+    },
+    async markOutboxEventsDelivered() {
+      return { delivered: 0 };
+    },
     async runMaintenanceSweep() {
       return {
         deployments: [],

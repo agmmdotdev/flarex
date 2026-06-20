@@ -7,6 +7,10 @@ import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
 import {
+  listUndeliveredOutboxEvents,
+  markOutboxEventsDelivered,
+} from "./outbox";
+import {
   listMaintenanceDeployments,
   runInvokeSessionMaintenance,
   runMaintenanceSweep,
@@ -101,8 +105,12 @@ export type {
   InvokeSyscallResult,
   InvokeAttemptContext,
   Json,
+  ListOutboxEventsResult,
+  ListUndeliveredOutboxEventsInput,
   ListMaintenanceDeploymentsInput,
   ListMaintenanceDeploymentsResult,
+  MarkOutboxEventsDeliveredInput,
+  MarkOutboxEventsDeliveredResult,
   MaintenanceSweepDeploymentResult,
   RunInvokeSessionMaintenanceInput,
   RunInvokeSessionMaintenanceResult,
@@ -147,6 +155,10 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       runInvokeSessionMaintenance(persistence, clock, input),
     listMaintenanceDeployments: (input) =>
       listMaintenanceDeployments(persistence, input),
+    listUndeliveredOutboxEvents: (input) =>
+      listUndeliveredOutboxEvents(persistence, input),
+    markOutboxEventsDelivered: (input) =>
+      markOutboxEventsDelivered(persistence, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>

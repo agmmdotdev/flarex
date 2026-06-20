@@ -199,6 +199,12 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async listOutboxEvents() {
       return { events: [], nextCursor: null, hasMore: false };
     },
+    async listUndeliveredOutboxEvents() {
+      return { events: [], nextCursor: null, hasMore: false };
+    },
+    async markOutboxEventsDelivered() {
+      return { delivered: 0 };
+    },
   };
 }
 
@@ -242,6 +248,16 @@ export function fakeExecutor(
     async listMaintenanceDeployments() {
       throw new Error(
         "listMaintenanceDeployments is not implemented by test fake",
+      );
+    },
+    async listUndeliveredOutboxEvents() {
+      throw new Error(
+        "listUndeliveredOutboxEvents is not implemented by test fake",
+      );
+    },
+    async markOutboxEventsDelivered() {
+      throw new Error(
+        "markOutboxEventsDelivered is not implemented by test fake",
       );
     },
     async runMaintenanceSweep() {
