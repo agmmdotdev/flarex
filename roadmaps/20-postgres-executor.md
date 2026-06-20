@@ -1046,6 +1046,65 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Session Maintenance Runner API
+
+Previous completed checkpoint: `471bc68` Abort stale invoke sessions.
+
+What changed:
+
+- Added `packages/executor/src/maintenance.ts`.
+- Added executor API:
+  `runInvokeSessionMaintenance({ deploymentId, projectId, staleAfterMs })`.
+- The maintenance API computes `olderThan` from the executor clock and delegates
+  to `abortStaleInvokeSessions`.
+- Added stable `MaintenancePolicyError` for invalid maintenance TTLs.
+- Added authenticated HTTP adapter route:
+  `POST /maintenance/invoke-sessions`.
+- Nitro inherits the route through `@flarex/executor-http`.
+- Added executor and HTTP tests for TTL handling and route validation.
+
+Why it changed:
+
+`POST /invoke/abort-stale` is a low-level control-plane primitive. A production
+scheduler should not have to calculate timestamps manually. This maintenance
+API makes the scheduled operation policy-driven while keeping the durable state
+transition in the trusted Postgres executor.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned function execution coordination remains the reference shape.
+- `crates/database/src/transaction.rs`
+  - uncommitted transaction state never becomes committed database state.
+
+Flarex differences:
+
+- Convex does not expose this as an HTTP maintenance route because execution and
+  transaction ownership live inside the same backend service. Flarex needs the
+  route because Dynamic Worker execution and the trusted executor are separate
+  deployable boundaries.
+- This route computes stale policy only. It still does not retry or commit user
+  code work.
+
+Known limitations:
+
+- No actual Vercel/Nitro cron binding is configured yet.
+- No persisted per-deployment maintenance policy yet.
+- No batch limit/pagination yet.
+- No retention deletion for aborted session read/write rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Module Layout
 
 Previous completed checkpoint: `a86d1ff` Add executor deployment ensure

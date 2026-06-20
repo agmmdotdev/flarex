@@ -6,6 +6,7 @@ import {
 import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
+import { runInvokeSessionMaintenance } from "./maintenance";
 import {
   abortInvokeSession,
   abortStaleInvokeSessions,
@@ -39,6 +40,7 @@ export {
   InvokeSessionProjectMismatchError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
+  MaintenancePolicyError,
   PartitionValidationError,
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
@@ -88,6 +90,8 @@ export type {
   InvokeSyscallRequest,
   InvokeSyscallResult,
   Json,
+  RunInvokeSessionMaintenanceInput,
+  RunInvokeSessionMaintenanceResult,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
@@ -121,6 +125,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       abortInvokeSession(persistence, clock, input),
     abortStaleInvokeSessions: (input) =>
       abortStaleInvokeSessions(persistence, clock, input),
+    runInvokeSessionMaintenance: (input) =>
+      runInvokeSessionMaintenance(persistence, clock, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

@@ -773,6 +773,62 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Maintenance Policy Boundary
+
+Previous completed checkpoint: `471bc68` Abort stale invoke sessions.
+
+What changed:
+
+- Added the executor maintenance API for invoke sessions.
+- Added `POST /maintenance/invoke-sessions` as the route a scheduler should
+  call instead of manually calculating `olderThan`.
+- Kept the operation outside generated user code and outside Dynamic Worker
+  execution modules.
+
+Why it matters:
+
+The Dynamic Worker should run user functions and call executor syscalls. It
+should not own platform maintenance policy. The trusted executor now has the
+small policy wrapper needed for a future Vercel/Nitro cron job:
+
+```txt
+scheduled job
+  -> /maintenance/invoke-sessions { staleAfterMs }
+  -> executor computes olderThan
+  -> abort stale active sessions
+```
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-side orchestration owns execution lifecycle decisions.
+- `crates/database/src/transaction.rs`
+  - abandoned transaction work remains unpublished.
+
+Flarex differences:
+
+- Flarex exposes an explicit maintenance route because the executor is
+  framework-neutral and can be hosted behind Nitro/Vercel.
+- This is a hosted-platform operation, not a Convex-style user function.
+
+Known limitations:
+
+- Cron wiring is still pending.
+- Per-deployment TTL configuration is still pending.
+- Batched retention cleanup is still pending.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Runtime Failure Cleanup Boundary
 
 Previous completed checkpoint: `a08eddd` Verify artifact abort after staged

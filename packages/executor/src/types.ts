@@ -61,6 +61,9 @@ export interface FlarexExecutor {
   abortStaleInvokeSessions(
     input: AbortStaleInvokeSessionsInput,
   ): Promise<AbortStaleInvokeSessionsResult>;
+  runInvokeSessionMaintenance(
+    input: RunInvokeSessionMaintenanceInput,
+  ): Promise<RunInvokeSessionMaintenanceResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -393,6 +396,17 @@ export interface AbortStaleInvokeSessionsInput {
 
 export interface AbortStaleInvokeSessionsResult {
   aborted: number;
+  sessions: string[];
+}
+
+export interface RunInvokeSessionMaintenanceInput {
+  deploymentId: string;
+  projectId: string;
+  staleAfterMs: number;
+}
+
+export interface RunInvokeSessionMaintenanceResult {
+  staleAborted: number;
   sessions: string[];
 }
 

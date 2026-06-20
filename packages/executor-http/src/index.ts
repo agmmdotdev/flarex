@@ -31,6 +31,7 @@ import {
   InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
+  MaintenancePolicyError,
   PartitionValidationError,
   InvokeSessionDeleteTargetError,
   type AbortInvokeSessionInput,
@@ -43,6 +44,7 @@ import {
   type InvokeSyscallRequest,
   type Json,
   type PrepareInvokeInput,
+  type RunInvokeSessionMaintenanceInput,
 } from "@flarex/executor";
 
 export interface FlarexHttpAppConfig {
@@ -55,6 +57,7 @@ export interface FlarexHttpAppConfig {
   invokeFinishPath?: string;
   invokeAbortPath?: string;
   invokeAbortStalePath?: string;
+  maintenanceInvokeSessionsPath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -78,6 +81,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeAbortStalePath = normalizePath(
     config.invokeAbortStalePath ?? "/invoke/abort-stale",
   );
+  const maintenanceInvokeSessionsPath = normalizePath(
+    config.maintenanceInvokeSessionsPath ?? "/maintenance/invoke-sessions",
+  );
   const capabilityToken = config.capabilityToken;
 
   return new Elysia()
@@ -99,6 +105,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(invokeAbortStalePath, ({ request, set }) =>
       handleInvokeAbortStale(executor, request, set, capabilityToken),
+    )
+    .post(maintenanceInvokeSessionsPath, ({ request, set }) =>
+      handleInvokeSessionMaintenance(executor, request, set, capabilityToken),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -140,6 +149,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${invokeAbortStalePath} only supports POST`,
+      };
+    })
+    .all(maintenanceInvokeSessionsPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceInvokeSessionsPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -378,6 +394,41 @@ async function handleInvokeAbortStale(
   }
 }
 
+async function handleInvokeSessionMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseInvokeSessionMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.runInvokeSessionMaintenance(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -596,6 +647,36 @@ function parseInvokeAbortStaleBody(
   };
 }
 
+function parseInvokeSessionMaintenanceBody(
+  body: unknown,
+):
+  | { value: RunInvokeSessionMaintenanceInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const staleAfterMs = requiredPositiveInteger(record, "staleAfterMs");
+  if ("error" in staleAfterMs) return staleAfterMs;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      staleAfterMs: staleAfterMs.value,
+    },
+  };
+}
+
 function parseSyscallRequest(
   record: Record<string, unknown>,
 ):
@@ -717,6 +798,27 @@ function requiredDate(
   return { value: date };
 }
 
+function requiredPositiveInteger(
+  record: Record<string, unknown>,
+  field: string,
+): { value: number } | { error: { error: "bad_request"; message: string } } {
+  const value = record[field];
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be a positive integer.`,
+      },
+    };
+  }
+  return { value };
+}
+
 function jsonValue(
   value: unknown,
   field: string,
@@ -781,6 +883,7 @@ function executorErrorBody(error: unknown): {
     error instanceof InvokeSessionDocumentValidationError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
+    error instanceof MaintenancePolicyError ||
     error instanceof PartitionValidationError
   ) {
     return knownErrorBody(error, 400);

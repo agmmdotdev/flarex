@@ -117,6 +117,13 @@ export class PartitionValidationError extends Error {
   }
 }
 
+export class MaintenancePolicyError extends Error {
+  constructor(message: string) {
+    super(`Invalid maintenance policy: ${message}`);
+    this.name = "MaintenancePolicyError";
+  }
+}
+
 export class InvokeSessionNotFoundError extends Error {
   constructor(
     readonly deploymentId: string,

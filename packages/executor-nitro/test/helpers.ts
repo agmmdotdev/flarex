@@ -219,6 +219,11 @@ export function fakeExecutor(
         "abortStaleInvokeSessions is not implemented by test fake",
       );
     },
+    async runInvokeSessionMaintenance() {
+      throw new Error(
+        "runInvokeSessionMaintenance is not implemented by test fake",
+      );
+    },
     async invokeSyscall() {
       throw new Error("invokeSyscall is not implemented by test fake");
     },

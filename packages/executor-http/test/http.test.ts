@@ -25,6 +25,7 @@ import {
   type InvokeSyscallResult,
   type PrepareInvokeInput,
   type PrepareInvokeResult,
+  type RunInvokeSessionMaintenanceInput,
 } from "@flarex/executor";
 
 import { createFlarexHttpApp } from "../src";
@@ -663,6 +664,82 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps invoke session maintenance requests to the executor core", async () => {
+    const calls: RunInvokeSessionMaintenanceInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runInvokeSessionMaintenance(input) {
+          calls.push(input);
+          return { staleAborted: 1, sessions: ["session_old"] };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/invoke-sessions", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        staleAfterMs: 1800000,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        staleAfterMs: 1800000,
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      staleAborted: 1,
+      sessions: ["session_old"],
+    });
+  });
+
+  it("validates invoke session maintenance requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runInvokeSessionMaintenance() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/invoke-sessions", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        staleAfterMs: 0,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "staleAfterMs must be a positive integer.",
+    });
+  });
+
+  it("rejects non-POST invoke session maintenance requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/maintenance/invoke-sessions"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/maintenance/invoke-sessions only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -872,6 +949,9 @@ function fakeExecutor(
     },
     async abortStaleInvokeSessions() {
       return { aborted: 0, sessions: [] };
+    },
+    async runInvokeSessionMaintenance() {
+      return { staleAborted: 0, sessions: [] };
     },
     async invokeSyscall() {
       return invokeSyscallResult(null);
