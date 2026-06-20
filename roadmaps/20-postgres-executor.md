@@ -2441,6 +2441,96 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Query Invoke Finish Route
+
+Previous completed checkpoint: `5bec2af` Persist invoke document read sets.
+
+What changed:
+
+- Added `finishInvokeSessionMetadata(...)` to persistence and PGlite.
+- Added `executor.finishInvokeSession(...)`.
+- Added `POST /invoke/finish` to `@flarex/executor-http`.
+- Query session finish now:
+  - validates the session exists,
+  - validates project ownership,
+  - validates the session is still `active`,
+  - loads accumulated document reads,
+  - returns `{ value, readSet }`,
+  - marks the session `finished` with the executor clock.
+- Mutation session finish returns `501 InvokeFinishNotImplementedError` until
+  write-set, return validation, OCC validation, and commit exist.
+- Added persistence, executor, HTTP, and Nitro fixture coverage.
+
+Why it changed:
+
+This closes the first read-only execution session loop:
+
+```txt
+/invoke/start
+  -> /invoke/syscall get
+  -> persisted document reads
+  -> /invoke/finish
+  -> value + readSet + finished session state
+```
+
+That mirrors the part of Convex where query execution returns a value and the
+read dependencies needed by the sync/cache layer, without pretending mutation
+commit semantics exist yet.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - query execution accumulates reads through a backend-owned transaction.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution returns through backend application logic after user
+    code runs.
+- `crates/application/src/cache/mod.rs`
+  - query results are tied to read dependencies for cache invalidation.
+
+Flarex references:
+
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy query finish returns `{ value, readSet }` and clears the in-memory
+    execution session.
+- `packages/executor/src/sessions.ts`
+  - Postgres executor query finish now returns accumulated durable reads and
+    marks the session finished.
+- `packages/executor-http/src/index.ts`
+  - Elysia route exposes the internal finish endpoint.
+
+Flarex differences:
+
+- Convex keeps query transaction state in memory during execution. Flarex
+  persists reads because user code is separated from the trusted executor by a
+  Cloudflare-to-executor network boundary.
+- Flarex currently marks the session finished but does not clean up session
+  read rows.
+- Return validation is not implemented yet; `/invoke/finish` accepts a JSON
+  value and returns it as-is.
+
+Known limitations:
+
+- Mutation finish/commit is still intentionally unimplemented.
+- No return validator is applied.
+- No OCC validation is applied.
+- No sync invalidation or cache update is emitted.
+- Query/index/table read dependencies are still missing.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

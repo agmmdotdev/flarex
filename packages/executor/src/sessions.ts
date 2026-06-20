@@ -2,17 +2,22 @@ import type {
   BeginInvokeSessionInput,
   BeginInvokeSessionResult,
   Clock,
+  FinishInvokeSessionInput,
+  FinishInvokeSessionResult,
   FlarexExecutorPersistence,
   IdGenerator,
   InvokeSyscallInput,
   InvokeSyscallResult,
+  InvokeReadSet,
 } from "./types";
 import {
   parseFlarexDocumentId,
   type PersistenceJson,
+  type InvokeSessionMetadataRecord,
 } from "@flarex/persistence-postgres";
 import { prepareInvoke } from "./invoke";
 import {
+  InvokeFinishNotImplementedError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -63,28 +68,7 @@ export async function invokeSyscall(
   persistence: FlarexExecutorPersistence,
   input: InvokeSyscallInput,
 ): Promise<InvokeSyscallResult> {
-  const session = await persistence.getInvokeSessionMetadata(
-    input.deploymentId,
-    input.sessionId,
-  );
-  if (session === null) {
-    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
-  }
-  if (session.projectId !== input.projectId) {
-    throw new InvokeSessionProjectMismatchError(
-      input.deploymentId,
-      input.sessionId,
-      input.projectId,
-      session.projectId,
-    );
-  }
-  if (session.state !== "active") {
-    throw new InvokeSessionNotActiveError(
-      input.deploymentId,
-      input.sessionId,
-      session.state,
-    );
-  }
+  const session = await requireActiveSession(persistence, input);
 
   if (isWriteSyscall(input.syscall.op) && session.functionKind !== "mutation") {
     throw new InvokeSyscallNotAllowedError(
@@ -124,6 +108,77 @@ export async function invokeSyscall(
   }
 
   throw new InvokeSyscallNotImplementedError(input.syscall.op);
+}
+
+export async function finishInvokeSession(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: FinishInvokeSessionInput,
+): Promise<FinishInvokeSessionResult> {
+  const session = await requireActiveSession(persistence, input);
+  if (session.functionKind !== "query") {
+    throw new InvokeFinishNotImplementedError(session.functionKind);
+  }
+
+  const documentReads = await persistence.listInvokeSessionDocumentReads(
+    input.deploymentId,
+    input.sessionId,
+  );
+  const finished = await persistence.finishInvokeSessionMetadata({
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    finishedAt: clock.now(),
+  });
+  if (finished === null) {
+    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+  }
+
+  return {
+    value: input.value,
+    readSet: readSetFromDocumentReads(documentReads),
+  };
+}
+
+async function requireActiveSession(
+  persistence: FlarexExecutorPersistence,
+  input: { deploymentId: string; projectId: string; sessionId: string },
+): Promise<InvokeSessionMetadataRecord> {
+  const session = await persistence.getInvokeSessionMetadata(
+    input.deploymentId,
+    input.sessionId,
+  );
+  if (session === null) {
+    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+  }
+  if (session.projectId !== input.projectId) {
+    throw new InvokeSessionProjectMismatchError(
+      input.deploymentId,
+      input.sessionId,
+      input.projectId,
+      session.projectId,
+    );
+  }
+  if (session.state !== "active") {
+    throw new InvokeSessionNotActiveError(
+      input.deploymentId,
+      input.sessionId,
+      session.state,
+    );
+  }
+  return session;
+}
+
+function readSetFromDocumentReads(
+  reads: Array<{ tableId: number; documentId: string }>,
+): InvokeReadSet {
+  return reads.length === 0
+    ? {}
+    : {
+        documents: reads.map((read) => ({
+          tableId: read.tableId,
+          id: read.documentId,
+        })),
+      };
 }
 
 function isWriteSyscall(op: string): boolean {

@@ -170,3 +170,12 @@ export class InvokeSyscallNotImplementedError extends Error {
     this.name = "InvokeSyscallNotImplementedError";
   }
 }
+
+export class InvokeFinishNotImplementedError extends Error {
+  constructor(readonly functionKind: string) {
+    super(
+      `Invoke finish for ${functionKind} sessions is not implemented by the Postgres executor yet.`,
+    );
+    this.name = "InvokeFinishNotImplementedError";
+  }
+}

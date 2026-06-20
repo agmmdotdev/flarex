@@ -4,6 +4,7 @@ import {
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
   type DocumentRevisionRecord,
+  type FinishInvokeSessionMetadataInput,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionDocumentReadInput,
@@ -120,6 +121,19 @@ export function memoryPersistence(
     },
     async getInvokeSessionMetadata(deploymentId: string, sessionId: string) {
       return invokeSessions.get(sessionKey(deploymentId, sessionId)) ?? null;
+    },
+    async finishInvokeSessionMetadata(input: FinishInvokeSessionMetadataInput) {
+      const session = invokeSessions.get(
+        sessionKey(input.deploymentId, input.sessionId),
+      );
+      if (session === undefined) return null;
+      const updated: InvokeSessionMetadataRecord = {
+        ...session,
+        state: "finished",
+        finishedAt: input.finishedAt,
+      };
+      invokeSessions.set(sessionKey(input.deploymentId, input.sessionId), updated);
+      return updated;
     },
     async getDocumentRevisionAtTs(deploymentId: string, id: string, ts: number) {
       return (

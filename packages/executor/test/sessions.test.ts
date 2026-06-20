@@ -11,6 +11,7 @@ import {
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
+  InvokeFinishNotImplementedError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
 } from "../src";
@@ -351,6 +352,77 @@ describe("executor invoke sessions", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("finishes query sessions with accumulated document reads", async () => {
+    const persistence = memoryPersistence([], [], [activeSession()], [], [
+      documentRead({ documentId: "1:message", observedTs: 10 }),
+      documentRead({ tableId: 2, documentId: "2:lesson", observedTs: null }),
+    ]);
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: [{ _id: "1:message", text: "old" }],
+      }),
+    ).resolves.toEqual({
+      value: [{ _id: "1:message", text: "old" }],
+      readSet: {
+        documents: [
+          { tableId: 1, id: "1:message" },
+          { tableId: 2, id: "2:lesson" },
+        ],
+      },
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({
+      state: "finished",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+  });
+
+  it("rejects mutation session finish until write commit exists", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [
+        activeSession({ functionKind: "mutation" }),
+      ]),
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).rejects.toThrow(InvokeFinishNotImplementedError);
+  });
+
+  it("rejects finishing inactive sessions", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [
+        activeSession({ state: "finished" }),
+      ]),
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).rejects.toThrow(InvokeSessionNotActiveError);
+  });
+
   it("rejects malformed document ids before persistence lookup", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence([], [], [activeSession()]),
@@ -485,5 +557,20 @@ function documentRevision(
     deleted: false,
     prevTs: null,
     ...overrides,
+  };
+}
+
+function documentRead(overrides: {
+  tableId?: number;
+  documentId: string;
+  observedTs?: number | null;
+}) {
+  return {
+    deploymentId: "deployment_session",
+    sessionId: "session_active",
+    tableId: overrides.tableId ?? 1,
+    documentId: overrides.documentId,
+    observedTs: overrides.observedTs ?? null,
+    readAt: new Date("2026-06-19T00:00:00.000Z"),
   };
 }

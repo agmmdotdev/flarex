@@ -2,6 +2,7 @@ import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
   FlarexPersistenceCheck,
+  FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
   InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
@@ -41,6 +42,9 @@ export interface FlarexExecutor {
   beginInvokeSession(
     input: BeginInvokeSessionInput,
   ): Promise<BeginInvokeSessionResult>;
+  finishInvokeSession(
+    input: FinishInvokeSessionInput,
+  ): Promise<FinishInvokeSessionResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -73,6 +77,9 @@ export interface FlarexExecutorPersistence {
   getInvokeSessionMetadata(
     deploymentId: string,
     sessionId: string,
+  ): Promise<InvokeSessionMetadataRecord | null>;
+  finishInvokeSessionMetadata(
+    input: FinishInvokeSessionMetadataInput,
   ): Promise<InvokeSessionMetadataRecord | null>;
   getDocumentRevisionAtTs(
     deploymentId: string,
@@ -297,6 +304,18 @@ export interface InvokeSyscallInput {
 export interface InvokeSyscallResult {
   value: Json;
   readSet?: InvokeReadSet;
+}
+
+export interface FinishInvokeSessionInput {
+  deploymentId: string;
+  projectId: string;
+  sessionId: string;
+  value: Json;
+}
+
+export interface FinishInvokeSessionResult {
+  value: Json;
+  readSet: InvokeReadSet;
 }
 
 export interface InvokeReadSet {

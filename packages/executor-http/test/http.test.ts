@@ -7,12 +7,14 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeFinishNotImplementedError,
   InvokeSessionNotFoundError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
   type BeginInvokeSessionInput,
   type BeginInvokeSessionResult,
+  type FinishInvokeSessionInput,
   type InvokeSyscallInput,
   type InvokeSyscallResult,
   type PrepareInvokeInput,
@@ -372,6 +374,88 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps invoke finish requests to the executor core", async () => {
+    const calls: FinishInvokeSessionInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async finishInvokeSession(input) {
+          calls.push(input);
+          return {
+            value: input.value,
+            readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/finish", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        value: [{ _id: "1:message", text: "hello" }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        value: [{ _id: "1:message", text: "hello" }],
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      value: [{ _id: "1:message", text: "hello" }],
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+    });
+  });
+
+  it("validates invoke finish requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async finishInvokeSession() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/finish", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        value: undefined,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "value must be a JSON value.",
+    });
+  });
+
+  it("rejects non-POST invoke finish requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/finish"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/invoke/finish only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -501,6 +585,19 @@ describe("createFlarexHttpApp", () => {
         body: { error: "FlarexDocumentIdFormatError" },
       });
   });
+
+  it("maps invoke finish executor errors to stable statuses", async () => {
+    await expect(expectFinishError(new InvokeSessionNotFoundError("d", "s")))
+      .resolves.toMatchObject({
+        status: 404,
+        body: { error: "InvokeSessionNotFoundError" },
+      });
+    await expect(expectFinishError(new InvokeFinishNotImplementedError("mutation")))
+      .resolves.toMatchObject({
+        status: 501,
+        body: { error: "InvokeFinishNotImplementedError" },
+      });
+  });
 });
 
 function fakeExecutor(
@@ -530,6 +627,12 @@ function fakeExecutor(
         schemaVersion: 12,
         executionModule: "_flarex/execution.js",
       });
+    },
+    async finishInvokeSession(input) {
+      return {
+        value: input.value,
+        readSet: {},
+      };
     },
     async invokeSyscall() {
       return invokeSyscallResult(null);
@@ -690,6 +793,32 @@ async function expectSyscallError(error: Error): Promise<{
       sessionId: "session_active",
       op: "get",
       id: "1:message",
+    }),
+  );
+
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function expectFinishError(error: Error): Promise<{
+  status: number;
+  body: unknown;
+}> {
+  const app = createFlarexHttpApp({
+    executor: fakeExecutor({
+      async finishInvokeSession() {
+        throw error;
+      },
+    }),
+  });
+  const response = await app.handle(
+    jsonRequest("https://executor.test/invoke/finish", {
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      value: null,
     }),
   );
 

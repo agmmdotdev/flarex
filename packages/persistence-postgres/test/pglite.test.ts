@@ -365,6 +365,43 @@ describe("createPGlitePersistence", () => {
     ).resolves.toBeNull();
   });
 
+  it("marks invoke session metadata as finished", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_invoke_finish",
+      sessionId: "session_finish",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query",
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      beginTs: 44,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    });
+
+    const finishedAt = new Date("2026-06-20T00:00:00.000Z");
+    await expect(
+      persistence.finishInvokeSessionMetadata({
+        deploymentId: "deployment_invoke_finish",
+        sessionId: "session_finish",
+        finishedAt,
+      }),
+    ).resolves.toMatchObject({
+      deploymentId: "deployment_invoke_finish",
+      sessionId: "session_finish",
+      state: "finished",
+      finishedAt,
+    });
+  });
+
   it("rejects duplicate invoke session metadata clearly", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

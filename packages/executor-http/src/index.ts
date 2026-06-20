@@ -10,6 +10,7 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeFinishNotImplementedError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -17,6 +18,7 @@ import {
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type BeginInvokeSessionInput,
+  type FinishInvokeSessionInput,
   type FlarexExecutor,
   type InvokableFunctionKind,
   type InvokeSyscallInput,
@@ -31,6 +33,7 @@ export interface FlarexHttpAppConfig {
   invokePreparePath?: string;
   invokeStartPath?: string;
   invokeSyscallPath?: string;
+  invokeFinishPath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -45,6 +48,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeSyscallPath = normalizePath(
     config.invokeSyscallPath ?? "/invoke/syscall",
   );
+  const invokeFinishPath = normalizePath(
+    config.invokeFinishPath ?? "/invoke/finish",
+  );
 
   return new Elysia()
     .get(healthPath, () => executor.health())
@@ -56,6 +62,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(invokeSyscallPath, ({ request, set }) =>
       handleInvokeSyscall(executor, request, set),
+    )
+    .post(invokeFinishPath, ({ request, set }) =>
+      handleInvokeFinish(executor, request, set),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -76,6 +85,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${invokeSyscallPath} only supports POST`,
+      };
+    })
+    .all(invokeFinishPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${invokeFinishPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -197,6 +213,37 @@ async function handleInvokeSyscall(
   }
 }
 
+async function handleInvokeFinish(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+): Promise<object> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseInvokeFinishBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.finishInvokeSession(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function parsePrepareInvokeBody(
   body: unknown,
 ):
@@ -303,6 +350,39 @@ function parseInvokeSyscallBody(
       projectId: projectId.value,
       sessionId: sessionId.value,
       syscall: syscall.value,
+    },
+  };
+}
+
+function parseInvokeFinishBody(
+  body: unknown,
+):
+  | { value: FinishInvokeSessionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const sessionId = requiredString(record, "sessionId");
+  if ("error" in sessionId) return sessionId;
+  const value = jsonValue(record.value, "value");
+  if ("error" in value) return value;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      sessionId: sessionId.value,
+      value: value.value,
     },
   };
 }
@@ -471,7 +551,10 @@ function executorErrorBody(error: unknown): {
   ) {
     return knownErrorBody(error, 409);
   }
-  if (error instanceof InvokeSyscallNotImplementedError) {
+  if (
+    error instanceof InvokeFinishNotImplementedError ||
+    error instanceof InvokeSyscallNotImplementedError
+  ) {
     return knownErrorBody(error, 501);
   }
 

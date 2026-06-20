@@ -22,6 +22,12 @@ export interface InsertInvokeSessionMetadataInput {
   executionModule: string;
 }
 
+export interface FinishInvokeSessionMetadataInput {
+  deploymentId: string;
+  sessionId: string;
+  finishedAt: Date;
+}
+
 export type InvokeSessionMetadataRecord = typeof invokeSessions.$inferSelect;
 
 export class InvokeSessionMetadataAlreadyExistsError extends Error {
@@ -87,6 +93,27 @@ export async function getInvokeSessionMetadata(
       ),
     )
     .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function finishInvokeSessionMetadata(
+  db: FlarexMetadataDatabase,
+  input: FinishInvokeSessionMetadataInput,
+): Promise<InvokeSessionMetadataRecord | null> {
+  const rows = await db
+    .update(invokeSessions)
+    .set({
+      state: "finished",
+      finishedAt: input.finishedAt,
+    })
+    .where(
+      and(
+        eq(invokeSessions.deploymentId, input.deploymentId),
+        eq(invokeSessions.sessionId, input.sessionId),
+      ),
+    )
+    .returning();
 
   return rows[0] ?? null;
 }
