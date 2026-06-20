@@ -8,6 +8,7 @@ import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
 import {
   abortInvokeSession,
+  abortStaleInvokeSessions,
   beginInvokeSession,
   defaultIds,
   finishInvokeSession,
@@ -58,6 +59,8 @@ export type {
   ActivateDeploymentPackageResult,
   AbortInvokeSessionInput,
   AbortInvokeSessionResult,
+  AbortStaleInvokeSessionsInput,
+  AbortStaleInvokeSessionsResult,
   BeginInvokeSessionInput,
   BeginInvokeSessionResult,
   Clock,
@@ -116,6 +119,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       finishInvokeSession(persistence, clock, input),
     abortInvokeSession: (input) =>
       abortInvokeSession(persistence, clock, input),
+    abortStaleInvokeSessions: (input) =>
+      abortStaleInvokeSessions(persistence, clock, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

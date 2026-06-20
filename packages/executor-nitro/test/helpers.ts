@@ -109,6 +109,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         finishedAt: input.finishedAt,
       };
     },
+    async abortStaleInvokeSessionsMetadata() {
+      return [];
+    },
     async getDocumentRevisionAtTs() {
       return null;
     },
@@ -210,6 +213,11 @@ export function fakeExecutor(
     },
     async abortInvokeSession() {
       throw new Error("abortInvokeSession is not implemented by test fake");
+    },
+    async abortStaleInvokeSessions() {
+      throw new Error(
+        "abortStaleInvokeSessions is not implemented by test fake",
+      );
     },
     async invokeSyscall() {
       throw new Error("invokeSyscall is not implemented by test fake");

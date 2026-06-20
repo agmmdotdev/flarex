@@ -773,6 +773,69 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Runtime Failure Cleanup Boundary
+
+Previous completed checkpoint: `a08eddd` Verify artifact abort after staged
+writes.
+
+What changed:
+
+- Recorded and implemented the executor-side stale invoke-session cleanup path.
+- `POST /invoke/abort-stale` is now available through the shared HTTP adapter
+  and therefore through the Nitro adapter.
+- The operation is intentionally not part of generated user modules. It is a
+  trusted backend/scheduler operation that marks old active sessions aborted.
+
+Why it matters for Dynamic Worker execution:
+
+The Flarex runtime split is:
+
+```txt
+Cloudflare Dynamic Worker user code
+  -> executor invoke session
+  -> syscalls staged in Postgres
+  -> finish commits, abort abandons
+```
+
+Generated runtime abort is necessary but not sufficient. A Dynamic Worker can
+fail before it sends `/invoke/abort`. The backend must be able to recover those
+sessions later so staged writes remain non-published and active-session tables
+do not grow forever.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - the backend owns execution coordination.
+- `crates/database/src/transaction.rs`
+  - uncommitted transaction state is not visible as committed database state.
+
+Flarex differences:
+
+- Convex does not need an HTTP stale-abort route between a Dynamic Worker and
+  transaction executor. Flarex does because runtime execution and trusted
+  transaction ownership are separate deployable units.
+- This is cleanup, not retry. It never commits user writes.
+
+Known limitations:
+
+- No actual scheduled sweeper is configured yet.
+- No deployment-level TTL configuration yet.
+- No cleanup of abandoned read/write rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Active Deployment Required For Invoke
 
 Previous completed checkpoint: `63637f9` Harden create-root sync docs and

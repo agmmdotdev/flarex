@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 
 import { invokeSessions } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -31,6 +31,12 @@ export interface FinishInvokeSessionMetadataInput {
 export interface AbortInvokeSessionMetadataInput {
   deploymentId: string;
   sessionId: string;
+  finishedAt: Date;
+}
+
+export interface AbortStaleInvokeSessionsMetadataInput {
+  deploymentId: string;
+  olderThan: Date;
   finishedAt: Date;
 }
 
@@ -143,4 +149,24 @@ export async function abortInvokeSessionMetadata(
     .returning();
 
   return rows[0] ?? null;
+}
+
+export async function abortStaleInvokeSessionsMetadata(
+  db: FlarexMetadataDatabase,
+  input: AbortStaleInvokeSessionsMetadataInput,
+): Promise<InvokeSessionMetadataRecord[]> {
+  return await db
+    .update(invokeSessions)
+    .set({
+      state: "aborted",
+      finishedAt: input.finishedAt,
+    })
+    .where(
+      and(
+        eq(invokeSessions.deploymentId, input.deploymentId),
+        eq(invokeSessions.state, "active"),
+        lt(invokeSessions.createdAt, input.olderThan),
+      ),
+    )
+    .returning();
 }

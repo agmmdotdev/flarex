@@ -34,6 +34,7 @@ import {
   PartitionValidationError,
   InvokeSessionDeleteTargetError,
   type AbortInvokeSessionInput,
+  type AbortStaleInvokeSessionsInput,
   type BeginInvokeSessionInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
@@ -53,6 +54,7 @@ export interface FlarexHttpAppConfig {
   invokeSyscallPath?: string;
   invokeFinishPath?: string;
   invokeAbortPath?: string;
+  invokeAbortStalePath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -73,6 +75,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeAbortPath = normalizePath(
     config.invokeAbortPath ?? "/invoke/abort",
   );
+  const invokeAbortStalePath = normalizePath(
+    config.invokeAbortStalePath ?? "/invoke/abort-stale",
+  );
   const capabilityToken = config.capabilityToken;
 
   return new Elysia()
@@ -91,6 +96,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(invokeAbortPath, ({ request, set }) =>
       handleInvokeAbort(executor, request, set, capabilityToken),
+    )
+    .post(invokeAbortStalePath, ({ request, set }) =>
+      handleInvokeAbortStale(executor, request, set, capabilityToken),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -125,6 +133,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${invokeAbortPath} only supports POST`,
+      };
+    })
+    .all(invokeAbortStalePath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${invokeAbortStalePath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -328,6 +343,41 @@ async function handleInvokeAbort(
   }
 }
 
+async function handleInvokeAbortStale(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseInvokeAbortStaleBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.abortStaleInvokeSessions(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -516,6 +566,36 @@ function parseInvokeAbortBody(
   };
 }
 
+function parseInvokeAbortStaleBody(
+  body: unknown,
+):
+  | { value: AbortStaleInvokeSessionsInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const olderThan = requiredDate(record, "olderThan");
+  if ("error" in olderThan) return olderThan;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      olderThan: olderThan.value,
+    },
+  };
+}
+
 function parseSyscallRequest(
   record: Record<string, unknown>,
 ):
@@ -610,6 +690,31 @@ function optionalString(
       message: `${field} must be a non-empty string.`,
     },
   };
+}
+
+function requiredDate(
+  record: Record<string, unknown>,
+  field: string,
+): { value: Date } | { error: { error: "bad_request"; message: string } } {
+  const value = record[field];
+  if (typeof value !== "string" || value.length === 0) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be an ISO timestamp string.`,
+      },
+    };
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be an ISO timestamp string.`,
+      },
+    };
+  }
+  return { value: date };
 }
 
 function jsonValue(

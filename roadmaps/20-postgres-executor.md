@@ -3831,3 +3831,71 @@ Verification:
 ```sh
 git diff --check
 ```
+
+## Stale Invoke Session Abort Sweep
+
+Previous completed checkpoint: `a08eddd` Verify artifact abort after staged
+writes.
+
+What changed:
+
+- Added `abortStaleInvokeSessionsMetadata` in
+  `@flarex/persistence-postgres`.
+- Exposed stale cleanup through the framework-neutral executor as
+  `executor.abortStaleInvokeSessions({ deploymentId, projectId, olderThan })`.
+- Added deployment/project ownership validation before cleanup.
+- Added authenticated HTTP adapter route `POST /invoke/abort-stale`.
+- Nitro inherits the route through the shared `@flarex/executor-http` adapter.
+- Added PGlite, executor, HTTP, and Nitro fake coverage.
+
+Why it changed:
+
+The generated runtime now calls `/invoke/abort` when user code throws, but that
+is best-effort. If the runtime process, request, or network path dies before the
+abort request reaches the executor, staged writes remain in an `active` invoke
+session. The trusted executor needs a small scheduler/ops operation to mark old
+active sessions aborted without committing staged writes.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transactions are finite objects owned by the backend; uncommitted writes do
+    not publish.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is coordinated by the backend application layer rather
+    than by client-visible user code.
+- `crates/function_runner/src/lib.rs`
+  - execution and backend coordination are separate concerns.
+
+Flarex differences:
+
+- Convex keeps execution and transaction ownership inside one trusted backend
+  runtime. Flarex intentionally splits user code into Cloudflare Dynamic Worker
+  execution and a Postgres trusted executor, so abort is an HTTP/internal
+  control-plane call plus a cleanup sweep.
+- Stale cleanup uses `invoke_sessions.created_at` and only updates rows where
+  `state = 'active'`. It does not delete reads or staged writes yet.
+- The operation is framework-neutral in executor core; HTTP/Nitro only parse
+  requests and enforce the capability token.
+
+Known limitations:
+
+- No scheduler/cron runner is wired yet; this only adds the callable operation.
+- No retention deletion for aborted session reads/writes yet.
+- No per-deployment TTL policy yet; callers provide `olderThan`.
+- No pagination/limit yet. A production sweeper should batch large deployments.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```

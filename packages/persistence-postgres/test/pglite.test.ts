@@ -414,6 +414,84 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("aborts only stale active invoke session metadata", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const baseInput = {
+      deploymentId: "deployment_invoke_stale",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query" as const,
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      beginTs: 44,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    };
+    await persistence.insertInvokeSessionMetadata({
+      ...baseInput,
+      sessionId: "session_old_active",
+    });
+    await persistence.insertInvokeSessionMetadata({
+      ...baseInput,
+      sessionId: "session_recent_active",
+    });
+    await persistence.insertInvokeSessionMetadata({
+      ...baseInput,
+      sessionId: "session_old_finished",
+      state: "finished",
+    });
+
+    await persistence.query(
+      `
+        update invoke_sessions
+        set created_at = $1
+        where deployment_id = $2 and session_id in ($3, $4)
+      `,
+      [
+        new Date("2026-06-19T00:00:00.000Z"),
+        "deployment_invoke_stale",
+        "session_old_active",
+        "session_old_finished",
+      ],
+    );
+
+    const finishedAt = new Date("2026-06-20T00:00:00.000Z");
+    await expect(
+      persistence.abortStaleInvokeSessionsMetadata({
+        deploymentId: "deployment_invoke_stale",
+        olderThan: new Date("2026-06-19T12:00:00.000Z"),
+        finishedAt,
+      }),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_invoke_stale",
+        sessionId: "session_old_active",
+        state: "aborted",
+        finishedAt,
+      },
+    ]);
+
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_invoke_stale",
+        "session_recent_active",
+      ),
+    ).resolves.toMatchObject({ state: "active", finishedAt: null });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_invoke_stale",
+        "session_old_finished",
+      ),
+    ).resolves.toMatchObject({ state: "finished" });
+  });
+
   it("rejects duplicate invoke session metadata clearly", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

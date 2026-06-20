@@ -3,6 +3,8 @@ import type {
   BeginInvokeSessionResult,
   AbortInvokeSessionInput,
   AbortInvokeSessionResult,
+  AbortStaleInvokeSessionsInput,
+  AbortStaleInvokeSessionsResult,
   Clock,
   FinishInvokeSessionInput,
   FinishInvokeSessionResult,
@@ -27,7 +29,9 @@ import {
   tableForName,
 } from "./invoke";
 import {
+  DeploymentNotFoundError,
   DeploymentPackageNotFoundError,
+  DeploymentProjectMismatchError,
   FlarexInsertIdTableMismatchError,
   InvokeDeleteDocumentNotFoundError,
   InvokeFinishNotImplementedError,
@@ -389,6 +393,35 @@ export async function abortInvokeSession(
     throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
   }
   return { aborted: true };
+}
+
+export async function abortStaleInvokeSessions(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: AbortStaleInvokeSessionsInput,
+): Promise<AbortStaleInvokeSessionsResult> {
+  const deployment = await persistence.getDeploymentMetadata(input.deploymentId);
+  if (deployment === null) {
+    throw new DeploymentNotFoundError(input.deploymentId);
+  }
+  if (deployment.projectId !== input.projectId) {
+    throw new DeploymentProjectMismatchError(
+      input.deploymentId,
+      input.projectId,
+      deployment.projectId,
+    );
+  }
+
+  const aborted = await persistence.abortStaleInvokeSessionsMetadata({
+    deploymentId: input.deploymentId,
+    olderThan: input.olderThan,
+    finishedAt: clock.now(),
+  });
+
+  return {
+    aborted: aborted.length,
+    sessions: aborted.map((session) => session.sessionId).sort(),
+  };
 }
 
 async function requireActiveSession(

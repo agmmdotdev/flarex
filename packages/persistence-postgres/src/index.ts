@@ -18,6 +18,7 @@ import type {
 } from "./documents";
 import type {
   AbortInvokeSessionMetadataInput,
+  AbortStaleInvokeSessionsMetadataInput,
   FinishInvokeSessionMetadataInput,
   InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataRecord,
@@ -92,6 +93,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   abortInvokeSessionMetadata(
     input: AbortInvokeSessionMetadataInput,
   ): Promise<InvokeSessionMetadataRecord | null>;
+  abortStaleInvokeSessionsMetadata(
+    input: AbortStaleInvokeSessionsMetadataInput,
+  ): Promise<InvokeSessionMetadataRecord[]>;
   insertDocumentRevision(
     input: InsertDocumentRevisionInput,
   ): Promise<DocumentRevisionRecord>;

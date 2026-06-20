@@ -9,6 +9,7 @@ import {
 
 import {
   createFlarexExecutor,
+  DeploymentProjectMismatchError,
   FlarexInsertIdTableMismatchError,
   InvokeDeleteDocumentNotFoundError,
   InvokePatchDocumentNotFoundError,
@@ -20,6 +21,7 @@ import {
   InvokeSyscallNotAllowedError,
 } from "../src";
 import {
+  deploymentMetadata,
   deploymentPackageMetadata,
   invokeSessionMetadata,
   memoryPersistence,
@@ -566,6 +568,87 @@ describe("executor invoke sessions", () => {
     await expect(
       persistence.getDocumentRevisionAtTs("deployment_session", "1:team_abort", 1),
     ).resolves.toBeNull();
+  });
+
+  it("aborts stale active sessions for a deployment", async () => {
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_session",
+          projectId: "project_session",
+        }),
+      ],
+      [],
+      [
+        {
+          ...activeSession({ sessionId: "session_old" }),
+          createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        },
+        {
+          ...activeSession({ sessionId: "session_recent" }),
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        },
+        {
+          ...activeSession({
+            sessionId: "session_finished",
+            state: "finished",
+          }),
+          createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        },
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      persistence,
+    });
+
+    await expect(
+      executor.abortStaleInvokeSessions({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        olderThan: new Date("2026-06-19T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      aborted: 1,
+      sessions: ["session_old"],
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_session", "session_old"),
+    ).resolves.toMatchObject({
+      state: "aborted",
+      finishedAt: new Date("2026-06-20T01:00:00.000Z"),
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_recent",
+      ),
+    ).resolves.toMatchObject({ state: "active", finishedAt: null });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_finished",
+      ),
+    ).resolves.toMatchObject({ state: "finished" });
+  });
+
+  it("rejects stale session aborts for the wrong project", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([
+        deploymentMetadata({
+          deploymentId: "deployment_session",
+          projectId: "project_actual",
+        }),
+      ]),
+    });
+
+    await expect(
+      executor.abortStaleInvokeSessions({
+        deploymentId: "deployment_session",
+        projectId: "project_requested",
+        olderThan: new Date("2026-06-19T12:00:00.000Z"),
+      }),
+    ).rejects.toThrow(DeploymentProjectMismatchError);
   });
 
   it("rejects syscalls after abort", async () => {

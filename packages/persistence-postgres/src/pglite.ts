@@ -32,6 +32,7 @@ import {
 } from "./indexEntries";
 import {
   abortInvokeSessionMetadata as abortInvokeSessionMetadataWithDb,
+  abortStaleInvokeSessionsMetadata as abortStaleInvokeSessionsMetadataWithDb,
   finishInvokeSessionMetadata as finishInvokeSessionMetadataWithDb,
   getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
   insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
@@ -122,6 +123,8 @@ export async function createPGlitePersistence(
       finishInvokeSessionMetadataWithDb(drizzleDb, input),
     abortInvokeSessionMetadata: (input) =>
       abortInvokeSessionMetadataWithDb(drizzleDb, input),
+    abortStaleInvokeSessionsMetadata: (input) =>
+      abortStaleInvokeSessionsMetadataWithDb(drizzleDb, input),
     insertDocumentRevision: (input) =>
       insertDocumentRevisionWithDb(drizzleDb, input),
     getDocumentRevisionAtTs: (deploymentId, id, ts) =>

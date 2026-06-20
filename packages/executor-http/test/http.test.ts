@@ -17,6 +17,7 @@ import {
   PartitionValidationError,
   type FlarexExecutor,
   type AbortInvokeSessionInput,
+  type AbortStaleInvokeSessionsInput,
   type BeginInvokeSessionInput,
   type BeginInvokeSessionResult,
   type FinishInvokeSessionInput,
@@ -586,6 +587,82 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps stale invoke abort requests to the executor core", async () => {
+    const calls: AbortStaleInvokeSessionsInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async abortStaleInvokeSessions(input) {
+          calls.push(input);
+          return { aborted: 2, sessions: ["session_a", "session_b"] };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/abort-stale", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        olderThan: "2026-06-20T00:00:00.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        olderThan: new Date("2026-06-20T00:00:00.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      aborted: 2,
+      sessions: ["session_a", "session_b"],
+    });
+  });
+
+  it("validates stale invoke abort requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async abortStaleInvokeSessions() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/abort-stale", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        olderThan: "bad-date",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "olderThan must be an ISO timestamp string.",
+    });
+  });
+
+  it("rejects non-POST stale invoke abort requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/abort-stale"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/invoke/abort-stale only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -792,6 +869,9 @@ function fakeExecutor(
     },
     async abortInvokeSession() {
       return { aborted: true };
+    },
+    async abortStaleInvokeSessions() {
+      return { aborted: 0, sessions: [] };
     },
     async invokeSyscall() {
       return invokeSyscallResult(null);

@@ -7,6 +7,7 @@ import {
   type DeploymentMetadataRecord,
   type DocumentRevisionRecord,
   type AbortInvokeSessionMetadataInput,
+  type AbortStaleInvokeSessionsMetadataInput,
   type FinishInvokeSessionMetadataInput,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
@@ -199,6 +200,30 @@ export function memoryPersistence(
       };
       invokeSessions.set(sessionKey(input.deploymentId, input.sessionId), updated);
       return updated;
+    },
+    async abortStaleInvokeSessionsMetadata(
+      input: AbortStaleInvokeSessionsMetadataInput,
+    ) {
+      const aborted: InvokeSessionMetadataRecord[] = [];
+      for (const session of invokeSessions.values()) {
+        if (
+          session.deploymentId !== input.deploymentId ||
+          session.state !== "active" ||
+          session.createdAt >= input.olderThan
+        ) {
+          continue;
+        }
+        const updated: InvokeSessionMetadataRecord = {
+          ...session,
+          state: "aborted",
+          finishedAt: input.finishedAt,
+        };
+        invokeSessions.set(sessionKey(session.deploymentId, session.sessionId), updated);
+        aborted.push(updated);
+      }
+      return aborted.sort((left, right) =>
+        left.sessionId.localeCompare(right.sessionId),
+      );
     },
     async getDocumentRevisionAtTs(deploymentId: string, id: string, ts: number) {
       return (
