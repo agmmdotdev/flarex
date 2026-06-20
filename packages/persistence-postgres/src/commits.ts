@@ -74,6 +74,17 @@ export class InvokeSessionPatchTargetError extends Error {
   }
 }
 
+export class InvokeSessionDeleteTargetError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly documentId: string,
+    readonly reason: string,
+  ) {
+    super(`Cannot delete document ${deploymentId}/${documentId}: ${reason}`);
+    this.name = "InvokeSessionDeleteTargetError";
+  }
+}
+
 export async function commitInvokeSessionWrites(
   db: FlarexMetadataDatabase,
   input: CommitInvokeSessionWritesInput,
@@ -169,6 +180,38 @@ export async function commitInvokeSessionWrites(
         prevTs: current.ts,
         ts: committedTs,
         value,
+      });
+      continue;
+    }
+
+    if (write.op === "delete") {
+      const current = await getDocumentRevisionAtTs(
+        db,
+        input.deploymentId,
+        write.documentId,
+        committedTs,
+      );
+      if (current === null || current.deleted) {
+        throw new InvokeSessionDeleteTargetError(
+          input.deploymentId,
+          write.documentId,
+          "document does not exist",
+        );
+      }
+      await insertDocumentRevision(db, {
+        deploymentId: input.deploymentId,
+        id: write.documentId,
+        ts: committedTs,
+        value: null,
+        deleted: true,
+        prevTs: current.ts,
+      });
+      committedWrites.push({
+        tableId: write.tableId,
+        id: write.documentId,
+        prevTs: current.ts,
+        ts: committedTs,
+        value: null,
       });
       continue;
     }

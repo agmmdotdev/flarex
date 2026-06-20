@@ -10,6 +10,7 @@ import {
 import {
   createFlarexExecutor,
   FlarexInsertIdTableMismatchError,
+  InvokeDeleteDocumentNotFoundError,
   InvokePatchDocumentNotFoundError,
   InvokePatchValueError,
   InvokeSessionNotActiveError,
@@ -778,6 +779,147 @@ describe("executor invoke sessions", () => {
         },
       }),
     ).rejects.toThrow(InvokePatchValueError);
+  });
+
+  it("stages delete syscalls with document reads during mutation sessions", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_delete",
+          documentId: "team_delete",
+          ts: 10,
+          value: { name: "Team" },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "delete",
+          id: "1:team_delete",
+        },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: { documents: [{ tableId: 1, id: "1:team_delete" }] },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:team_delete",
+        observedTs: 10,
+      },
+    ]);
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:team_delete",
+        op: "delete",
+        valueJson: null,
+      },
+    ]);
+  });
+
+  it("commits mutation delete syscalls after OCC validation", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_delete",
+          documentId: "team_delete",
+          ts: 10,
+          value: { name: "Team" },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "delete",
+        id: "1:team_delete",
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).resolves.toEqual({
+      value: null,
+      committedTs: 16,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:team_delete",
+          prevTs: 10,
+          ts: 16,
+          value: null,
+        },
+      ],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_session",
+        "1:team_delete",
+        16,
+      ),
+    ).resolves.toMatchObject({
+      deleted: true,
+      prevTs: 10,
+      value: null,
+    });
+  });
+
+  it("rejects delete syscalls for missing documents", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [],
+        [activePackage()],
+        [activeSession({ functionKind: "mutation" })],
+      ),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "delete",
+          id: "1:missing",
+        },
+      }),
+    ).rejects.toThrow(InvokeDeleteDocumentNotFoundError);
   });
 
   it("rejects insert ids that do not match the table", async () => {

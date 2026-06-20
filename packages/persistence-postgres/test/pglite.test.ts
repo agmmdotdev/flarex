@@ -6,6 +6,7 @@ import {
   InvokeSessionMetadataAlreadyExistsError,
   FlarexDocumentIdFormatError,
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
@@ -854,6 +855,203 @@ describe("createPGlitePersistence", () => {
         ["deployment_patch_non_object"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("commits staged invoke session deletes after read validation", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_delete_commit",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old" },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_delete_commit",
+      sessionId: "session_delete",
+      projectId: "project_delete",
+      packageId: "package_delete",
+      functionPath: "messages:delete",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_delete_commit",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_delete_commit",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      op: "delete",
+      valueJson: null,
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_delete_commit",
+        sessionId: "session_delete",
+        source: "invoke:messages:delete",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).resolves.toEqual({
+      committedTs: 16,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          prevTs: 10,
+          ts: 16,
+          value: null,
+        },
+      ],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_delete_commit",
+        "1:message",
+        16,
+      ),
+    ).resolves.toMatchObject({
+      id: "1:message",
+      ts: 16,
+      prevTs: 10,
+      deleted: true,
+      value: null,
+    });
+  });
+
+  it("rolls back staged delete commits when the target is missing", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_delete_missing",
+      sessionId: "session_delete",
+      projectId: "project_delete",
+      packageId: "package_delete",
+      functionPath: "messages:delete",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_delete_missing",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      op: "delete",
+      valueJson: null,
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_delete_missing",
+        sessionId: "session_delete",
+        source: "invoke:messages:delete",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionDeleteTargetError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_delete_missing",
+        "session_delete",
+      ),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
+    });
+    await expect(
+      persistence.query<{ count: number }>(
+        "select count(*)::int as count from commits where deployment_id = $1",
+        ["deployment_delete_missing"],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("rejects staged delete commits when the target changed", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_delete_occ",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_delete_occ",
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+      prevTs: 10,
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_delete_occ",
+      sessionId: "session_delete",
+      projectId: "project_delete",
+      packageId: "package_delete",
+      functionPath: "messages:delete",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_delete_occ",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_delete_occ",
+      sessionId: "session_delete",
+      tableId: 1,
+      documentId: "1:message",
+      op: "delete",
+      valueJson: null,
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_delete_occ",
+        sessionId: "session_delete",
+        source: "invoke:messages:delete",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionOccConflictError);
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_delete_occ",
+        "1:message",
+        21,
+      ),
+    ).resolves.toMatchObject({
+      ts: 20,
+      deleted: false,
+      value: { text: "new" },
+    });
   });
 
   it("rolls back staged invoke insert commits on document id conflict", async () => {

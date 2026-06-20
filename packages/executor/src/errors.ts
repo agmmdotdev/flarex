@@ -198,6 +198,16 @@ export class InvokePatchNonObjectDocumentError extends Error {
   }
 }
 
+export class InvokeDeleteDocumentNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly id: string,
+  ) {
+    super(`Cannot delete missing document: ${deploymentId}/${id}`);
+    this.name = "InvokeDeleteDocumentNotFoundError";
+  }
+}
+
 export class InvokeFinishNotImplementedError extends Error {
   constructor(readonly functionKind: string) {
     super(

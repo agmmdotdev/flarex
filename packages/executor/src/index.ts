@@ -15,6 +15,7 @@ import {
 import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
 
 export {
+  InvokeDeleteDocumentNotFoundError,
   DeploymentFunctionMetadataUnavailableError,
   DeploymentNotFoundError,
   DeploymentPackageMismatchError,
@@ -40,6 +41,7 @@ export {
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
 export {
   InvokeSessionDocumentWriteAlreadyExistsError,
+  InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,

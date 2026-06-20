@@ -2941,8 +2941,97 @@ Flarex differences:
 Known limitations:
 
 - This is a naming/boundary cleanup only.
-- No `delete` syscall/commit path yet.
+- At this checkpoint, no `delete` syscall/commit path changed yet.
 - No validator, index, outbox, or cleanup behavior changed in this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
+## Mutation Document Delete Commit
+
+Previous completed checkpoint: `c68f587` Rename invoke session commit writes
+API.
+
+What changed:
+
+- Added executor syscall support for `delete`.
+- `delete` now:
+  - parses the table id from the Flarex document id,
+  - reads the target document at the invoke session snapshot timestamp,
+  - rejects missing/deleted targets before staging,
+  - persists a document read for OCC validation,
+  - persists a staged document write with op `delete` and `valueJson: null`.
+- `commitInvokeSessionWrites(...)` now applies staged `delete` writes after
+  persisted read validation succeeds.
+- Delete commit inserts a tombstone document revision with:
+  - `deleted: true`,
+  - `value: null`,
+  - `prevTs` pointing at the validated current revision.
+- Added deterministic HTTP mapping for delete target failures.
+- Updated the in-memory executor persistence test double to match real
+  PGlite/Postgres delete commit behavior.
+- Added tests for:
+  - executor delete staging,
+  - executor mutation finish returning the tombstone write summary,
+  - missing delete targets rejected at syscall time,
+  - PGlite tombstone commit,
+  - PGlite rollback for missing delete target,
+  - PGlite OCC rejection when the delete target changed.
+
+Why it changed:
+
+This completes the basic Convex-style document write trio for mutation
+execution: insert, patch, and delete. Like patch, delete is not a direct user
+code database operation. User code stages the intent, and the trusted executor
+commit path validates reads and writes the final revision.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - mutation execution accumulates document reads and writes against a snapshot.
+- `crates/database/src/committer.rs`
+  - commit validates the transaction read set before applying writes.
+- Convex JS server API shape:
+  - `ctx.db.delete(id)` is part of mutation `ctx.db` and participates in the
+    same transactional commit as other writes.
+
+Flarex references:
+
+- `packages/executor/src/sessions.ts`
+  - `delete` syscall validates the target at `session.beginTs`, records the
+    read, and stages the delete write.
+- `packages/persistence-postgres/src/commits.ts`
+  - staged deletes insert tombstone document revisions after OCC validation.
+- `packages/persistence-postgres/src/documents.ts`
+  - document history already supports `deleted` revisions and returns them to
+    callers so reads can record the exact observed revision.
+
+Flarex differences:
+
+- Convex keeps the transaction write set in backend memory during execution.
+  Flarex persists staged syscall writes because user code executes across an
+  executor boundary.
+- Tombstones are currently only written to the document history table. Index
+  cleanup and sync invalidation are not wired yet.
+
+Known limitations:
+
+- No validator enforcement for insert/patch/delete writes yet.
+- No index maintenance or tombstone index cleanup.
+- No outbox/sync invalidation.
+- No cleanup of staged reads/writes after finish.
+- No real Postgres concurrency stress lane yet.
 
 Verification:
 

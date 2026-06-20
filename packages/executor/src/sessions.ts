@@ -24,6 +24,7 @@ import {
 import {
   DeploymentPackageNotFoundError,
   FlarexInsertIdTableMismatchError,
+  InvokeDeleteDocumentNotFoundError,
   InvokeFinishNotImplementedError,
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
@@ -165,6 +166,47 @@ export async function invokeSyscall(
       documentId: input.syscall.id,
       op: "patch",
       valueJson: patch,
+    });
+    return {
+      value: null,
+      readSet: {
+        documents: [
+          {
+            tableId: parsed.tableId,
+            id: input.syscall.id,
+          },
+        ],
+      },
+    };
+  }
+
+  if (input.syscall.op === "delete") {
+    const parsed = parseFlarexDocumentId(input.syscall.id);
+    const document = await persistence.getDocumentRevisionAtTs(
+      input.deploymentId,
+      input.syscall.id,
+      session.beginTs,
+    );
+    if (document === null || document.deleted) {
+      throw new InvokeDeleteDocumentNotFoundError(
+        input.deploymentId,
+        input.syscall.id,
+      );
+    }
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      observedTs: document.ts,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      op: "delete",
+      valueJson: null,
     });
     return {
       value: null,

@@ -14,6 +14,7 @@ import {
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   type InvokeSessionDocumentWriteRecord,
+  InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
@@ -364,6 +365,40 @@ export function memoryPersistence(
             prevTs: current.ts,
             ts: committedTs,
             value,
+          });
+          continue;
+        }
+
+        if (write.op === "delete") {
+          const current = latestDocumentAt(
+            [...documentRevisions, ...committedDocuments],
+            input.deploymentId,
+            write.documentId,
+            committedTs,
+          );
+          if (current === null || current.deleted) {
+            throw new InvokeSessionDeleteTargetError(
+              input.deploymentId,
+              write.documentId,
+              "document does not exist",
+            );
+          }
+          committedDocuments.push({
+            deploymentId: input.deploymentId,
+            id: write.documentId,
+            tableId: write.tableId,
+            documentId: write.documentId.slice(`${write.tableId}:`.length),
+            ts: committedTs,
+            value: null,
+            deleted: true,
+            prevTs: current.ts,
+          });
+          committedWrites.push({
+            tableId: write.tableId,
+            id: write.documentId,
+            prevTs: current.ts,
+            ts: committedTs,
+            value: null,
           });
           continue;
         }

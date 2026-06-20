@@ -11,6 +11,7 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeDeleteDocumentNotFoundError,
   InvokeFinishNotImplementedError,
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
@@ -26,6 +27,7 @@ import {
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
+  InvokeSessionDeleteTargetError,
   type BeginInvokeSessionInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
@@ -533,6 +535,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentNotFoundError ||
     error instanceof DeploymentPackageNotFoundError ||
     error instanceof InvokeSessionNotFoundError ||
+    error instanceof InvokeDeleteDocumentNotFoundError ||
     error instanceof InvokePatchDocumentNotFoundError ||
     error instanceof FunctionNotFoundError
   ) {
@@ -561,6 +564,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentPackageNotActivatedError ||
     error instanceof DeploymentFunctionMetadataUnavailableError ||
     error instanceof DeploymentSchemaMetadataUnavailableError ||
+    error instanceof InvokeSessionDeleteTargetError ||
     error instanceof InvokeSessionInsertConflictError ||
     error instanceof InvokeSessionOccConflictError ||
     error instanceof InvokeSessionPatchTargetError ||
