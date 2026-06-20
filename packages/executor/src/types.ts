@@ -7,7 +7,9 @@ import type {
   InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
   InsertInvokeSessionDocumentReadInput,
+  InsertInvokeSessionDocumentWriteInput,
   InvokeSessionDocumentReadRecord,
+  InvokeSessionDocumentWriteRecord,
   InvokeSessionMetadataRecord,
   DocumentRevisionRecord,
   UpdateDeploymentMetadataActivationInput,
@@ -93,6 +95,13 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentReadRecord[]>;
+  insertInvokeSessionDocumentWrite(
+    input: InsertInvokeSessionDocumentWriteInput,
+  ): Promise<InvokeSessionDocumentWriteRecord>;
+  listInvokeSessionDocumentWrites(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionDocumentWriteRecord[]>;
 }
 
 export interface ActivateDeploymentPackageInput {

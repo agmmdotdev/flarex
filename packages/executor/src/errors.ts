@@ -179,3 +179,13 @@ export class InvokeFinishNotImplementedError extends Error {
     this.name = "InvokeFinishNotImplementedError";
   }
 }
+
+export class FlarexInsertIdTableMismatchError extends Error {
+  constructor(
+    readonly id: string,
+    readonly expectedTableId: number,
+  ) {
+    super(`Document id ${id} does not belong to table id ${expectedTableId}.`);
+    this.name = "FlarexInsertIdTableMismatchError";
+  }
+}

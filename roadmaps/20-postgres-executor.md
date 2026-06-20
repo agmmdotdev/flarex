@@ -2531,6 +2531,101 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Mutation Insert Write Staging
+
+Previous completed checkpoint: `06af844` Finish query invoke sessions.
+
+What changed:
+
+- Added a new Postgres table:
+
+  ```txt
+  invoke_session_document_writes
+  ```
+
+- Added Drizzle migration `0004_cute_mentallo.sql` and snapshot metadata.
+- Added low-level persistence helpers:
+  - `insertInvokeSessionDocumentWrite(...)`
+  - `listInvokeSessionDocumentWrites(...)`
+- Added duplicate staged-write detection via
+  `InvokeSessionDocumentWriteAlreadyExistsError`.
+- Exported executor/schema helpers already used by prepare:
+  - `deploymentSchemaFromAnalysis(...)`
+  - `tableForName(...)`
+  - `encodeFlarexId(...)`
+- `executor.invokeSyscall({ op: "insert" })` now:
+  - requires a mutation session,
+  - loads the session package analysis,
+  - resolves the target table id,
+  - validates caller-supplied ids against the target table id,
+  - generates a Flarex id when the syscall omits one,
+  - stores a durable staged write row,
+  - returns the document id as the syscall value.
+- Added HTTP error mapping for duplicate staged writes and insert id/table
+  mismatches.
+- Added PGlite, executor, HTTP error mapping, and Nitro fixture coverage.
+
+Why it changed:
+
+Convex lets mutation user code call `ctx.db.insert(...)` multiple times before
+the backend transaction commits. Flarex needs the same developer behavior, but
+Cloudflare user code is separated from the trusted executor. The first safe
+step is to persist write intents inside the backend-owned session, then let a
+later mutation finish/commit path validate and apply them atomically.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - mutation writes are accumulated in the transaction before commit.
+- `crates/database/src/committer.rs`
+  - accumulated writes become durable only after validation and commit.
+- `crates/application/src/application_function_runner/mod.rs`
+  - user code invokes backend-owned database APIs rather than holding storage
+    handles directly.
+
+Flarex references:
+
+- `packages/flarex-backend/src/transaction.ts`
+  - legacy `SingleShardTransaction.insert(...)` stages writes before commit.
+- `packages/flarex-backend/src/invoke.ts`
+  - legacy writer resolves table ids and returns the inserted document id.
+- `packages/persistence-postgres/src/invokeSessionWrites.ts`
+  - Postgres executor write-intent persistence boundary.
+
+Flarex differences:
+
+- Convex keeps staged writes in a local transaction object. Flarex persists
+  staged writes per syscall because user code runs in Cloudflare and the
+  trusted executor may be a separate Nitro/Vercel service near Postgres.
+- This slice stages insert writes only. It does not write to `documents`,
+  update indexes, emit commits, or publish outbox events.
+- Document validators and placement validators are not applied yet. They need
+  to run before mutation commit.
+
+Known limitations:
+
+- `patch`, `delete`, mutation finish, OCC validation, and commit remain
+  pending.
+- Staged writes are not cleaned up after abandoned sessions.
+- Staged write order is only approximate via `staged_at`; final commit may
+  need an explicit monotonic sequence.
+- No index maintenance or outbox/sync invalidation is implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

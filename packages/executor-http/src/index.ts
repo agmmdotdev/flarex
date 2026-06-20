@@ -7,6 +7,7 @@ import {
   DeploymentProjectMismatchError,
   DeploymentSchemaMetadataUnavailableError,
   FlarexDocumentIdFormatError,
+  FlarexInsertIdTableMismatchError,
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
@@ -14,6 +15,7 @@ import {
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
+  InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
@@ -538,6 +540,8 @@ function executorErrorBody(error: unknown): {
     error instanceof FunctionKindMismatchError ||
     error instanceof FunctionNotInvokableError ||
     error instanceof FlarexDocumentIdFormatError ||
+    error instanceof FlarexInsertIdTableMismatchError ||
+    error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
     error instanceof PartitionValidationError
   ) {

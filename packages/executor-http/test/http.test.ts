@@ -4,11 +4,13 @@ import {
   DeploymentPackageNotActivatedError,
   DeploymentProjectMismatchError,
   FlarexDocumentIdFormatError,
+  FlarexInsertIdTableMismatchError,
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
   InvokeFinishNotImplementedError,
   InvokeSessionNotFoundError,
+  InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
@@ -584,6 +586,20 @@ describe("createFlarexHttpApp", () => {
         status: 400,
         body: { error: "FlarexDocumentIdFormatError" },
       });
+    await expect(
+      expectSyscallError(new FlarexInsertIdTableMismatchError("2:bad", 1)),
+    ).resolves.toMatchObject({
+      status: 400,
+      body: { error: "FlarexInsertIdTableMismatchError" },
+    });
+    await expect(
+      expectSyscallError(
+        new InvokeSessionDocumentWriteAlreadyExistsError("d", "s", "1:id"),
+      ),
+    ).resolves.toMatchObject({
+      status: 400,
+      body: { error: "InvokeSessionDocumentWriteAlreadyExistsError" },
+    });
   });
 
   it("maps invoke finish executor errors to stable statuses", async () => {

@@ -17,6 +17,13 @@ import {
 } from "@flarex/persistence-postgres";
 import { prepareInvoke } from "./invoke";
 import {
+  deploymentSchemaFromAnalysis,
+  encodeFlarexId,
+  tableForName,
+} from "./invoke";
+import {
+  DeploymentPackageNotFoundError,
+  FlarexInsertIdTableMismatchError,
   InvokeFinishNotImplementedError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
@@ -107,6 +114,20 @@ export async function invokeSyscall(
     };
   }
 
+  if (input.syscall.op === "insert") {
+    const table = await tableForInsert(persistence, session, input.syscall.table);
+    const id = idForInsert(table.tableId, input.syscall.id);
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: table.tableId,
+      documentId: id,
+      op: "insert",
+      valueJson: input.syscall.value,
+    });
+    return { value: id };
+  }
+
   throw new InvokeSyscallNotImplementedError(input.syscall.op);
 }
 
@@ -183,6 +204,40 @@ function readSetFromDocumentReads(
 
 function isWriteSyscall(op: string): boolean {
   return op === "insert" || op === "patch" || op === "delete";
+}
+
+async function tableForInsert(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  tableName: string,
+) {
+  const deploymentPackage = await persistence.getDeploymentPackageMetadata(
+    session.deploymentId,
+    session.packageId,
+  );
+  if (deploymentPackage === null) {
+    throw new DeploymentPackageNotFoundError(
+      session.deploymentId,
+      session.packageId,
+    );
+  }
+  const schema = deploymentSchemaFromAnalysis(
+    deploymentPackage.analysisJson,
+    deploymentPackage.deploymentId,
+    deploymentPackage.packageId,
+  );
+  return tableForName(schema, tableName);
+}
+
+function idForInsert(tableId: number, requestedId?: string): string {
+  if (requestedId === undefined) {
+    return encodeFlarexId(tableId);
+  }
+  const parsed = parseFlarexDocumentId(requestedId);
+  if (parsed.tableId !== tableId) {
+    throw new FlarexInsertIdTableMismatchError(requestedId, tableId);
+  }
+  return requestedId;
 }
 
 function documentValue(id: string, value: PersistenceJson): PersistenceJson {

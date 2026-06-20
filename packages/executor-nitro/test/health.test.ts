@@ -475,6 +475,27 @@ function healthyPersistence() {
     async listInvokeSessionDocumentReads() {
       return [];
     },
+    async insertInvokeSessionDocumentWrite(input: {
+      deploymentId: string;
+      sessionId: string;
+      tableId: number;
+      documentId: string;
+      op: "insert" | "patch" | "delete";
+      valueJson?: unknown;
+    }) {
+      return {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: input.tableId,
+        documentId: input.documentId,
+        op: input.op,
+        valueJson: input.valueJson ?? null,
+        stagedAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+    },
+    async listInvokeSessionDocumentWrites() {
+      return [];
+    },
   };
 }
 

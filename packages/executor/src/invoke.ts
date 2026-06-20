@@ -63,7 +63,7 @@ export async function prepareInvoke(
   };
 }
 
-function deploymentSchemaFromAnalysis(
+export function deploymentSchemaFromAnalysis(
   analysisJson: unknown,
   deploymentId: string,
   packageId: string,
@@ -405,7 +405,7 @@ function partitionKeyFromArgs(
   return value;
 }
 
-function tableForName(
+export function tableForName(
   schema: DeploymentSchemaMetadata,
   tableName: string,
 ): SchemaTableMetadata {
@@ -432,7 +432,7 @@ function capitalize(value: string): string {
   return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
-function encodeFlarexId(tableId: number, documentId: string = crypto.randomUUID()): string {
+export function encodeFlarexId(tableId: number, documentId: string = crypto.randomUUID()): string {
   if (!Number.isInteger(tableId) || tableId < 0) {
     throw new Error(`Flarex table id must be a non-negative integer, got ${tableId}.`);
   }

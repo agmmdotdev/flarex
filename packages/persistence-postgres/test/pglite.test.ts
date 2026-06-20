@@ -5,6 +5,7 @@ import {
   DeploymentPackageMetadataAlreadyExistsError,
   InvokeSessionMetadataAlreadyExistsError,
   FlarexDocumentIdFormatError,
+  InvokeSessionDocumentWriteAlreadyExistsError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -39,6 +40,7 @@ describe("createPGlitePersistence", () => {
       "documents",
       "indexes",
       "invoke_session_document_reads",
+      "invoke_session_document_writes",
       "invoke_sessions",
       "leases",
       "outbox",
@@ -566,5 +568,78 @@ describe("createPGlitePersistence", () => {
         observedTs: null,
       },
     ]);
+  });
+
+  it("inserts and lists invoke session document writes", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const first = await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes",
+      sessionId: "session_writes",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello" },
+    });
+
+    expect(first).toMatchObject({
+      deploymentId: "deployment_writes",
+      sessionId: "session_writes",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert",
+      valueJson: { text: "hello" },
+    });
+    expect(first.stagedAt).toBeInstanceOf(Date);
+
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes",
+      sessionId: "session_writes",
+      tableId: 2,
+      documentId: "2:lesson",
+      op: "insert",
+      valueJson: { title: "Intro" },
+    });
+
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes",
+        "session_writes",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:message",
+        op: "insert",
+        valueJson: { text: "hello" },
+      },
+      {
+        tableId: 2,
+        documentId: "2:lesson",
+        op: "insert",
+        valueJson: { title: "Intro" },
+      },
+    ]);
+  });
+
+  it("rejects duplicate invoke session document writes clearly", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    const input = {
+      deploymentId: "deployment_writes_dup",
+      sessionId: "session_writes",
+      tableId: 1,
+      documentId: "1:message",
+      op: "insert" as const,
+      valueJson: { text: "hello" },
+    };
+
+    await persistence.insertInvokeSessionDocumentWrite(input);
+
+    await expect(
+      persistence.insertInvokeSessionDocumentWrite(input),
+    ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
   });
 });

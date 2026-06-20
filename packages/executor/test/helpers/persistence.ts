@@ -8,7 +8,10 @@ import {
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionDocumentReadInput,
+  type InsertInvokeSessionDocumentWriteInput,
   type InvokeSessionDocumentReadRecord,
+  InvokeSessionDocumentWriteAlreadyExistsError,
+  type InvokeSessionDocumentWriteRecord,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
@@ -27,6 +30,7 @@ export function memoryPersistence(
   initialInvokeSessions: InvokeSessionMetadataRecord[] = [],
   initialDocuments: DocumentRevisionRecord[] = [],
   initialDocumentReads: InvokeSessionDocumentReadRecord[] = [],
+  initialDocumentWrites: InvokeSessionDocumentWriteRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -56,6 +60,17 @@ export function memoryPersistence(
         read.documentId,
       ),
       read,
+    ]),
+  );
+  const documentWrites = new Map<string, InvokeSessionDocumentWriteRecord>(
+    initialDocumentWrites.map((write) => [
+      documentWriteKey(
+        write.deploymentId,
+        write.sessionId,
+        write.tableId,
+        write.documentId,
+      ),
+      write,
     ]),
   );
 
@@ -181,6 +196,48 @@ export function memoryPersistence(
             left.documentId.localeCompare(right.documentId),
         );
     },
+    async insertInvokeSessionDocumentWrite(
+      input: InsertInvokeSessionDocumentWriteInput,
+    ) {
+      const key = documentWriteKey(
+        input.deploymentId,
+        input.sessionId,
+        input.tableId,
+        input.documentId,
+      );
+      if (documentWrites.has(key)) {
+        throw new InvokeSessionDocumentWriteAlreadyExistsError(
+          input.deploymentId,
+          input.sessionId,
+          input.documentId,
+        );
+      }
+      const write: InvokeSessionDocumentWriteRecord = {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: input.tableId,
+        documentId: input.documentId,
+        op: input.op,
+        valueJson: input.valueJson ?? null,
+        stagedAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+      documentWrites.set(key, write);
+      return write;
+    },
+    async listInvokeSessionDocumentWrites(deploymentId: string, sessionId: string) {
+      return Array.from(documentWrites.values())
+        .filter(
+          (write) =>
+            write.deploymentId === deploymentId &&
+            write.sessionId === sessionId,
+        )
+        .sort(
+          (left, right) =>
+            left.stagedAt.getTime() - right.stagedAt.getTime() ||
+            left.tableId - right.tableId ||
+            left.documentId.localeCompare(right.documentId),
+        );
+    },
   };
 }
 
@@ -242,6 +299,15 @@ function sessionKey(deploymentId: string, sessionId: string): string {
 }
 
 function documentReadKey(
+  deploymentId: string,
+  sessionId: string,
+  tableId: number,
+  documentId: string,
+): string {
+  return `${deploymentId}/${sessionId}/${tableId}/${documentId}`;
+}
+
+function documentWriteKey(
   deploymentId: string,
   sessionId: string,
   tableId: number,

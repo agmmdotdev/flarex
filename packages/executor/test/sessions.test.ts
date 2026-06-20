@@ -8,6 +8,7 @@ import {
 
 import {
   createFlarexExecutor,
+  FlarexInsertIdTableMismatchError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -15,7 +16,11 @@ import {
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
 } from "../src";
-import { invokeSessionMetadata, memoryPersistence } from "./helpers/persistence";
+import {
+  deploymentPackageMetadata,
+  invokeSessionMetadata,
+  memoryPersistence,
+} from "./helpers/persistence";
 
 describe("executor invoke sessions", () => {
   it("begins an invoke session from prepared invoke metadata", async () => {
@@ -453,11 +458,14 @@ describe("executor invoke sessions", () => {
     ).rejects.toThrow(InvokeSyscallNotImplementedError);
   });
 
-  it("allows mutation write syscalls through validation before the pending transaction layer", async () => {
+  it("stages insert syscalls during mutation sessions", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation" })],
+    );
     const executor = createFlarexExecutor({
-      persistence: memoryPersistence([], [], [
-        activeSession({ functionKind: "mutation" }),
-      ]),
+      persistence,
     });
 
     await expect(
@@ -465,9 +473,84 @@ describe("executor invoke sessions", () => {
         deploymentId: "deployment_session",
         projectId: "project_session",
         sessionId: "session_active",
-        syscall: { op: "insert", table: "messages", value: { text: "hello" } },
+        syscall: {
+          op: "insert",
+          table: "teams",
+          id: "1:team_insert",
+          value: { name: "Team" },
+        },
       }),
-    ).rejects.toThrow(InvokeSyscallNotImplementedError);
+    ).resolves.toEqual({ value: "1:team_insert" });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_session",
+        sessionId: "session_active",
+        tableId: 1,
+        documentId: "1:team_insert",
+        op: "insert",
+        valueJson: { name: "Team" },
+      },
+    ]);
+  });
+
+  it("generates ids for insert syscalls without caller supplied ids", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation" })],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    const result = await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "insert", table: "teams", value: { name: "Team" } },
+    });
+
+    expect(result.value).toEqual(expect.stringMatching(/^1:.+/));
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: result.value,
+        op: "insert",
+        valueJson: { name: "Team" },
+      },
+    ]);
+  });
+
+  it("rejects insert ids that do not match the table", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [],
+        [activePackage()],
+        [activeSession({ functionKind: "mutation" })],
+      ),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "insert",
+          table: "teams",
+          id: "2:wrong_table",
+          value: { name: "Team" },
+        },
+      }),
+    ).rejects.toThrow(FlarexInsertIdTableMismatchError);
   });
 });
 
@@ -541,6 +624,17 @@ function activeSession(
     schemaVersion: 5,
     executionModule: "_flarex/execution.js",
     ...overrides,
+  });
+}
+
+function activePackage() {
+  return deploymentPackageMetadata({
+    deploymentId: "deployment_session",
+    packageId: "package_active",
+    sourcePackageHash: "a".repeat(64),
+    executionModule: "_flarex/execution.js",
+    sourcePackageJson: sourcePackage(),
+    analysisJson: analysisJson(),
   });
 }
 

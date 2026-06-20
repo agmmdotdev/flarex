@@ -22,6 +22,7 @@ export {
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
   DeploymentSchemaMetadataUnavailableError,
+  FlarexInsertIdTableMismatchError,
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
@@ -34,6 +35,7 @@ export {
   PartitionValidationError,
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
+export { InvokeSessionDocumentWriteAlreadyExistsError } from "@flarex/persistence-postgres";
 export type {
   ActivateDeploymentPackageInput,
   ActivateDeploymentPackageResult,

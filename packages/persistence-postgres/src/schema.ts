@@ -230,6 +230,33 @@ export const invokeSessionDocumentReads = pgTable(
   ],
 );
 
+export const invokeSessionDocumentWrites = pgTable(
+  "invoke_session_document_writes",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    tableId: bigint("table_id", { mode: "number" }).notNull(),
+    documentId: text("document_id").notNull(),
+    op: text("op").notNull(),
+    valueJson: jsonb("value_json").$type<unknown>(),
+    stagedAt: timestamp("staged_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.deploymentId,
+        table.sessionId,
+        table.tableId,
+        table.documentId,
+      ],
+    }),
+    index("invoke_session_document_writes_by_session").on(
+      table.deploymentId,
+      table.sessionId,
+    ),
+  ],
+);
+
 export const flarexSchema = {
   commits,
   deploymentPackages,
@@ -237,6 +264,7 @@ export const flarexSchema = {
   documents,
   indexes,
   invokeSessionDocumentReads,
+  invokeSessionDocumentWrites,
   invokeSessions,
   leases,
   outbox,
