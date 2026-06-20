@@ -137,6 +137,63 @@ corepack pnpm --filter @flarex/executor test -- sessions.test.ts
 git diff --check
 ```
 
+## Invoke Read-Your-Writes Overlay
+
+Previous completed checkpoint: `0273eb8` Add invoke OCC retry coordinator.
+
+What changed:
+
+- Added an executor transaction-view helper for open invoke sessions.
+- `db.get` now reads from the persisted `beginTs` snapshot plus the current
+  session's staged document write for that ID.
+- Table query syscalls now overlay staged inserts, patches, and deletes before
+  returning a page.
+- Added executor tests for:
+  - insert then get,
+  - patch then get,
+  - delete then get, and
+  - table query after staged insert/patch/delete.
+
+Why it changed:
+
+Convex mutations can write and then read again in the same function. The
+executor must therefore answer each syscall from the mutation's transaction
+view, not only from the persisted snapshot.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state exposes reads over pending writes.
+- `crates/database/src/bootstrap_model/index/mod.rs`
+  - database reads flow through indexed/table access paths that share
+    transaction state.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code receives database results through syscalls.
+
+Flarex differences:
+
+- Flarex computes the staged overlay in executor TypeScript against persisted
+  invoke-session writes. Convex keeps this state in the Rust transaction object.
+- Table query overlay fetches the full table snapshot before applying the limit
+  for correctness. A later storage-level overlay should avoid that for large
+  tables.
+
+Known limitations:
+
+- Indexed query overlay is not implemented yet.
+- Multiple staged writes to the same document are still rejected by the
+  persistence layer; Convex-style write coalescing remains future work.
+- Table query pagination is still conservative and does not expose exact
+  Convex page interval behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Documentation Synchronization Update
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

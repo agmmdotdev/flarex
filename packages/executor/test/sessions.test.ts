@@ -979,6 +979,45 @@ describe("executor invoke sessions", () => {
     ]);
   });
 
+  it("reads staged inserts inside the same mutation session", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_insert" },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:team_insert", name: "Team" },
+      readSet: { documents: [{ tableId: 1, id: "1:team_insert" }] },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toEqual([]);
+  });
+
   it("generates ids for insert syscalls without caller supplied ids", async () => {
     const persistence = memoryPersistence(
       [],
@@ -1066,6 +1105,46 @@ describe("executor invoke sessions", () => {
         valueJson: { count: 2 },
       },
     ]);
+  });
+
+  it("reads staged patches inside the same mutation session", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_patch",
+          documentId: "team_patch",
+          ts: 10,
+          value: { name: "Old", count: 1 },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:team_patch",
+        value: { count: 2 },
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_patch" },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:team_patch", name: "Old", count: 2 },
+      readSet: { documents: [{ tableId: 1, id: "1:team_patch" }] },
+    });
   });
 
   it("commits mutation patch syscalls after OCC validation", async () => {
@@ -1223,6 +1302,45 @@ describe("executor invoke sessions", () => {
     ]);
   });
 
+  it("hides staged deletes inside the same mutation session", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_delete",
+          documentId: "team_delete",
+          ts: 10,
+          value: { name: "Team" },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "delete",
+        id: "1:team_delete",
+      },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_delete" },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: { documents: [{ tableId: 1, id: "1:team_delete" }] },
+    });
+  });
+
   it("commits mutation delete syscalls after OCC validation", async () => {
     const persistence = memoryPersistence(
       [],
@@ -1329,6 +1447,82 @@ describe("executor invoke sessions", () => {
         },
       }),
     ).rejects.toThrow(FlarexInsertIdTableMismatchError);
+  });
+
+  it("overlays staged writes onto table query results", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:a",
+          documentId: "a",
+          ts: 10,
+          value: { name: "First", count: 1 },
+        }),
+        documentRevision({
+          id: "1:b",
+          documentId: "b",
+          ts: 10,
+          value: { name: "Second", count: 1 },
+        }),
+        documentRevision({
+          id: "1:future",
+          documentId: "future",
+          ts: 20,
+          value: { name: "Too new", count: 1 },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:c",
+        value: { name: "Third", count: 1 },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:a",
+        value: { count: 2 },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: { op: "delete", id: "1:b" },
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "query", request: { table: "teams" } },
+      }),
+    ).resolves.toEqual({
+      value: {
+        page: [
+          { _id: "1:a", name: "First", count: 2 },
+          { _id: "1:c", name: "Third", count: 1 },
+        ],
+        isDone: true,
+        continueCursor: "1:c",
+      },
+      readSet: { tables: [{ tableId: 1 }] },
+    });
   });
 });
 

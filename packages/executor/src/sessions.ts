@@ -18,8 +18,10 @@ import type {
 import {
   parseFlarexDocumentId,
   indexBoundsForExpressions,
+  type DocumentRevisionRecord,
   type PersistenceJson,
   type InvokeSessionMetadataRecord,
+  type InvokeSessionDocumentWriteRecord,
   type IndexRangeExpression,
 } from "@flarex/persistence-postgres";
 import { prepareInvoke } from "./invoke";
@@ -101,23 +103,25 @@ export async function invokeSyscall(
 
   if (input.syscall.op === "get") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
-    const document = await persistence.getDocumentRevisionAtTs(
-      input.deploymentId,
+    const document = await documentAtTransactionView(
+      persistence,
+      session,
       input.syscall.id,
-      session.beginTs,
     );
-    await persistence.insertInvokeSessionDocumentRead({
-      deploymentId: input.deploymentId,
-      sessionId: input.sessionId,
-      tableId: parsed.tableId,
-      documentId: input.syscall.id,
-      observedTs: document?.ts ?? null,
-    });
+    if (document.recordRead) {
+      await persistence.insertInvokeSessionDocumentRead({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: parsed.tableId,
+        documentId: input.syscall.id,
+        observedTs: document.observedTs,
+      });
+    }
     return {
       value:
-        document === null || document.deleted
+        document.value === null
           ? null
-          : documentValue(document.id, document.value),
+          : documentValue(input.syscall.id, document.value),
       readSet: {
         documents: [
           {
@@ -190,10 +194,11 @@ export async function invokeSyscall(
         },
       };
     }
-    const documents = await persistence.listDocumentsInTableAtTs(
-      input.deploymentId,
+    const documents = await tableDocumentsAtTransactionView(
+      persistence,
+      session,
       table.tableId,
-      session.beginTs,
+      request.order,
       request.limit,
     );
     await persistence.insertInvokeSessionTableRead({
@@ -496,6 +501,144 @@ function isWriteSyscall(op: string): boolean {
   return op === "insert" || op === "patch" || op === "delete";
 }
 
+async function documentAtTransactionView(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  id: string,
+): Promise<{
+  value: PersistenceJson | null;
+  observedTs: number | null;
+  recordRead: boolean;
+}> {
+  const base = await persistence.getDocumentRevisionAtTs(
+    session.deploymentId,
+    id,
+    session.beginTs,
+  );
+  const staged = await stagedWriteForDocument(persistence, session, id);
+  if (staged === undefined) {
+    return {
+      value: base === null || base.deleted ? null : base.value,
+      observedTs: base?.ts ?? null,
+      recordRead: true,
+    };
+  }
+
+  if (staged.op === "insert") {
+    return {
+      value: staged.valueJson as PersistenceJson,
+      observedTs: base?.ts ?? null,
+      recordRead: false,
+    };
+  }
+
+  if (staged.op === "delete") {
+    return {
+      value: null,
+      observedTs: base?.ts ?? null,
+      recordRead: true,
+    };
+  }
+
+  if (
+    staged.op === "patch" &&
+    base !== null &&
+    !base.deleted &&
+    isJsonObject(base.value) &&
+    isJsonObject(staged.valueJson)
+  ) {
+    return {
+      value: { ...base.value, ...staged.valueJson },
+      observedTs: base.ts,
+      recordRead: true,
+    };
+  }
+
+  return {
+    value: base === null || base.deleted ? null : base.value,
+    observedTs: base?.ts ?? null,
+    recordRead: true,
+  };
+}
+
+async function tableDocumentsAtTransactionView(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  tableId: number,
+  order: "asc" | "desc" | undefined,
+  limit: number | undefined,
+): Promise<Array<{ id: string; value: PersistenceJson }>> {
+  const baseDocuments = await persistence.listDocumentsInTableAtTs(
+    session.deploymentId,
+    tableId,
+    session.beginTs,
+  );
+  const visible = new Map<string, { id: string; value: PersistenceJson }>();
+  for (const document of baseDocuments) {
+    visible.set(document.id, { id: document.id, value: document.value });
+  }
+
+  const stagedWrites = await persistence.listInvokeSessionDocumentWrites(
+    session.deploymentId,
+    session.sessionId,
+  );
+  for (const write of stagedWrites.filter(
+    (candidate) => candidate.tableId === tableId,
+  )) {
+    applyStagedWriteToTableView(visible, write, baseDocuments);
+  }
+
+  const sorted = Array.from(visible.values()).sort((left, right) =>
+    order === "desc"
+      ? right.id.localeCompare(left.id)
+      : left.id.localeCompare(right.id),
+  );
+  return limit === undefined ? sorted : sorted.slice(0, limit);
+}
+
+function applyStagedWriteToTableView(
+  visible: Map<string, { id: string; value: PersistenceJson }>,
+  write: InvokeSessionDocumentWriteRecord,
+  baseDocuments: DocumentRevisionRecord[],
+): void {
+  if (write.op === "insert") {
+    visible.set(write.documentId, {
+      id: write.documentId,
+      value: write.valueJson as PersistenceJson,
+    });
+    return;
+  }
+
+  if (write.op === "delete") {
+    visible.delete(write.documentId);
+    return;
+  }
+
+  if (write.op === "patch" && isJsonObject(write.valueJson)) {
+    const current =
+      visible.get(write.documentId) ??
+      baseDocuments.find((document) => document.id === write.documentId);
+    if (current !== undefined && isJsonObject(current.value)) {
+      visible.set(write.documentId, {
+        id: write.documentId,
+        value: { ...current.value, ...write.valueJson },
+      });
+    }
+  }
+}
+
+async function stagedWriteForDocument(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  id: string,
+): Promise<InvokeSessionDocumentWriteRecord | undefined> {
+  const writes = await persistence.listInvokeSessionDocumentWrites(
+    session.deploymentId,
+    session.sessionId,
+  );
+  return writes.find((write) => write.documentId === id);
+}
+
 async function tableForSession(
   persistence: FlarexExecutorPersistence,
   session: InvokeSessionMetadataRecord,
@@ -641,7 +784,7 @@ function requireJsonObject(value: PersistenceJson): Record<string, PersistenceJs
   return value;
 }
 
-function isJsonObject(value: PersistenceJson): value is Record<string, PersistenceJson> {
+function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

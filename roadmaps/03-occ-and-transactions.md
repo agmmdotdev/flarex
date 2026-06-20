@@ -76,6 +76,48 @@ corepack pnpm --filter @flarex/executor test -- sessions.test.ts
 git diff --check
 ```
 
+## Invoke Read-Your-Writes Overlay
+
+Previous completed checkpoint: `0273eb8` Add invoke OCC retry coordinator.
+
+What changed:
+
+- Implemented transaction-view reads for `db.get` and table query syscalls in
+  the executor.
+- Reads now combine the persisted snapshot at `beginTs` with the active
+  invoke session's staged inserts, patches, and deletes.
+- Added tests proving staged writes are visible before commit.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - pending writes participate in the transaction's read view.
+- `crates/database/src/committer.rs`
+  - pending writes are still unpublished until commit validation succeeds.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code sees transaction results through syscall responses.
+
+Flarex differences:
+
+- Flarex persists staged writes in invoke-session tables and rebuilds the
+  transaction view per syscall. Convex keeps the transaction view in backend
+  memory during function execution.
+
+Known limitations:
+
+- Indexed query overlay is still pending.
+- Multiple writes to the same document are not coalesced yet.
+- Large table queries need a storage-level overlay plan before this is
+  production efficient.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Current Decision
 
 Normal `mutation` is single-shard. Inside one `PartitionDO`, Flarex should copy
