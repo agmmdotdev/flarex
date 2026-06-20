@@ -294,6 +294,11 @@ export function fakeExecutor(
         "removeLiveQuerySubscription is not implemented by test fake",
       );
     },
+    async findStaleLiveQuerySubscriptions() {
+      throw new Error(
+        "findStaleLiveQuerySubscriptions is not implemented by test fake",
+      );
+    },
     async runMaintenanceSweep() {
       throw new Error("runMaintenanceSweep is not implemented by test fake");
     },

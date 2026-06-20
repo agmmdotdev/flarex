@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import { createFlarexExecutor, fingerprintJson } from "../src";
 import { memoryPersistence } from "./helpers/persistence";
 
@@ -147,5 +148,121 @@ describe("executor live query subscriptions", () => {
     expect(fingerprintJson({ b: 2, a: { d: 4, c: 3 } })).toBe(
       '{"a":{"c":3,"d":4},"b":2}',
     );
+  });
+
+  it("classifies live query subscriptions by freshness", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_scan_live_queries",
+        ts: 10,
+        sequence: 0,
+      },
+      commitTs: 10,
+      documentIds: ["1:fresh"],
+      tableIds: [1],
+    });
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_scan_live_queries",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:stale"],
+      tableIds: [2],
+    });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_scan_live_queries",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:fresh",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:fresh" }],
+      },
+      resultJson: "fresh",
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_scan_live_queries",
+      connectionId: "connection_a",
+      queryId: 2,
+      functionPath: "messages:stale",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        documents: [{ tableId: 2, id: "1:stale" }],
+        tables: [{ tableId: 2 }],
+      },
+      resultJson: "stale",
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_scan_live_queries",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:range",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        indexes: [{ indexId: 1, lower: "a", upper: "m" }],
+      },
+      resultJson: "unsupported",
+    });
+
+    await expect(
+      executor.findStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_scan_live_queries",
+        freshnessStore,
+      }),
+    ).resolves.toMatchObject({
+      fresh: [
+        {
+          subscription: { connectionId: "connection_a", queryId: 1 },
+          freshness: { status: "fresh", stale: [], unsupported: [] },
+        },
+      ],
+      stale: [
+        {
+          subscription: { connectionId: "connection_a", queryId: 2 },
+          freshness: {
+            status: "stale",
+            stale: [
+              {
+                kind: "document",
+                id: "1:stale",
+                observedTs: 10,
+                version: 20,
+              },
+              {
+                kind: "table",
+                id: "2",
+                observedTs: 10,
+                version: 20,
+              },
+            ],
+          },
+        },
+      ],
+      unsupported: [
+        {
+          subscription: { connectionId: "connection_b", queryId: 1 },
+          freshness: {
+            status: "unsupported",
+            unsupported: [
+              {
+                kind: "index",
+                indexId: 1,
+                reason: "index/range freshness is not implemented yet",
+              },
+            ],
+          },
+        },
+      ],
+    });
   });
 });

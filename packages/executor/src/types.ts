@@ -1,5 +1,7 @@
 import type {
+  CheckReadSetFreshnessResult,
   FreshnessSourceReadSet,
+  FreshnessMirrorStore,
 } from "@flarex/freshness";
 import type {
   DeploymentPackageMetadataRecord,
@@ -110,6 +112,9 @@ export interface FlarexExecutor {
   removeLiveQuerySubscription(
     input: RemoveLiveQuerySubscriptionInput,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
+  findStaleLiveQuerySubscriptions(
+    input: FindStaleLiveQuerySubscriptionsInput,
+  ): Promise<FindStaleLiveQuerySubscriptionsResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -260,6 +265,22 @@ export interface RecordLiveQuerySubscriptionResult {
 }
 
 export type RemoveLiveQuerySubscriptionInput = LiveQuerySubscriptionKey;
+
+export interface FindStaleLiveQuerySubscriptionsInput {
+  deploymentId: string;
+  freshnessStore: FreshnessMirrorStore;
+}
+
+export interface LiveQuerySubscriptionFreshnessEntry {
+  subscription: LiveQuerySubscriptionRecord;
+  freshness: CheckReadSetFreshnessResult;
+}
+
+export interface FindStaleLiveQuerySubscriptionsResult {
+  fresh: LiveQuerySubscriptionFreshnessEntry[];
+  stale: LiveQuerySubscriptionFreshnessEntry[];
+  unsupported: LiveQuerySubscriptionFreshnessEntry[];
+}
 
 export interface ActivateDeploymentPackageInput {
   deploymentId: string;

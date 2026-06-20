@@ -465,6 +465,57 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Stale Live-Query Scanner
+
+Previous completed checkpoint: `d438453` Add executor live query registry writer.
+
+What changed:
+
+- Added `findStaleLiveQuerySubscriptions(...)`.
+- The scanner compares durable live-query rows with a supplied freshness mirror.
+- It groups rows as `fresh`, `stale`, or `unsupported`.
+
+Cache impact:
+
+The future cache scheduler can now start from this read-only flow:
+
+```txt
+live_query_subscriptions
+  -> findStaleLiveQuerySubscriptions(...)
+  -> stale rows to rerun later
+```
+
+This proves the freshness mirror is usable for subscription invalidation before
+we implement query reruns or connection fanout.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale query work is driven from active sync state.
+- `crates/database/src/subscription.rs`
+  - read dependencies are compared against committed writes.
+
+Flarex differences:
+
+- Convex's sync worker owns stale-query discovery internally. Flarex separates
+  it because freshness mirrors and live-query registry rows may be consumed by
+  Nitro, Cloudflare workers, or tests.
+
+Known limitations:
+
+- No query rerun is performed.
+- No result-hash comparison is performed after rerun.
+- No Cloudflare `ConnectionDO` notification is performed.
+- Index/range reads are still unsupported.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.

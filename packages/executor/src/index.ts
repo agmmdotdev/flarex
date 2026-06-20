@@ -12,6 +12,7 @@ import {
   runOutboxDeliveryBatch,
 } from "./outbox";
 import {
+  findStaleLiveQuerySubscriptions,
   fingerprintJson,
   recordLiveQuerySubscription,
   removeLiveQuerySubscription,
@@ -106,6 +107,8 @@ export type {
   FunctionPartitionMetadata,
   FunctionPartitionPolicy,
   FunctionRoutePolicy,
+  FindStaleLiveQuerySubscriptionsInput,
+  FindStaleLiveQuerySubscriptionsResult,
   InvokableFunctionKind,
   InvokeSyscallInput,
   InvokeSyscallRequest,
@@ -141,6 +144,7 @@ export type {
   SchemaIndexMetadata,
   SchemaTableMetadata,
   TablePlacement,
+  LiveQuerySubscriptionFreshnessEntry,
 } from "./types";
 export { fingerprintJson } from "./liveQueries";
 
@@ -178,6 +182,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       recordLiveQuerySubscription(persistence, input),
     removeLiveQuerySubscription: (input) =>
       removeLiveQuerySubscription(persistence, input),
+    findStaleLiveQuerySubscriptions: (input) =>
+      findStaleLiveQuerySubscriptions(persistence, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>

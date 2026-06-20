@@ -1,7 +1,15 @@
-import { readSetToFreshnessReadSet } from "@flarex/freshness";
-import type { DeleteLiveQuerySubscriptionResult } from "@flarex/persistence-postgres";
+import {
+  checkReadSetFreshness,
+  readSetToFreshnessReadSet,
+} from "@flarex/freshness";
+import type {
+  DeleteLiveQuerySubscriptionResult,
+} from "@flarex/persistence-postgres";
+import type { FreshnessReadSet } from "@flarex/freshness";
 
 import type {
+  FindStaleLiveQuerySubscriptionsInput,
+  FindStaleLiveQuerySubscriptionsResult,
   FlarexExecutorPersistence,
   Json,
   RecordLiveQuerySubscriptionInput,
@@ -39,6 +47,38 @@ export async function removeLiveQuerySubscription(
   input: RemoveLiveQuerySubscriptionInput,
 ): Promise<DeleteLiveQuerySubscriptionResult> {
   return await persistence.deleteLiveQuerySubscription(input);
+}
+
+export async function findStaleLiveQuerySubscriptions(
+  persistence: FlarexExecutorPersistence,
+  input: FindStaleLiveQuerySubscriptionsInput,
+): Promise<FindStaleLiveQuerySubscriptionsResult> {
+  const subscriptions = await persistence.listLiveQuerySubscriptions({
+    deploymentId: input.deploymentId,
+  });
+  const result: FindStaleLiveQuerySubscriptionsResult = {
+    fresh: [],
+    stale: [],
+    unsupported: [],
+  };
+
+  for (const subscription of subscriptions) {
+    const freshness = await checkReadSetFreshness({
+      store: input.freshnessStore,
+      deploymentId: input.deploymentId,
+      readSet: subscription.readSetJson as FreshnessReadSet,
+    });
+    const entry = { subscription, freshness };
+    if (freshness.status === "fresh") {
+      result.fresh.push(entry);
+    } else if (freshness.status === "stale") {
+      result.stale.push(entry);
+    } else {
+      result.unsupported.push(entry);
+    }
+  }
+
+  return result;
 }
 
 export function fingerprintJson(value: Json): string {

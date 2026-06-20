@@ -293,6 +293,52 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Stale Live-Query Scanner
+
+Previous completed checkpoint: `d438453` Add executor live query registry writer.
+
+What changed:
+
+- Added `findStaleLiveQuerySubscriptions(...)` to `@flarex/executor`.
+- It lists live-query registry rows by deployment and validates each stored
+  read set with `checkReadSetFreshness(...)`.
+- It returns three explicit groups: `fresh`, `stale`, and `unsupported`.
+- Added executor tests for all three classifications.
+
+Why it changed:
+
+The executor now has the read-only primitive a future scheduler needs before it
+can rerun stale queries. This keeps stale-query discovery in framework-neutral
+core code instead of embedding it first in Nitro, Cloudflare, or tests.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale active queries are processed before client transitions are emitted.
+- `crates/database/src/subscription.rs`
+  - read-set invalidation is the source of staleness.
+
+Flarex differences:
+
+- Convex does this inside the integrated backend worker. Flarex exposes a
+  scanner because registry persistence and freshness mirrors are explicit
+  package/runtime boundaries.
+
+Known limitations:
+
+- No rerun operation is implemented yet.
+- The scanner does not mutate registry rows.
+- The scanner does not fan out to connections.
+- Index/range reads remain `unsupported`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.
