@@ -33,6 +33,54 @@ Verification:
 git diff --check
 ```
 
+## Freshness Projector Core
+
+Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.
+
+What changed:
+
+- Added `@flarex/freshness` with
+  `applyOutboxEventsToFreshnessMirror(...)`.
+- The projector turns commit outbox events into document/table freshness
+  versions.
+- The mirror store owns event idempotency by `(deploymentId, ts, sequence)`.
+
+Why it matters for sync:
+
+Subscriptions and live queries need a compact way to ask "did anything I read
+change since my last result?" This package starts that path for document and
+whole-table dependencies. Future query rerun code can compare recorded read
+dependencies against the freshness mirror before publishing client transitions.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - read dependencies are invalidated by committed writes.
+- `crates/sync/src/worker.rs`
+  - committed changes drive client sync transitions.
+- `crates/database/src/write_log.rs`
+  - write-log entries provide committed freshness.
+
+Flarex differences:
+
+- Convex can directly use backend write-log/subscription internals. Flarex
+  needs a separate projector because outbox dispatch and Cloudflare connection
+  ownership are separate components.
+
+Known limitations:
+
+- No `ConnectionDO` or query rerun logic consumes the mirror yet.
+- No range/index freshness is implemented.
+- No durable mirror store exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Outbox Dispatcher Core
 
 Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.

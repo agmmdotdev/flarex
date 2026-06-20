@@ -1,0 +1,20 @@
+{
+  "name": "@flarex/freshness",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/persistence-postgres": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

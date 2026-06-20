@@ -98,6 +98,54 @@ configuration, or bindings.
 See `roadmaps/17-deployment-analysis-and-push.md` for the source-bundle,
 analysis, candidate push, and activation lifecycle.
 
+## Generated Postgres Invoke Optional Fields
+
+Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.
+
+What changed:
+
+- Updated generated Worker codegen and the local runtime materializer template
+  to omit optional Postgres executor fields when they are `undefined`.
+- The affected fields are `projectId`, `executorToken`, `partitionKey`, and
+  `idempotencyKey` on `/invoke/start`, `/invoke/finish`, and `/invoke/abort`
+  helper calls.
+- This keeps generated artifacts compatible with
+  `exactOptionalPropertyTypes`.
+
+Why it changed:
+
+The workspace typecheck runs `apps/example` generation before TypeScript
+validation. Generated invoke code was passing optional fields as explicit
+`undefined`, which is invalid for helper input types declared with optional
+properties. The runtime behavior was unchanged, but the generated TypeScript
+gate failed.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated artifacts should typecheck as first-class source.
+- `npm-packages/convex/src/cli/codegen_templates`
+  - optional generated runtime fields should preserve TypeScript semantics.
+
+Flarex differences:
+
+- Convex generated workers do not carry Flarex's executor transport fields.
+  Flarex must handle these optional hosted/local executor fields explicitly.
+
+Known limitations:
+
+- This only fixes optional property emission. It does not remove legacy
+  `partitionKey` transport fields from generated artifacts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm typecheck
+git diff --check
+```
+
 ## Known Limitations
 
 - The Dynamic Worker path is still generated Worker code, not Cloudflare's

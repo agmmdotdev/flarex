@@ -202,6 +202,54 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Freshness Projector Package Boundary
+
+Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.
+
+What changed:
+
+- Added `@flarex/freshness` as a separate package from
+  `@flarex/executor`.
+- The executor still owns transaction sessions, outbox dispatch, and
+  acknowledgement. Freshness owns projection of committed outbox events into
+  document/table version state.
+- The first store is in-memory and intended for unit tests and local
+  simulation.
+
+Why it changed:
+
+This keeps the trusted executor from growing into a sync/cache implementation.
+The executor can call an injected delivery handler, while freshness owns the
+idempotent mirror logic that future Cloudflare or Postgres-backed stores will
+implement.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the durable source.
+- `crates/sync/src/worker.rs`
+  - backend sync consumes committed changes.
+
+Flarex differences:
+
+- Convex's backend does not need this package split. Flarex uses it because the
+  trusted Postgres executor and Cloudflare freshness/cache layers are separate
+  runtime boundaries.
+
+Known limitations:
+
+- The freshness package is not wired into the executor dispatcher yet.
+- The store is not durable yet.
+- Range/index freshness and query rerun logic remain unimplemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Outbox Dispatcher Core
 
 Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.

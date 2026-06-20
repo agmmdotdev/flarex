@@ -162,13 +162,13 @@ async function invokeWithBackend(body, env, request) {
   const start = await startExecution(env.FLAREX_BACKEND, {
     transport,
     deploymentId,
-    projectId,
-    executorToken: env.FLAREX_EXECUTOR_TOKEN,
+    ...(projectId === undefined ? {} : { projectId }),
+    ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
     path: body.path,
     args: body.args ?? null,
     kind,
-    partitionKey,
-    idempotencyKey: body.idempotencyKey,
+    ...(partitionKey === undefined ? {} : { partitionKey }),
+    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   });
   const startedKind = executionKind(start);
   try {
@@ -186,8 +186,8 @@ async function invokeWithBackend(body, env, request) {
     return await finishExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
-      projectId,
-      executorToken: env.FLAREX_EXECUTOR_TOKEN,
+      ...(projectId === undefined ? {} : { projectId }),
+      ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
       sessionId: start.sessionId,
       value,
     });
@@ -195,8 +195,8 @@ async function invokeWithBackend(body, env, request) {
     await abortExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
-      projectId,
-      executorToken: env.FLAREX_EXECUTOR_TOKEN,
+      ...(projectId === undefined ? {} : { projectId }),
+      ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
       sessionId: start.sessionId,
     });
     throw error;

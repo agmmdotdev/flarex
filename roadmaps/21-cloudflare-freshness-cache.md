@@ -238,6 +238,79 @@ Verification:
 git diff --check
 ```
 
+## Freshness Mirror Projector Core
+
+Previous completed checkpoint: `5526aa2` Add outbox dispatcher core.
+
+What changed:
+
+- Added a new framework-neutral `@flarex/freshness` package.
+- Added `applyOutboxEventsToFreshnessMirror(...)`, which converts committed
+  outbox events into document and table freshness versions.
+- Added `FreshnessMirrorStore` with one atomic method,
+  `applyCommitFreshness(...)`, so idempotency and version updates are owned by
+  the mirror store.
+- Added `MemoryFreshnessMirrorStore` for tests and local simulation.
+- The in-memory store tracks:
+  - processed event keys: `(deploymentId, ts, sequence)`,
+  - document versions: `(deploymentId, documentId) -> commitTs`, and
+  - table versions: `(deploymentId, tableId) -> commitTs`.
+- Added event-shape validation through `FreshnessOutboxEventShapeError`.
+- Added tests for applying versions, replay idempotency, non-regression when
+  older events arrive later, and malformed event rejection.
+
+Cache impact:
+
+This is the first real delivery target for the outbox dispatcher. The intended
+composition is now:
+
+```txt
+runOutboxDeliveryBatch({
+  deliver(events) {
+    return applyOutboxEventsToFreshnessMirror({ store, events });
+  }
+})
+```
+
+That gives Flarex the beginning of a freshness proof source for cached reads
+and live-query reruns. The projector currently records document/table versions
+only; range/index freshness still needs its own representation.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata is the durable source for freshness.
+- `crates/database/src/subscription.rs`
+  - subscriptions compare read dependencies against committed writes.
+- `crates/sync/src/worker.rs`
+  - sync workers consume committed changes and publish updates.
+
+Flarex differences:
+
+- Convex keeps write-log, freshness, and sync machinery inside its backend.
+  Flarex splits them: Postgres commits write outbox events, executor dispatches
+  those events, and `@flarex/freshness` projects them into a mirror that can
+  later live in Cloudflare DO/D1/SQLite storage.
+- The first store is in-memory only. It proves semantics, not durability.
+- At-least-once delivery means store implementations must treat
+  `(deploymentId, ts, sequence)` as the idempotency key.
+
+Known limitations:
+
+- No durable freshness store exists yet.
+- No range/index freshness representation exists yet.
+- No query rerun, cache minimum-freshness check, or `ConnectionDO` fanout uses
+  these versions yet.
+- No integration test wires `runOutboxDeliveryBatch(...)` to the projector yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Outbox Dispatcher Prerequisite
 
 Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.
