@@ -219,7 +219,7 @@ function databaseForSession(backend, deploymentId, sessionId, kind) {
   };
 }
 
-function createQueryInitializer(table, query, index, range, limit, cursor, order = "asc") {
+function createQueryInitializer(table, query, index, range, limit, cursor, order) {
   const execute = (nextLimit, nextCursor) => {
     const resolvedLimit = nextLimit ?? limit;
     const resolvedCursor = nextCursor ?? cursor;

@@ -932,6 +932,94 @@ corepack pnpm build
 git diff --check -- custom/cloudflare-executor
 ```
 
+## Generated WithIndex Runtime Contract
+
+Previous completed checkpoint: `9b27ea9` Add indexed query syscall OCC.
+
+What changed:
+
+- Confirmed the app-facing `flarex` query builder already emits the Postgres
+  executor indexed query request shape:
+  - `{ table, index, range }` for `withIndex`,
+  - `{ limit }` for `take`,
+  - `{ cursor, limit }` for pagination,
+  - `{ order }` only when `.order(...)` is called.
+- Added a schema/data-model type assertion proving declared indexes flow into
+  `DataModel`, which is what makes generated `ctx.db.query(table).withIndex(...)`
+  type-safe.
+- Aligned the local execution-artifact materializer's inline query builder with
+  the shared SDK semantics by no longer sending an implicit `order: "asc"`.
+- Added a materialized execution-artifact test that runs real user handler code:
+
+```ts
+await db
+  .query("messages")
+  .withIndex("by_lesson_text", q =>
+    q.eq("lessonId", args.lessonId).eq("text", "hello")
+  )
+  .take(2);
+```
+
+and verifies the backend syscall body is:
+
+```ts
+{
+  op: "query",
+  request: {
+    table: "messages",
+    index: "by_lesson_text",
+    range: {
+      expressions: [
+        { op: "eq", field: "lessonId", value: "1:lesson" },
+        { op: "eq", field: "text", value: "hello" },
+      ],
+    },
+    limit: 2,
+  },
+}
+```
+
+Why it changed:
+
+The Postgres executor now accepts indexed query syscalls. The SDK/generation
+side needed a recorded proof that Convex-style app code reaches that backend
+contract without developers manually constructing syscall JSON.
+
+Convex references:
+
+- `npm-packages/convex/src/server/index_range_builder.ts`
+  - chained `q.eq(...)` range construction.
+- `npm-packages/convex/src/server/query.ts`
+  - lazy query object with consumer methods like `collect` and `take`.
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated schema data model drives table/index names and document types.
+
+Flarex differences:
+
+- The local execution-artifact materializer still targets the legacy
+  `/deployments/:deploymentId/executions/...` transport because it runs against
+  the current `flarex-backend` harness.
+- The Postgres executor transport is `/invoke/start`, `/invoke/syscall`, and
+  `/invoke/finish`; moving generated execution artifacts to that route shape is
+  a separate transport migration.
+
+Known limitations:
+
+- No generated standalone app Worker route migration to the Postgres executor
+  adapter yet.
+- No static placement-field requirement for colocated table index ranges yet.
+- No reactive sync pagination/`watchQuery` integration for indexed pages yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+git diff --check
+```
+
 ## Runtime Validator Update
 
 The validator metadata exported by `flarex/values` is now executable through

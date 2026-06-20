@@ -4,6 +4,8 @@ import {
   defineTable,
   type DataModelFromSchemaDefinition,
   type DocumentByName,
+  type NamedIndex,
+  type NamedTableInfo,
   type WithoutSystemFields,
 } from "../src/server";
 import { v, type Id, type Infer } from "../src/values";
@@ -34,6 +36,8 @@ describe("typed schema data model", () => {
       nickname?: string;
       role: "student" | "teacher";
     }>();
+    expectTypeOf<NamedIndex<NamedTableInfo<DataModel, "users">, "by_name">>()
+      .toEqualTypeOf<readonly ["name"]>();
   });
 
   it("exports Convex-style validator metadata", () => {

@@ -22,6 +22,7 @@ import {
   initialCodegen,
 } from "../src/generate";
 import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMaterializer";
+import type { PushSourcePackage } from "flarex-backend/types";
 
 describe("runtime materializer", () => {
   const harnesses: BackendHarness[] = [];
@@ -203,6 +204,62 @@ describe("runtime materializer", () => {
       }),
     ]);
   });
+
+  it("emits Convex-style indexed query syscalls from materialized artifacts", async () => {
+    const syscalls: unknown[] = [];
+    const finishes: unknown[] = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        if (url.pathname === "/deployments/deployment-index/executions/start") {
+          return Response.json({ sessionId: "session-index", kind: "query" });
+        }
+        if (url.pathname === "/deployments/deployment-index/executions/session-index/syscall") {
+          syscalls.push(body);
+          return Response.json({
+            page: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+            isDone: true,
+            continueCursor: "cursor-index",
+          });
+        }
+        if (url.pathname === "/deployments/deployment-index/executions/session-index/finish") {
+          finishes.push(body);
+          return Response.json({ value: (body as { value: unknown }).value });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = indexedQueryPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+      });
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(syscalls).toEqual([
+      {
+        op: "query",
+        request: {
+          table: "messages",
+          index: "by_lesson_text",
+          range: {
+            expressions: [
+              { op: "eq", field: "lessonId", value: "1:lesson" },
+              { op: "eq", field: "text", value: "hello" },
+            ],
+          },
+          limit: 2,
+        },
+      },
+    ]);
+    expect(finishes).toEqual([
+      { value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }] },
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -251,6 +308,51 @@ export const list = query({
 `,
   );
   return root;
+}
+
+function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: `export default {
+  messages: {
+    list: {
+      isQuery: true,
+      _handler: async ({ db }, args) => {
+        return await db
+          .query("messages")
+          .withIndex("by_lesson_text", q =>
+            q.eq("lessonId", args.lessonId).eq("text", "hello")
+          )
+          .take(2);
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-index",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-index",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:list",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "query",
+    },
+  };
 }
 
 async function createCreateRootProject(): Promise<string> {

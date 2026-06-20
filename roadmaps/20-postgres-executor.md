@@ -3453,13 +3453,12 @@ Flarex differences:
 - The v1 Postgres index reader materializes latest rows in application code
   after fetching matching index history. This is correct for the prototype but
   not the final high-volume query plan.
-- Range requests are accepted directly by the syscall object. Later generated
-  client code should hide this behind Convex-style `withIndex("by_x", q =>
-  q.eq(...))`.
+- Range requests are accepted directly by the syscall object. The generated
+  runtime/SDK path now hides this behind Convex-style `withIndex("by_x", q =>
+  q.eq(...))`; direct syscall JSON remains the lower-level executor contract.
 
 Known limitations:
 
-- No generated client `withIndex()` API yet.
 - No colocated-table placement enforcement on index ranges in the Postgres
   executor path yet.
 - No reverse pagination cursor contract beyond opaque ordered key strings.
