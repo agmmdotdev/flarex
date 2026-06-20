@@ -128,6 +128,17 @@ export class InvokeSessionPatchTargetError extends Error {
   }
 }
 
+export class InvokeSessionReplaceTargetError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly documentId: string,
+    readonly reason: string,
+  ) {
+    super(`Cannot replace document ${deploymentId}/${documentId}: ${reason}`);
+    this.name = "InvokeSessionReplaceTargetError";
+  }
+}
+
 export class InvokeSessionDeleteTargetError extends Error {
   constructor(
     readonly deploymentId: string,
@@ -226,6 +237,39 @@ export async function commitInvokeSessionWrites(
         ...current.value,
         ...write.valueJson,
       };
+      validateDocumentValue(
+        tableValidators,
+        write.tableId,
+        write.documentId,
+        value,
+      );
+      plannedWrites.push({
+        tableId: write.tableId,
+        id: write.documentId,
+        prevTs: current.ts,
+        ts: committedTs,
+        previousValue: current.value,
+        value,
+        deleted: false,
+      });
+      continue;
+    }
+
+    if (write.op === "replace") {
+      const current = await getDocumentRevisionAtTs(
+        db,
+        input.deploymentId,
+        write.documentId,
+        committedTs,
+      );
+      if (current === null || current.deleted) {
+        throw new InvokeSessionReplaceTargetError(
+          input.deploymentId,
+          write.documentId,
+          "document does not exist",
+        );
+      }
+      const value = write.valueJson as PersistenceJson;
       validateDocumentValue(
         tableValidators,
         write.tableId,

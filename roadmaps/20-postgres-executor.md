@@ -76,6 +76,75 @@ Verification:
 git diff --check
 ```
 
+## Invoke Replace Syscall
+
+Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.
+
+What changed:
+
+- Added `replace` as a first-class invoke session document write op.
+- Added executor syscall shape `{ op: "replace", id, value }`.
+- `replace` records the target document read for OCC, stages a full document
+  value, and commits only when the document still exists.
+- Read-your-writes overlays now treat `replace` as the full transaction-local
+  value for `get`, table queries, and indexed queries.
+- Staged write coalescing now supports:
+  - `insert -> replace` as one final insert,
+  - `patch -> replace` as replace,
+  - `replace -> patch` as replace with the patch merged into the replacement,
+  - `replace -> replace` as the latest replacement,
+  - `replace -> delete` as delete,
+  - `delete -> replace` as a conflict.
+- PGlite and executor tests cover commit, missing targets, coalescing, and
+  indexed query movement.
+
+Why it changed:
+
+Convex's `ctx.db.replace(id, value)` is an important part of the database API
+surface. It is not just syntactic sugar over patch, because it replaces the
+whole document and can remove old fields. Flarex needs this behavior at the
+syscall/session layer before generated `ctx.db` can be Convex-compatible.
+
+Convex references:
+
+- `npm-packages/convex/src/server/database.ts`
+  - public `DatabaseWriter.replace` API shape.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code reaches database operations through a syscall boundary.
+- `crates/database/src/transaction.rs`
+  - transaction-local pending writes and read-your-writes behavior.
+- `crates/database/src/committer.rs`
+  - staged writes validate and commit atomically after OCC checks.
+
+Flarex differences:
+
+- Convex keeps the transaction object in the backend process. Flarex persists
+  the invoke session read/write state in the trusted executor so a Cloudflare
+  Dynamic Worker can call into it one syscall at a time.
+- Replacement is stored as a staged write row and validated only at final
+  commit. That keeps Postgres transactions short while preserving OCC
+  semantics.
+
+Known limitations:
+
+- Generated `ctx.db.replace` wiring is still separate work; this checkpoint
+  only adds the executor/persistence boundary.
+- Return validators and generated client API ergonomics still need to expose
+  this through the Convex-style user API.
+- Like Convex mutations, long-running user logic can still lose an OCC race;
+  retry handling remains the mitigation for deterministic mutation bodies.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Invoke OCC Retry Coordinator
 
 Previous completed checkpoint: `3c81156` Document interactive invoke

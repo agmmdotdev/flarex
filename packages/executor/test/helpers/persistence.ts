@@ -24,6 +24,7 @@ import {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionReplaceTargetError,
   InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
   type InvokeSessionTableReadRecord,
@@ -665,6 +666,47 @@ export function memoryPersistence(
           continue;
         }
 
+        if (write.op === "replace") {
+          const current = latestDocumentAt(
+            [...documentRevisions, ...committedDocuments],
+            input.deploymentId,
+            write.documentId,
+            committedTs,
+          );
+          if (current === null || current.deleted) {
+            throw new InvokeSessionReplaceTargetError(
+              input.deploymentId,
+              write.documentId,
+              "document does not exist",
+            );
+          }
+          const value = write.valueJson as DocumentRevisionRecord["value"];
+          validateDocumentValue(
+            tableValidators,
+            write.tableId,
+            write.documentId,
+            value,
+          );
+          committedDocuments.push({
+            deploymentId: input.deploymentId,
+            id: write.documentId,
+            tableId: write.tableId,
+            documentId: write.documentId.slice(`${write.tableId}:`.length),
+            ts: committedTs,
+            value,
+            deleted: false,
+            prevTs: current.ts,
+          });
+          committedWrites.push({
+            tableId: write.tableId,
+            id: write.documentId,
+            prevTs: current.ts,
+            ts: committedTs,
+            value,
+          });
+          continue;
+        }
+
         if (write.op === "delete") {
           const current = latestDocumentAt(
             [...documentRevisions, ...committedDocuments],
@@ -842,6 +884,9 @@ function coalesceDocumentWrite(
         valueJson: mergeJsonObjects(existing.valueJson, input.valueJson, existing, input),
       };
     }
+    if (input.op === "replace") {
+      return { op: "insert", valueJson: input.valueJson ?? null };
+    }
     if (input.op === "delete") {
       return null;
     }
@@ -862,9 +907,32 @@ function coalesceDocumentWrite(
         valueJson: mergeJsonObjects(existing.valueJson, input.valueJson, existing, input),
       };
     }
+    if (input.op === "replace") {
+      return { op: "replace", valueJson: input.valueJson ?? null };
+    }
     if (input.op === "delete") {
       return { op: "delete", valueJson: null };
     }
+    throw writeConflict(existing, input);
+  }
+
+  if (existing.op === "replace") {
+    if (input.op === "patch") {
+      return {
+        op: "replace",
+        valueJson: mergeJsonObjects(existing.valueJson, input.valueJson, existing, input),
+      };
+    }
+    if (input.op === "replace") {
+      return { op: "replace", valueJson: input.valueJson ?? null };
+    }
+    if (input.op === "delete") {
+      return { op: "delete", valueJson: null };
+    }
+    throw writeConflict(existing, input);
+  }
+
+  if (existing.op === "delete") {
     throw writeConflict(existing, input);
   }
 

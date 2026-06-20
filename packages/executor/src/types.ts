@@ -364,6 +364,11 @@ export type InvokeSyscallRequest =
       value: Json;
     }
   | {
+      op: "replace";
+      id: string;
+      value: Json;
+    }
+  | {
       op: "delete";
       id: string;
     };

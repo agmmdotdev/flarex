@@ -4,7 +4,11 @@ import { invokeSessionDocumentWrites } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { PersistenceJson } from "./documents";
 
-export type InvokeSessionDocumentWriteOp = "insert" | "patch" | "delete";
+export type InvokeSessionDocumentWriteOp =
+  | "insert"
+  | "patch"
+  | "replace"
+  | "delete";
 
 export interface StageInvokeSessionDocumentWriteInput {
   deploymentId: string;
@@ -174,6 +178,9 @@ function coalesceDocumentWrite(
         ),
       };
     }
+    if (input.op === "replace") {
+      return { op: "insert", valueJson: input.valueJson ?? null };
+    }
     if (input.op === "delete") {
       return null;
     }
@@ -199,9 +206,37 @@ function coalesceDocumentWrite(
         ),
       };
     }
+    if (input.op === "replace") {
+      return { op: "replace", valueJson: input.valueJson ?? null };
+    }
     if (input.op === "delete") {
       return { op: "delete", valueJson: null };
     }
+    throw writeConflict(existing, input);
+  }
+
+  if (existing.op === "replace") {
+    if (input.op === "patch") {
+      return {
+        op: "replace",
+        valueJson: mergeJsonObjects(
+          existing.valueJson,
+          input.valueJson,
+          existing,
+          input,
+        ),
+      };
+    }
+    if (input.op === "replace") {
+      return { op: "replace", valueJson: input.valueJson ?? null };
+    }
+    if (input.op === "delete") {
+      return { op: "delete", valueJson: null };
+    }
+    throw writeConflict(existing, input);
+  }
+
+  if (existing.op === "delete") {
     throw writeConflict(existing, input);
   }
 

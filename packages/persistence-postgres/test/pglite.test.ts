@@ -13,6 +13,7 @@ import {
   InvokeSessionIndexOccConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionReplaceTargetError,
   InvokeSessionTableOccConflictError,
   indexBoundsForExpressions,
   sql,
@@ -1066,6 +1067,122 @@ describe("createPGlitePersistence", () => {
 
     await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert_replace",
+      tableId: 1,
+      documentId: "1:insert_replace",
+      op: "insert",
+      valueJson: { text: "draft", count: 0 },
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_insert_replace",
+      tableId: 1,
+      documentId: "1:insert_replace",
+      op: "replace",
+      valueJson: { text: "final" },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_insert_replace",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:insert_replace",
+        op: "insert",
+        valueJson: { text: "final" },
+      },
+    ]);
+
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch_replace",
+      tableId: 1,
+      documentId: "1:patch_replace",
+      op: "patch",
+      valueJson: { count: 1 },
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_patch_replace",
+      tableId: 1,
+      documentId: "1:patch_replace",
+      op: "replace",
+      valueJson: { text: "final" },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_patch_replace",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:patch_replace",
+        op: "replace",
+        valueJson: { text: "final" },
+      },
+    ]);
+
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_replace_patch",
+      tableId: 1,
+      documentId: "1:replace_patch",
+      op: "replace",
+      valueJson: { text: "first", keep: true },
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_replace_patch",
+      tableId: 1,
+      documentId: "1:replace_patch",
+      op: "patch",
+      valueJson: { text: "second" },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_replace_patch",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:replace_patch",
+        op: "replace",
+        valueJson: { text: "second", keep: true },
+      },
+    ]);
+
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_replace_delete",
+      tableId: 1,
+      documentId: "1:replace_delete",
+      op: "replace",
+      valueJson: { text: "temporary" },
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
+      sessionId: "session_replace_delete",
+      tableId: 1,
+      documentId: "1:replace_delete",
+      op: "delete",
+      valueJson: null,
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_writes_coalesce",
+        "session_replace_delete",
+      ),
+    ).resolves.toMatchObject([
+      {
+        documentId: "1:replace_delete",
+        op: "delete",
+        valueJson: null,
+      },
+    ]);
+
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_writes_coalesce",
       sessionId: "session_delete_patch",
       tableId: 1,
       documentId: "1:deleted",
@@ -1079,6 +1196,16 @@ describe("createPGlitePersistence", () => {
         tableId: 1,
         documentId: "1:deleted",
         op: "patch",
+        valueJson: { text: "bad" },
+      }),
+    ).rejects.toThrow(InvokeSessionDocumentWriteConflictError);
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        deploymentId: "deployment_writes_coalesce",
+        sessionId: "session_delete_patch",
+        tableId: 1,
+        documentId: "1:deleted",
+        op: "replace",
         valueJson: { text: "bad" },
       }),
     ).rejects.toThrow(InvokeSessionDocumentWriteConflictError);
@@ -1526,6 +1653,127 @@ describe("createPGlitePersistence", () => {
       ts: 16,
       prevTs: 10,
       value: { text: "old", count: 2 },
+    });
+  });
+
+  it("commits staged invoke session replacements after read validation", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_replace_commit",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old", count: 1, removed: true },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_replace_commit",
+      sessionId: "session_replace",
+      projectId: "project_replace",
+      packageId: "package_replace",
+      functionPath: "messages:replace",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_replace_commit",
+      sessionId: "session_replace",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_replace_commit",
+      sessionId: "session_replace",
+      tableId: 1,
+      documentId: "1:message",
+      op: "replace",
+      valueJson: { text: "new", count: 2 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_replace_commit",
+        sessionId: "session_replace",
+        source: "invoke:messages:replace",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).resolves.toEqual({
+      committedTs: 16,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          prevTs: 10,
+          ts: 16,
+          value: { text: "new", count: 2 },
+        },
+      ],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_replace_commit",
+        "1:message",
+        16,
+      ),
+    ).resolves.toMatchObject({
+      id: "1:message",
+      ts: 16,
+      prevTs: 10,
+      value: { text: "new", count: 2 },
+    });
+  });
+
+  it("rolls back staged replace commits when the target is missing", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_replace_missing",
+      sessionId: "session_replace",
+      projectId: "project_replace",
+      packageId: "package_replace",
+      functionPath: "messages:replace",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_replace_missing",
+      sessionId: "session_replace",
+      tableId: 1,
+      documentId: "1:message",
+      op: "replace",
+      valueJson: { text: "new" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_replace_missing",
+        sessionId: "session_replace",
+        source: "invoke:messages:replace",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionReplaceTargetError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_replace_missing",
+        "session_replace",
+      ),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
     });
   });
 

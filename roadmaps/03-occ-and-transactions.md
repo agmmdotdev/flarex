@@ -35,6 +35,64 @@ Verification:
 git diff --check
 ```
 
+## Full-Document Replace In Invoke OCC
+
+Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.
+
+What changed:
+
+- Added `replace` to the invoke session write set.
+- `replace` requires the executor to observe the target document first, record
+  that document read, and commit the full replacement only if OCC validation
+  still sees the same document revision.
+- The commit path validates the replacement document against the active
+  package schema before inserting the new revision.
+- The read-your-writes transaction view now overlays replacement values for
+  direct document reads, table scans, and index scans.
+
+Why this matters:
+
+This keeps `replace` in the same transaction model as `patch` and `delete`:
+user code can branch on the current document, stage a full replacement, keep
+reading the transaction-local replacement, and have the backend reject or retry
+if another writer changed that document before commit.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - pending writes and transaction-local reads.
+- `crates/database/src/committer.rs`
+  - final validation and commit semantics.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - storage calls cross a controlled syscall boundary.
+
+Flarex differences:
+
+- Convex can keep transaction state process-local. Flarex keeps invoke session
+  state durable in Postgres because user code runs in a separate Cloudflare
+  Dynamic Worker.
+- The replacement does not open a long Postgres transaction while user code
+  continues. OCC validation happens at commit.
+
+Known limitations:
+
+- Cross-partition replacement remains outside normal mutation semantics. This
+  is still a single executor transaction-session model, not a multi-shard
+  all-or-nothing protocol.
+- Conflict retries only work for deterministic mutation bodies; side effects
+  still belong outside mutations.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Invoke OCC Retry Coordinator
 
 Previous completed checkpoint: `3c81156` Document interactive invoke

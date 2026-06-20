@@ -43,6 +43,7 @@ import {
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
   InvokeQueryRequestError,
+  InvokeReplaceDocumentNotFoundError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -292,6 +293,49 @@ export async function invokeSyscall(
     };
   }
 
+  if (input.syscall.op === "replace") {
+    const parsed = parseFlarexDocumentId(input.syscall.id);
+    const document = await documentAtTransactionView(
+      persistence,
+      session,
+      input.syscall.id,
+    );
+    if (document.value === null) {
+      throw new InvokeReplaceDocumentNotFoundError(
+        input.deploymentId,
+        input.syscall.id,
+      );
+    }
+    if (document.recordRead) {
+      await persistence.insertInvokeSessionDocumentRead({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: parsed.tableId,
+        documentId: input.syscall.id,
+        observedTs: document.observedTs,
+      });
+    }
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      op: "replace",
+      valueJson: input.syscall.value,
+    });
+    return {
+      value: null,
+      readSet: {
+        documents: [
+          {
+            tableId: parsed.tableId,
+            id: input.syscall.id,
+          },
+        ],
+      },
+    };
+  }
+
   if (input.syscall.op === "delete") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
     const document = await documentAtTransactionView(
@@ -504,7 +548,9 @@ function readSetFromReads(
 }
 
 function isWriteSyscall(op: string): boolean {
-  return op === "insert" || op === "patch" || op === "delete";
+  return (
+    op === "insert" || op === "patch" || op === "replace" || op === "delete"
+  );
 }
 
 async function documentAtTransactionView(
@@ -541,6 +587,14 @@ async function documentAtTransactionView(
   if (staged.op === "delete") {
     return {
       value: null,
+      observedTs: base?.ts ?? null,
+      recordRead: true,
+    };
+  }
+
+  if (staged.op === "replace") {
+    return {
+      value: staged.valueJson as PersistenceJson,
       observedTs: base?.ts ?? null,
       recordRead: true,
     };
@@ -680,9 +734,9 @@ async function applyStagedWriteToIndexView(
   }
 
   const value =
-    write.op === "insert"
-      ? (write.valueJson as PersistenceJson)
-      : await patchedIndexDocumentValue(persistence, session, write);
+    write.op === "patch"
+      ? await patchedIndexDocumentValue(persistence, session, write)
+      : (write.valueJson as PersistenceJson);
   if (value === null) {
     return;
   }
@@ -734,6 +788,14 @@ function applyStagedWriteToTableView(
 
   if (write.op === "delete") {
     visible.delete(write.documentId);
+    return;
+  }
+
+  if (write.op === "replace") {
+    visible.set(write.documentId, {
+      id: write.documentId,
+      value: write.valueJson as PersistenceJson,
+    });
     return;
   }
 

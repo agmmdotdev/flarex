@@ -212,6 +212,16 @@ export class InvokePatchNonObjectDocumentError extends Error {
   }
 }
 
+export class InvokeReplaceDocumentNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly id: string,
+  ) {
+    super(`Cannot replace missing document: ${deploymentId}/${id}`);
+    this.name = "InvokeReplaceDocumentNotFoundError";
+  }
+}
+
 export class InvokeDeleteDocumentNotFoundError extends Error {
   constructor(
     readonly deploymentId: string,
