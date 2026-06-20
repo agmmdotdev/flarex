@@ -17,6 +17,7 @@ import {
   InvokeSessionProjectMismatchError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
+  InvokeSessionOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
@@ -554,6 +555,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentFunctionMetadataUnavailableError ||
     error instanceof DeploymentSchemaMetadataUnavailableError ||
     error instanceof InvokeSessionInsertConflictError ||
+    error instanceof InvokeSessionOccConflictError ||
     error instanceof InvokeSessionNotActiveError
   ) {
     return knownErrorBody(error, 409);

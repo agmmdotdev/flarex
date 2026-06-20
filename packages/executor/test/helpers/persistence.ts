@@ -14,6 +14,7 @@ import {
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   type InvokeSessionDocumentWriteRecord,
+  InvokeSessionOccConflictError,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
@@ -251,8 +252,38 @@ export function memoryPersistence(
       const latestCommitTs = commits
         .filter((commit) => commit.deploymentId === input.deploymentId)
         .reduce((latest, commit) => Math.max(latest, commit.ts), 0);
-      const committedTs = Math.max(latestCommitTs, input.minimumTs) + 1;
+      const latestDocumentTs = [...documentRevisions, ...committedDocuments]
+        .filter((document) => document.deploymentId === input.deploymentId)
+        .reduce((latest, document) => Math.max(latest, document.ts), 0);
+      const committedTs =
+        Math.max(latestCommitTs, latestDocumentTs, input.minimumTs) + 1;
       const committedWrites: CommitInvokeSessionInsertsResult["writes"] = [];
+      for (const read of documentReads.values()) {
+        if (
+          read.deploymentId !== input.deploymentId ||
+          read.sessionId !== input.sessionId
+        ) {
+          continue;
+        }
+        const current =
+          [...documentRevisions, ...committedDocuments]
+            .filter(
+              (document) =>
+                document.deploymentId === input.deploymentId &&
+                document.id === read.documentId &&
+                document.ts <= committedTs,
+            )
+            .sort((left, right) => right.ts - left.ts)[0] ?? null;
+        const currentTs = current?.ts ?? null;
+        if (currentTs !== read.observedTs) {
+          throw new InvokeSessionOccConflictError(
+            input.deploymentId,
+            read.documentId,
+            read.observedTs,
+            currentTs,
+          );
+        }
+      }
       for (const write of writes) {
         const existing = [...documentRevisions, ...committedDocuments].find(
           (document) =>

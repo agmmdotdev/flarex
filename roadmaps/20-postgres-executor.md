@@ -2718,6 +2718,91 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Mutation Document Read OCC Validation
+
+Previous completed checkpoint: `824daa5` Commit mutation insert writes.
+
+What changed:
+
+- Added `InvokeSessionOccConflictError`.
+- `commitInvokeSessionInserts(...)` now validates persisted document reads
+  before applying staged inserts.
+- Validation checks each document read:
+  - if the session observed `null`, the document must still be missing,
+  - if the session observed timestamp `N`, the latest visible revision must
+    still be `N`.
+- OCC validation runs inside the same PGlite/Postgres transaction as staged
+  insert application, commit row insertion, and session finish.
+- Commit timestamp allocation now considers:
+  - latest `commits.ts`,
+  - latest `documents.ts`,
+  - session `beginTs`.
+- Added persistence tests for:
+  - existing read document changed after session begin,
+  - missing read document appearing after session begin,
+  - rollback leaving session active and no commit/document write.
+- Added executor test coverage and HTTP `409` mapping.
+
+Why it changed:
+
+This is the first Convex-critical correctness guard in the Postgres executor
+commit path. Mutation user code may perform reads before writes. If another
+mutation changes a read document before this mutation commits, Flarex must
+reject the commit instead of applying writes based on a stale snapshot.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - document reads are recorded during user execution.
+- `crates/database/src/committer.rs`
+  - commit validates accumulated reads against current database state before
+    applying writes.
+- `crates/sync`
+  - live query correctness depends on precise read dependencies and commit
+    ordering.
+
+Flarex references:
+
+- `packages/persistence-postgres/src/commits.ts`
+  - OCC validation runs before staged insert application.
+- `packages/persistence-postgres/src/invokeSessionReads.ts`
+  - durable document reads are the validation source.
+- `packages/executor/src/sessions.ts`
+  - mutation finish delegates to the validated persistence commit path.
+
+Flarex differences:
+
+- Convex validates richer read/predicate/index state. Flarex currently only
+  validates point document reads from `get`.
+- Convex has a hardened timestamp/commit allocator. Flarex currently computes
+  the next timestamp from latest commits/documents within the transaction; real
+  Postgres needs isolation/advisory-lock hardening before this is production
+  grade.
+- Flarex read sets are persisted because user code runs across a
+  Cloudflare-to-executor boundary.
+
+Known limitations:
+
+- No predicate/index/table read validation yet.
+- No `patch` or `delete` write validation/commit yet.
+- No index maintenance or outbox/sync invalidation.
+- No retry/idempotency replay behavior.
+- No real Postgres concurrency stress lane yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

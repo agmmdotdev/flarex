@@ -12,6 +12,7 @@ import {
   InvokeSessionNotFoundError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
+  InvokeSessionOccConflictError,
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
@@ -619,6 +620,12 @@ describe("createFlarexHttpApp", () => {
     ).resolves.toMatchObject({
       status: 409,
       body: { error: "InvokeSessionInsertConflictError" },
+    });
+    await expect(
+      expectFinishError(new InvokeSessionOccConflictError("d", "1:id", 10, 20)),
+    ).resolves.toMatchObject({
+      status: 409,
+      body: { error: "InvokeSessionOccConflictError" },
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   FlarexDocumentIdFormatError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
+  InvokeSessionOccConflictError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -771,5 +772,115 @@ describe("createPGlitePersistence", () => {
         ["deployment_commit_conflict"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("rejects mutation commits when a read document changed", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_occ",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_occ",
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+      prevTs: 10,
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_occ",
+      sessionId: "session_occ",
+      projectId: "project_occ",
+      packageId: "package_occ",
+      functionPath: "messages:send",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_occ",
+      sessionId: "session_occ",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_occ",
+      sessionId: "session_occ",
+      tableId: 1,
+      documentId: "1:other",
+      op: "insert",
+      valueJson: { text: "other" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_occ",
+        sessionId: "session_occ",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionOccConflictError);
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_occ", "session_occ"),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_occ", "1:other", 100),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects mutation commits when a missing read document appears", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_occ_missing",
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_occ_missing",
+      sessionId: "session_occ",
+      projectId: "project_occ",
+      packageId: "package_occ",
+      functionPath: "messages:send",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_occ_missing",
+      sessionId: "session_occ",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: null,
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_occ_missing",
+        sessionId: "session_occ",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionOccConflictError);
   });
 });

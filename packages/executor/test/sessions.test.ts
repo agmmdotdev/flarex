@@ -3,6 +3,7 @@ import type { ArtifactSourcePackage } from "flarex/artifacts";
 import {
   FlarexDocumentIdFormatError,
   InvokeSessionMetadataAlreadyExistsError,
+  InvokeSessionOccConflictError,
   type DocumentRevisionRecord,
 } from "@flarex/persistence-postgres";
 
@@ -444,6 +445,62 @@ describe("executor invoke sessions", () => {
     ).resolves.toMatchObject({
       state: "finished",
       finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+  });
+
+  it("rejects mutation finish when an observed document changed", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:read",
+          documentId: "read",
+          ts: 10,
+          value: { text: "old" },
+        }),
+        documentRevision({
+          id: "1:read",
+          documentId: "read",
+          ts: 20,
+          value: { text: "new" },
+          prevTs: 10,
+        }),
+      ],
+      [documentRead({ documentId: "1:read", observedTs: 10 })],
+    );
+    const executor = createFlarexExecutor({
+      persistence,
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).rejects.toThrow(InvokeSessionOccConflictError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
     });
   });
 

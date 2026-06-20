@@ -38,6 +38,7 @@ export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
 export {
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
+  InvokeSessionOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
 } from "@flarex/persistence-postgres";
 export type {
