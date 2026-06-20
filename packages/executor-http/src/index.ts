@@ -33,6 +33,7 @@ import {
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   InvokeSessionDeleteTargetError,
+  type AbortInvokeSessionInput,
   type BeginInvokeSessionInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
@@ -51,6 +52,7 @@ export interface FlarexHttpAppConfig {
   invokeStartPath?: string;
   invokeSyscallPath?: string;
   invokeFinishPath?: string;
+  invokeAbortPath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -68,6 +70,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeFinishPath = normalizePath(
     config.invokeFinishPath ?? "/invoke/finish",
   );
+  const invokeAbortPath = normalizePath(
+    config.invokeAbortPath ?? "/invoke/abort",
+  );
   const capabilityToken = config.capabilityToken;
 
   return new Elysia()
@@ -83,6 +88,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(invokeFinishPath, ({ request, set }) =>
       handleInvokeFinish(executor, request, set, capabilityToken),
+    )
+    .post(invokeAbortPath, ({ request, set }) =>
+      handleInvokeAbort(executor, request, set, capabilityToken),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -110,6 +118,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${invokeFinishPath} only supports POST`,
+      };
+    })
+    .all(invokeAbortPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${invokeAbortPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -278,6 +293,41 @@ async function handleInvokeFinish(
   }
 }
 
+async function handleInvokeAbort(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseInvokeAbortBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.abortInvokeSession(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -432,6 +482,36 @@ function parseInvokeFinishBody(
       projectId: projectId.value,
       sessionId: sessionId.value,
       value: value.value,
+    },
+  };
+}
+
+function parseInvokeAbortBody(
+  body: unknown,
+):
+  | { value: AbortInvokeSessionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const sessionId = requiredString(record, "sessionId");
+  if ("error" in sessionId) return sessionId;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      sessionId: sessionId.value,
     },
   };
 }

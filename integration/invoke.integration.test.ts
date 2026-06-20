@@ -279,6 +279,77 @@ describe("Nitro invoke integration", () => {
       persistence.getDocumentRevisionAtTs("deployment_invalid", "2:bad", 1781913600001),
     ).resolves.toBeNull();
   });
+
+  it("aborts invoke sessions without committing staged writes", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      ids: { nextId: () => "session_abort" },
+      persistence,
+    });
+    const handler = createFlarexNitroHandler({ executor });
+
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      packageId: registered.package.packageId,
+      schemaVersion: 1,
+    });
+
+    const start = await postJson(handler, "/invoke/start", {
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      path: "messages:mutate",
+      kind: "mutation",
+      args: { teamId: "1:team" },
+      partitionKey: "1:team",
+    });
+    expect(start.status).toBe(200);
+
+    const insert = await postJson(handler, "/invoke/syscall", {
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      sessionId: "session_abort",
+      op: "insert",
+      table: "messages",
+      id: "2:aborted",
+      value: { text: "abort", count: 1 },
+    });
+    expect(insert.status).toBe(200);
+
+    const abort = await postJson(handler, "/invoke/abort", {
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      sessionId: "session_abort",
+    });
+    expect(abort.status).toBe(200);
+    await expect(abort.json()).resolves.toEqual({ aborted: true });
+
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_abort", "session_abort"),
+    ).resolves.toMatchObject({ state: "aborted" });
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_abort", "2:aborted", 1781913600001),
+    ).resolves.toBeNull();
+
+    const finish = await postJson(handler, "/invoke/finish", {
+      deploymentId: "deployment_abort",
+      projectId: "project_integration",
+      sessionId: "session_abort",
+      value: null,
+    });
+    expect(finish.status).toBe(409);
+    await expect(finish.json()).resolves.toMatchObject({
+      error: "InvokeSessionNotActiveError",
+    });
+  });
 });
 
 async function runMutationSession(

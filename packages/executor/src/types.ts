@@ -3,6 +3,7 @@ import type {
   DeploymentMetadataRecord,
   CommitInvokeSessionWritesInput,
   CommitInvokeSessionWritesResult,
+  AbortInvokeSessionMetadataInput,
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
@@ -55,6 +56,7 @@ export interface FlarexExecutor {
   finishInvokeSession(
     input: FinishInvokeSessionInput,
   ): Promise<FinishInvokeSessionResult>;
+  abortInvokeSession(input: AbortInvokeSessionInput): Promise<AbortInvokeSessionResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
@@ -90,6 +92,9 @@ export interface FlarexExecutorPersistence {
   ): Promise<InvokeSessionMetadataRecord | null>;
   finishInvokeSessionMetadata(
     input: FinishInvokeSessionMetadataInput,
+  ): Promise<InvokeSessionMetadataRecord | null>;
+  abortInvokeSessionMetadata(
+    input: AbortInvokeSessionMetadataInput,
   ): Promise<InvokeSessionMetadataRecord | null>;
   getDocumentRevisionAtTs(
     deploymentId: string,
@@ -361,6 +366,16 @@ export interface FinishInvokeSessionResult {
   readSet?: InvokeReadSet;
   committedTs?: number;
   writes?: CommittedDocumentWrite[];
+}
+
+export interface AbortInvokeSessionInput {
+  deploymentId: string;
+  projectId: string;
+  sessionId: string;
+}
+
+export interface AbortInvokeSessionResult {
+  aborted: true;
 }
 
 export interface CommittedDocumentWrite {

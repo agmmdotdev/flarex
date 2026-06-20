@@ -92,6 +92,7 @@ export const helper = "not a function";
     expect(worker).toContain('"/invoke/start"');
     expect(worker).toContain('"/invoke/syscall"');
     expect(worker).toContain('"/invoke/finish"');
+    expect(worker).toContain('"/invoke/abort"');
     expect(worker).toContain("x-flarex-project");
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });

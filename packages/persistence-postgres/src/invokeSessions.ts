@@ -28,6 +28,12 @@ export interface FinishInvokeSessionMetadataInput {
   finishedAt: Date;
 }
 
+export interface AbortInvokeSessionMetadataInput {
+  deploymentId: string;
+  sessionId: string;
+  finishedAt: Date;
+}
+
 export type InvokeSessionMetadataRecord = typeof invokeSessions.$inferSelect;
 
 export class InvokeSessionMetadataAlreadyExistsError extends Error {
@@ -105,6 +111,27 @@ export async function finishInvokeSessionMetadata(
     .update(invokeSessions)
     .set({
       state: "finished",
+      finishedAt: input.finishedAt,
+    })
+    .where(
+      and(
+        eq(invokeSessions.deploymentId, input.deploymentId),
+        eq(invokeSessions.sessionId, input.sessionId),
+      ),
+    )
+    .returning();
+
+  return rows[0] ?? null;
+}
+
+export async function abortInvokeSessionMetadata(
+  db: FlarexMetadataDatabase,
+  input: AbortInvokeSessionMetadataInput,
+): Promise<InvokeSessionMetadataRecord | null> {
+  const rows = await db
+    .update(invokeSessions)
+    .set({
+      state: "aborted",
       finishedAt: input.finishedAt,
     })
     .where(

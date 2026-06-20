@@ -159,8 +159,6 @@ Flarex differences:
 - The legacy DO route remains as a compatibility/default path while the
   Postgres executor matures. The Postgres route requires `projectId` because
   the new executor is explicitly multitenant at the platform/project level.
-- The Postgres executor currently has no abort endpoint; failed user-code
-  executions skip abort on that transport.
 
 Known limitations:
 
@@ -307,6 +305,69 @@ Known limitations:
 Verification:
 
 ```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
+corepack pnpm test:integration
+git diff --check
+```
+
+## Postgres Executor Abort Bridge
+
+Previous completed checkpoint: `34cae26` Protect postgres executor invoke
+routes.
+
+What changed:
+
+- Generated execution Workers now call `POST /invoke/abort` for the Postgres
+  transport when user code or local return validation throws after session
+  start.
+- Local Miniflare materialized execution artifacts use the same abort route.
+- Legacy transport still calls the existing
+  `/deployments/:id/executions/:sessionId/abort` route.
+- Abort calls include the same `Authorization: Bearer <executorToken>` header
+  as start/syscall/finish.
+- Added materializer coverage proving a failing user-code handler sends
+  `/invoke/abort` with `deploymentId`, `projectId`, and `sessionId`.
+
+Why it changed:
+
+The Postgres transport previously skipped abort because the executor had no
+abort endpoint. That left failed user-code sessions active in the trusted
+executor. Convex-style execution needs an explicit terminal path for failed
+function execution, even when no commit happens.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - user execution has a final transaction outcome; failed execution does not
+    publish staged writes.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution result handling is backend-owned.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - storage effects remain behind the backend syscall/session boundary.
+
+Flarex differences:
+
+- Convex failure cleanup is internal to its backend/executor process. Flarex
+  must represent failure over an HTTP transport between Cloudflare user-code
+  artifacts and the trusted Postgres executor.
+- Abort currently marks the session terminal and prevents further syscalls or
+  finish. It does not yet delete staged reads/writes or run retention cleanup.
+
+Known limitations:
+
+- Abort is best-effort from generated/materialized artifacts; if the runtime is
+  killed before the abort request, a future session TTL/reaper is still needed.
+- There is no per-session capability token yet.
+- Abort does not publish sync invalidations, because no commit happened.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
 corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter @flarex/executor-http test
 corepack pnpm --filter flarex-dev typecheck

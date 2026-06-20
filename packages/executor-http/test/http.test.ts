@@ -16,6 +16,7 @@ import {
   InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
+  type AbortInvokeSessionInput,
   type BeginInvokeSessionInput,
   type BeginInvokeSessionResult,
   type FinishInvokeSessionInput,
@@ -513,6 +514,78 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps invoke abort requests to the executor core", async () => {
+    const calls: AbortInvokeSessionInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async abortInvokeSession(input) {
+          calls.push(input);
+          return { aborted: true };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/abort", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({ aborted: true });
+  });
+
+  it("validates invoke abort requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async abortInvokeSession() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/abort", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "sessionId must be a non-empty string.",
+    });
+  });
+
+  it("rejects non-POST invoke abort requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/abort"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/invoke/abort only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -716,6 +789,9 @@ function fakeExecutor(
         value: input.value,
         readSet: {},
       };
+    },
+    async abortInvokeSession() {
+      return { aborted: true };
     },
     async invokeSyscall() {
       return invokeSyscallResult(null);

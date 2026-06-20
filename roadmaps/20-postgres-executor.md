@@ -3555,7 +3555,8 @@ Authorization: Bearer <capabilityToken>
   - `POST /invoke/prepare`,
   - `POST /invoke/start`,
   - `POST /invoke/syscall`,
-  - `POST /invoke/finish`.
+  - `POST /invoke/finish`,
+  - `POST /invoke/abort`.
 - `GET /health` stays public because health checks should not need the
   user-code execution capability.
 - Added HTTP adapter tests for unauthorized and authorized invoke requests.
@@ -3597,6 +3598,79 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter @flarex/executor-http test
+corepack pnpm test:integration
+git diff --check
+```
+
+## Invoke Abort Session Endpoint
+
+Previous completed checkpoint: `34cae26` Protect postgres executor invoke
+routes.
+
+What changed:
+
+- Added `abortInvokeSessionMetadata(...)` to `@flarex/persistence-postgres`.
+- Added `FlarexExecutor.abortInvokeSession(...)`.
+- Added `POST /invoke/abort` to `@flarex/executor-http` and therefore the
+  Nitro adapter.
+- Abort marks an active session as:
+
+```txt
+state = "aborted"
+finished_at = now
+```
+
+- Later syscalls or finish attempts on that session fail with
+  `InvokeSessionNotActiveError`.
+- Added executor unit tests, HTTP adapter tests, and PGlite/Nitro integration
+  coverage proving staged writes are not committed after abort.
+
+Why it changed:
+
+The Postgres executor session protocol had start, syscall, and finish, but no
+terminal failed-execution path. User-code failures in Cloudflare need to tell
+the trusted executor that the session is no longer active and must not commit
+staged writes.
+
+Convex references:
+
+- `crates/function_runner/src/lib.rs`
+  - function execution separates user-code failure from successful transaction
+    commit.
+- `crates/database/src/transaction.rs`
+  - transaction state is only published through successful commit.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned execution handling decides final outcome.
+
+Flarex differences:
+
+- Flarex exposes abort over HTTP because user code and the trusted executor are
+  separate runtimes. Convex does not need this exact public adapter route
+  internally.
+- Abort is a state transition, not a database commit and not a sync event.
+
+Known limitations:
+
+- No stale active-session sweeper exists yet.
+- Abort does not remove staged read/write rows; retention cleanup remains
+  future work.
+- Abort does not currently distinguish user-code failure from local validation
+  failure or runtime crash reason.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
 corepack pnpm test:integration
 git diff --check
 ```

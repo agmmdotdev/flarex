@@ -524,6 +524,73 @@ describe("executor invoke sessions", () => {
     ).rejects.toThrow(InvokeSessionNotActiveError);
   });
 
+  it("aborts active sessions without committing staged work", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation" })],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_abort",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.abortInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+      }),
+    ).resolves.toEqual({ aborted: true });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({
+      state: "aborted",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_session", "1:team_abort", 1),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects syscalls after abort", async () => {
+    const persistence = memoryPersistence([], [], [activeSession()]);
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.abortInvokeSession({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).rejects.toThrow(InvokeSessionNotActiveError);
+  });
+
   it("rejects malformed document ids before persistence lookup", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence([], [], [activeSession()]),

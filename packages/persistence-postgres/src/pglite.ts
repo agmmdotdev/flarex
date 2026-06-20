@@ -31,6 +31,7 @@ import {
   listDocumentsInIndexAtTs as listDocumentsInIndexAtTsWithDb,
 } from "./indexEntries";
 import {
+  abortInvokeSessionMetadata as abortInvokeSessionMetadataWithDb,
   finishInvokeSessionMetadata as finishInvokeSessionMetadataWithDb,
   getInvokeSessionMetadata as getInvokeSessionMetadataWithDb,
   insertInvokeSessionMetadata as insertInvokeSessionMetadataWithDb,
@@ -119,6 +120,8 @@ export async function createPGlitePersistence(
       getInvokeSessionMetadataWithDb(drizzleDb, deploymentId, sessionId),
     finishInvokeSessionMetadata: (input) =>
       finishInvokeSessionMetadataWithDb(drizzleDb, input),
+    abortInvokeSessionMetadata: (input) =>
+      abortInvokeSessionMetadataWithDb(drizzleDb, input),
     insertDocumentRevision: (input) =>
       insertDocumentRevisionWithDb(drizzleDb, input),
     getDocumentRevisionAtTs: (deploymentId, id, ts) =>

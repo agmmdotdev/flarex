@@ -195,6 +195,8 @@ async function invokeWithBackend(body, env, request) {
     await abortExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
+      projectId,
+      executorToken: env.FLAREX_EXECUTOR_TOKEN,
       sessionId: start.sessionId,
     });
     throw error;
@@ -261,7 +263,14 @@ async function finishExecution(backend, input) {
 }
 
 async function abortExecution(backend, input) {
-  if (input.transport === "postgres") return;
+  if (input.transport === "postgres") {
+    await postBackend(backend, "/invoke/abort", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+    }, executorHeaders(input.executorToken)).catch(() => undefined);
+    return;
+  }
   await postBackend(
     backend,
     \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,

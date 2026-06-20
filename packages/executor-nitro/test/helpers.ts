@@ -89,6 +89,26 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         finishedAt: input.finishedAt,
       };
     },
+    async abortInvokeSessionMetadata(input) {
+      return {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        projectId: "project_test",
+        packageId: "package_test",
+        functionPath: "messages:list",
+        functionKind: "query",
+        partitionKey: "team:1",
+        scopeJson: {},
+        argsJson: null,
+        idempotencyKey: null,
+        state: "aborted",
+        beginTs: 1,
+        schemaVersion: 1,
+        executionModule: "_flarex/execution.js",
+        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        finishedAt: input.finishedAt,
+      };
+    },
     async getDocumentRevisionAtTs() {
       return null;
     },
@@ -187,6 +207,9 @@ export function fakeExecutor(
     },
     async finishInvokeSession() {
       throw new Error("finishInvokeSession is not implemented by test fake");
+    },
+    async abortInvokeSession() {
+      throw new Error("abortInvokeSession is not implemented by test fake");
     },
     async invokeSyscall() {
       throw new Error("invokeSyscall is not implemented by test fake");

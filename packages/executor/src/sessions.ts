@@ -1,6 +1,8 @@
 import type {
   BeginInvokeSessionInput,
   BeginInvokeSessionResult,
+  AbortInvokeSessionInput,
+  AbortInvokeSessionResult,
   Clock,
   FinishInvokeSessionInput,
   FinishInvokeSessionResult,
@@ -370,6 +372,23 @@ export async function finishInvokeSession(
   }
 
   throw new InvokeFinishNotImplementedError(session.functionKind);
+}
+
+export async function abortInvokeSession(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: AbortInvokeSessionInput,
+): Promise<AbortInvokeSessionResult> {
+  await requireActiveSession(persistence, input);
+  const aborted = await persistence.abortInvokeSessionMetadata({
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    finishedAt: clock.now(),
+  });
+  if (aborted === null) {
+    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+  }
+  return { aborted: true };
 }
 
 async function requireActiveSession(

@@ -6,6 +6,7 @@ import {
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
   type DocumentRevisionRecord,
+  type AbortInvokeSessionMetadataInput,
   type FinishInvokeSessionMetadataInput,
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
@@ -181,6 +182,19 @@ export function memoryPersistence(
       const updated: InvokeSessionMetadataRecord = {
         ...session,
         state: "finished",
+        finishedAt: input.finishedAt,
+      };
+      invokeSessions.set(sessionKey(input.deploymentId, input.sessionId), updated);
+      return updated;
+    },
+    async abortInvokeSessionMetadata(input: AbortInvokeSessionMetadataInput) {
+      const session = invokeSessions.get(
+        sessionKey(input.deploymentId, input.sessionId),
+      );
+      if (session === undefined) return null;
+      const updated: InvokeSessionMetadataRecord = {
+        ...session,
+        state: "aborted",
         finishedAt: input.finishedAt,
       };
       invokeSessions.set(sessionKey(input.deploymentId, input.sessionId), updated);

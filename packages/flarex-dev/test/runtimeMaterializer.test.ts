@@ -361,6 +361,69 @@ describe("runtime materializer", () => {
       },
     ]);
   });
+
+  it("aborts Postgres executor sessions when materialized user code fails", async () => {
+    const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-fail",
+      executorToken: "executor-secret",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-fail",
+            function: { path: "messages:fail", kind: "mutation" },
+            beginTs: 1,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "1:lesson" },
+            executionModule: "_flarex/execution.js",
+          });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = failingMutationPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).rejects.toThrow("boom");
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-fail",
+          projectId: "project-fail",
+          path: "messages:fail",
+          args: { lessonId: "1:lesson" },
+          kind: "mutation",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/abort",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-fail",
+          projectId: "project-fail",
+          sessionId: "session-fail",
+        },
+      },
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -452,6 +515,46 @@ function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
       args: { lessonId: "1:lesson" },
       partitionKey: "1:lesson",
       kind: "query",
+    },
+  };
+}
+
+function failingMutationPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: `export default {
+  messages: {
+    fail: {
+      isMutation: true,
+      _handler: async () => {
+        throw new Error("boom");
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-fail",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-fail",
+      sourcePackageHash: "b".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:fail",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "mutation",
     },
   };
 }
