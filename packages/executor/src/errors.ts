@@ -124,6 +124,13 @@ export class MaintenancePolicyError extends Error {
   }
 }
 
+export class OutboxDeliveryPolicyError extends Error {
+  constructor(message: string) {
+    super(`Invalid outbox delivery policy: ${message}`);
+    this.name = "OutboxDeliveryPolicyError";
+  }
+}
+
 export class InvokeSessionNotFoundError extends Error {
   constructor(
     readonly deploymentId: string,

@@ -32,6 +32,7 @@ import type {
   DocumentRevisionRecord,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
+  OutboxEventCursor,
   OutboxEventRecord,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
@@ -42,6 +43,7 @@ export type {
   ListUndeliveredOutboxEventsInput,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  OutboxEventCursor,
 } from "@flarex/persistence-postgres";
 
 export interface Clock {
@@ -91,6 +93,9 @@ export interface FlarexExecutor {
   markOutboxEventsDelivered(
     input: MarkOutboxEventsDeliveredInput,
   ): Promise<MarkOutboxEventsDeliveredResult>;
+  runOutboxDeliveryBatch(
+    input: RunOutboxDeliveryBatchInput,
+  ): Promise<RunOutboxDeliveryBatchResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -197,6 +202,21 @@ export interface FlarexExecutorPersistence {
   markOutboxEventsDelivered(
     input: MarkOutboxEventsDeliveredInput,
   ): Promise<MarkOutboxEventsDeliveredResult>;
+}
+
+export interface RunOutboxDeliveryBatchInput {
+  deploymentId: string;
+  cursor?: OutboxEventCursor;
+  limit?: number;
+  deliveredAt?: Date;
+  deliver(events: OutboxEventRecord[]): Promise<void>;
+}
+
+export interface RunOutboxDeliveryBatchResult {
+  events: OutboxEventRecord[];
+  delivered: number;
+  nextCursor: OutboxEventCursor | null;
+  hasMore: boolean;
 }
 
 export interface ActivateDeploymentPackageInput {

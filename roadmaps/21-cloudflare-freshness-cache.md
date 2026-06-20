@@ -238,6 +238,63 @@ Verification:
 git diff --check
 ```
 
+## Outbox Dispatcher Prerequisite
+
+Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.
+
+What changed:
+
+- Added `runOutboxDeliveryBatch(...)` in `@flarex/executor`.
+- The batch runner accepts an injected delivery handler so cache/freshness code
+  can apply outbox events without owning acknowledgement details.
+- Events are marked delivered only after the handler succeeds.
+
+Cache impact:
+
+The future freshness mirror can now be implemented as the injected handler:
+
+```txt
+outbox batch
+  -> update document/table/range version mirror
+  -> acknowledge batch
+```
+
+This gives the cache layer at-least-once event application. Mirror updates must
+therefore be idempotent by event key: `(deploymentId, ts, sequence)`.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - durable committed write information is the source of freshness.
+- `crates/database/src/subscription.rs`
+  - committed write metadata invalidates subscriptions.
+
+Flarex differences:
+
+- Convex's backend can apply freshness invalidation directly from its internal
+  write log. Flarex needs an explicit dispatcher because the freshness mirror
+  will live outside the trusted Postgres transaction executor.
+
+Known limitations:
+
+- No freshness mirror tables/DOs exist yet.
+- No query-result minimum freshness protocol is implemented yet.
+- No multi-dispatcher claim/lease protocol exists yet.
+- Coarse event payloads still need conversion into precise range/table/document
+  versions.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Outbox Delivery Prerequisite
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

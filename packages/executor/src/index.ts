@@ -9,6 +9,7 @@ import { prepareInvoke } from "./invoke";
 import {
   listUndeliveredOutboxEvents,
   markOutboxEventsDelivered,
+  runOutboxDeliveryBatch,
 } from "./outbox";
 import {
   listMaintenanceDeployments,
@@ -53,6 +54,7 @@ export {
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   MaintenancePolicyError,
+  OutboxDeliveryPolicyError,
   PartitionValidationError,
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
@@ -124,6 +126,8 @@ export type {
   PrepareInvokeResult,
   RegisterDeploymentPackageInput,
   RegisterDeploymentPackageResult,
+  RunOutboxDeliveryBatchInput,
+  RunOutboxDeliveryBatchResult,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
@@ -159,6 +163,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       listUndeliveredOutboxEvents(persistence, input),
     markOutboxEventsDelivered: (input) =>
       markOutboxEventsDelivered(persistence, input),
+    runOutboxDeliveryBatch: (input) =>
+      runOutboxDeliveryBatch(persistence, clock, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>

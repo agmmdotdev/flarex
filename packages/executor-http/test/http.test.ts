@@ -972,6 +972,9 @@ function fakeExecutor(
     async markOutboxEventsDelivered() {
       return { delivered: 0 };
     },
+    async runOutboxDeliveryBatch() {
+      return { events: [], delivered: 0, nextCursor: null, hasMore: false };
+    },
     async runMaintenanceSweep() {
       return {
         deployments: [],

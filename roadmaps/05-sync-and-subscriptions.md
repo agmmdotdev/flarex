@@ -33,6 +33,68 @@ Verification:
 git diff --check
 ```
 
+## Outbox Dispatcher Core
+
+Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.
+
+What changed:
+
+- Added executor-core `runOutboxDeliveryBatch(...)`, which wraps the
+  undelivered outbox list, injected delivery handler, and delivered
+  acknowledgement into one framework-neutral operation.
+- The handler is only acknowledged after it succeeds. If it throws, events
+  remain undelivered for retry.
+- Added tests proving successful delivery, failure preservation, empty batches,
+  and invalid limit rejection.
+
+Why it matters for sync:
+
+Sync now has a concrete internal extension point:
+
+```txt
+runOutboxDeliveryBatch({
+  deliver(events) {
+    // update freshness mirrors and notify connection owners
+  }
+})
+```
+
+That keeps WebSocket/Cloudflare-specific fanout out of the trusted executor
+core while still centralizing the at-least-once delivery semantics.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - committed database changes are processed by sync worker logic.
+- `crates/database/src/subscription.rs`
+  - committed write metadata drives subscription invalidation.
+
+Flarex differences:
+
+- Convex can keep sync worker delivery close to its backend internals. Flarex
+  must let the delivery target be injected because the consumer can be a
+  Cloudflare DO, scheduled worker, or test sink.
+- This requires idempotent consumers. A replay is possible if the process
+  crashes after applying a batch but before acknowledging it.
+
+Known limitations:
+
+- No connection fanout or query rerun consumer exists yet.
+- No multi-dispatcher claim/lease semantics exist yet.
+- Query-range invalidation is still not encoded precisely.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Outbox Delivery Boundary
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

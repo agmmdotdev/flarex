@@ -202,6 +202,79 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Outbox Dispatcher Core
+
+Previous completed checkpoint: `2683fe0` Add outbox delivery primitives.
+
+What changed:
+
+- Added `runOutboxDeliveryBatch(...)` to the framework-neutral
+  `@flarex/executor` package.
+- The batch function:
+  - lists undelivered outbox events,
+  - calls an injected async `deliver(events)` handler,
+  - marks the batch delivered only after the handler succeeds,
+  - leaves events undelivered if the handler throws, and
+  - returns delivered count, events, `nextCursor`, and `hasMore`.
+- Added `OutboxDeliveryPolicyError` for invalid delivery batch options.
+- Exposed the dispatcher through `createFlarexExecutor(...)`.
+- Updated HTTP/Nitro test fakes to satisfy the expanded executor contract.
+- Added executor tests for success, handler failure, empty batches, and invalid
+  limits.
+
+Why it changed:
+
+The previous checkpoint made outbox rows consumable, but still required each
+future adapter to manually glue together list, deliver, and mark-delivered
+steps. The dispatcher core centralizes the reliability boundary:
+
+```txt
+read undelivered events
+  -> external delivery handler applies them
+  -> mark delivered only after success
+```
+
+This is the point future Nitro cron, Cloudflare scheduled workers, or DO-based
+sync/cache workers should call.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync workers process committed database changes and publish transitions.
+- `crates/database/src/write_log.rs`
+  - durable committed writes drive downstream freshness.
+- `crates/database/src/subscription.rs`
+  - invalidation is based on committed write metadata.
+
+Flarex differences:
+
+- Convex's sync worker runs against its integrated write-log/backend. Flarex
+  needs an injected delivery handler because the target may be a Cloudflare
+  freshness mirror, WebSocket connection owner, cache updater, or test sink.
+- This dispatcher is at-least-once. Consumers must be idempotent because a
+  crash after `deliver(events)` but before `markOutboxEventsDelivered(...)`
+  can replay the same events.
+
+Known limitations:
+
+- No real freshness mirror or `ConnectionDO` consumer is implemented yet.
+- No claim/lease protocol exists, so this is still intended for a single active
+  dispatcher per deployment.
+- No retry/backoff scheduling or retention policy exists yet.
+- Events remain coarse document/table summaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Outbox Delivery Primitives
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

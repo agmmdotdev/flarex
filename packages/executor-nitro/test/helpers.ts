@@ -260,6 +260,9 @@ export function fakeExecutor(
         "markOutboxEventsDelivered is not implemented by test fake",
       );
     },
+    async runOutboxDeliveryBatch() {
+      throw new Error("runOutboxDeliveryBatch is not implemented by test fake");
+    },
     async runMaintenanceSweep() {
       throw new Error("runMaintenanceSweep is not implemented by test fake");
     },
