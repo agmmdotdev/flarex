@@ -17,6 +17,7 @@ import {
   recordLiveQuerySubscription,
   removeLiveQuerySubscription,
   rerunLiveQuerySubscription,
+  rerunStaleLiveQuerySubscriptions,
 } from "./liveQueries";
 import {
   listMaintenanceDeployments,
@@ -143,6 +144,8 @@ export type {
   RerunLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionOutput,
   RerunLiveQuerySubscriptionResult,
+  RerunStaleLiveQuerySubscriptionsInput,
+  RerunStaleLiveQuerySubscriptionsResult,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
@@ -190,6 +193,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       findStaleLiveQuerySubscriptions(persistence, input),
     rerunLiveQuerySubscription: (input) =>
       rerunLiveQuerySubscription(persistence, input),
+    rerunStaleLiveQuerySubscriptions: (input) =>
+      rerunStaleLiveQuerySubscriptions(persistence, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>

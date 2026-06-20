@@ -118,6 +118,9 @@ export interface FlarexExecutor {
   rerunLiveQuerySubscription(
     input: RerunLiveQuerySubscriptionInput,
   ): Promise<RerunLiveQuerySubscriptionResult>;
+  rerunStaleLiveQuerySubscriptions(
+    input: RerunStaleLiveQuerySubscriptionsInput,
+  ): Promise<RerunStaleLiveQuerySubscriptionsResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -304,6 +307,24 @@ export interface RerunLiveQuerySubscriptionResult {
   previousResultHash: string;
   resultHash: string;
   changed: boolean;
+}
+
+export interface RerunStaleLiveQuerySubscriptionsInput {
+  deploymentId: string;
+  freshnessStore: FreshnessMirrorStore;
+  limit?: number;
+  updatedAt?: Date;
+  runQuery(
+    subscription: LiveQuerySubscriptionRecord,
+  ): Promise<RerunLiveQuerySubscriptionOutput>;
+}
+
+export interface RerunStaleLiveQuerySubscriptionsResult {
+  scanned: FindStaleLiveQuerySubscriptionsResult;
+  changed: RerunLiveQuerySubscriptionResult[];
+  unchanged: RerunLiveQuerySubscriptionResult[];
+  unsupported: LiveQuerySubscriptionFreshnessEntry[];
+  hasMoreStale: boolean;
 }
 
 export interface ActivateDeploymentPackageInput {

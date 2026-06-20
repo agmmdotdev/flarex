@@ -312,6 +312,57 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Batch Stale Live-Query Rerun
+
+Previous completed checkpoint: `d69a73e` Add live query rerun primitive.
+
+What changed:
+
+- Added `rerunStaleLiveQuerySubscriptions(...)` to `@flarex/executor`.
+- The helper scans live-query registry rows, reruns only stale rows, and returns
+  changed, unchanged, unsupported, and `hasMoreStale` buckets.
+- Added optional `limit` support so future schedulers can process stale work in
+  small batches.
+- Added executor tests proving limited changed reruns and unchanged reruns.
+
+Why it matters for sync:
+
+This is the first complete scheduler core loop without fanout:
+
+```txt
+registry scan
+  -> stale rows
+  -> rerun stale rows
+  -> changed rows ready for future fanout
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync workers batch/process query updates and publish transitions.
+- `crates/database/src/subscription.rs`
+  - dependency invalidation supplies the stale set.
+
+Flarex differences:
+
+- Convex does scan/rerun/fanout inside the integrated backend. Flarex keeps this
+  as a framework-neutral executor helper so Nitro, scheduled workers, and
+  future Cloudflare sync can share it.
+
+Known limitations:
+
+- No WebSocket or `ConnectionDO` fanout happens yet.
+- No scheduled route calls this helper yet.
+- Unsupported index/range subscriptions are returned but not repaired.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

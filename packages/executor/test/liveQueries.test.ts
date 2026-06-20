@@ -363,4 +363,184 @@ describe("executor live query subscriptions", () => {
       },
     });
   });
+
+  it("reruns stale live query subscriptions in limited batches", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_batch_rerun",
+        ts: 10,
+        sequence: 0,
+      },
+      commitTs: 10,
+      documentIds: ["1:fresh"],
+      tableIds: [1],
+    });
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_batch_rerun",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["2:changed", "2:unchanged"],
+      tableIds: [2],
+    });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_batch_rerun",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:fresh",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:fresh" }] },
+      resultJson: "fresh",
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_batch_rerun",
+      connectionId: "connection_a",
+      queryId: 2,
+      functionPath: "messages:changed",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 2, id: "2:changed" }] },
+      resultJson: "old",
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_batch_rerun",
+      connectionId: "connection_a",
+      queryId: 3,
+      functionPath: "messages:unchanged",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 2, id: "2:unchanged" }] },
+      resultJson: "same",
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_batch_rerun",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:range",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { indexes: [{ indexId: 1 }] },
+      resultJson: "unsupported",
+    });
+
+    const rerunPaths: string[] = [];
+    await expect(
+      executor.rerunStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_batch_rerun",
+        freshnessStore,
+        limit: 1,
+        runQuery: async (subscription) => {
+          rerunPaths.push(subscription.functionPath);
+          return {
+            value: subscription.functionPath.endsWith("changed")
+              ? "new"
+              : "same",
+            beginTs: 30,
+            readSet: { tables: [{ tableId: 2 }] },
+          };
+        },
+      }),
+    ).resolves.toMatchObject({
+      scanned: {
+        fresh: [{ subscription: { queryId: 1 } }],
+        stale: [
+          { subscription: { queryId: 2 } },
+          { subscription: { queryId: 3 } },
+        ],
+        unsupported: [{ subscription: { connectionId: "connection_b" } }],
+      },
+      changed: [
+        {
+          subscription: { queryId: 2, resultJson: "new" },
+          previousResultHash: '"old"',
+          resultHash: '"new"',
+          changed: true,
+        },
+      ],
+      unchanged: [],
+      unsupported: [{ subscription: { connectionId: "connection_b" } }],
+      hasMoreStale: true,
+    });
+    expect(rerunPaths).toEqual(["messages:changed"]);
+  });
+
+  it("reruns stale live query subscriptions and reports unchanged rows", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_batch_unchanged",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:same"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_batch_unchanged",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:same",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:same" }] },
+      resultJson: { b: 2, a: 1 },
+    });
+
+    await expect(
+      executor.rerunStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_batch_unchanged",
+        freshnessStore,
+        runQuery: async () => ({
+          value: { a: 1, b: 2 },
+          beginTs: 25,
+          readSet: { tables: [{ tableId: 1 }] },
+        }),
+      }),
+    ).resolves.toMatchObject({
+      changed: [],
+      unchanged: [
+        {
+          previousResultHash: '{"a":1,"b":2}',
+          resultHash: '{"a":1,"b":2}',
+          changed: false,
+          subscription: {
+            beginTs: 25,
+            readSetJson: { tables: [{ tableId: 1, observedTs: 25 }] },
+          },
+        },
+      ],
+      hasMoreStale: false,
+    });
+  });
+
+  it("rejects invalid stale live query rerun limits", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await expect(
+      executor.rerunStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_invalid_limit",
+        freshnessStore,
+        limit: 0,
+        runQuery: async () => ({
+          value: null,
+          beginTs: 1,
+          readSet: {},
+        }),
+      }),
+    ).rejects.toThrow("limit must be a positive integer.");
+  });
 });

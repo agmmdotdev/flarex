@@ -17,6 +17,8 @@ import type {
   RemoveLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionResult,
+  RerunStaleLiveQuerySubscriptionsInput,
+  RerunStaleLiveQuerySubscriptionsResult,
 } from "./types";
 
 export async function recordLiveQuerySubscription(
@@ -106,6 +108,51 @@ export async function rerunLiveQuerySubscription(
     previousResultHash,
     resultHash: recorded.resultHash,
     changed: previousResultHash !== recorded.resultHash,
+  };
+}
+
+export async function rerunStaleLiveQuerySubscriptions(
+  persistence: FlarexExecutorPersistence,
+  input: RerunStaleLiveQuerySubscriptionsInput,
+): Promise<RerunStaleLiveQuerySubscriptionsResult> {
+  if (
+    input.limit !== undefined &&
+    (!Number.isInteger(input.limit) || input.limit <= 0)
+  ) {
+    throw new Error("limit must be a positive integer.");
+  }
+
+  const scanned = await findStaleLiveQuerySubscriptions(persistence, {
+    deploymentId: input.deploymentId,
+    freshnessStore: input.freshnessStore,
+  });
+  const staleToRerun =
+    input.limit === undefined
+      ? scanned.stale
+      : scanned.stale.slice(0, input.limit);
+  const changed: RerunLiveQuerySubscriptionResult[] = [];
+  const unchanged: RerunLiveQuerySubscriptionResult[] = [];
+
+  for (const entry of staleToRerun) {
+    const rerun = await rerunLiveQuerySubscription(persistence, {
+      subscription: entry.subscription,
+      ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
+      runQuery: input.runQuery,
+    });
+    if (rerun.changed) {
+      changed.push(rerun);
+    } else {
+      unchanged.push(rerun);
+    }
+  }
+
+  return {
+    scanned,
+    changed,
+    unchanged,
+    unsupported: scanned.unsupported,
+    hasMoreStale:
+      input.limit !== undefined && scanned.stale.length > staleToRerun.length,
   };
 }
 

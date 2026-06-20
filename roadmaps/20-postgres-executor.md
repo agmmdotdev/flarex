@@ -386,6 +386,56 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Batch Stale Live-Query Rerun
+
+Previous completed checkpoint: `d69a73e` Add live query rerun primitive.
+
+What changed:
+
+- Added `rerunStaleLiveQuerySubscriptions(...)`.
+- It composes stale-row scanning with single-row rerun.
+- It supports an optional positive integer `limit`.
+- It returns:
+  - the full scan result,
+  - changed rerun results,
+  - unchanged rerun results,
+  - unsupported rows, and
+  - whether more stale rows remain.
+
+Why it changed:
+
+The executor now exposes the scheduler's core unit of work without owning the
+actual timer, HTTP route, or Cloudflare runtime. This keeps query rerun
+semantics close to registry/freshness logic while leaving execution transport
+injected through the existing `runQuery` callback.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - worker processing turns invalidated subscriptions into rerun results.
+- `crates/database/src/subscription.rs`
+  - read dependencies identify stale subscriptions.
+
+Flarex differences:
+
+- Convex's worker owns scheduling and fanout. Flarex currently exposes only the
+  framework-neutral batch primitive; Nitro/Cloudflare scheduling and fanout will
+  be layered on top.
+
+Known limitations:
+
+- No Nitro or HTTP endpoint calls this helper yet.
+- No changed-result fanout is implemented yet.
+- Unsupported index/range subscriptions are not rerun.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.
