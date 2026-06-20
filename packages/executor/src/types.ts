@@ -38,6 +38,7 @@ export interface FlarexExecutor {
   beginInvokeSession(
     input: BeginInvokeSessionInput,
   ): Promise<BeginInvokeSessionResult>;
+  invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
   prepareInvoke(input: PrepareInvokeInput): Promise<PrepareInvokeResult>;
   registerDeploymentPackage(
     input: RegisterDeploymentPackageInput,
@@ -244,6 +245,42 @@ export interface BeginInvokeSessionResult {
   };
   scope: FunctionExecutionScope;
   executionModule: string;
+}
+
+export type InvokeSyscallRequest =
+  | {
+      op: "get";
+      id: string;
+    }
+  | {
+      op: "query";
+      request: Json;
+    }
+  | {
+      op: "insert";
+      table: string;
+      value: Json;
+      id?: string;
+    }
+  | {
+      op: "patch";
+      id: string;
+      value: Json;
+    }
+  | {
+      op: "delete";
+      id: string;
+    };
+
+export interface InvokeSyscallInput {
+  deploymentId: string;
+  projectId: string;
+  sessionId: string;
+  syscall: InvokeSyscallRequest;
+}
+
+export interface InvokeSyscallResult {
+  value: Json;
 }
 
 export interface EnsureDeploymentInput {

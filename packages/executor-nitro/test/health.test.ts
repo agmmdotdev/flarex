@@ -453,6 +453,9 @@ function fakeExecutor(
     async beginInvokeSession() {
       throw new Error("beginInvokeSession is not implemented by test fake");
     },
+    async invokeSyscall() {
+      throw new Error("invokeSyscall is not implemented by test fake");
+    },
     async prepareInvoke(input) {
       return preparedInvokeResult({
         deploymentId: input.deploymentId,

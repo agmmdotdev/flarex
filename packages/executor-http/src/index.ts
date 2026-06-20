@@ -9,10 +9,17 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeSessionNotActiveError,
+  InvokeSessionNotFoundError,
+  InvokeSessionProjectMismatchError,
+  InvokeSyscallNotAllowedError,
+  InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type BeginInvokeSessionInput,
   type FlarexExecutor,
   type InvokableFunctionKind,
+  type InvokeSyscallInput,
+  type InvokeSyscallRequest,
   type Json,
   type PrepareInvokeInput,
 } from "@flarex/executor";
@@ -22,6 +29,7 @@ export interface FlarexHttpAppConfig {
   healthPath?: string;
   invokePreparePath?: string;
   invokeStartPath?: string;
+  invokeSyscallPath?: string;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -33,6 +41,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const invokeStartPath = normalizePath(
     config.invokeStartPath ?? "/invoke/start",
   );
+  const invokeSyscallPath = normalizePath(
+    config.invokeSyscallPath ?? "/invoke/syscall",
+  );
 
   return new Elysia()
     .get(healthPath, () => executor.health())
@@ -41,6 +52,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(invokeStartPath, ({ request, set }) =>
       handleInvokeStart(executor, request, set),
+    )
+    .post(invokeSyscallPath, ({ request, set }) =>
+      handleInvokeSyscall(executor, request, set),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -54,6 +68,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${invokeStartPath} only supports POST`,
+      };
+    })
+    .all(invokeSyscallPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${invokeSyscallPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -144,6 +165,37 @@ async function handleInvokeStart(
   }
 }
 
+async function handleInvokeSyscall(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+): Promise<object> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseInvokeSyscallBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.invokeSyscall(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function parsePrepareInvokeBody(
   body: unknown,
 ):
@@ -217,6 +269,90 @@ function parseInvokeBody(
       ...(options.includeIdempotencyKey && idempotencyKey.value !== undefined
         ? { idempotencyKey: idempotencyKey.value }
         : {}),
+    },
+  };
+}
+
+function parseInvokeSyscallBody(
+  body: unknown,
+):
+  | { value: InvokeSyscallInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const sessionId = requiredString(record, "sessionId");
+  if ("error" in sessionId) return sessionId;
+  const syscall = parseSyscallRequest(record);
+  if ("error" in syscall) return syscall;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      sessionId: sessionId.value,
+      syscall: syscall.value,
+    },
+  };
+}
+
+function parseSyscallRequest(
+  record: Record<string, unknown>,
+):
+  | { value: InvokeSyscallRequest }
+  | { error: { error: "bad_request"; message: string } } {
+  if (record.op === "get") {
+    const id = requiredString(record, "id");
+    if ("error" in id) return id;
+    return { value: { op: "get", id: id.value } };
+  }
+  if (record.op === "query") {
+    const request = jsonValue(record.request, "request");
+    if ("error" in request) return request;
+    return { value: { op: "query", request: request.value } };
+  }
+  if (record.op === "insert") {
+    const table = requiredString(record, "table");
+    if ("error" in table) return table;
+    const value = jsonValue(record.value, "value");
+    if ("error" in value) return value;
+    const id = optionalString(record.id, "id");
+    if ("error" in id) return id;
+    return {
+      value: {
+        op: "insert",
+        table: table.value,
+        value: value.value,
+        ...(id.value === undefined ? {} : { id: id.value }),
+      },
+    };
+  }
+  if (record.op === "patch") {
+    const id = requiredString(record, "id");
+    if ("error" in id) return id;
+    const value = jsonValue(record.value, "value");
+    if ("error" in value) return value;
+    return { value: { op: "patch", id: id.value, value: value.value } };
+  }
+  if (record.op === "delete") {
+    const id = requiredString(record, "id");
+    if ("error" in id) return id;
+    return { value: { op: "delete", id: id.value } };
+  }
+  return {
+    error: {
+      error: "bad_request",
+      message: "op must be get, query, insert, patch, or delete.",
     },
   };
 }
@@ -306,16 +442,21 @@ function executorErrorBody(error: unknown): {
   if (
     error instanceof DeploymentNotFoundError ||
     error instanceof DeploymentPackageNotFoundError ||
+    error instanceof InvokeSessionNotFoundError ||
     error instanceof FunctionNotFoundError
   ) {
     return knownErrorBody(error, 404);
   }
-  if (error instanceof DeploymentProjectMismatchError) {
+  if (
+    error instanceof DeploymentProjectMismatchError ||
+    error instanceof InvokeSessionProjectMismatchError
+  ) {
     return knownErrorBody(error, 403);
   }
   if (
     error instanceof FunctionKindMismatchError ||
     error instanceof FunctionNotInvokableError ||
+    error instanceof InvokeSyscallNotAllowedError ||
     error instanceof PartitionValidationError
   ) {
     return knownErrorBody(error, 400);
@@ -323,9 +464,13 @@ function executorErrorBody(error: unknown): {
   if (
     error instanceof DeploymentPackageNotActivatedError ||
     error instanceof DeploymentFunctionMetadataUnavailableError ||
-    error instanceof DeploymentSchemaMetadataUnavailableError
+    error instanceof DeploymentSchemaMetadataUnavailableError ||
+    error instanceof InvokeSessionNotActiveError
   ) {
     return knownErrorBody(error, 409);
+  }
+  if (error instanceof InvokeSyscallNotImplementedError) {
+    return knownErrorBody(error, 501);
   }
 
   return {

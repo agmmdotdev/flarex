@@ -4,8 +4,17 @@ import type {
   Clock,
   FlarexExecutorPersistence,
   IdGenerator,
+  InvokeSyscallInput,
+  InvokeSyscallResult,
 } from "./types";
 import { prepareInvoke } from "./invoke";
+import {
+  InvokeSessionNotActiveError,
+  InvokeSessionNotFoundError,
+  InvokeSessionProjectMismatchError,
+  InvokeSyscallNotAllowedError,
+  InvokeSyscallNotImplementedError,
+} from "./errors";
 
 export async function beginInvokeSession(
   persistence: FlarexExecutorPersistence,
@@ -44,6 +53,47 @@ export async function beginInvokeSession(
     scope: prepared.scope,
     executionModule: prepared.executionModule,
   };
+}
+
+export async function invokeSyscall(
+  persistence: FlarexExecutorPersistence,
+  input: InvokeSyscallInput,
+): Promise<InvokeSyscallResult> {
+  const session = await persistence.getInvokeSessionMetadata(
+    input.deploymentId,
+    input.sessionId,
+  );
+  if (session === null) {
+    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
+  }
+  if (session.projectId !== input.projectId) {
+    throw new InvokeSessionProjectMismatchError(
+      input.deploymentId,
+      input.sessionId,
+      input.projectId,
+      session.projectId,
+    );
+  }
+  if (session.state !== "active") {
+    throw new InvokeSessionNotActiveError(
+      input.deploymentId,
+      input.sessionId,
+      session.state,
+    );
+  }
+
+  if (isWriteSyscall(input.syscall.op) && session.functionKind !== "mutation") {
+    throw new InvokeSyscallNotAllowedError(
+      input.syscall.op,
+      session.functionKind,
+    );
+  }
+
+  throw new InvokeSyscallNotImplementedError(input.syscall.op);
+}
+
+function isWriteSyscall(op: string): boolean {
+  return op === "insert" || op === "patch" || op === "delete";
 }
 
 export const defaultIds: IdGenerator = {

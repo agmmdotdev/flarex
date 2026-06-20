@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
 import { InvokeSessionMetadataAlreadyExistsError } from "@flarex/persistence-postgres";
 
-import { createFlarexExecutor } from "../src";
-import { memoryPersistence } from "./helpers/persistence";
+import {
+  createFlarexExecutor,
+  InvokeSessionNotActiveError,
+  InvokeSessionNotFoundError,
+  InvokeSessionProjectMismatchError,
+  InvokeSyscallNotAllowedError,
+  InvokeSyscallNotImplementedError,
+} from "../src";
+import { invokeSessionMetadata, memoryPersistence } from "./helpers/persistence";
 
 describe("executor invoke sessions", () => {
   it("begins an invoke session from prepared invoke metadata", async () => {
@@ -121,6 +128,102 @@ describe("executor invoke sessions", () => {
       }),
     ).rejects.toThrow(InvokeSessionMetadataAlreadyExistsError);
   });
+
+  it("rejects syscalls for missing sessions", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_missing",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).rejects.toThrow(InvokeSessionNotFoundError);
+  });
+
+  it("rejects syscalls for sessions owned by another project", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [
+        activeSession({ projectId: "project_actual" }),
+      ]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_requested",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).rejects.toThrow(InvokeSessionProjectMismatchError);
+  });
+
+  it("rejects syscalls for inactive sessions", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [
+        activeSession({ state: "finished" }),
+      ]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).rejects.toThrow(InvokeSessionNotActiveError);
+  });
+
+  it("rejects write syscalls during query sessions", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession()]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "insert", table: "messages", value: { text: "hello" } },
+      }),
+    ).rejects.toThrow(InvokeSyscallNotAllowedError);
+  });
+
+  it("keeps document read syscalls behind the pending Postgres transaction layer", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [activeSession()]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:message" },
+      }),
+    ).rejects.toThrow(InvokeSyscallNotImplementedError);
+  });
+
+  it("allows mutation write syscalls through validation before the pending transaction layer", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence([], [], [
+        activeSession({ functionKind: "mutation" }),
+      ]),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "insert", table: "messages", value: { text: "hello" } },
+      }),
+    ).rejects.toThrow(InvokeSyscallNotImplementedError);
+  });
 });
 
 function sourcePackage(): ArtifactSourcePackage {
@@ -167,4 +270,31 @@ function analysisJson(): Record<string, unknown> {
       ],
     },
   };
+}
+
+function activeSession(
+  overrides: Partial<Parameters<typeof invokeSessionMetadata>[0]> = {},
+) {
+  return invokeSessionMetadata({
+    deploymentId: "deployment_session",
+    sessionId: "session_active",
+    projectId: "project_session",
+    packageId: "package_active",
+    functionPath: "messages:list",
+    functionKind: "query",
+    partitionKey: "team:1",
+    scopeJson: {
+      kind: "partition",
+      table: "teams",
+      selector: "byId",
+      partitionField: "_id",
+      argField: "teamId",
+      partitionKey: "team:1",
+    },
+    argsJson: { teamId: "team:1" },
+    beginTs: 1781913600123,
+    schemaVersion: 5,
+    executionModule: "_flarex/execution.js",
+    ...overrides,
+  });
 }

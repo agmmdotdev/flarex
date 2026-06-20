@@ -345,6 +345,7 @@ Package responsibilities:
   - `GET /health`
   - `POST /invoke/prepare`
   - `POST /invoke/start`
+  - `POST /invoke/syscall`
   - request shape validation
   - executor error-to-status mapping
 - `@flarex/executor-nitro` is only a Nitro/deployment wrapper over the HTTP
@@ -374,14 +375,16 @@ Current update:
 
 - `POST /invoke/start` is now part of `@flarex/executor-http` and maps to
   `executor.beginInvokeSession(...)`.
+- `POST /invoke/syscall` is now part of `@flarex/executor-http` and maps to
+  `executor.invokeSyscall(...)`.
 - Nitro remains a wrapper and must continue delegating route behavior to
   `@flarex/executor-http`.
 
 Known limitations:
 
 - No concrete Nitro `server.ts` host app exists yet.
-- `@flarex/executor-http` currently has health, invoke prepare, and invoke
-  start only.
+- `@flarex/executor-http` currently has health, invoke prepare, invoke start,
+  and invoke syscall only.
 - API request validation is manual until the route bodies settle.
 
 Verification:

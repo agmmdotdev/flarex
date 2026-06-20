@@ -116,3 +116,57 @@ export class PartitionValidationError extends Error {
     this.name = "PartitionValidationError";
   }
 }
+
+export class InvokeSessionNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly sessionId: string,
+  ) {
+    super(`Invoke session metadata not found: ${deploymentId}/${sessionId}`);
+    this.name = "InvokeSessionNotFoundError";
+  }
+}
+
+export class InvokeSessionProjectMismatchError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly sessionId: string,
+    readonly expectedProjectId: string,
+    readonly actualProjectId: string,
+  ) {
+    super(
+      `Invoke session ${deploymentId}/${sessionId} belongs to project ${actualProjectId}, not ${expectedProjectId}`,
+    );
+    this.name = "InvokeSessionProjectMismatchError";
+  }
+}
+
+export class InvokeSessionNotActiveError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly sessionId: string,
+    readonly state: string,
+  ) {
+    super(
+      `Invoke session ${deploymentId}/${sessionId} is ${state}, not active`,
+    );
+    this.name = "InvokeSessionNotActiveError";
+  }
+}
+
+export class InvokeSyscallNotAllowedError extends Error {
+  constructor(
+    readonly op: string,
+    readonly functionKind: string,
+  ) {
+    super(`Cannot run ${op} during ${functionKind} execution.`);
+    this.name = "InvokeSyscallNotAllowedError";
+  }
+}
+
+export class InvokeSyscallNotImplementedError extends Error {
+  constructor(readonly op: string) {
+    super(`Invoke syscall ${op} is not implemented by the Postgres executor yet.`);
+    this.name = "InvokeSyscallNotImplementedError";
+  }
+}

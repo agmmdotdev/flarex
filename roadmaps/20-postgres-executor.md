@@ -2150,6 +2150,100 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Invoke Syscall Boundary
+
+Previous completed checkpoint: `97fa850` Expose invoke start in HTTP.
+
+What changed:
+
+- Added `executor.invokeSyscall(...)` to the framework-neutral executor core.
+- Added explicit executor errors for session/syscall validation:
+  - `InvokeSessionNotFoundError`
+  - `InvokeSessionProjectMismatchError`
+  - `InvokeSessionNotActiveError`
+  - `InvokeSyscallNotAllowedError`
+  - `InvokeSyscallNotImplementedError`
+- The core syscall path now verifies:
+  - the session row exists,
+  - the caller project matches the session project,
+  - the session state is `active`,
+  - write syscalls are only allowed for mutation sessions.
+- Added `POST /invoke/syscall` to `@flarex/executor-http`.
+- The HTTP route accepts the current legacy syscall operation vocabulary:
+  - `get`
+  - `query`
+  - `insert`
+  - `patch`
+  - `delete`
+- Added HTTP status mapping:
+  - missing session -> `404`
+  - project mismatch -> `403`
+  - invalid write during query -> `400`
+  - inactive session -> `409`
+  - document transaction layer not implemented -> `501`
+- Updated tests in executor, HTTP, and Nitro wrapper packages.
+
+Why it changed:
+
+This creates the backend-owned syscall API boundary that the Cloudflare Dynamic
+Worker can call from `ctx.db`. User function code still does not receive a raw
+database connection. The trusted executor validates session identity and basic
+operation legality before any future Postgres document read/write work.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - user function database operations are tracked through a backend-owned
+    transaction object.
+- `crates/database/src/committer.rs`
+  - writes become durable only after backend validation and commit.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is mediated by backend-owned runner state instead of
+    exposing database internals to user code.
+
+Flarex references:
+
+- `packages/flarex-backend/src/executionDO.ts`
+  - legacy `ExecutionDO.syscall(...)` provides the operation vocabulary and
+    query-vs-mutation enforcement reference.
+- `packages/executor/src/sessions.ts`
+  - new Postgres executor session/syscall boundary.
+- `packages/executor-http/src/index.ts`
+  - Elysia HTTP route for Dynamic Worker -> trusted executor calls.
+
+Flarex differences:
+
+- Convex executes user code close to its transaction engine. Flarex will run
+  user code in Cloudflare and route `ctx.db` calls over this session/syscall
+  API to a trusted Postgres executor.
+- The current syscall boundary does not yet perform document reads/writes. It
+  deliberately returns `InvokeSyscallNotImplementedError` after validation so
+  we do not fake transaction semantics.
+- The request shape is flat for now, matching the old `ExecutionDO` route. It
+  may later move to a nested `{ session, syscall }` envelope if auth/session
+  credentials become more complex.
+
+Known limitations:
+
+- No Postgres document repository exists yet.
+- No read-set, predicate-set, write-set, OCC validation, or commit protocol is
+  implemented in this path.
+- No finish/abort route exists in the new executor packages yet.
+- `query` request validation only checks JSON shape today; index/range/order
+  validation belongs with the document query implementation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

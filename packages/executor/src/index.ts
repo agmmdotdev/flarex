@@ -6,7 +6,7 @@ import {
 import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
-import { beginInvokeSession, defaultIds } from "./sessions";
+import { beginInvokeSession, defaultIds, invokeSyscall } from "./sessions";
 import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
 
 export {
@@ -20,6 +20,11 @@ export {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeSessionNotActiveError,
+  InvokeSessionNotFoundError,
+  InvokeSessionProjectMismatchError,
+  InvokeSyscallNotAllowedError,
+  InvokeSyscallNotImplementedError,
   PartitionValidationError,
 } from "./errors";
 export type {
@@ -46,6 +51,9 @@ export type {
   FunctionPartitionPolicy,
   FunctionRoutePolicy,
   InvokableFunctionKind,
+  InvokeSyscallInput,
+  InvokeSyscallRequest,
+  InvokeSyscallResult,
   Json,
   GetActiveFunctionInput,
   GetActiveFunctionResult,
@@ -74,6 +82,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       getActiveDeploymentPackage(persistence, input),
     beginInvokeSession: (input) =>
       beginInvokeSession(persistence, clock, ids, input),
+    invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),

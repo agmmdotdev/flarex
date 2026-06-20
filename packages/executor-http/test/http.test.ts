@@ -6,10 +6,14 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  InvokeSessionNotFoundError,
+  InvokeSyscallNotImplementedError,
   PartitionValidationError,
   type FlarexExecutor,
   type BeginInvokeSessionInput,
   type BeginInvokeSessionResult,
+  type InvokeSyscallInput,
+  type InvokeSyscallResult,
   type PrepareInvokeInput,
   type PrepareInvokeResult,
 } from "@flarex/executor";
@@ -281,6 +285,88 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps invoke syscall requests to the executor core", async () => {
+    const calls: InvokeSyscallInput[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async invokeSyscall(input) {
+          calls.push(input);
+          return { value: { _id: input.syscall.op === "get" ? "1:message" : null } };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/syscall", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        op: "get",
+        id: "1:message",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        syscall: {
+          op: "get",
+          id: "1:message",
+        },
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      value: { _id: "1:message" },
+    });
+  });
+
+  it("validates invoke syscall requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async invokeSyscall() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/syscall", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        op: "unknown",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "op must be get, query, insert, patch, or delete.",
+    });
+  });
+
+  it("rejects non-POST invoke syscall requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/syscall"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/invoke/syscall only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -392,6 +478,19 @@ describe("createFlarexHttpApp", () => {
       error: "PartitionValidationError",
     });
   });
+
+  it("maps invoke syscall executor errors to stable statuses", async () => {
+    await expect(expectSyscallError(new InvokeSessionNotFoundError("d", "s")))
+      .resolves.toMatchObject({
+        status: 404,
+        body: { error: "InvokeSessionNotFoundError" },
+      });
+    await expect(expectSyscallError(new InvokeSyscallNotImplementedError("get")))
+      .resolves.toMatchObject({
+        status: 501,
+        body: { error: "InvokeSyscallNotImplementedError" },
+      });
+  });
 });
 
 function fakeExecutor(
@@ -422,6 +521,9 @@ function fakeExecutor(
         executionModule: "_flarex/execution.js",
       });
     },
+    async invokeSyscall() {
+      return invokeSyscallResult(null);
+    },
     async prepareInvoke(input) {
       return preparedInvokeResult({
         deploymentId: input.deploymentId,
@@ -445,6 +547,10 @@ function fakeExecutor(
     },
     ...overrides,
   };
+}
+
+function invokeSyscallResult(value: unknown): InvokeSyscallResult {
+  return { value: value as InvokeSyscallResult["value"] };
 }
 
 function beginInvokeSessionResult(input: {
@@ -547,6 +653,33 @@ async function expectPrepareError(error: Error): Promise<{
       path: "messages:list",
       args: { teamId: "team:1" },
       partitionKey: "team:1",
+    }),
+  );
+
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function expectSyscallError(error: Error): Promise<{
+  status: number;
+  body: unknown;
+}> {
+  const app = createFlarexHttpApp({
+    executor: fakeExecutor({
+      async invokeSyscall() {
+        throw error;
+      },
+    }),
+  });
+  const response = await app.handle(
+    jsonRequest("https://executor.test/invoke/syscall", {
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      op: "get",
+      id: "1:message",
     }),
   );
 
