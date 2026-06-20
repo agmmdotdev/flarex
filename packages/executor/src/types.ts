@@ -115,6 +115,9 @@ export interface FlarexExecutor {
   findStaleLiveQuerySubscriptions(
     input: FindStaleLiveQuerySubscriptionsInput,
   ): Promise<FindStaleLiveQuerySubscriptionsResult>;
+  rerunLiveQuerySubscription(
+    input: RerunLiveQuerySubscriptionInput,
+  ): Promise<RerunLiveQuerySubscriptionResult>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -280,6 +283,27 @@ export interface FindStaleLiveQuerySubscriptionsResult {
   fresh: LiveQuerySubscriptionFreshnessEntry[];
   stale: LiveQuerySubscriptionFreshnessEntry[];
   unsupported: LiveQuerySubscriptionFreshnessEntry[];
+}
+
+export interface RerunLiveQuerySubscriptionOutput {
+  value: Json;
+  beginTs: number;
+  readSet: FreshnessSourceReadSet;
+}
+
+export interface RerunLiveQuerySubscriptionInput {
+  subscription: LiveQuerySubscriptionRecord;
+  updatedAt?: Date;
+  runQuery(
+    subscription: LiveQuerySubscriptionRecord,
+  ): Promise<RerunLiveQuerySubscriptionOutput>;
+}
+
+export interface RerunLiveQuerySubscriptionResult {
+  subscription: LiveQuerySubscriptionRecord;
+  previousResultHash: string;
+  resultHash: string;
+  changed: boolean;
 }
 
 export interface ActivateDeploymentPackageInput {

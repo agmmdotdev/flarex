@@ -15,6 +15,8 @@ import type {
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
+  RerunLiveQuerySubscriptionInput,
+  RerunLiveQuerySubscriptionResult,
 } from "./types";
 
 export async function recordLiveQuerySubscription(
@@ -79,6 +81,32 @@ export async function findStaleLiveQuerySubscriptions(
   }
 
   return result;
+}
+
+export async function rerunLiveQuerySubscription(
+  persistence: FlarexExecutorPersistence,
+  input: RerunLiveQuerySubscriptionInput,
+): Promise<RerunLiveQuerySubscriptionResult> {
+  const rerun = await input.runQuery(input.subscription);
+  const previousResultHash = input.subscription.resultHash;
+  const recorded = await recordLiveQuerySubscription(persistence, {
+    deploymentId: input.subscription.deploymentId,
+    connectionId: input.subscription.connectionId,
+    queryId: input.subscription.queryId,
+    functionPath: input.subscription.functionPath,
+    argsJson: input.subscription.argsJson as Json,
+    beginTs: rerun.beginTs,
+    readSet: rerun.readSet,
+    resultJson: rerun.value,
+    ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
+  });
+
+  return {
+    subscription: recorded.subscription,
+    previousResultHash,
+    resultHash: recorded.resultHash,
+    changed: previousResultHash !== recorded.resultHash,
+  };
 }
 
 export function fingerprintJson(value: Json): string {

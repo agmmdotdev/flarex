@@ -255,6 +255,63 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Single Live-Query Rerun Primitive
+
+Previous completed checkpoint: `47bd722` Add stale live query scanner.
+
+What changed:
+
+- Added `rerunLiveQuerySubscription(...)` to `@flarex/executor`.
+- The helper accepts one stored subscription and a caller-supplied `runQuery`
+  callback.
+- It refreshes the durable registry row with the callback's new value, begin
+  timestamp, and read set.
+- It returns `changed: true` when the stable result hash changed and
+  `changed: false` when only freshness/read-set state was refreshed.
+
+Why it matters for sync:
+
+This creates the narrow rerun unit needed after stale-query scanning:
+
+```txt
+stale subscription row
+  -> runQuery callback
+  -> refreshed live_query_subscriptions row
+  -> changed flag for future fanout
+```
+
+The next batch scheduler can compose scanner results with this single-row rerun
+without knowing the registry write details.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale query work reruns user query logic and compares results before
+    publishing transitions.
+- `crates/database/src/subscription.rs`
+  - rerun refreshes dependency state for future invalidation.
+
+Flarex differences:
+
+- Convex runs this inside its backend worker. Flarex accepts an injected
+  `runQuery` callback so Nitro, tests, or future Cloudflare sync can provide the
+  actual execution bridge.
+
+Known limitations:
+
+- No batch scheduler calls this yet.
+- No WebSocket or `ConnectionDO` fanout happens yet.
+- The callback must supply a valid new read set; Dynamic Worker integration is
+  still separate.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

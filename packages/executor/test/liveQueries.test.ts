@@ -265,4 +265,102 @@ describe("executor live query subscriptions", () => {
       ],
     });
   });
+
+  it("reruns a live query subscription and reports changed results", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const initial = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_rerun_changed",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: ["old"],
+    });
+    let receivedFunctionPath = "";
+
+    await expect(
+      executor.rerunLiveQuerySubscription({
+        subscription: initial.subscription,
+        updatedAt: new Date("2026-06-20T00:10:00.000Z"),
+        runQuery: async (subscription) => {
+          receivedFunctionPath = subscription.functionPath;
+          return {
+            value: ["new"],
+            beginTs: 20,
+            readSet: {
+              documents: [{ tableId: 1, id: "1:new" }],
+            },
+          };
+        },
+      }),
+    ).resolves.toMatchObject({
+      previousResultHash: '["old"]',
+      resultHash: '["new"]',
+      changed: true,
+      subscription: {
+        beginTs: 20,
+        readSetJson: {
+          documents: [{ tableId: 1, id: "1:new", observedTs: 20 }],
+        },
+        resultJson: ["new"],
+        resultHash: '["new"]',
+        updatedAt: new Date("2026-06-20T00:10:00.000Z"),
+      },
+    });
+    expect(receivedFunctionPath).toBe("messages:list");
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_rerun_changed",
+      }),
+    ).resolves.toMatchObject([
+      {
+        queryId: 1,
+        beginTs: 20,
+        resultJson: ["new"],
+        resultHash: '["new"]',
+      },
+    ]);
+  });
+
+  it("reruns a live query subscription and refreshes unchanged results", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const initial = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_rerun_unchanged",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: { b: 2, a: 1 },
+    });
+
+    await expect(
+      executor.rerunLiveQuerySubscription({
+        subscription: initial.subscription,
+        runQuery: async () => ({
+          value: { a: 1, b: 2 },
+          beginTs: 30,
+          readSet: {
+            tables: [{ tableId: 2 }],
+          },
+        }),
+      }),
+    ).resolves.toMatchObject({
+      previousResultHash: '{"a":1,"b":2}',
+      resultHash: '{"a":1,"b":2}',
+      changed: false,
+      subscription: {
+        beginTs: 30,
+        readSetJson: {
+          tables: [{ tableId: 2, observedTs: 30 }],
+        },
+        resultJson: { a: 1, b: 2 },
+      },
+    });
+  });
 });

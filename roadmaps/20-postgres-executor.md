@@ -339,6 +339,53 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Single Live-Query Rerun Primitive
+
+Previous completed checkpoint: `47bd722` Add stale live query scanner.
+
+What changed:
+
+- Added `rerunLiveQuerySubscription(...)` to `@flarex/executor`.
+- The primitive calls an injected `runQuery(subscription)` callback.
+- It upserts the same live-query registry row with the new query value,
+  timestamped read set, begin timestamp, and result hash.
+- It reports both the previous and new result hash plus a boolean `changed`
+  flag.
+
+Why it changed:
+
+The executor now owns the registry refresh semantics after a rerun, while the
+actual query execution remains injectable. This keeps the Postgres executor
+framework-neutral and avoids forcing Nitro, Cloudflare, or tests to duplicate
+the read-set conversion and hash comparison logic.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync workers rerun stale active queries and compare query outputs.
+- `crates/database/src/subscription.rs`
+  - rerun updates the stored read dependencies.
+
+Flarex differences:
+
+- Convex performs query reruns in the integrated backend/isolate path. Flarex
+  exposes a callback because user code execution may be hosted by Dynamic
+  Worker, Nitro, or local test harnesses.
+
+Known limitations:
+
+- No batch operation scans and reruns multiple rows yet.
+- No HTTP/Nitro route exposes rerun yet.
+- No connection fanout uses the `changed` flag yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

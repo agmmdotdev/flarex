@@ -516,6 +516,57 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Single Live-Query Rerun Primitive
+
+Previous completed checkpoint: `47bd722` Add stale live query scanner.
+
+What changed:
+
+- Added a single-subscription rerun primitive.
+- Rerun refreshes the registry row with the new result and timestamped read set.
+- Rerun returns whether the stable result fingerprint changed.
+
+Cache impact:
+
+The future cache scheduler can now use this shape:
+
+```txt
+stale row
+  -> rerunLiveQuerySubscription(...)
+  -> changed | unchanged
+```
+
+`changed: false` still matters because the row's read-set freshness is refreshed
+even when the client-visible result is identical. `changed: true` is the future
+fanout signal.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - reruns stale queries and only emits client-visible updates when needed.
+- `crates/database/src/subscription.rs`
+  - refreshed query execution updates dependency state.
+
+Flarex differences:
+
+- Convex's rerun worker is integrated with the backend. Flarex keeps execution
+  injected so Cloudflare, Nitro, and local test runtimes can share the same
+  registry refresh behavior.
+
+Known limitations:
+
+- No scheduler loops over stale rows yet.
+- No result fanout is implemented yet.
+- No cache layer stores materialized query output outside Postgres yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Freshness Delivery Handler
 
 Previous completed checkpoint: `f0fd56f` Add durable freshness store.
