@@ -1,4 +1,10 @@
-import type { OutboxEventRecord } from "@flarex/persistence-postgres";
+import type {
+  ApplyFreshnessCommitResult as DurableApplyFreshnessCommitResult,
+  DocumentFreshnessVersionRecord,
+  FreshnessProcessedEventRecord,
+  OutboxEventRecord,
+  TableFreshnessVersionRecord,
+} from "@flarex/persistence-postgres";
 
 export interface FreshnessOutboxEventKey {
   deploymentId: string;
@@ -38,6 +44,23 @@ export interface FreshnessMirrorStore {
   applyCommitFreshness(
     input: ApplyCommitFreshnessInput,
   ): Promise<ApplyCommitFreshnessResult>;
+}
+
+export interface DurableFreshnessMirrorPersistence {
+  applyFreshnessCommit(
+    input: ApplyCommitFreshnessInput,
+  ): Promise<DurableApplyFreshnessCommitResult>;
+  getFreshnessProcessedEvent(
+    input: FreshnessOutboxEventKey,
+  ): Promise<FreshnessProcessedEventRecord | null>;
+  getDocumentFreshnessVersion(
+    deploymentId: string,
+    documentId: string,
+  ): Promise<DocumentFreshnessVersionRecord | null>;
+  getTableFreshnessVersion(
+    deploymentId: string,
+    tableId: number,
+  ): Promise<TableFreshnessVersionRecord | null>;
 }
 
 export interface ApplyOutboxEventsToFreshnessMirrorInput {
@@ -189,6 +212,45 @@ export class MemoryFreshnessMirrorStore implements FreshnessMirrorStore {
 
 export function createMemoryFreshnessMirrorStore(): MemoryFreshnessMirrorStore {
   return new MemoryFreshnessMirrorStore();
+}
+
+export class PostgresFreshnessMirrorStore implements FreshnessMirrorStore {
+  constructor(private readonly persistence: DurableFreshnessMirrorPersistence) {}
+
+  async applyCommitFreshness(
+    input: ApplyCommitFreshnessInput,
+  ): Promise<ApplyCommitFreshnessResult> {
+    return await this.persistence.applyFreshnessCommit(input);
+  }
+
+  async getProcessedEvent(
+    input: FreshnessOutboxEventKey,
+  ): Promise<boolean> {
+    return (await this.persistence.getFreshnessProcessedEvent(input)) !== null;
+  }
+
+  async getDocumentVersion(
+    deploymentId: string,
+    documentId: string,
+  ): Promise<DocumentFreshnessVersion | null> {
+    return await this.persistence.getDocumentFreshnessVersion(
+      deploymentId,
+      documentId,
+    );
+  }
+
+  async getTableVersion(
+    deploymentId: string,
+    tableId: number,
+  ): Promise<TableFreshnessVersion | null> {
+    return await this.persistence.getTableFreshnessVersion(deploymentId, tableId);
+  }
+}
+
+export function createPostgresFreshnessMirrorStore(
+  persistence: DurableFreshnessMirrorPersistence,
+): PostgresFreshnessMirrorStore {
+  return new PostgresFreshnessMirrorStore(persistence);
 }
 
 function parseCommitOutboxEvent(input: OutboxEventRecord): {

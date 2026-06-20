@@ -50,6 +50,13 @@
       "when": 1781944999660,
       "tag": "0006_lyrical_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781976805952,
+      "tag": "0007_moaning_whizzer",
+      "breakpoints": true
     }
   ]
 }

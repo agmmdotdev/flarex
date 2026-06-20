@@ -166,6 +166,61 @@ export const outbox = pgTable(
   ],
 );
 
+export const freshnessProcessedEvents = pgTable(
+  "freshness_processed_events",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    ts: bigint("ts", { mode: "number" }).notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.ts, table.sequence],
+    }),
+  ],
+);
+
+export const documentFreshnessVersions = pgTable(
+  "document_freshness_versions",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    documentId: text("document_id").notNull(),
+    version: bigint("version", { mode: "number" }).notNull(),
+    outboxTs: bigint("outbox_ts", { mode: "number" }).notNull(),
+    outboxSequence: bigint("outbox_sequence", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.documentId],
+    }),
+  ],
+);
+
+export const tableFreshnessVersions = pgTable(
+  "table_freshness_versions",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    tableId: bigint("table_id", { mode: "number" }).notNull(),
+    version: bigint("version", { mode: "number" }).notNull(),
+    outboxTs: bigint("outbox_ts", { mode: "number" }).notNull(),
+    outboxSequence: bigint("outbox_sequence", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.tableId],
+    }),
+  ],
+);
+
 export const invokeSessions = pgTable(
   "invoke_sessions",
   {
@@ -313,7 +368,9 @@ export const flarexSchema = {
   commits,
   deploymentPackages,
   deployments,
+  documentFreshnessVersions,
   documents,
+  freshnessProcessedEvents,
   indexes,
   invokeSessionDocumentReads,
   invokeSessionTableReads,
@@ -324,4 +381,5 @@ export const flarexSchema = {
   outbox,
   persistenceGlobals,
   readOnly,
+  tableFreshnessVersions,
 };

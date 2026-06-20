@@ -55,6 +55,14 @@ import type {
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
 } from "./indexEntries";
+import type {
+  ApplyFreshnessCommitInput,
+  ApplyFreshnessCommitResult,
+  DocumentFreshnessVersionRecord,
+  FreshnessOutboxEventKey,
+  FreshnessProcessedEventRecord,
+  TableFreshnessVersionRecord,
+} from "./freshness";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -169,6 +177,20 @@ export interface FlarexPersistence extends FlarexSqlClient {
   markOutboxEventsDelivered(
     input: MarkOutboxEventsDeliveredInput,
   ): Promise<MarkOutboxEventsDeliveredResult>;
+  applyFreshnessCommit(
+    input: ApplyFreshnessCommitInput,
+  ): Promise<ApplyFreshnessCommitResult>;
+  getFreshnessProcessedEvent(
+    input: FreshnessOutboxEventKey,
+  ): Promise<FreshnessProcessedEventRecord | null>;
+  getDocumentFreshnessVersion(
+    deploymentId: string,
+    documentId: string,
+  ): Promise<DocumentFreshnessVersionRecord | null>;
+  getTableFreshnessVersion(
+    deploymentId: string,
+    tableId: number,
+  ): Promise<TableFreshnessVersionRecord | null>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -188,6 +210,7 @@ export * from "./invokeSessionTableReads";
 export * from "./invokeSessionIndexReads";
 export * from "./invokeSessionWrites";
 export * from "./outbox";
+export * from "./freshness";
 export * from "./validation";
 export { flarexSchema } from "./schema";
 export * from "./schema";

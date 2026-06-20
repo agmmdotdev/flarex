@@ -202,6 +202,58 @@ corepack pnpm --filter flarex-dev build
 git diff --check
 ```
 
+## Durable Freshness Persistence
+
+Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.
+
+What changed:
+
+- Added Drizzle schema and migration for durable freshness projection state:
+  `freshness_processed_events`, `document_freshness_versions`, and
+  `table_freshness_versions`.
+- Added transactional `applyFreshnessCommit(...)` to the Postgres persistence
+  package.
+- Added PGlite adapter methods for applying and reading freshness state.
+- Added `PostgresFreshnessMirrorStore` in `@flarex/freshness` so the
+  freshness projector can use the durable persistence implementation.
+
+Why it changed:
+
+The outbox dispatcher/projector pipeline was previously correct only against an
+in-memory mirror. The Postgres executor path now has a durable correctness
+reference for freshness projection and replay idempotency.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - durable committed write metadata is the source of downstream freshness.
+- `crates/database/src/subscription.rs`
+  - invalidation compares read dependencies with committed write metadata.
+
+Flarex differences:
+
+- Convex does not need separate Postgres freshness tables. Flarex does because
+  the trusted transaction executor and Cloudflare sync/cache components are
+  separated by a durable handoff.
+
+Known limitations:
+
+- The executor dispatcher is not automatically wired to this durable store yet;
+  it remains an injected handler composition.
+- No range/index freshness exists.
+- No live query rerun or cache protocol consumes these rows yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Executor Freshness Pipeline Test
 
 Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.

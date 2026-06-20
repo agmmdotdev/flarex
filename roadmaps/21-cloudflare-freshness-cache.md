@@ -238,6 +238,79 @@ Verification:
 git diff --check
 ```
 
+## Durable Postgres Freshness Store
+
+Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.
+
+What changed:
+
+- Added Postgres/PGlite freshness tables through Drizzle migration
+  `0007_moaning_whizzer.sql`:
+  - `freshness_processed_events`,
+  - `document_freshness_versions`, and
+  - `table_freshness_versions`.
+- Added `applyFreshnessCommit(...)` to `@flarex/persistence-postgres`.
+  It inserts the processed outbox event key and updates document/table versions
+  inside one transaction.
+- Added getters for processed event, document freshness, and table freshness.
+- Added `PostgresFreshnessMirrorStore` in `@flarex/freshness`, implementing
+  the existing `FreshnessMirrorStore` interface over the durable persistence
+  API.
+- Added PGlite tests proving durable idempotency and non-regression.
+- Added freshness package tests proving the projector works against durable
+  PGlite-backed storage and skips replays across store instances.
+
+Cache impact:
+
+The freshness mirror is no longer memory-only. The correctness reference path
+is now:
+
+```txt
+outbox event
+  -> runOutboxDeliveryBatch(...)
+  -> applyOutboxEventsToFreshnessMirror(...)
+  -> PostgresFreshnessMirrorStore
+  -> durable document/table freshness versions
+```
+
+This makes process restarts and replay recovery testable before adding
+Cloudflare-specific mirror storage.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed write metadata is durable and replayable.
+- `crates/database/src/subscription.rs`
+  - read dependencies compare against committed write metadata.
+- `crates/sync/src/worker.rs`
+  - sync workers consume committed changes and update client-visible state.
+
+Flarex differences:
+
+- Convex keeps this inside its backend write-log/subscription machinery.
+  Flarex persists explicit freshness projection tables because the Postgres
+  executor and Cloudflare freshness/cache layers are separate components.
+
+Known limitations:
+
+- Only document and whole-table freshness are durable.
+- Range/index freshness is still not represented.
+- No query rerun, minimum-freshness check, or `ConnectionDO` fanout uses these
+  durable versions yet.
+- No Cloudflare DO/D1 freshness mirror exists yet; Postgres/PGlite is the
+  correctness reference.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Outbox To Freshness Pipeline Test
 
 Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.

@@ -4,8 +4,10 @@ import type { OutboxEventRecord } from "@flarex/persistence-postgres";
 import {
   applyOutboxEventsToFreshnessMirror,
   createMemoryFreshnessMirrorStore,
+  createPostgresFreshnessMirrorStore,
   FreshnessOutboxEventShapeError,
 } from "../src";
+import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 
 describe("freshness outbox projector", () => {
   it("applies commit outbox events into document and table versions", async () => {
@@ -140,6 +142,80 @@ describe("freshness outbox projector", () => {
         ],
       }),
     ).rejects.toThrow(FreshnessOutboxEventShapeError);
+  });
+
+  it("projects outbox events through durable Postgres freshness storage", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const store = createPostgresFreshnessMirrorStore(persistence);
+
+    await expect(
+      applyOutboxEventsToFreshnessMirror({
+        store,
+        events: [
+          commitOutboxEvent({
+            deploymentId: "deployment_durable_freshness",
+            ts: 10,
+            commitTs: 10,
+            tableIds: [1],
+            documentIds: ["1:message"],
+          }),
+        ],
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      skipped: 0,
+      documentVersions: [
+        {
+          deploymentId: "deployment_durable_freshness",
+          documentId: "1:message",
+          version: 10,
+        },
+      ],
+      tableVersions: [
+        {
+          deploymentId: "deployment_durable_freshness",
+          tableId: 1,
+          version: 10,
+        },
+      ],
+    });
+
+    const restartedStore = createPostgresFreshnessMirrorStore(persistence);
+    await expect(
+      applyOutboxEventsToFreshnessMirror({
+        store: restartedStore,
+        events: [
+          commitOutboxEvent({
+            deploymentId: "deployment_durable_freshness",
+            ts: 10,
+            commitTs: 10,
+            tableIds: [1],
+            documentIds: ["1:message"],
+          }),
+        ],
+      }),
+    ).resolves.toMatchObject({
+      processed: 0,
+      skipped: 1,
+    });
+    await expect(
+      restartedStore.getDocumentVersion(
+        "deployment_durable_freshness",
+        "1:message",
+      ),
+    ).resolves.toMatchObject({
+      version: 10,
+      outboxTs: 10,
+      outboxSequence: 0,
+    });
+    await expect(
+      restartedStore.getProcessedEvent({
+        deploymentId: "deployment_durable_freshness",
+        ts: 10,
+        sequence: 0,
+      }),
+    ).resolves.toBe(true);
   });
 });
 

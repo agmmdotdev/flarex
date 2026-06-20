@@ -33,6 +33,57 @@ Verification:
 git diff --check
 ```
 
+## Durable Document And Table Freshness
+
+Previous completed checkpoint: `0f896fd` Test outbox freshness pipeline.
+
+What changed:
+
+- Added durable Postgres/PGlite storage for processed freshness event keys,
+  document freshness versions, and table freshness versions.
+- Added a durable freshness store adapter that satisfies the same
+  `FreshnessMirrorStore` interface used by the in-memory projector tests.
+- Added tests proving replay idempotency survives a new store instance over the
+  same PGlite persistence.
+
+Why it matters for sync:
+
+Live query reruns need a durable source for "what changed since this query read
+its dependencies?" Document and whole-table dependencies now have that source.
+This is still not full sync, but it is the first durable invalidation state.
+
+Convex references:
+
+- `crates/database/src/write_log.rs`
+  - committed writes are durable and replayable.
+- `crates/database/src/subscription.rs`
+  - subscriptions compare read dependencies against committed writes.
+- `crates/sync/src/worker.rs`
+  - sync workers consume committed changes to produce client transitions.
+
+Flarex differences:
+
+- Convex stores this in its integrated database/subscription machinery. Flarex
+  stores explicit freshness projection rows because execution and Cloudflare
+  sync/cache are separate runtime pieces.
+
+Known limitations:
+
+- No live query rerun or `ConnectionDO` fanout consumes the durable freshness
+  rows yet.
+- No range/index freshness exists yet.
+- No minimum-freshness protocol exists for cached query responses yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+git diff --check
+```
+
 ## Outbox To Freshness Pipeline Test
 
 Previous completed checkpoint: `97d0f0f` Add freshness mirror projector.

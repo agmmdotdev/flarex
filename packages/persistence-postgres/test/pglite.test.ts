@@ -47,7 +47,9 @@ describe("createPGlitePersistence", () => {
       "commits",
       "deployment_packages",
       "deployments",
+      "document_freshness_versions",
       "documents",
+      "freshness_processed_events",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -58,6 +60,7 @@ describe("createPGlitePersistence", () => {
       "outbox",
       "persistence_globals",
       "read_only",
+      "table_freshness_versions",
     ]);
 
     const migrationTables = await persistence.query<{
@@ -2190,6 +2193,115 @@ describe("createPGlitePersistence", () => {
         deliveredAt: new Date("2026-06-20T02:00:00.000Z"),
       }),
     ).resolves.toEqual({ delivered: 0 });
+  });
+
+  it("applies durable freshness commits idempotently", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await expect(
+      persistence.applyFreshnessCommit({
+        eventKey: {
+          deploymentId: "deployment_freshness",
+          ts: 10,
+          sequence: 0,
+        },
+        commitTs: 10,
+        documentIds: ["1:message"],
+        tableIds: [1],
+        processedAt: new Date("2026-06-20T00:00:00.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      applied: true,
+      documentVersions: [
+        {
+          deploymentId: "deployment_freshness",
+          documentId: "1:message",
+          version: 10,
+          outboxTs: 10,
+          outboxSequence: 0,
+        },
+      ],
+      tableVersions: [
+        {
+          deploymentId: "deployment_freshness",
+          tableId: 1,
+          version: 10,
+          outboxTs: 10,
+          outboxSequence: 0,
+        },
+      ],
+    });
+    await expect(
+      persistence.getFreshnessProcessedEvent({
+        deploymentId: "deployment_freshness",
+        ts: 10,
+        sequence: 0,
+      }),
+    ).resolves.toMatchObject({
+      processedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await expect(
+      persistence.applyFreshnessCommit({
+        eventKey: {
+          deploymentId: "deployment_freshness",
+          ts: 10,
+          sequence: 0,
+        },
+        commitTs: 10,
+        documentIds: ["1:message"],
+        tableIds: [1],
+      }),
+    ).resolves.toEqual({
+      applied: false,
+      documentVersions: [],
+      tableVersions: [],
+    });
+  });
+
+  it("does not regress durable freshness versions", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.applyFreshnessCommit({
+      eventKey: {
+        deploymentId: "deployment_freshness_ordering",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:message"],
+      tableIds: [1],
+    });
+    await persistence.applyFreshnessCommit({
+      eventKey: {
+        deploymentId: "deployment_freshness_ordering",
+        ts: 10,
+        sequence: 0,
+      },
+      commitTs: 10,
+      documentIds: ["1:message"],
+      tableIds: [1],
+    });
+
+    await expect(
+      persistence.getDocumentFreshnessVersion(
+        "deployment_freshness_ordering",
+        "1:message",
+      ),
+    ).resolves.toMatchObject({
+      version: 20,
+      outboxTs: 20,
+      outboxSequence: 0,
+    });
+    await expect(
+      persistence.getTableFreshnessVersion("deployment_freshness_ordering", 1),
+    ).resolves.toMatchObject({
+      version: 20,
+      outboxTs: 20,
+      outboxSequence: 0,
+    });
   });
 
   it("commits staged invoke session deletes after read validation", async () => {

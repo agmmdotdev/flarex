@@ -32,6 +32,12 @@ import {
   listDocumentsInIndexAtTs as listDocumentsInIndexAtTsWithDb,
 } from "./indexEntries";
 import {
+  applyFreshnessCommit as applyFreshnessCommitWithDb,
+  getDocumentFreshnessVersion as getDocumentFreshnessVersionWithDb,
+  getFreshnessProcessedEvent as getFreshnessProcessedEventWithDb,
+  getTableFreshnessVersion as getTableFreshnessVersionWithDb,
+} from "./freshness";
+import {
   abortInvokeSessionMetadata as abortInvokeSessionMetadataWithDb,
   abortStaleInvokeSessionsMetadata as abortStaleInvokeSessionsMetadataWithDb,
   finishInvokeSessionMetadata as finishInvokeSessionMetadataWithDb,
@@ -177,6 +183,19 @@ export async function createPGlitePersistence(
       listUndeliveredOutboxEventsWithDb(drizzleDb, input),
     markOutboxEventsDelivered: (input) =>
       markOutboxEventsDeliveredWithDb(drizzleDb, input),
+    applyFreshnessCommit: (input) =>
+      drizzleDb.transaction((tx) =>
+        applyFreshnessCommitWithDb(
+          tx as unknown as Parameters<typeof applyFreshnessCommitWithDb>[0],
+          input,
+        ),
+      ),
+    getFreshnessProcessedEvent: (input) =>
+      getFreshnessProcessedEventWithDb(drizzleDb, input),
+    getDocumentFreshnessVersion: (deploymentId, documentId) =>
+      getDocumentFreshnessVersionWithDb(drizzleDb, deploymentId, documentId),
+    getTableFreshnessVersion: (deploymentId, tableId) =>
+      getTableFreshnessVersionWithDb(drizzleDb, deploymentId, tableId),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });
