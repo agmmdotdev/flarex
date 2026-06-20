@@ -2633,7 +2633,7 @@ Previous completed checkpoint: `007fda1` Stage mutation insert writes.
 What changed:
 
 - Added `packages/persistence-postgres/src/commits.ts`.
-- Added `commitInvokeSessionInserts(...)` to the persistence interface and
+- Added `commitInvokeSessionWrites(...)` to the persistence interface and
   PGlite adapter.
 - The PGlite adapter wraps commit in a Drizzle transaction.
 - Mutation `finishInvokeSession(...)` now:
@@ -2725,7 +2725,7 @@ Previous completed checkpoint: `824daa5` Commit mutation insert writes.
 What changed:
 
 - Added `InvokeSessionOccConflictError`.
-- `commitInvokeSessionInserts(...)` now validates persisted document reads
+- `commitInvokeSessionWrites(...)` now validates persisted document reads
   before applying staged inserts.
 - Validation checks each document read:
   - if the session observed `null`, the document must still be missing,
@@ -2817,7 +2817,7 @@ What changed:
   - rejects non-object target documents before staging,
   - persists a document read for OCC validation,
   - persists a staged document write with op `patch`.
-- `commitInvokeSessionInserts(...)` now applies staged `patch` writes after
+- `commitInvokeSessionWrites(...)` now applies staged `patch` writes after
   persisted read validation succeeds.
 - Patch commit merges the patch object into the latest validated document
   revision, inserts a new revision with `prevTs`, records the committed write,
@@ -2864,9 +2864,8 @@ Flarex differences:
 - Convex keeps execution and commit inside its Rust backend transaction model.
   Flarex persists syscall reads/writes because user code runs through an
   executor syscall boundary.
-- The persistence API is still named `commitInvokeSessionInserts(...)`; it now
-  commits inserts and patches. Rename this to `commitInvokeSessionWrites(...)`
-  before treating the persistence interface as stable.
+- The persistence API is now named `commitInvokeSessionWrites(...)` because it
+  commits multiple staged write ops, not just inserts.
 - Flarex currently supports point-document patch semantics only. Predicate
   query invalidation, index updates, and sync outbox generation are not wired
   yet.
@@ -2879,6 +2878,71 @@ Known limitations:
 - No outbox/sync invalidation.
 - No cleanup of staged reads/writes after finish.
 - No real Postgres concurrency stress lane yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
+## Invoke Session Commit API Naming Cleanup
+
+Previous completed checkpoint: `94d2636` Commit mutation patch writes.
+
+What changed:
+
+- Renamed the persistence commit API from insert-specific naming to
+  write-generic naming:
+  - `CommitInvokeSessionInsertsInput` to `CommitInvokeSessionWritesInput`,
+  - `CommitInvokeSessionInsertsResult` to `CommitInvokeSessionWritesResult`,
+  - `commitInvokeSessionInserts(...)` to `commitInvokeSessionWrites(...)`.
+- Updated the PGlite adapter, executor persistence interface, executor finish
+  path, executor test persistence fake, Nitro test fake, and PGlite tests.
+- Updated earlier implementation notes to reference the new API name.
+
+Why it changed:
+
+The commit API now handles staged `insert` and `patch` writes. Keeping the old
+insert-only name would make the next `delete`, validator, index, and outbox
+slices harder to reason about. Convex treats transaction commit as applying a
+set of accumulated writes, so Flarex should use write-generic naming at this
+boundary.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transactions accumulate reads and writes, not insert-only operations.
+- `crates/database/src/committer.rs`
+  - commit owns validation and application of the full transaction write set.
+
+Flarex references:
+
+- `packages/persistence-postgres/src/commits.ts`
+  - owns `commitInvokeSessionWrites(...)`.
+- `packages/executor/src/types.ts`
+  - exposes the persistence boundary used by executor core and adapters.
+- `packages/executor/src/sessions.ts`
+  - mutation finish now calls the write-generic commit API.
+
+Flarex differences:
+
+- Convex's write set is in-process backend state. Flarex's write set is
+  persisted through syscall rows because user code executes across a runtime
+  boundary.
+
+Known limitations:
+
+- This is a naming/boundary cleanup only.
+- No `delete` syscall/commit path yet.
+- No validator, index, outbox, or cleanup behavior changed in this slice.
 
 Verification:
 

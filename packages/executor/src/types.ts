@@ -1,8 +1,8 @@
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
-  CommitInvokeSessionInsertsInput,
-  CommitInvokeSessionInsertsResult,
+  CommitInvokeSessionWritesInput,
+  CommitInvokeSessionWritesResult,
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
@@ -104,9 +104,9 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentWriteRecord[]>;
-  commitInvokeSessionInserts(
-    input: CommitInvokeSessionInsertsInput,
-  ): Promise<CommitInvokeSessionInsertsResult>;
+  commitInvokeSessionWrites(
+    input: CommitInvokeSessionWritesInput,
+  ): Promise<CommitInvokeSessionWritesResult>;
 }
 
 export interface ActivateDeploymentPackageInput {

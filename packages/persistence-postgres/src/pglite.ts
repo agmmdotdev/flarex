@@ -11,7 +11,7 @@ import type {
   QueryResult,
 } from "./index";
 import {
-  commitInvokeSessionInserts as commitInvokeSessionInsertsWithDb,
+  commitInvokeSessionWrites as commitInvokeSessionWritesWithDb,
 } from "./commits";
 import {
   getDeploymentPackageMetadata as getDeploymentPackageMetadataWithDb,
@@ -119,10 +119,10 @@ export async function createPGlitePersistence(
       insertInvokeSessionDocumentWriteWithDb(drizzleDb, input),
     listInvokeSessionDocumentWrites: (deploymentId, sessionId) =>
       listInvokeSessionDocumentWritesWithDb(drizzleDb, deploymentId, sessionId),
-    commitInvokeSessionInserts: (input) =>
+    commitInvokeSessionWrites: (input) =>
       drizzleDb.transaction((tx) =>
-        commitInvokeSessionInsertsWithDb(
-          tx as unknown as Parameters<typeof commitInvokeSessionInsertsWithDb>[0],
+        commitInvokeSessionWritesWithDb(
+          tx as unknown as Parameters<typeof commitInvokeSessionWritesWithDb>[0],
           input,
         ),
       ),

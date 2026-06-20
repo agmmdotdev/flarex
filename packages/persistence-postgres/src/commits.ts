@@ -11,7 +11,7 @@ import { finishInvokeSessionMetadata } from "./invokeSessions";
 import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
 
-export interface CommitInvokeSessionInsertsInput {
+export interface CommitInvokeSessionWritesInput {
   deploymentId: string;
   sessionId: string;
   source: string;
@@ -27,7 +27,7 @@ export interface CommittedDocumentWriteRecord {
   value: PersistenceJson | null;
 }
 
-export interface CommitInvokeSessionInsertsResult {
+export interface CommitInvokeSessionWritesResult {
   committedTs: number;
   writes: CommittedDocumentWriteRecord[];
 }
@@ -74,10 +74,10 @@ export class InvokeSessionPatchTargetError extends Error {
   }
 }
 
-export async function commitInvokeSessionInserts(
+export async function commitInvokeSessionWrites(
   db: FlarexMetadataDatabase,
-  input: CommitInvokeSessionInsertsInput,
-): Promise<CommitInvokeSessionInsertsResult> {
+  input: CommitInvokeSessionWritesInput,
+): Promise<CommitInvokeSessionWritesResult> {
   const stagedWrites = await listInvokeSessionDocumentWrites(
     db,
     input.deploymentId,
@@ -202,7 +202,7 @@ function isJsonObject(value: unknown): value is Record<string, PersistenceJson> 
 
 async function validateDocumentReads(
   db: FlarexMetadataDatabase,
-  input: CommitInvokeSessionInsertsInput,
+  input: CommitInvokeSessionWritesInput,
   commitTs: number,
 ): Promise<void> {
   const reads = await listInvokeSessionDocumentReads(

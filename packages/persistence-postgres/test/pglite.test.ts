@@ -674,7 +674,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_commit",
         sessionId: "session_commit",
         source: "invoke:messages:send",
@@ -757,7 +757,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_patch_commit",
         sessionId: "session_patch",
         source: "invoke:messages:update",
@@ -831,7 +831,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_patch_non_object",
         sessionId: "session_patch",
         source: "invoke:messages:update",
@@ -890,7 +890,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_commit_conflict",
         sessionId: "session_commit",
         source: "invoke:messages:send",
@@ -963,7 +963,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_occ",
         sessionId: "session_occ",
         source: "invoke:messages:send",
@@ -1015,7 +1015,7 @@ describe("createPGlitePersistence", () => {
     });
 
     await expect(
-      persistence.commitInvokeSessionInserts({
+      persistence.commitInvokeSessionWrites({
         deploymentId: "deployment_occ_missing",
         sessionId: "session_occ",
         source: "invoke:messages:send",

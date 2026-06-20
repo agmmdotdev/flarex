@@ -496,7 +496,7 @@ function healthyPersistence() {
     async listInvokeSessionDocumentWrites() {
       return [];
     },
-    async commitInvokeSessionInserts(input: {
+    async commitInvokeSessionWrites(input: {
       deploymentId: string;
       sessionId: string;
       source: string;

@@ -209,7 +209,7 @@ export async function finishInvokeSession(
   }
 
   if (session.functionKind === "mutation") {
-    const commit = await persistence.commitInvokeSessionInserts({
+    const commit = await persistence.commitInvokeSessionWrites({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       source: `invoke:${session.functionPath}`,

@@ -1,7 +1,7 @@
 import type { SQLWrapper } from "drizzle-orm";
 import type {
-  CommitInvokeSessionInsertsInput,
-  CommitInvokeSessionInsertsResult,
+  CommitInvokeSessionWritesInput,
+  CommitInvokeSessionWritesResult,
 } from "./commits";
 import type {
   DeploymentPackageMetadataRecord,
@@ -98,9 +98,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentWriteRecord[]>;
-  commitInvokeSessionInserts(
-    input: CommitInvokeSessionInsertsInput,
-  ): Promise<CommitInvokeSessionInsertsResult>;
+  commitInvokeSessionWrites(
+    input: CommitInvokeSessionWritesInput,
+  ): Promise<CommitInvokeSessionWritesResult>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }

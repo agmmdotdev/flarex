@@ -1,7 +1,7 @@
 import {
   DeploymentPackageMetadataAlreadyExistsError,
-  type CommitInvokeSessionInsertsInput,
-  type CommitInvokeSessionInsertsResult,
+  type CommitInvokeSessionWritesInput,
+  type CommitInvokeSessionWritesResult,
   type DeploymentPackageMetadataRecord,
   DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
@@ -246,7 +246,7 @@ export function memoryPersistence(
             left.documentId.localeCompare(right.documentId),
         );
     },
-    async commitInvokeSessionInserts(input: CommitInvokeSessionInsertsInput) {
+    async commitInvokeSessionWrites(input: CommitInvokeSessionWritesInput) {
       const writes = Array.from(documentWrites.values()).filter(
         (write) =>
           write.deploymentId === input.deploymentId &&
@@ -260,7 +260,7 @@ export function memoryPersistence(
         .reduce((latest, document) => Math.max(latest, document.ts), 0);
       const committedTs =
         Math.max(latestCommitTs, latestDocumentTs, input.minimumTs) + 1;
-      const committedWrites: CommitInvokeSessionInsertsResult["writes"] = [];
+      const committedWrites: CommitInvokeSessionWritesResult["writes"] = [];
       for (const read of documentReads.values()) {
         if (
           read.deploymentId !== input.deploymentId ||
