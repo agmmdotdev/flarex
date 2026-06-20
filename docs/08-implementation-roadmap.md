@@ -67,6 +67,17 @@ Deliverables:
 - read-your-own-writes overlay
 - atomic final SQLite commit
 
+Start this phase with executor-level tests for interactive syscall behavior,
+not HTTP routes:
+
+- insert then get sees the staged insert
+- patch then get sees the merged staged document
+- delete then get returns null
+- table query sees staged inserts and patches and hides staged deletes
+- the realistic mutation shape works: read a parent document, stage a child
+  insert, continue deterministic local logic, query the child table, patch the
+  parent, then finish
+
 Acceptance:
 
 - one mutation updates multiple colocated tables atomically

@@ -4098,3 +4098,60 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
+
+## Interactive Invoke Session Semantics
+
+Previous completed checkpoint: `fd4a4f4` Add maintenance sweep core.
+
+What changed:
+
+- Re-centered the Postgres executor around interactive transaction syscalls.
+- Recorded that Dynamic Worker user code must call the executor for every
+  `ctx.db.*` operation and wait for the result before continuing.
+- Rejected the collect-locally-and-replay-later model for mutations.
+- Defined the required transaction view as persisted snapshot at `begin_ts` plus
+  the invoke session's staged writes.
+
+Implementation plan:
+
+1. Add executor tests that fail until read-your-own-writes is authoritative:
+   insert/get, patch/get, delete/get, table query overlay, and a realistic
+   parent-read, child-insert, child-query, parent-patch mutation.
+2. Implement a shared transaction-view helper in executor core that loads
+   persisted documents from `@flarex/persistence-postgres` and overlays staged
+   writes for the current invoke session.
+3. Use that helper for `db.get` and table query syscalls.
+4. Extend the same model to indexed query syscalls after table-query overlay is
+   correct.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - read-your-writes and transaction-local state.
+- `crates/database/src/committer.rs`
+  - staged writes are validated and committed together.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code performs database operations through syscall boundaries.
+
+Flarex differences:
+
+- Convex's trusted backend and isolate integration are process-local Rust
+  components. Flarex's Dynamic Worker is remote from the trusted Postgres
+  executor, so each DB call is an authenticated internal request tied to an
+  invoke session.
+- Flarex keeps Postgres locks and transactions short by staging outside the
+  final commit transaction.
+
+Known limitations:
+
+- Current docs describe the target behavior; implementation still needs the
+  overlay tests and helper.
+- Long-running deterministic mutation logic is allowed but increases conflict
+  probability because the logical snapshot gets older.
+- Expensive side-effectful work still belongs in actions, not mutations.
+
+Verification:
+
+```sh
+git diff --check
+```

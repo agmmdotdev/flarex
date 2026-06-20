@@ -8,6 +8,45 @@
 This is the core of the port. Cloudflare can host the runtime, but Convex-like
 behavior comes from the transaction engine.
 
+## Interactive Transaction Model
+
+The transaction engine is an interactive syscall engine. It must not rely on
+recording a complete operation script in the Dynamic Worker and replaying it
+later in the trusted executor.
+
+The trusted executor owns the transaction session:
+
+1. `/invoke/start` creates an invoke session with a stable `begin_ts`.
+2. Each `ctx.db.*` call from the Dynamic Worker is an immediate syscall.
+3. Reads are answered from the transaction view.
+4. Writes are staged in executor-owned session state.
+5. The user function can branch and run more deterministic logic between
+   syscalls.
+6. `/invoke/finish` validates the return value, runs OCC validation, and commits
+   the staged writes.
+7. `/invoke/abort` abandons staged writes when user code throws or validation
+   fails.
+
+The transaction view is:
+
+```txt
+persisted snapshot at begin_ts + staged write overlay for this invoke session
+```
+
+This view must provide read-your-own-writes:
+
+- insert then get returns the staged inserted document
+- patch then get returns the merged staged document
+- replace then get returns the replaced staged document
+- delete then get returns null
+- table and index queries include staged inserts and patches
+- table and index queries hide staged deletes
+
+Long user logic between syscalls does not hold a Postgres transaction or row
+lock. It does keep the logical transaction open longer, which increases the
+chance that OCC validation will fail and the deterministic mutation will need
+to retry from the beginning.
+
 ## Correctness Goal
 
 Mutations must appear atomic and serializable to application developers:

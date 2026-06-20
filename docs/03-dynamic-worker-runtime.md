@@ -170,6 +170,57 @@ type SyscallRequest =
   | { type: "storage.generateUploadUrl" };
 ```
 
+## Interactive Transaction Syscalls
+
+The Dynamic Worker syscall protocol is interactive, not a delayed replay
+protocol. User code can read a document, branch on it, do arbitrary local
+computation, then issue more reads and writes. Therefore every `ctx.db.*` call
+must immediately call the trusted executor and await the result before user code
+continues.
+
+This shape must work:
+
+```ts
+const team = await ctx.db.get(args.teamId);
+if (!team?.enabled) {
+  throw new Error("disabled");
+}
+
+const messageId = await ctx.db.insert("messages", {
+  teamId: args.teamId,
+  text: args.text,
+});
+
+// User code can do local deterministic work here before the next syscall.
+
+const messages = await ctx.db
+  .query("messages")
+  .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
+  .collect();
+
+await ctx.db.patch(args.teamId, { messageCount: messages.length });
+return messageId;
+```
+
+The required execution flow is:
+
+```txt
+/invoke/start
+  -> trusted executor creates an invoke session and begin_ts
+Dynamic Worker runs user code
+  -> ctx.db.get sends db.get syscall and awaits the result
+  -> ctx.db.insert sends db.insert syscall and stages the write in executor
+  -> ctx.db.query sends db.queryPage syscall and reads snapshot + staged overlay
+  -> ctx.db.patch sends db.patch syscall and updates staged state
+return value validation succeeds
+/invoke/finish
+  -> trusted executor validates OCC and commits staged writes atomically
+```
+
+The Worker must not collect a local list of DB operations and ask the executor
+to replay them after the function returns. That would break Convex-style
+control flow because later user logic depends on earlier syscall results.
+
 The coordinator attaches these syscalls to an execution context:
 
 ```ts

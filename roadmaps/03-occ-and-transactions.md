@@ -698,3 +698,59 @@ Verification:
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test -- --runInBand
 ```
+
+## Interactive Transaction Syscall Clarification
+
+Previous completed checkpoint: `fd4a4f4` Add maintenance sweep core.
+
+What changed:
+
+- Documented that Dynamic Worker execution must use immediate transaction
+  syscalls, not a delayed collect-and-replay operation log.
+- Clarified that the trusted executor owns the invoke session, `begin_ts`, read
+  set, staged writes, return validation, OCC validation, and commit.
+- Clarified that reads during a mutation must use a transaction view composed of
+  the persisted snapshot plus this session's staged write overlay.
+- Added the first implementation gate: executor tests for insert/get,
+  patch/get, delete/get, table-query overlay, and a realistic parent-read,
+  child-insert, child-query, parent-patch mutation shape.
+
+Why it changed:
+
+A Convex-style mutation can branch on earlier query results and issue later
+reads or writes based on those results. Flarex therefore cannot ask the Dynamic
+Worker to collect database operations locally and replay them after user code
+returns. Each `ctx.db.*` call must synchronously cross into the trusted executor
+and receive the current transaction-view result.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state owns reads, pending writes, and read-your-writes behavior.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code reaches backend capabilities through syscalls.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is coordinated by the backend application layer before
+    commit is published.
+
+Flarex differences:
+
+- Convex keeps the isolate syscall layer and transaction object inside the Rust
+  backend process. Flarex intentionally runs user TypeScript in a Cloudflare
+  Dynamic Worker and persists the transaction session in the trusted executor.
+- A long Flarex mutation does not hold a Postgres transaction open while user
+  code runs, but its older `begin_ts` can make OCC conflicts more likely.
+
+Known limitations:
+
+- This checkpoint is documentation only.
+- The current Postgres executor still needs authoritative staged read overlay
+  implementation for table and index query syscalls.
+- Index-query overlay can start conservative; exact Convex-style index/page
+  interval behavior can be tightened after table-query overlay is correct.
+
+Verification:
+
+```sh
+git diff --check
+```
