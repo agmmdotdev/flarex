@@ -29,6 +29,7 @@ import {
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
+  InvokeQueryRequestError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -118,8 +119,42 @@ export async function invokeSyscall(
     };
   }
 
+  if (input.syscall.op === "query") {
+    const request = queryRequest(input.syscall.request);
+    const table = await tableForSession(persistence, session, request.table);
+    const documents = await persistence.listDocumentsInTableAtTs(
+      input.deploymentId,
+      table.tableId,
+      session.beginTs,
+      request.limit,
+    );
+    await persistence.insertInvokeSessionTableRead({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: table.tableId,
+      observedTs: session.beginTs,
+    });
+    const page = documents.map((document) =>
+      documentValue(document.id, document.value),
+    );
+    return {
+      value: {
+        page,
+        isDone: true,
+        continueCursor: String(
+          typeof page.at(-1) === "object" && page.at(-1) !== null
+            ? (page.at(-1) as { _id?: unknown })._id ?? ""
+            : "",
+        ),
+      },
+      readSet: {
+        tables: [{ tableId: table.tableId }],
+      },
+    };
+  }
+
   if (input.syscall.op === "insert") {
-    const table = await tableForInsert(persistence, session, input.syscall.table);
+    const table = await tableForSession(persistence, session, input.syscall.table);
     const id = idForInsert(table.tableId, input.syscall.id);
     await persistence.insertInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
@@ -221,7 +256,7 @@ export async function invokeSyscall(
     };
   }
 
-  throw new InvokeSyscallNotImplementedError(input.syscall.op);
+  throw new InvokeSyscallNotImplementedError("unknown");
 }
 
 export async function finishInvokeSession(
@@ -232,6 +267,10 @@ export async function finishInvokeSession(
   const session = await requireActiveSession(persistence, input);
   if (session.functionKind === "query") {
     const documentReads = await persistence.listInvokeSessionDocumentReads(
+      input.deploymentId,
+      input.sessionId,
+    );
+    const tableReads = await persistence.listInvokeSessionTableReads(
       input.deploymentId,
       input.sessionId,
     );
@@ -246,7 +285,7 @@ export async function finishInvokeSession(
 
     return {
       value: input.value,
-      readSet: readSetFromDocumentReads(documentReads),
+      readSet: readSetFromReads(documentReads, tableReads),
     };
   }
 
@@ -297,24 +336,30 @@ async function requireActiveSession(
   return session;
 }
 
-function readSetFromDocumentReads(
-  reads: Array<{ tableId: number; documentId: string }>,
+function readSetFromReads(
+  documentReads: Array<{ tableId: number; documentId: string }>,
+  tableReads: Array<{ tableId: number }>,
 ): InvokeReadSet {
-  return reads.length === 0
-    ? {}
-    : {
-        documents: reads.map((read) => ({
-          tableId: read.tableId,
-          id: read.documentId,
-        })),
-      };
+  const readSet: InvokeReadSet = {};
+  if (documentReads.length > 0) {
+    readSet.documents = documentReads.map((read) => ({
+      tableId: read.tableId,
+      id: read.documentId,
+    }));
+  }
+  if (tableReads.length > 0) {
+    readSet.tables = tableReads.map((read) => ({
+      tableId: read.tableId,
+    }));
+  }
+  return readSet;
 }
 
 function isWriteSyscall(op: string): boolean {
   return op === "insert" || op === "patch" || op === "delete";
 }
 
-async function tableForInsert(
+async function tableForSession(
   persistence: FlarexExecutorPersistence,
   session: InvokeSessionMetadataRecord,
   tableName: string,
@@ -335,6 +380,22 @@ async function tableForInsert(
     deploymentPackage.packageId,
   );
   return tableForName(schema, tableName);
+}
+
+function queryRequest(value: PersistenceJson): { table: string; limit?: number } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new InvokeQueryRequestError("request must be an object.");
+  }
+  const table = value.table;
+  if (typeof table !== "string" || table.length === 0) {
+    throw new InvokeQueryRequestError("request.table must be a non-empty string.");
+  }
+  const limit = value.limit;
+  if (limit === undefined) return { table };
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0) {
+    throw new InvokeQueryRequestError("request.limit must be a non-negative integer.");
+  }
+  return { table, limit };
 }
 
 function idForInsert(tableId: number, requestedId?: string): string {

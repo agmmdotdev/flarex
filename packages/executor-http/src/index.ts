@@ -17,6 +17,7 @@ import {
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
+  InvokeQueryRequestError,
   InvokeSessionDocumentValidationError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
@@ -25,6 +26,7 @@ import {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
@@ -556,6 +558,7 @@ function executorErrorBody(error: unknown): {
     error instanceof FlarexInsertIdTableMismatchError ||
     error instanceof InvokePatchNonObjectDocumentError ||
     error instanceof InvokePatchValueError ||
+    error instanceof InvokeQueryRequestError ||
     error instanceof InvokeSessionDocumentValidationError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
@@ -572,6 +575,7 @@ function executorErrorBody(error: unknown): {
     error instanceof InvokeSessionInsertConflictError ||
     error instanceof InvokeSessionOccConflictError ||
     error instanceof InvokeSessionPatchTargetError ||
+    error instanceof InvokeSessionTableOccConflictError ||
     error instanceof InvokeSessionNotActiveError
   ) {
     return knownErrorBody(error, 409);

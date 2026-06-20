@@ -5,6 +5,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import type { PersistenceJson } from "./documents";
 import {
   getDocumentRevisionAtTs,
+  hasDocumentRevisionInTableBetweenTs,
   insertDocumentRevision,
 } from "./documents";
 import { getDeploymentPackageMetadata } from "./deploymentPackages";
@@ -13,6 +14,7 @@ import {
   getInvokeSessionMetadata,
 } from "./invokeSessions";
 import { listInvokeSessionDocumentReads } from "./invokeSessionReads";
+import { listInvokeSessionTableReads } from "./invokeSessionTableReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
 import {
   schemaTableValidatorsFromAnalysis,
@@ -80,6 +82,20 @@ export class InvokeSessionOccConflictError extends Error {
   }
 }
 
+export class InvokeSessionTableOccConflictError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly tableId: number,
+    readonly observedTs: number,
+    readonly currentTs: number,
+  ) {
+    super(
+      `OCC conflict for ${deploymentId}/table ${tableId}: observed ${observedTs}, current ${currentTs}`,
+    );
+    this.name = "InvokeSessionTableOccConflictError";
+  }
+}
+
 export class InvokeSessionPatchTargetError extends Error {
   constructor(
     readonly deploymentId: string,
@@ -118,6 +134,7 @@ export async function commitInvokeSessionWrites(
   );
 
   await validateDocumentReads(db, input, committedTs);
+  await validateTableReads(db, input, committedTs);
 
   const tableValidators = await tableValidatorsForSession(db, input);
   const plannedWrites: PlannedDocumentWrite[] = [];
@@ -289,6 +306,35 @@ async function tableValidatorsForSession(
   );
   if (deploymentPackage === null) return [];
   return schemaTableValidatorsFromAnalysis(deploymentPackage.analysisJson);
+}
+
+async function validateTableReads(
+  db: FlarexMetadataDatabase,
+  input: CommitInvokeSessionWritesInput,
+  commitTs: number,
+): Promise<void> {
+  const reads = await listInvokeSessionTableReads(
+    db,
+    input.deploymentId,
+    input.sessionId,
+  );
+  for (const read of reads) {
+    const changed = await hasDocumentRevisionInTableBetweenTs(
+      db,
+      input.deploymentId,
+      read.tableId,
+      read.observedTs,
+      commitTs,
+    );
+    if (changed) {
+      throw new InvokeSessionTableOccConflictError(
+        input.deploymentId,
+        read.tableId,
+        read.observedTs,
+        commitTs - 1,
+      );
+    }
+  }
 }
 
 function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {

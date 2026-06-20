@@ -31,6 +31,7 @@ export {
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,
   InvokePatchValueError,
+  InvokeQueryRequestError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -47,6 +48,7 @@ export {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
 } from "@flarex/persistence-postgres";
 export type {

@@ -1,4 +1,4 @@
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, lte } from "drizzle-orm";
 
 import { documents } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -105,6 +105,63 @@ export async function getDocumentRevisionAtTs(
 
   const document = rows[0];
   return document === undefined ? null : decodeDocumentRevision(document);
+}
+
+export async function listDocumentsInTableAtTs(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  tableId: number,
+  ts: number,
+  limit?: number,
+): Promise<DocumentRevisionRecord[]> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(
+      and(
+        eq(documents.deploymentId, deploymentId),
+        eq(documents.tableId, encodeString(String(tableId))),
+        lte(documents.ts, ts),
+      ),
+    )
+    .orderBy(asc(documents.id), desc(documents.ts));
+
+  const latest = new Map<string, DocumentRevisionRecord>();
+  for (const row of rows) {
+    const document = decodeDocumentRevision(row);
+    if (!latest.has(document.id)) {
+      latest.set(document.id, document);
+    }
+  }
+
+  const visible = Array.from(latest.values())
+    .filter((document) => !document.deleted)
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  return limit === undefined ? visible : visible.slice(0, limit);
+}
+
+export async function hasDocumentRevisionInTableBetweenTs(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  tableId: number,
+  afterTs: number,
+  beforeTs: number,
+): Promise<boolean> {
+  const rows = await db
+    .select({ ts: documents.ts })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.deploymentId, deploymentId),
+        eq(documents.tableId, encodeString(String(tableId))),
+        gt(documents.ts, afterTs),
+        lt(documents.ts, beforeTs),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] !== undefined;
 }
 
 function decodeDocumentRevision(

@@ -11,6 +11,7 @@ import {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionTableOccConflictError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -46,6 +47,7 @@ describe("createPGlitePersistence", () => {
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
+      "invoke_session_table_reads",
       "invoke_sessions",
       "leases",
       "outbox",
@@ -571,6 +573,101 @@ describe("createPGlitePersistence", () => {
         tableId: 2,
         documentId: "2:lesson",
         observedTs: null,
+      },
+    ]);
+  });
+
+  it("lists latest visible documents in a table at a snapshot", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_scan",
+      id: "1:a",
+      ts: 10,
+      value: { text: "first" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_scan",
+      id: "1:a",
+      ts: 20,
+      value: { text: "updated" },
+      prevTs: 10,
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_scan",
+      id: "1:b",
+      ts: 15,
+      value: { text: "second" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_scan",
+      id: "1:c",
+      ts: 15,
+      value: { text: "deleted" },
+    });
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_scan",
+      id: "1:c",
+      ts: 25,
+      value: null,
+      deleted: true,
+      prevTs: 15,
+    });
+
+    await expect(
+      persistence.listDocumentsInTableAtTs("deployment_table_scan", 1, 30),
+    ).resolves.toMatchObject([
+      { id: "1:a", ts: 20, value: { text: "updated" } },
+      { id: "1:b", ts: 15, value: { text: "second" } },
+    ]);
+    await expect(
+      persistence.listDocumentsInTableAtTs("deployment_table_scan", 1, 30, 1),
+    ).resolves.toMatchObject([
+      { id: "1:a", ts: 20, value: { text: "updated" } },
+    ]);
+  });
+
+  it("dedupes and lists invoke session table reads", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertInvokeSessionTableRead({
+      deploymentId: "deployment_table_reads",
+      sessionId: "session_reads",
+      tableId: 1,
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionTableRead({
+      deploymentId: "deployment_table_reads",
+      sessionId: "session_reads",
+      tableId: 1,
+      observedTs: 20,
+    });
+    await persistence.insertInvokeSessionTableRead({
+      deploymentId: "deployment_table_reads",
+      sessionId: "session_reads",
+      tableId: 2,
+      observedTs: 10,
+    });
+
+    await expect(
+      persistence.listInvokeSessionTableReads(
+        "deployment_table_reads",
+        "session_reads",
+      ),
+    ).resolves.toMatchObject([
+      {
+        deploymentId: "deployment_table_reads",
+        sessionId: "session_reads",
+        tableId: 1,
+        observedTs: 10,
+      },
+      {
+        deploymentId: "deployment_table_reads",
+        sessionId: "session_reads",
+        tableId: 2,
+        observedTs: 10,
       },
     ]);
   });
@@ -1397,6 +1494,59 @@ describe("createPGlitePersistence", () => {
         minimumTs: 15,
       }),
     ).rejects.toThrow(InvokeSessionOccConflictError);
+  });
+
+  it("rejects mutation commits when a table read changed", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_table_occ",
+      id: "1:message",
+      ts: 20,
+      value: { text: "new" },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_table_occ",
+      sessionId: "session_occ",
+      projectId: "project_occ",
+      packageId: "package_occ",
+      functionPath: "messages:send",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionTableRead({
+      deploymentId: "deployment_table_occ",
+      sessionId: "session_occ",
+      tableId: 1,
+      observedTs: 15,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_table_occ",
+      sessionId: "session_occ",
+      tableId: 2,
+      documentId: "2:other",
+      op: "insert",
+      valueJson: { text: "other" },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionWrites({
+        deploymentId: "deployment_table_occ",
+        sessionId: "session_occ",
+        source: "invoke:messages:send",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionTableOccConflictError);
+    await expect(
+      persistence.getDocumentRevisionAtTs("deployment_table_occ", "2:other", 30),
+    ).resolves.toBeNull();
   });
 });
 

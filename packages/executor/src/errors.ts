@@ -171,6 +171,13 @@ export class InvokeSyscallNotImplementedError extends Error {
   }
 }
 
+export class InvokeQueryRequestError extends Error {
+  constructor(message: string) {
+    super(`Invalid query syscall request: ${message}`);
+    this.name = "InvokeQueryRequestError";
+  }
+}
+
 export class InvokePatchValueError extends Error {
   constructor() {
     super("Patch value must be a non-null JSON object.");

@@ -13,11 +13,11 @@ import {
   InvokeDeleteDocumentNotFoundError,
   InvokePatchDocumentNotFoundError,
   InvokePatchValueError,
+  InvokeQueryRequestError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
   InvokeSyscallNotAllowedError,
-  InvokeSyscallNotImplementedError,
 } from "../src";
 import {
   deploymentPackageMetadata,
@@ -539,7 +539,54 @@ describe("executor invoke sessions", () => {
     ).rejects.toThrow(FlarexDocumentIdFormatError);
   });
 
-  it("keeps query syscalls behind the pending Postgres transaction layer", async () => {
+  it("runs table query syscalls at the session snapshot", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:a",
+          documentId: "a",
+          ts: 10,
+          value: { name: "First" },
+        }),
+        documentRevision({
+          id: "1:b",
+          documentId: "b",
+          ts: 20,
+          value: { name: "Too new" },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "query", request: { table: "teams" } },
+      }),
+    ).resolves.toEqual({
+      value: {
+        page: [{ _id: "1:a", name: "First" }],
+        isDone: true,
+        continueCursor: "1:a",
+      },
+      readSet: { tables: [{ tableId: 1 }] },
+    });
+    await expect(
+      persistence.listInvokeSessionTableReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      { tableId: 1, observedTs: 15 },
+    ]);
+  });
+
+  it("rejects malformed query syscall requests", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence([], [], [activeSession()]),
     });
@@ -549,9 +596,9 @@ describe("executor invoke sessions", () => {
         deploymentId: "deployment_session",
         projectId: "project_session",
         sessionId: "session_active",
-        syscall: { op: "query", request: { table: "messages" } },
+        syscall: { op: "query", request: { table: "" } },
       }),
-    ).rejects.toThrow(InvokeSyscallNotImplementedError);
+    ).rejects.toThrow(InvokeQueryRequestError);
   });
 
   it("stages insert syscalls during mutation sessions", async () => {

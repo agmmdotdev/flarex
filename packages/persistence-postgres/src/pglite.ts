@@ -25,6 +25,7 @@ import {
 import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
+  listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
 } from "./documents";
 import {
   finishInvokeSessionMetadata as finishInvokeSessionMetadataWithDb,
@@ -35,6 +36,10 @@ import {
   insertInvokeSessionDocumentRead as insertInvokeSessionDocumentReadWithDb,
   listInvokeSessionDocumentReads as listInvokeSessionDocumentReadsWithDb,
 } from "./invokeSessionReads";
+import {
+  insertInvokeSessionTableRead as insertInvokeSessionTableReadWithDb,
+  listInvokeSessionTableReads as listInvokeSessionTableReadsWithDb,
+} from "./invokeSessionTableReads";
 import {
   insertInvokeSessionDocumentWrite as insertInvokeSessionDocumentWriteWithDb,
   listInvokeSessionDocumentWrites as listInvokeSessionDocumentWritesWithDb,
@@ -111,10 +116,22 @@ export async function createPGlitePersistence(
       insertDocumentRevisionWithDb(drizzleDb, input),
     getDocumentRevisionAtTs: (deploymentId, id, ts) =>
       getDocumentRevisionAtTsWithDb(drizzleDb, deploymentId, id, ts),
+    listDocumentsInTableAtTs: (deploymentId, tableId, ts, limit) =>
+      listDocumentsInTableAtTsWithDb(
+        drizzleDb,
+        deploymentId,
+        tableId,
+        ts,
+        limit,
+      ),
     insertInvokeSessionDocumentRead: (input) =>
       insertInvokeSessionDocumentReadWithDb(drizzleDb, input),
     listInvokeSessionDocumentReads: (deploymentId, sessionId) =>
       listInvokeSessionDocumentReadsWithDb(drizzleDb, deploymentId, sessionId),
+    insertInvokeSessionTableRead: (input) =>
+      insertInvokeSessionTableReadWithDb(drizzleDb, input),
+    listInvokeSessionTableReads: (deploymentId, sessionId) =>
+      listInvokeSessionTableReadsWithDb(drizzleDb, deploymentId, sessionId),
     insertInvokeSessionDocumentWrite: (input) =>
       insertInvokeSessionDocumentWriteWithDb(drizzleDb, input),
     listInvokeSessionDocumentWrites: (deploymentId, sessionId) =>

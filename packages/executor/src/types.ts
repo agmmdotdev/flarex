@@ -10,8 +10,10 @@ import type {
   InsertInvokeSessionMetadataInput,
   InsertInvokeSessionDocumentReadInput,
   InsertInvokeSessionDocumentWriteInput,
+  InsertInvokeSessionTableReadInput,
   InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteRecord,
+  InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
   DocumentRevisionRecord,
   UpdateDeploymentMetadataActivationInput,
@@ -90,6 +92,12 @@ export interface FlarexExecutorPersistence {
     id: string,
     ts: number,
   ): Promise<DocumentRevisionRecord | null>;
+  listDocumentsInTableAtTs(
+    deploymentId: string,
+    tableId: number,
+    ts: number,
+    limit?: number,
+  ): Promise<DocumentRevisionRecord[]>;
   insertInvokeSessionDocumentRead(
     input: InsertInvokeSessionDocumentReadInput,
   ): Promise<InvokeSessionDocumentReadRecord>;
@@ -97,6 +105,13 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentReadRecord[]>;
+  insertInvokeSessionTableRead(
+    input: InsertInvokeSessionTableReadInput,
+  ): Promise<InvokeSessionTableReadRecord>;
+  listInvokeSessionTableReads(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionTableReadRecord[]>;
   insertInvokeSessionDocumentWrite(
     input: InsertInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
@@ -346,6 +361,9 @@ export interface InvokeReadSet {
   documents?: Array<{
     tableId: number;
     id: string;
+  }>;
+  tables?: Array<{
+    tableId: number;
   }>;
 }
 

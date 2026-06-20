@@ -26,6 +26,10 @@ import type {
   InvokeSessionDocumentReadRecord,
 } from "./invokeSessionReads";
 import type {
+  InsertInvokeSessionTableReadInput,
+  InvokeSessionTableReadRecord,
+} from "./invokeSessionTableReads";
+import type {
   InsertInvokeSessionDocumentWriteInput,
   InvokeSessionDocumentWriteRecord,
 } from "./invokeSessionWrites";
@@ -84,6 +88,12 @@ export interface FlarexPersistence extends FlarexSqlClient {
     id: string,
     ts: number,
   ): Promise<DocumentRevisionRecord | null>;
+  listDocumentsInTableAtTs(
+    deploymentId: string,
+    tableId: number,
+    ts: number,
+    limit?: number,
+  ): Promise<DocumentRevisionRecord[]>;
   insertInvokeSessionDocumentRead(
     input: InsertInvokeSessionDocumentReadInput,
   ): Promise<InvokeSessionDocumentReadRecord>;
@@ -91,6 +101,13 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionDocumentReadRecord[]>;
+  insertInvokeSessionTableRead(
+    input: InsertInvokeSessionTableReadInput,
+  ): Promise<InvokeSessionTableReadRecord>;
+  listInvokeSessionTableReads(
+    deploymentId: string,
+    sessionId: string,
+  ): Promise<InvokeSessionTableReadRecord[]>;
   insertInvokeSessionDocumentWrite(
     input: InsertInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
@@ -115,6 +132,7 @@ export * from "./documents";
 export * from "./commits";
 export * from "./invokeSessions";
 export * from "./invokeSessionReads";
+export * from "./invokeSessionTableReads";
 export * from "./invokeSessionWrites";
 export * from "./validation";
 export { flarexSchema } from "./schema";

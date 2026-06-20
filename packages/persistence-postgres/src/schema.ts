@@ -230,6 +230,30 @@ export const invokeSessionDocumentReads = pgTable(
   ],
 );
 
+export const invokeSessionTableReads = pgTable(
+  "invoke_session_table_reads",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    tableId: bigint("table_id", { mode: "number" }).notNull(),
+    observedTs: bigint("observed_ts", { mode: "number" }).notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.deploymentId,
+        table.sessionId,
+        table.tableId,
+      ],
+    }),
+    index("invoke_session_table_reads_by_session").on(
+      table.deploymentId,
+      table.sessionId,
+    ),
+  ],
+);
+
 export const invokeSessionDocumentWrites = pgTable(
   "invoke_session_document_writes",
   {
@@ -264,6 +288,7 @@ export const flarexSchema = {
   documents,
   indexes,
   invokeSessionDocumentReads,
+  invokeSessionTableReads,
   invokeSessionDocumentWrites,
   invokeSessions,
   leases,

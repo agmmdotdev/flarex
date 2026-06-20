@@ -11,6 +11,7 @@ import {
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionDocumentReadInput,
   type InsertInvokeSessionDocumentWriteInput,
+  type InsertInvokeSessionTableReadInput,
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   type InvokeSessionDocumentWriteRecord,
@@ -18,7 +19,9 @@ import {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSessionPatchTargetError,
+  InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
+  type InvokeSessionTableReadRecord,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
@@ -40,6 +43,7 @@ export function memoryPersistence(
   initialDocuments: DocumentRevisionRecord[] = [],
   initialDocumentReads: InvokeSessionDocumentReadRecord[] = [],
   initialDocumentWrites: InvokeSessionDocumentWriteRecord[] = [],
+  initialTableReads: InvokeSessionTableReadRecord[] = [],
 ): FlarexExecutorPersistence {
   const deployments = new Map<string, DeploymentMetadataRecord>(
     initialDeployments.map((deployment) => [
@@ -68,6 +72,12 @@ export function memoryPersistence(
         read.tableId,
         read.documentId,
       ),
+      read,
+    ]),
+  );
+  const tableReads = new Map<string, InvokeSessionTableReadRecord>(
+    initialTableReads.map((read) => [
+      tableReadKey(read.deploymentId, read.sessionId, read.tableId),
       read,
     ]),
   );
@@ -173,6 +183,31 @@ export function memoryPersistence(
           .sort((left, right) => right.ts - left.ts)[0] ?? null
       );
     },
+    async listDocumentsInTableAtTs(
+      deploymentId: string,
+      tableId: number,
+      ts: number,
+      limit?: number,
+    ) {
+      const latest = new Map<string, DocumentRevisionRecord>();
+      for (const document of [...documentRevisions, ...committedDocuments]
+        .filter(
+          (candidate) =>
+            candidate.deploymentId === deploymentId &&
+            candidate.tableId === tableId &&
+            candidate.ts <= ts,
+        )
+        .sort(
+          (left, right) =>
+            left.id.localeCompare(right.id) || right.ts - left.ts,
+        )) {
+        if (!latest.has(document.id)) latest.set(document.id, document);
+      }
+      const visible = Array.from(latest.values())
+        .filter((document) => !document.deleted)
+        .sort((left, right) => left.id.localeCompare(right.id));
+      return limit === undefined ? visible : visible.slice(0, limit);
+    },
     async insertInvokeSessionDocumentRead(
       input: InsertInvokeSessionDocumentReadInput,
     ) {
@@ -206,6 +241,32 @@ export function memoryPersistence(
             left.tableId - right.tableId ||
             left.documentId.localeCompare(right.documentId),
         );
+    },
+    async insertInvokeSessionTableRead(input: InsertInvokeSessionTableReadInput) {
+      const key = tableReadKey(
+        input.deploymentId,
+        input.sessionId,
+        input.tableId,
+      );
+      const existing = tableReads.get(key);
+      if (existing !== undefined) return existing;
+      const read: InvokeSessionTableReadRecord = {
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        tableId: input.tableId,
+        observedTs: input.observedTs,
+        readAt: new Date("2026-06-19T00:00:00.000Z"),
+      };
+      tableReads.set(key, read);
+      return read;
+    },
+    async listInvokeSessionTableReads(deploymentId: string, sessionId: string) {
+      return Array.from(tableReads.values())
+        .filter(
+          (read) =>
+            read.deploymentId === deploymentId && read.sessionId === sessionId,
+        )
+        .sort((left, right) => left.tableId - right.tableId);
     },
     async insertInvokeSessionDocumentWrite(
       input: InsertInvokeSessionDocumentWriteInput,
@@ -295,6 +356,29 @@ export function memoryPersistence(
             read.documentId,
             read.observedTs,
             currentTs,
+          );
+        }
+      }
+      for (const read of tableReads.values()) {
+        if (
+          read.deploymentId !== input.deploymentId ||
+          read.sessionId !== input.sessionId
+        ) {
+          continue;
+        }
+        const changed = [...documentRevisions, ...committedDocuments].some(
+          (document) =>
+            document.deploymentId === input.deploymentId &&
+            document.tableId === read.tableId &&
+            document.ts > read.observedTs &&
+            document.ts < committedTs,
+        );
+        if (changed) {
+          throw new InvokeSessionTableOccConflictError(
+            input.deploymentId,
+            read.tableId,
+            read.observedTs,
+            committedTs - 1,
           );
         }
       }
@@ -513,6 +597,14 @@ function documentReadKey(
   documentId: string,
 ): string {
   return `${deploymentId}/${sessionId}/${tableId}/${documentId}`;
+}
+
+function tableReadKey(
+  deploymentId: string,
+  sessionId: string,
+  tableId: number,
+): string {
+  return `${deploymentId}/${sessionId}/${tableId}`;
 }
 
 function documentWriteKey(

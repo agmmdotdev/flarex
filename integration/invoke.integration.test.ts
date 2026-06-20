@@ -89,6 +89,45 @@ describe("Nitro invoke integration", () => {
       deleted: false,
     });
 
+    nextSessionId = "session_query";
+    nowMs = 1781913600001;
+    const queryStart = await postJson(handler, "/invoke/start", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "1:team" },
+      partitionKey: "1:team",
+    });
+    expect(queryStart.status).toBe(200);
+    const query = await postJson(handler, "/invoke/syscall", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      sessionId: "session_query",
+      op: "query",
+      request: { table: "messages" },
+    });
+    expect(query.status).toBe(200);
+    await expect(query.json()).resolves.toEqual({
+      value: {
+        page: [{ _id: "2:message", text: "hello", count: 1 }],
+        isDone: true,
+        continueCursor: "2:message",
+      },
+      readSet: { tables: [{ tableId: 2 }] },
+    });
+    const finishQuery = await postJson(handler, "/invoke/finish", {
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      sessionId: "session_query",
+      value: { ok: true },
+    });
+    expect(finishQuery.status).toBe(200);
+    await expect(finishQuery.json()).resolves.toEqual({
+      value: { ok: true },
+      readSet: { tables: [{ tableId: 2 }] },
+    });
+
     nextSessionId = "session_patch";
     nowMs = 1781913600001;
     await runMutationSession(handler, "deployment_integration", [
@@ -281,6 +320,18 @@ function analysisJson(): Record<string, unknown> {
     },
     functions: {
       functions: [
+        {
+          path: "messages:list",
+          kind: "query",
+          route: { type: "args", field: "teamId" },
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
         {
           path: "messages:mutate",
           kind: "mutation",

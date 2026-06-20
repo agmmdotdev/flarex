@@ -3286,6 +3286,104 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Query Syscall Table Scan And Table Read OCC
+
+Previous completed checkpoint: `34361f7` Add Nitro invoke integration lane.
+
+What changed:
+
+- Added `invoke_session_table_reads` to the Postgres/PGlite schema.
+- Added persistence helpers for:
+  - inserting/listing invoke session table reads,
+  - listing latest visible documents in a table at a snapshot timestamp,
+  - detecting table document revisions between a read timestamp and commit.
+- Added `invokeSyscall({ op: "query" })` support for a v1 full table scan:
+  - request shape: `{ table: string, limit?: number }`,
+  - reads visible non-deleted documents at `session.beginTs`,
+  - returns the legacy Flarex page shape `{ page, isDone, continueCursor }`,
+  - adds `_id` to object documents,
+  - persists a table read for OCC and returns `{ readSet: { tables } }`.
+- Query session finish now returns both document and table read sets.
+- Mutation commit now validates persisted table reads before applying writes.
+  If any document revision in a scanned table appears after the observed
+  snapshot and before commit, the commit fails with
+  `InvokeSessionTableOccConflictError`.
+- Added `InvokeQueryRequestError` for malformed query syscall requests.
+- Updated the in-memory executor persistence helper and Nitro test helper to
+  implement the new persistence methods.
+- Extended the integration lane to run:
+  - insert,
+  - query table scan over Nitro routes,
+  - patch,
+  - delete.
+
+Why it changed:
+
+Convex-style apps rely on `ctx.db.query(table).collect()` as heavily as
+`ctx.db.get(id)`. The backend already supported point reads and mutation
+writes, but query syscalls were still blocked. This slice adds the first query
+read path and, more importantly, records a durable table read so mutation OCC
+does not commit based on a stale table scan.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - query execution records reads into `TransactionReadSet`.
+- `crates/database/src/committer.rs`
+  - `validate_commit` checks transaction reads against the write log and
+    pending writes before applying writes.
+- Convex JS server API shape:
+  - `ctx.db.query("table").collect()` returns documents and participates in
+    live/OCC read tracking.
+
+Legacy Flarex references:
+
+- `packages/flarex-backend/src/executionDO.ts`
+  - query syscalls use a request object with `table`, optional index/range,
+    cursor, and limit, and return `{ page, isDone, continueCursor }`.
+- `packages/flarex-backend/src/transaction.ts`
+  - transactions maintain a `ReadSet` with documents, tables, and indexes.
+- `packages/flarex-backend/src/occ.ts`
+  - read-set overlap checks include table reads.
+
+Flarex differences:
+
+- Legacy Cloudflare Flarex table scans were blocked in favor of indexes. The
+  Postgres executor now supports a v1 table scan because it is the simplest
+  Convex-compatible query surface and gives us table-read OCC before index
+  maintenance.
+- This is not yet the full Convex query builder. It only supports table scans
+  with an optional limit; index/range/order/pagination come later.
+- Table-read OCC is conservative: any document revision in the scanned table
+  after the observed snapshot conflicts, even if a future predicate would not
+  match that document.
+
+Known limitations:
+
+- No `withIndex`, range, order, cursor pagination, `first`, `unique`, or `take`
+  syscall support yet.
+- No index maintenance or index-read OCC yet.
+- No per-query predicate read validation.
+- No live `/sync` invalidation uses these table reads yet.
+- Table scans are intentionally v1 and may be expensive without limits on large
+  tables.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm test:integration
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant
