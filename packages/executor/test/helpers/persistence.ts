@@ -14,7 +14,10 @@ import {
   type InvokeSessionDocumentReadRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   type InvokeSessionDocumentWriteRecord,
+  InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
+  InvokeSessionPatchTargetError,
+  InvokeSessionUnsupportedStagedWriteError,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
   type InvokeSessionMetadataRecord,
@@ -265,15 +268,12 @@ export function memoryPersistence(
         ) {
           continue;
         }
-        const current =
-          [...documentRevisions, ...committedDocuments]
-            .filter(
-              (document) =>
-                document.deploymentId === input.deploymentId &&
-                document.id === read.documentId &&
-                document.ts <= committedTs,
-            )
-            .sort((left, right) => right.ts - left.ts)[0] ?? null;
+        const current = latestDocumentAt(
+          [...documentRevisions, ...committedDocuments],
+          input.deploymentId,
+          read.documentId,
+          committedTs,
+        );
         const currentTs = current?.ts ?? null;
         if (currentTs !== read.observedTs) {
           throw new InvokeSessionOccConflictError(
@@ -285,33 +285,90 @@ export function memoryPersistence(
         }
       }
       for (const write of writes) {
-        const existing = [...documentRevisions, ...committedDocuments].find(
-          (document) =>
-            document.deploymentId === input.deploymentId &&
-            document.id === write.documentId &&
-            document.ts <= committedTs,
-        );
-        if (existing !== undefined) {
-          throw new Error(`Cannot insert existing document ${write.documentId}.`);
+        if (write.op === "insert") {
+          const existing = latestDocumentAt(
+            [...documentRevisions, ...committedDocuments],
+            input.deploymentId,
+            write.documentId,
+            committedTs,
+          );
+          if (existing !== null) {
+            throw new InvokeSessionInsertConflictError(
+              input.deploymentId,
+              write.documentId,
+            );
+          }
+          const value = write.valueJson as DocumentRevisionRecord["value"];
+          committedDocuments.push({
+            deploymentId: input.deploymentId,
+            id: write.documentId,
+            tableId: write.tableId,
+            documentId: write.documentId.slice(`${write.tableId}:`.length),
+            ts: committedTs,
+            value,
+            deleted: false,
+            prevTs: null,
+          });
+          committedWrites.push({
+            tableId: write.tableId,
+            id: write.documentId,
+            prevTs: null,
+            ts: committedTs,
+            value,
+          });
+          continue;
         }
-        const value = write.valueJson as DocumentRevisionRecord["value"];
-        committedDocuments.push({
-          deploymentId: input.deploymentId,
-          id: write.documentId,
-          tableId: write.tableId,
-          documentId: write.documentId.slice(`${write.tableId}:`.length),
-          ts: committedTs,
-          value,
-          deleted: false,
-          prevTs: null,
-        });
-        committedWrites.push({
-          tableId: write.tableId,
-          id: write.documentId,
-          prevTs: null,
-          ts: committedTs,
-          value,
-        });
+
+        if (write.op === "patch") {
+          const current = latestDocumentAt(
+            [...documentRevisions, ...committedDocuments],
+            input.deploymentId,
+            write.documentId,
+            committedTs,
+          );
+          if (current === null || current.deleted) {
+            throw new InvokeSessionPatchTargetError(
+              input.deploymentId,
+              write.documentId,
+              "document does not exist",
+            );
+          }
+          if (!isJsonObject(current.value)) {
+            throw new InvokeSessionPatchTargetError(
+              input.deploymentId,
+              write.documentId,
+              "current document value is not an object",
+            );
+          }
+          if (!isJsonObject(write.valueJson)) {
+            throw new InvokeSessionPatchTargetError(
+              input.deploymentId,
+              write.documentId,
+              "patch value is not an object",
+            );
+          }
+          const value = { ...current.value, ...write.valueJson };
+          committedDocuments.push({
+            deploymentId: input.deploymentId,
+            id: write.documentId,
+            tableId: write.tableId,
+            documentId: write.documentId.slice(`${write.tableId}:`.length),
+            ts: committedTs,
+            value,
+            deleted: false,
+            prevTs: current.ts,
+          });
+          committedWrites.push({
+            tableId: write.tableId,
+            id: write.documentId,
+            prevTs: current.ts,
+            ts: committedTs,
+            value,
+          });
+          continue;
+        }
+
+        throw new InvokeSessionUnsupportedStagedWriteError(write.op);
       }
       commits.push({ deploymentId: input.deploymentId, ts: committedTs });
       const session = invokeSessions.get(
@@ -405,4 +462,28 @@ function documentWriteKey(
   documentId: string,
 ): string {
   return `${deploymentId}/${sessionId}/${tableId}/${documentId}`;
+}
+
+function latestDocumentAt(
+  documents: DocumentRevisionRecord[],
+  deploymentId: string,
+  id: string,
+  ts: number,
+): DocumentRevisionRecord | null {
+  return (
+    documents
+      .filter(
+        (document) =>
+          document.deploymentId === deploymentId &&
+          document.id === id &&
+          document.ts <= ts,
+      )
+      .sort((left, right) => right.ts - left.ts)[0] ?? null
+  );
+}
+
+function isJsonObject(
+  value: unknown,
+): value is Record<string, DocumentRevisionRecord["value"]> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -2803,6 +2803,97 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Mutation Document Patch Commit
+
+Previous completed checkpoint: `32ae925` Validate mutation document reads.
+
+What changed:
+
+- Added executor syscall support for `patch`.
+- `patch` now:
+  - validates that the patch value is a non-null JSON object,
+  - reads the target document at the invoke session snapshot timestamp,
+  - rejects missing/deleted targets before staging,
+  - rejects non-object target documents before staging,
+  - persists a document read for OCC validation,
+  - persists a staged document write with op `patch`.
+- `commitInvokeSessionInserts(...)` now applies staged `patch` writes after
+  persisted read validation succeeds.
+- Patch commit merges the patch object into the latest validated document
+  revision, inserts a new revision with `prevTs`, records the committed write,
+  writes the commit row, and finishes the invoke session in the same
+  PGlite/Postgres transaction.
+- Added deterministic HTTP mapping for patch validation and patch target
+  failures.
+- Updated the in-memory executor persistence test double to match the real
+  PGlite/Postgres commit behavior for inserts, patches, OCC conflicts, and
+  unsupported staged ops.
+
+Why it changed:
+
+This is the next Convex-style mutation syscall after insert. Convex `patch`
+does not blindly overwrite a row; it is a transactional document update that
+participates in the same optimistic concurrency validation as reads and other
+writes. Flarex must stage the user-code intent and let the trusted executor
+commit path own the final merge.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - user execution accumulates document reads and writes against a transaction
+    snapshot.
+- `crates/database/src/committer.rs`
+  - commit validates the transaction read set before applying writes.
+- Convex JS server API shape:
+  - `ctx.db.patch(id, value)` is a mutation write API, not a direct user-code DB
+    connection.
+
+Flarex references:
+
+- `packages/executor/src/sessions.ts`
+  - `patch` syscall validates the target at `session.beginTs`, records the read,
+    and stages the write.
+- `packages/persistence-postgres/src/commits.ts`
+  - staged patches merge and insert a new document revision only after OCC
+    validation.
+- `packages/executor-http/src/index.ts`
+  - HTTP remains a thin adapter over executor errors.
+
+Flarex differences:
+
+- Convex keeps execution and commit inside its Rust backend transaction model.
+  Flarex persists syscall reads/writes because user code runs through an
+  executor syscall boundary.
+- The persistence API is still named `commitInvokeSessionInserts(...)`; it now
+  commits inserts and patches. Rename this to `commitInvokeSessionWrites(...)`
+  before treating the persistence interface as stable.
+- Flarex currently supports point-document patch semantics only. Predicate
+  query invalidation, index updates, and sync outbox generation are not wired
+  yet.
+
+Known limitations:
+
+- No `delete` syscall/commit path yet.
+- No validator enforcement for patched documents yet.
+- No index maintenance.
+- No outbox/sync invalidation.
+- No cleanup of staged reads/writes after finish.
+- No real Postgres concurrency stress lane yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Checkpoint
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

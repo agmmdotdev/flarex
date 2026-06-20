@@ -10,6 +10,8 @@ import {
 import {
   createFlarexExecutor,
   FlarexInsertIdTableMismatchError,
+  InvokePatchDocumentNotFoundError,
+  InvokePatchValueError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -620,6 +622,162 @@ describe("executor invoke sessions", () => {
         valueJson: { name: "Team" },
       },
     ]);
+  });
+
+  it("stages patch syscalls with document reads during mutation sessions", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_patch",
+          documentId: "team_patch",
+          ts: 10,
+          value: { name: "Old", count: 1 },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "patch",
+          id: "1:team_patch",
+          value: { count: 2 },
+        },
+      }),
+    ).resolves.toEqual({
+      value: null,
+      readSet: { documents: [{ tableId: 1, id: "1:team_patch" }] },
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:team_patch",
+        observedTs: 10,
+      },
+    ]);
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject([
+      {
+        tableId: 1,
+        documentId: "1:team_patch",
+        op: "patch",
+        valueJson: { count: 2 },
+      },
+    ]);
+  });
+
+  it("commits mutation patch syscalls after OCC validation", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_patch",
+          documentId: "team_patch",
+          ts: 10,
+          value: { name: "Old", count: 1 },
+        }),
+      ],
+    );
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "patch",
+        id: "1:team_patch",
+        value: { count: 2 },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).resolves.toEqual({
+      value: null,
+      committedTs: 16,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:team_patch",
+          prevTs: 10,
+          ts: 16,
+          value: { name: "Old", count: 2 },
+        },
+      ],
+    });
+  });
+
+  it("rejects patch syscalls for missing documents", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [],
+        [activePackage()],
+        [activeSession({ functionKind: "mutation" })],
+      ),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "patch",
+          id: "1:missing",
+          value: { count: 2 },
+        },
+      }),
+    ).rejects.toThrow(InvokePatchDocumentNotFoundError);
+  });
+
+  it("rejects non-object patch values", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [],
+        [activePackage()],
+        [activeSession({ functionKind: "mutation" })],
+      ),
+    });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: {
+          op: "patch",
+          id: "1:team_patch",
+          value: ["bad"],
+        },
+      }),
+    ).rejects.toThrow(InvokePatchValueError);
   });
 
   it("rejects insert ids that do not match the table", async () => {

@@ -8,6 +8,7 @@ import {
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
+  InvokeSessionPatchTargetError,
   sql,
 } from "../src";
 import { deployments } from "../src/schema";
@@ -713,6 +714,146 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({
       rows: [{ ts: 101, source: "invoke:messages:send" }],
     });
+  });
+
+  it("commits staged invoke session patches after read validation", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_patch_commit",
+      id: "1:message",
+      ts: 10,
+      value: { text: "old", count: 1 },
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_patch_commit",
+      sessionId: "session_patch",
+      projectId: "project_patch",
+      packageId: "package_patch",
+      functionPath: "messages:update",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_patch_commit",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_patch_commit",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { count: 2 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_patch_commit",
+        sessionId: "session_patch",
+        source: "invoke:messages:update",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).resolves.toEqual({
+      committedTs: 16,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          prevTs: 10,
+          ts: 16,
+          value: { text: "old", count: 2 },
+        },
+      ],
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_patch_commit",
+        "1:message",
+        16,
+      ),
+    ).resolves.toMatchObject({
+      id: "1:message",
+      ts: 16,
+      prevTs: 10,
+      value: { text: "old", count: 2 },
+    });
+  });
+
+  it("rolls back staged patch commits when the target is not an object", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDocumentRevision({
+      deploymentId: "deployment_patch_non_object",
+      id: "1:message",
+      ts: 10,
+      value: "old",
+    });
+    await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_patch_non_object",
+      sessionId: "session_patch",
+      projectId: "project_patch",
+      packageId: "package_patch",
+      functionPath: "messages:update",
+      functionKind: "mutation",
+      partitionKey: "team:1",
+      scopeJson: { kind: "partition", partitionKey: "team:1" },
+      argsJson: { teamId: "team:1" },
+      beginTs: 15,
+      schemaVersion: 1,
+      executionModule: "_flarex/execution.js",
+    });
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: "deployment_patch_non_object",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      observedTs: 10,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: "deployment_patch_non_object",
+      sessionId: "session_patch",
+      tableId: 1,
+      documentId: "1:message",
+      op: "patch",
+      valueJson: { count: 2 },
+    });
+
+    await expect(
+      persistence.commitInvokeSessionInserts({
+        deploymentId: "deployment_patch_non_object",
+        sessionId: "session_patch",
+        source: "invoke:messages:update",
+        finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+        minimumTs: 15,
+      }),
+    ).rejects.toThrow(InvokeSessionPatchTargetError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_patch_non_object",
+        "session_patch",
+      ),
+    ).resolves.toMatchObject({
+      state: "active",
+      finishedAt: null,
+    });
+    await expect(
+      persistence.query<{ count: number }>(
+        "select count(*)::int as count from commits where deployment_id = $1",
+        ["deployment_patch_non_object"],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
   });
 
   it("rolls back staged invoke insert commits on document id conflict", async () => {

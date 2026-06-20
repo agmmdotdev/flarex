@@ -25,6 +25,9 @@ import {
   DeploymentPackageNotFoundError,
   FlarexInsertIdTableMismatchError,
   InvokeFinishNotImplementedError,
+  InvokePatchDocumentNotFoundError,
+  InvokePatchNonObjectDocumentError,
+  InvokePatchValueError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -126,6 +129,54 @@ export async function invokeSyscall(
       valueJson: input.syscall.value,
     });
     return { value: id };
+  }
+
+  if (input.syscall.op === "patch") {
+    const patch = requireJsonObject(input.syscall.value);
+    const parsed = parseFlarexDocumentId(input.syscall.id);
+    const document = await persistence.getDocumentRevisionAtTs(
+      input.deploymentId,
+      input.syscall.id,
+      session.beginTs,
+    );
+    if (document === null || document.deleted) {
+      throw new InvokePatchDocumentNotFoundError(
+        input.deploymentId,
+        input.syscall.id,
+      );
+    }
+    if (!isJsonObject(document.value)) {
+      throw new InvokePatchNonObjectDocumentError(
+        input.deploymentId,
+        input.syscall.id,
+      );
+    }
+    await persistence.insertInvokeSessionDocumentRead({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      observedTs: document.ts,
+    });
+    await persistence.insertInvokeSessionDocumentWrite({
+      deploymentId: input.deploymentId,
+      sessionId: input.sessionId,
+      tableId: parsed.tableId,
+      documentId: input.syscall.id,
+      op: "patch",
+      valueJson: patch,
+    });
+    return {
+      value: null,
+      readSet: {
+        documents: [
+          {
+            tableId: parsed.tableId,
+            id: input.syscall.id,
+          },
+        ],
+      },
+    };
   }
 
   throw new InvokeSyscallNotImplementedError(input.syscall.op);
@@ -260,6 +311,17 @@ function documentValue(id: string, value: PersistenceJson): PersistenceJson {
     return { ...value, _id: id };
   }
   return value;
+}
+
+function requireJsonObject(value: PersistenceJson): Record<string, PersistenceJson> {
+  if (!isJsonObject(value)) {
+    throw new InvokePatchValueError();
+  }
+  return value;
+}
+
+function isJsonObject(value: PersistenceJson): value is Record<string, PersistenceJson> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export const defaultIds: IdGenerator = {

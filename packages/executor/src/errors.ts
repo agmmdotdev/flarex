@@ -171,6 +171,33 @@ export class InvokeSyscallNotImplementedError extends Error {
   }
 }
 
+export class InvokePatchValueError extends Error {
+  constructor() {
+    super("Patch value must be a non-null JSON object.");
+    this.name = "InvokePatchValueError";
+  }
+}
+
+export class InvokePatchDocumentNotFoundError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly id: string,
+  ) {
+    super(`Cannot patch missing document: ${deploymentId}/${id}`);
+    this.name = "InvokePatchDocumentNotFoundError";
+  }
+}
+
+export class InvokePatchNonObjectDocumentError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly id: string,
+  ) {
+    super(`Cannot patch non-object document: ${deploymentId}/${id}`);
+    this.name = "InvokePatchNonObjectDocumentError";
+  }
+}
+
 export class InvokeFinishNotImplementedError extends Error {
   constructor(readonly functionKind: string) {
     super(

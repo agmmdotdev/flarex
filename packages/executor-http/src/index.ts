@@ -12,12 +12,16 @@ import {
   FunctionNotFoundError,
   FunctionNotInvokableError,
   InvokeFinishNotImplementedError,
+  InvokePatchDocumentNotFoundError,
+  InvokePatchNonObjectDocumentError,
+  InvokePatchValueError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
+  InvokeSessionPatchTargetError,
   InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
@@ -529,6 +533,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentNotFoundError ||
     error instanceof DeploymentPackageNotFoundError ||
     error instanceof InvokeSessionNotFoundError ||
+    error instanceof InvokePatchDocumentNotFoundError ||
     error instanceof FunctionNotFoundError
   ) {
     return knownErrorBody(error, 404);
@@ -544,6 +549,8 @@ function executorErrorBody(error: unknown): {
     error instanceof FunctionNotInvokableError ||
     error instanceof FlarexDocumentIdFormatError ||
     error instanceof FlarexInsertIdTableMismatchError ||
+    error instanceof InvokePatchNonObjectDocumentError ||
+    error instanceof InvokePatchValueError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
     error instanceof PartitionValidationError
@@ -556,6 +563,7 @@ function executorErrorBody(error: unknown): {
     error instanceof DeploymentSchemaMetadataUnavailableError ||
     error instanceof InvokeSessionInsertConflictError ||
     error instanceof InvokeSessionOccConflictError ||
+    error instanceof InvokeSessionPatchTargetError ||
     error instanceof InvokeSessionNotActiveError
   ) {
     return knownErrorBody(error, 409);

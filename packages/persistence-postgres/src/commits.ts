@@ -63,6 +63,17 @@ export class InvokeSessionOccConflictError extends Error {
   }
 }
 
+export class InvokeSessionPatchTargetError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly documentId: string,
+    readonly reason: string,
+  ) {
+    super(`Cannot patch document ${deploymentId}/${documentId}: ${reason}`);
+    this.name = "InvokeSessionPatchTargetError";
+  }
+}
+
 export async function commitInvokeSessionInserts(
   db: FlarexMetadataDatabase,
   input: CommitInvokeSessionInsertsInput,
@@ -82,36 +93,87 @@ export async function commitInvokeSessionInserts(
   await validateDocumentReads(db, input, committedTs);
 
   for (const write of stagedWrites) {
-    if (write.op !== "insert") {
-      throw new InvokeSessionUnsupportedStagedWriteError(write.op);
-    }
-    const existing = await getDocumentRevisionAtTs(
-      db,
-      input.deploymentId,
-      write.documentId,
-      committedTs,
-    );
-    if (existing !== null) {
-      throw new InvokeSessionInsertConflictError(
+    if (write.op === "insert") {
+      const existing = await getDocumentRevisionAtTs(
+        db,
         input.deploymentId,
         write.documentId,
+        committedTs,
       );
+      if (existing !== null) {
+        throw new InvokeSessionInsertConflictError(
+          input.deploymentId,
+          write.documentId,
+        );
+      }
+      const value = write.valueJson as PersistenceJson;
+      await insertDocumentRevision(db, {
+        deploymentId: input.deploymentId,
+        id: write.documentId,
+        ts: committedTs,
+        value,
+        prevTs: null,
+      });
+      committedWrites.push({
+        tableId: write.tableId,
+        id: write.documentId,
+        prevTs: null,
+        ts: committedTs,
+        value,
+      });
+      continue;
     }
-    const value = write.valueJson as PersistenceJson;
-    await insertDocumentRevision(db, {
-      deploymentId: input.deploymentId,
-      id: write.documentId,
-      ts: committedTs,
-      value,
-      prevTs: null,
-    });
-    committedWrites.push({
-      tableId: write.tableId,
-      id: write.documentId,
-      prevTs: null,
-      ts: committedTs,
-      value,
-    });
+
+    if (write.op === "patch") {
+      const current = await getDocumentRevisionAtTs(
+        db,
+        input.deploymentId,
+        write.documentId,
+        committedTs,
+      );
+      if (current === null || current.deleted) {
+        throw new InvokeSessionPatchTargetError(
+          input.deploymentId,
+          write.documentId,
+          "document does not exist",
+        );
+      }
+      if (!isJsonObject(current.value)) {
+        throw new InvokeSessionPatchTargetError(
+          input.deploymentId,
+          write.documentId,
+          "current document value is not an object",
+        );
+      }
+      if (!isJsonObject(write.valueJson)) {
+        throw new InvokeSessionPatchTargetError(
+          input.deploymentId,
+          write.documentId,
+          "patch value is not an object",
+        );
+      }
+      const value: PersistenceJson = {
+        ...current.value,
+        ...write.valueJson,
+      };
+      await insertDocumentRevision(db, {
+        deploymentId: input.deploymentId,
+        id: write.documentId,
+        ts: committedTs,
+        value,
+        prevTs: current.ts,
+      });
+      committedWrites.push({
+        tableId: write.tableId,
+        id: write.documentId,
+        prevTs: current.ts,
+        ts: committedTs,
+        value,
+      });
+      continue;
+    }
+
+    throw new InvokeSessionUnsupportedStagedWriteError(write.op);
   }
 
   await db.insert(commits).values({
@@ -132,6 +194,10 @@ export async function commitInvokeSessionInserts(
     committedTs,
     writes: committedWrites,
   };
+}
+
+function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function validateDocumentReads(
