@@ -12,7 +12,7 @@ import {
   type InsertDeploymentPackageMetadataInput,
   type InsertDeploymentMetadataInput,
   type InsertInvokeSessionDocumentReadInput,
-  type InsertInvokeSessionDocumentWriteInput,
+  type StageInvokeSessionDocumentWriteInput,
   type InsertInvokeSessionIndexReadInput,
   type InsertInvokeSessionTableReadInput,
   type InvokeSessionIndexReadRecord,
@@ -443,8 +443,8 @@ export function memoryPersistence(
             left.upperKey.localeCompare(right.upperKey),
         );
     },
-    async insertInvokeSessionDocumentWrite(
-      input: InsertInvokeSessionDocumentWriteInput,
+    async stageInvokeSessionDocumentWrite(
+      input: StageInvokeSessionDocumentWriteInput,
     ) {
       const key = documentWriteKey(
         input.deploymentId,
@@ -833,7 +833,7 @@ function latestDocumentAt(
 
 function coalesceDocumentWrite(
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): { op: InvokeSessionDocumentWriteRecord["op"]; valueJson: unknown } | null {
   if (existing.op === "insert") {
     if (input.op === "patch") {
@@ -875,7 +875,7 @@ function mergeJsonObjects(
   left: unknown,
   right: unknown,
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ) {
   if (!isJsonObject(left) || !isJsonObject(right)) {
     throw writeConflict(existing, input);
@@ -885,7 +885,7 @@ function mergeJsonObjects(
 
 function writeConflict(
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ) {
   return new InvokeSessionDocumentWriteConflictError(
     input.deploymentId,

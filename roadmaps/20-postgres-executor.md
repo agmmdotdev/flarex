@@ -200,9 +200,8 @@ Previous completed checkpoint: `0d6431e` Add indexed read-your-writes overlay.
 
 What changed:
 
-- Changed `insertInvokeSessionDocumentWrite(...)` from insert-only semantics to
-  stage-or-coalesce semantics while preserving the same public persistence
-  method name.
+- Changed the invoke document write staging path from insert-only semantics to
+  stage-or-coalesce semantics.
 - Coalescing now supports:
   - `insert -> patch` as one final insert,
   - `patch -> patch` as one merged patch,
@@ -247,8 +246,7 @@ Known limitations:
 - `replace` is still not exposed or coalesced.
 - Coalescing is shallow object merge for patches, matching current patch
   semantics.
-- The persistence method name still says `insert...`; a later API cleanup can
-  rename it to `stageInvokeSessionDocumentWrite(...)`.
+- Public API naming was cleaned up in the following checkpoint.
 
 Verification:
 
@@ -258,6 +256,61 @@ corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
+## Invoke Staged-Write API Naming Cleanup
+
+Previous completed checkpoint: `d31f7cf` Coalesce invoke document writes.
+
+What changed:
+
+- Renamed persistence and executor interface methods from
+  `insertInvokeSessionDocumentWrite(...)` to
+  `stageInvokeSessionDocumentWrite(...)`.
+- Renamed `InsertInvokeSessionDocumentWriteInput` to
+  `StageInvokeSessionDocumentWriteInput`.
+- Updated PGlite, executor, Nitro test helpers, and executor syscalls to use
+  the stage/coalesce name.
+- Kept database table names unchanged; this is an API naming cleanup only.
+
+Why it changed:
+
+The previous method name became misleading after same-document coalescing. The
+operation now means "record the effective staged write for this invoke session,"
+not "insert a new row and fail on duplicates."
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction state accumulates pending writes rather than exposing an
+    insert-only staging primitive.
+- `crates/database/src/committer.rs`
+  - commit receives final transaction writes after earlier staging/coalescing.
+
+Flarex differences:
+
+- Flarex still persists staged writes in Postgres rows because user execution
+  can be separated from the trusted executor. The rename clarifies that the row
+  is an effective staged write, not an append-only operation log.
+
+Known limitations:
+
+- Physical table name `invoke_session_document_writes` remains correct and was
+  not migrated.
+- Existing helper names for session metadata/read insertion still use
+  `insert...` because they are true insert-or-dedupe operations.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 

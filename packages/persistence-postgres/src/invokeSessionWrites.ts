@@ -6,7 +6,7 @@ import type { PersistenceJson } from "./documents";
 
 export type InvokeSessionDocumentWriteOp = "insert" | "patch" | "delete";
 
-export interface InsertInvokeSessionDocumentWriteInput {
+export interface StageInvokeSessionDocumentWriteInput {
   deploymentId: string;
   sessionId: string;
   tableId: number;
@@ -46,9 +46,9 @@ export class InvokeSessionDocumentWriteConflictError extends Error {
   }
 }
 
-export async function insertInvokeSessionDocumentWrite(
+export async function stageInvokeSessionDocumentWrite(
   db: FlarexMetadataDatabase,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): Promise<InvokeSessionDocumentWriteRecord> {
   const rows = await db
     .insert(invokeSessionDocumentWrites)
@@ -100,7 +100,7 @@ export async function listInvokeSessionDocumentWrites(
 
 async function coalesceInvokeSessionDocumentWrite(
   db: FlarexMetadataDatabase,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): Promise<InvokeSessionDocumentWriteRecord> {
   const existing = await getInvokeSessionDocumentWrite(db, input);
   if (existing === null) {
@@ -146,7 +146,7 @@ async function coalesceInvokeSessionDocumentWrite(
 async function getInvokeSessionDocumentWrite(
   db: FlarexMetadataDatabase,
   input: Pick<
-    InsertInvokeSessionDocumentWriteInput,
+    StageInvokeSessionDocumentWriteInput,
     "deploymentId" | "sessionId" | "tableId" | "documentId"
   >,
 ): Promise<InvokeSessionDocumentWriteRecord | null> {
@@ -160,7 +160,7 @@ async function getInvokeSessionDocumentWrite(
 
 function coalesceDocumentWrite(
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): { op: InvokeSessionDocumentWriteOp; valueJson: PersistenceJson | null } | null {
   if (existing.op === "insert") {
     if (input.op === "patch") {
@@ -212,7 +212,7 @@ function mergeJsonObjects(
   left: unknown,
   right: unknown,
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): PersistenceJson {
   if (!isJsonObject(left) || !isJsonObject(right)) {
     throw writeConflict(existing, input);
@@ -222,7 +222,7 @@ function mergeJsonObjects(
 
 function writeConflict(
   existing: InvokeSessionDocumentWriteRecord,
-  input: InsertInvokeSessionDocumentWriteInput,
+  input: StageInvokeSessionDocumentWriteInput,
 ): InvokeSessionDocumentWriteConflictError {
   return new InvokeSessionDocumentWriteConflictError(
     input.deploymentId,
@@ -235,7 +235,7 @@ function writeConflict(
 
 function writeIdentity(
   input: Pick<
-    InsertInvokeSessionDocumentWriteInput,
+    StageInvokeSessionDocumentWriteInput,
     "deploymentId" | "sessionId" | "tableId" | "documentId"
   >,
 ) {

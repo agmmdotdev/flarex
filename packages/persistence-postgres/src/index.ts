@@ -39,7 +39,7 @@ import type {
   InvokeSessionIndexReadRecord,
 } from "./invokeSessionIndexReads";
 import type {
-  InsertInvokeSessionDocumentWriteInput,
+  StageInvokeSessionDocumentWriteInput,
   InvokeSessionDocumentWriteRecord,
 } from "./invokeSessionWrites";
 import type {
@@ -140,8 +140,8 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionIndexReadRecord[]>;
-  insertInvokeSessionDocumentWrite(
-    input: InsertInvokeSessionDocumentWriteInput,
+  stageInvokeSessionDocumentWrite(
+    input: StageInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
   listInvokeSessionDocumentWrites(
     deploymentId: string,

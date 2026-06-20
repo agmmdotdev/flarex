@@ -13,7 +13,7 @@ import type {
   InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
   InsertInvokeSessionDocumentReadInput,
-  InsertInvokeSessionDocumentWriteInput,
+  StageInvokeSessionDocumentWriteInput,
   InsertInvokeSessionIndexReadInput,
   InsertInvokeSessionTableReadInput,
   InvokeSessionDocumentReadRecord,
@@ -157,8 +157,8 @@ export interface FlarexExecutorPersistence {
     deploymentId: string,
     sessionId: string,
   ): Promise<InvokeSessionIndexReadRecord[]>;
-  insertInvokeSessionDocumentWrite(
-    input: InsertInvokeSessionDocumentWriteInput,
+  stageInvokeSessionDocumentWrite(
+    input: StageInvokeSessionDocumentWriteInput,
   ): Promise<InvokeSessionDocumentWriteRecord>;
   listInvokeSessionDocumentWrites(
     deploymentId: string,

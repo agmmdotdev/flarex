@@ -149,8 +149,7 @@ Known limitations:
 
 - No replace syscall yet.
 - Patch merging is shallow.
-- Method naming still says `insertInvokeSessionDocumentWrite`, although the
-  behavior is now stage/coalesce.
+- Public API naming was cleaned up in the following checkpoint.
 
 Verification:
 
@@ -160,6 +159,43 @@ corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
+## Invoke Staged-Write API Naming Cleanup
+
+Previous completed checkpoint: `d31f7cf` Coalesce invoke document writes.
+
+What changed:
+
+- Renamed the staged document write API to
+  `stageInvokeSessionDocumentWrite(...)`.
+- Renamed the input type to `StageInvokeSessionDocumentWriteInput`.
+- Updated persistence, executor, and test helpers to use stage/coalesce
+  terminology.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - pending writes are transaction state, not insert-only rows.
+- `crates/database/src/committer.rs`
+  - commit consumes the final staged write set.
+
+Flarex differences:
+
+- Flarex still stores staged writes in durable invoke-session rows because the
+  Dynamic Worker and trusted executor are split.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 

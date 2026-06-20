@@ -2047,7 +2047,7 @@ async function commitConcurrentTeamPatch(input: {
     documentId: "1:team",
     observedTs: input.minimumTs <= 15 ? 10 : input.minimumTs - 4,
   });
-  await input.persistence.insertInvokeSessionDocumentWrite({
+  await input.persistence.stageInvokeSessionDocumentWrite({
     deploymentId: "deployment_session",
     sessionId: input.sessionId,
     tableId: 1,

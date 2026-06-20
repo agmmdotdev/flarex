@@ -51,7 +51,7 @@ import {
   listInvokeSessionIndexReads as listInvokeSessionIndexReadsWithDb,
 } from "./invokeSessionIndexReads";
 import {
-  insertInvokeSessionDocumentWrite as insertInvokeSessionDocumentWriteWithDb,
+  stageInvokeSessionDocumentWrite as stageInvokeSessionDocumentWriteWithDb,
   listInvokeSessionDocumentWrites as listInvokeSessionDocumentWritesWithDb,
 } from "./invokeSessionWrites";
 import { flarexSchema } from "./schema";
@@ -154,8 +154,8 @@ export async function createPGlitePersistence(
       insertInvokeSessionIndexReadWithDb(drizzleDb, input),
     listInvokeSessionIndexReads: (deploymentId, sessionId) =>
       listInvokeSessionIndexReadsWithDb(drizzleDb, deploymentId, sessionId),
-    insertInvokeSessionDocumentWrite: (input) =>
-      insertInvokeSessionDocumentWriteWithDb(drizzleDb, input),
+    stageInvokeSessionDocumentWrite: (input) =>
+      stageInvokeSessionDocumentWriteWithDb(drizzleDb, input),
     listInvokeSessionDocumentWrites: (deploymentId, sessionId) =>
       listInvokeSessionDocumentWritesWithDb(drizzleDb, deploymentId, sessionId),
     commitInvokeSessionWrites: (input) =>

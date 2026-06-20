@@ -167,7 +167,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async listInvokeSessionIndexReads() {
       return [];
     },
-    async insertInvokeSessionDocumentWrite(input) {
+    async stageInvokeSessionDocumentWrite(input) {
       return {
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
@@ -234,6 +234,9 @@ export function fakeExecutor(
     },
     async runMaintenanceSweep() {
       throw new Error("runMaintenanceSweep is not implemented by test fake");
+    },
+    async runInvokeWithRetries() {
+      throw new Error("runInvokeWithRetries is not implemented by test fake");
     },
     async invokeSyscall() {
       throw new Error("invokeSyscall is not implemented by test fake");

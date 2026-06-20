@@ -973,6 +973,24 @@ function fakeExecutor(
         hasMoreDeployments: false,
       };
     },
+    async runInvokeWithRetries(input) {
+      return {
+        value: await input.runAttempt({
+          attempt: 1,
+          maxAttempts: input.maxAttempts ?? 1,
+          session: beginInvokeSessionResult({
+            sessionId: "session_active",
+            beginTs: 1781913600123,
+            path: input.path,
+            kind: input.kind ?? "query",
+            schemaVersion: 12,
+            executionModule: "_flarex/execution.js",
+          }),
+          syscall: async () => invokeSyscallResult(null),
+        }),
+        attempts: 1,
+      };
+    },
     async invokeSyscall() {
       return invokeSyscallResult(null);
     },

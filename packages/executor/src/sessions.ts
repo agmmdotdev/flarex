@@ -231,7 +231,7 @@ export async function invokeSyscall(
   if (input.syscall.op === "insert") {
     const table = await tableForSession(persistence, session, input.syscall.table);
     const id = idForInsert(table.tableId, input.syscall.id);
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: table.tableId,
@@ -271,7 +271,7 @@ export async function invokeSyscall(
         observedTs: document.observedTs,
       });
     }
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: parsed.tableId,
@@ -314,7 +314,7 @@ export async function invokeSyscall(
         observedTs: document.observedTs,
       });
     }
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: parsed.tableId,

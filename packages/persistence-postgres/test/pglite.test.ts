@@ -877,11 +877,11 @@ describe("createPGlitePersistence", () => {
     ]);
   });
 
-  it("inserts and lists invoke session document writes", async () => {
+  it("stages and lists invoke session document writes", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    const first = await persistence.insertInvokeSessionDocumentWrite({
+    const first = await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes",
       sessionId: "session_writes",
       tableId: 1,
@@ -900,7 +900,7 @@ describe("createPGlitePersistence", () => {
     });
     expect(first.stagedAt).toBeInstanceOf(Date);
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes",
       sessionId: "session_writes",
       tableId: 2,
@@ -930,7 +930,7 @@ describe("createPGlitePersistence", () => {
     ]);
   });
 
-  it("rejects duplicate invoke session document writes clearly", async () => {
+  it("rejects duplicate invoke session document inserts clearly", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
@@ -943,10 +943,10 @@ describe("createPGlitePersistence", () => {
       valueJson: { text: "hello" },
     };
 
-    await persistence.insertInvokeSessionDocumentWrite(input);
+    await persistence.stageInvokeSessionDocumentWrite(input);
 
     await expect(
-      persistence.insertInvokeSessionDocumentWrite(input),
+      persistence.stageInvokeSessionDocumentWrite(input),
     ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
   });
 
@@ -954,7 +954,7 @@ describe("createPGlitePersistence", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_patch",
       tableId: 1,
@@ -962,7 +962,7 @@ describe("createPGlitePersistence", () => {
       op: "patch",
       valueJson: { text: "hello", count: 1 },
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_patch",
       tableId: 1,
@@ -983,7 +983,7 @@ describe("createPGlitePersistence", () => {
       },
     ]);
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_insert",
       tableId: 1,
@@ -991,7 +991,7 @@ describe("createPGlitePersistence", () => {
       op: "insert",
       valueJson: { text: "draft", count: 0 },
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_insert",
       tableId: 1,
@@ -1012,7 +1012,7 @@ describe("createPGlitePersistence", () => {
       },
     ]);
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_insert_delete",
       tableId: 1,
@@ -1020,7 +1020,7 @@ describe("createPGlitePersistence", () => {
       op: "insert",
       valueJson: { text: "temporary" },
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_insert_delete",
       tableId: 1,
@@ -1035,7 +1035,7 @@ describe("createPGlitePersistence", () => {
       ),
     ).resolves.toEqual([]);
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_patch_delete",
       tableId: 1,
@@ -1043,7 +1043,7 @@ describe("createPGlitePersistence", () => {
       op: "patch",
       valueJson: { text: "updated" },
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_patch_delete",
       tableId: 1,
@@ -1064,7 +1064,7 @@ describe("createPGlitePersistence", () => {
       },
     ]);
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_writes_coalesce",
       sessionId: "session_delete_patch",
       tableId: 1,
@@ -1073,7 +1073,7 @@ describe("createPGlitePersistence", () => {
       valueJson: null,
     });
     await expect(
-      persistence.insertInvokeSessionDocumentWrite({
+      persistence.stageInvokeSessionDocumentWrite({
         deploymentId: "deployment_writes_coalesce",
         sessionId: "session_delete_patch",
         tableId: 1,
@@ -1102,7 +1102,7 @@ describe("createPGlitePersistence", () => {
       schemaVersion: 1,
       executionModule: "_flarex/execution.js",
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_commit",
       sessionId: "session_commit",
       tableId: 1,
@@ -1163,7 +1163,7 @@ describe("createPGlitePersistence", () => {
       sessionId: "session_insert",
       beginTs: 100,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_insert",
       sessionId: "session_insert",
       tableId: 1,
@@ -1205,7 +1205,7 @@ describe("createPGlitePersistence", () => {
       sessionId: "session_insert",
       beginTs: 100,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_query",
       sessionId: "session_insert",
       tableId: 1,
@@ -1269,7 +1269,7 @@ describe("createPGlitePersistence", () => {
       sessionId: "session_concurrent",
       beginTs: 101,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_occ",
       sessionId: "session_concurrent",
       tableId: 1,
@@ -1285,7 +1285,7 @@ describe("createPGlitePersistence", () => {
       minimumTs: 101,
     });
 
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_occ",
       sessionId: "session_read",
       tableId: 1,
@@ -1317,7 +1317,7 @@ describe("createPGlitePersistence", () => {
       sessionId: "session_insert",
       beginTs: 100,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_patch",
       sessionId: "session_insert",
       tableId: 1,
@@ -1345,7 +1345,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 101,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_patch",
       sessionId: "session_patch",
       tableId: 1,
@@ -1391,7 +1391,7 @@ describe("createPGlitePersistence", () => {
       sessionId: "session_insert",
       beginTs: 100,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_delete",
       sessionId: "session_insert",
       tableId: 1,
@@ -1419,7 +1419,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 101,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_index_delete",
       sessionId: "session_delete",
       tableId: 1,
@@ -1486,7 +1486,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_patch_commit",
       sessionId: "session_patch",
       tableId: 1,
@@ -1537,7 +1537,7 @@ describe("createPGlitePersistence", () => {
       deploymentId: "deployment_validate_insert",
       sessionId: "session_validate",
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_validate_insert",
       sessionId: "session_validate",
       tableId: 1,
@@ -1574,7 +1574,7 @@ describe("createPGlitePersistence", () => {
       deploymentId: "deployment_validate_bad_insert",
       sessionId: "session_validate",
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_validate_bad_insert",
       sessionId: "session_validate",
       tableId: 1,
@@ -1629,7 +1629,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_validate_patch",
       sessionId: "session_validate",
       tableId: 1,
@@ -1674,7 +1674,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_validate_bad_patch",
       sessionId: "session_validate",
       tableId: 1,
@@ -1735,7 +1735,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_patch_non_object",
       sessionId: "session_patch",
       tableId: 1,
@@ -1801,7 +1801,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_delete_commit",
       sessionId: "session_delete",
       tableId: 1,
@@ -1863,7 +1863,7 @@ describe("createPGlitePersistence", () => {
       schemaVersion: 1,
       executionModule: "_flarex/execution.js",
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_delete_missing",
       sessionId: "session_delete",
       tableId: 1,
@@ -1936,7 +1936,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_delete_occ",
       sessionId: "session_delete",
       tableId: 1,
@@ -1991,7 +1991,7 @@ describe("createPGlitePersistence", () => {
       schemaVersion: 1,
       executionModule: "_flarex/execution.js",
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_commit_conflict",
       sessionId: "session_commit",
       tableId: 1,
@@ -2064,7 +2064,7 @@ describe("createPGlitePersistence", () => {
       documentId: "1:message",
       observedTs: 10,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_occ",
       sessionId: "session_occ",
       tableId: 1,
@@ -2166,7 +2166,7 @@ describe("createPGlitePersistence", () => {
       tableId: 1,
       observedTs: 15,
     });
-    await persistence.insertInvokeSessionDocumentWrite({
+    await persistence.stageInvokeSessionDocumentWrite({
       deploymentId: "deployment_table_occ",
       sessionId: "session_occ",
       tableId: 2,
