@@ -16,6 +16,7 @@ describe("executor live query subscriptions", () => {
         queryId: 1,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        partitionKey: "team_a",
         beginTs: 10,
         readSet: {
           documents: [{ tableId: 1, id: "1:message" }],
@@ -32,6 +33,7 @@ describe("executor live query subscriptions", () => {
         queryId: 1,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        partitionKey: "team_a",
         beginTs: 10,
         readSetJson: {
           documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
@@ -54,6 +56,7 @@ describe("executor live query subscriptions", () => {
           documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
           tables: [{ tableId: 1, observedTs: 10 }],
         },
+        partitionKey: "team_a",
       },
     ]);
   });
@@ -100,6 +103,7 @@ describe("executor live query subscriptions", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
       beginTs: 10,
       readSet: { tables: [{ tableId: 1 }] },
       resultJson: ["old"],
@@ -110,6 +114,7 @@ describe("executor live query subscriptions", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
       beginTs: 20,
       readSet: { tables: [{ tableId: 1 }] },
       resultJson: ["new"],
@@ -125,6 +130,7 @@ describe("executor live query subscriptions", () => {
         beginTs: 20,
         resultJson: ["new"],
         resultHash: '["new"]',
+        partitionKey: "team_a",
       },
     ]);
 

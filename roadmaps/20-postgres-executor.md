@@ -485,6 +485,62 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Live-Query Partition Routing Metadata
+
+Previous completed checkpoint: `196cef9` Add live query rerun maintenance
+route.
+
+What changed:
+
+- Added nullable `partition_key` to Postgres `live_query_subscriptions`.
+- Generated Drizzle migration `0009_smiling_shriek.sql`.
+- Added `partitionKey` to `UpsertLiveQuerySubscriptionInput`.
+- Added `partitionKey` to executor `RecordLiveQuerySubscriptionInput`.
+- Preserved `partitionKey` when `rerunLiveQuerySubscription(...)` updates a
+  stored subscription after a rerun.
+- Updated PGlite and executor memory tests for insert/update/list/rerun
+  behavior.
+
+Why it changed:
+
+The Postgres executor cannot rerun a stored live query through
+`beginInvokeSession(...)` unless it knows the route that was used by the
+original subscription. Function path and args are not enough for the current
+explicit partition-routing API because `prepareInvoke(...)` validates the
+request `partitionKey`.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync workers rerun queries inside the same backend routing authority.
+- `crates/application/src/api.rs`
+  - application APIs keep query execution behind trusted backend boundaries.
+
+Flarex differences:
+
+- Convex does not persist an explicit `partitionKey` field for query
+  subscriptions. Flarex does because routing is currently explicit and
+  subscription rerun will cross from Cloudflare/WebSocket state into the
+  trusted Postgres executor.
+
+Known limitations:
+
+- The column is nullable for compatibility with existing test/dev rows.
+- The invoke-backed `runQuery` bridge is not implemented yet.
+- Client sync registration must pass the live-query partition key into the
+  backend registry path before this can be used end to end.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

@@ -12,6 +12,7 @@ export interface LiveQuerySubscriptionKey {
 export interface UpsertLiveQuerySubscriptionInput extends LiveQuerySubscriptionKey {
   functionPath: string;
   argsJson: unknown;
+  partitionKey?: string | null;
   beginTs: number;
   readSetJson: Record<string, unknown>;
   resultJson: unknown;
@@ -43,6 +44,7 @@ export async function upsertLiveQuerySubscription(
       queryId: input.queryId,
       functionPath: input.functionPath,
       argsJson: input.argsJson,
+      partitionKey: input.partitionKey ?? null,
       beginTs: input.beginTs,
       readSetJson: input.readSetJson,
       resultJson: input.resultJson,
@@ -58,6 +60,7 @@ export async function upsertLiveQuerySubscription(
       set: {
         functionPath: input.functionPath,
         argsJson: input.argsJson,
+        partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,
         resultJson: input.resultJson,

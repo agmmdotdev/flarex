@@ -1103,3 +1103,53 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
+
+## Live-Query Partition Routing Metadata
+
+Previous completed checkpoint: `196cef9` Add live query rerun maintenance
+route.
+
+What changed:
+
+- Durable live-query subscriptions now have nullable `partition_key`.
+- Executor subscription recording accepts and preserves `partitionKey`.
+- Rerun updates keep the same `partitionKey` when replacing the stored
+  subscription result/read set.
+
+Cache impact:
+
+Cloudflare freshness/cache workers can identify stale subscriptions from
+freshness mirrors, but the trusted executor must rerun the query in the same
+partition scope as the original watch. Persisting `partition_key` is the
+handoff field between Cloudflare-side subscription state and Postgres executor
+query execution.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - query subscriptions are part of the sync protocol query set.
+- `crates/sync/src/worker.rs`
+  - the backend reruns active queries without exposing routing as a public
+    subscription column.
+
+Flarex differences:
+
+- Flarex currently has an explicit partition routing model, so the cache/sync
+  handoff must keep the partition key durable.
+
+Known limitations:
+
+- Existing rows with `partition_key = null` cannot safely use the future
+  invoke-backed rerun bridge.
+- No WebSocket fanout is wired to changed rerun results yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```

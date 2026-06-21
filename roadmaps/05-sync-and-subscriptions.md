@@ -422,6 +422,61 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Live-Query Partition Routing Metadata
+
+Previous completed checkpoint: `196cef9` Add live query rerun maintenance
+route.
+
+What changed:
+
+- Added nullable `partition_key` to durable `live_query_subscriptions`.
+- Threaded `partitionKey` through:
+  - `@flarex/persistence-postgres` upsert/list records,
+  - `executor.recordLiveQuerySubscription(...)`, and
+  - rerun recording so refreshed subscriptions keep their route.
+- Added PGlite and executor tests proving insert, update, list, and rerun
+  preservation.
+
+Why it matters for sync:
+
+The stale-query rerun route needs to turn a stored subscription back into a
+real query invocation. The subscription already had function path and args, but
+Flarex query sessions also need the resolved partition key. Persisting it with
+the subscription makes the next invoke-backed rerun bridge deterministic.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client query-set messages carry enough identity for the backend to run the
+    subscribed query again.
+- `crates/sync/src/worker.rs`
+  - backend sync workers own rerun scheduling and routing inside the trusted
+    backend.
+
+Flarex differences:
+
+- Convex does not expose or persist a user-visible `partitionKey` because its
+  backend owns routing and execution together. Flarex currently keeps
+  partition routing explicit, so durable subscription rows must carry the key
+  needed by the trusted executor.
+
+Known limitations:
+
+- Existing rows may have `partition_key = null`; invoke-backed rerun should
+  reject those with a clear error until they are refreshed by the client.
+- The actual subscription-to-invoke runner is still the next step.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

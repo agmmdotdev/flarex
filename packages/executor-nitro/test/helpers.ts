@@ -213,6 +213,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         queryId: input.queryId,
         functionPath: input.functionPath,
         argsJson: input.argsJson,
+        partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,
         resultJson: input.resultJson,

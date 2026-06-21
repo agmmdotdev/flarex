@@ -1,0 +1,1 @@
+ALTER TABLE "live_query_subscriptions" ADD COLUMN "partition_key" text;

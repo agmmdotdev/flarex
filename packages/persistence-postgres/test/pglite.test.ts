@@ -2316,6 +2316,7 @@ describe("createPGlitePersistence", () => {
         queryId: 1,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        partitionKey: "team_a",
         beginTs: 10,
         readSetJson: {
           documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
@@ -2330,6 +2331,7 @@ describe("createPGlitePersistence", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
       beginTs: 10,
       readSetJson: {
         documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
@@ -2345,6 +2347,7 @@ describe("createPGlitePersistence", () => {
       queryId: 2,
       functionPath: "messages:count",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
       beginTs: 11,
       readSetJson: { tables: [{ tableId: 1, observedTs: 11 }] },
       resultJson: 1,
@@ -2357,6 +2360,7 @@ describe("createPGlitePersistence", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_b" },
+      partitionKey: "team_b",
       beginTs: 12,
       readSetJson: { tables: [{ tableId: 2, observedTs: 12 }] },
       resultJson: [],
@@ -2370,8 +2374,18 @@ describe("createPGlitePersistence", () => {
         connectionId: "connection_a",
       }),
     ).resolves.toMatchObject([
-      { connectionId: "connection_a", queryId: 1, resultHash: "hash_a" },
-      { connectionId: "connection_a", queryId: 2, resultHash: "hash_b" },
+      {
+        connectionId: "connection_a",
+        queryId: 1,
+        resultHash: "hash_a",
+        partitionKey: "team_a",
+      },
+      {
+        connectionId: "connection_a",
+        queryId: 2,
+        resultHash: "hash_b",
+        partitionKey: "team_a",
+      },
     ]);
 
     await expect(
@@ -2379,9 +2393,9 @@ describe("createPGlitePersistence", () => {
         deploymentId: "deployment_live_queries",
       }),
     ).resolves.toMatchObject([
-      { connectionId: "connection_a", queryId: 1 },
-      { connectionId: "connection_a", queryId: 2 },
-      { connectionId: "connection_b", queryId: 1 },
+      { connectionId: "connection_a", queryId: 1, partitionKey: "team_a" },
+      { connectionId: "connection_a", queryId: 2, partitionKey: "team_a" },
+      { connectionId: "connection_b", queryId: 1, partitionKey: "team_b" },
     ]);
   });
 
@@ -2395,6 +2409,7 @@ describe("createPGlitePersistence", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
       beginTs: 10,
       readSetJson: { tables: [{ tableId: 1, observedTs: 10 }] },
       resultJson: ["old"],
@@ -2407,6 +2422,7 @@ describe("createPGlitePersistence", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      partitionKey: "team_b",
       beginTs: 20,
       readSetJson: { tables: [{ tableId: 1, observedTs: 20 }] },
       resultJson: ["new"],
@@ -2426,6 +2442,7 @@ describe("createPGlitePersistence", () => {
         readSetJson: { tables: [{ tableId: 1, observedTs: 20 }] },
         resultJson: ["new"],
         resultHash: "hash_new",
+        partitionKey: "team_b",
         updatedAt: new Date("2026-06-20T00:01:00.000Z"),
       },
     ]);
