@@ -297,6 +297,60 @@ describe("createFlarexNitroHandler", () => {
     });
   });
 
+  it("maps live query delivery claim and ack through the Nitro handler", async () => {
+    const calls: unknown[] = [];
+    const handler = createFlarexNitroHandler({
+      executor: fakeExecutor({
+        async claimLiveQueryDeliveryBatch(input) {
+          calls.push({ type: "claim", input });
+          return { deliveries: [], nextCursor: null, hasMore: false };
+        },
+        async ackLiveQueryDeliveries(input) {
+          calls.push({ type: "ack", input });
+          return { delivered: input.deliveryIds.length };
+        },
+      }),
+    });
+
+    const claim = await handler({
+      request: jsonRequest(
+        "https://executor.test/maintenance/live-queries/claim",
+        {
+          deploymentId: "deployment_active",
+          limit: 2,
+        },
+      ),
+    });
+    const ack = await handler({
+      request: jsonRequest(
+        "https://executor.test/maintenance/live-queries/ack",
+        {
+          deploymentId: "deployment_active",
+          deliveryIds: ["delivery_1"],
+        },
+      ),
+    });
+
+    expect(claim.status).toBe(200);
+    await expect(claim.json()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+    expect(ack.status).toBe(200);
+    await expect(ack.json()).resolves.toEqual({ delivered: 1 });
+    expect(calls).toEqual([
+      { type: "claim", input: { deploymentId: "deployment_active", limit: 2 } },
+      {
+        type: "ack",
+        input: {
+          deploymentId: "deployment_active",
+          deliveryIds: ["delivery_1"],
+        },
+      },
+    ]);
+  });
+
   it("rejects malformed invoke prepare JSON", async () => {
     const handler = createFlarexNitroHandler({
       executor: fakeExecutor(),

@@ -6,6 +6,7 @@ import {
   createFlarexExecutor,
   DeploymentProjectMismatchError,
   fingerprintJson,
+  LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
 } from "../src";
 import {
@@ -408,6 +409,78 @@ describe("executor live query subscriptions", () => {
       deliveries: [],
       hasMore: false,
     });
+  });
+
+  it("claims and acks live query deliveries without owning fanout", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({
+      persistence,
+      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+    });
+    const initial = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_claim_ack",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: ["old"],
+    });
+
+    await executor.rerunLiveQuerySubscription({
+      subscription: initial.subscription,
+      deliveryId: "delivery_claim_1",
+      runQuery: async () => ({
+        value: ["new"],
+        beginTs: 20,
+        readSet: { tables: [{ tableId: 1 }] },
+      }),
+    });
+
+    await expect(
+      executor.claimLiveQueryDeliveryBatch({
+        deploymentId: "deployment_claim_ack",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_claim_1",
+          connectionId: "connection_a",
+          queryId: 1,
+          deliveredAt: null,
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      executor.ackLiveQueryDeliveries({
+        deploymentId: "deployment_claim_ack",
+        deliveryIds: ["delivery_claim_1"],
+      }),
+    ).resolves.toEqual({ delivered: 1 });
+    await expect(
+      executor.claimLiveQueryDeliveryBatch({
+        deploymentId: "deployment_claim_ack",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+  });
+
+  it("validates live query delivery claim limits", async () => {
+    const executor = createFlarexExecutor({ persistence: memoryPersistence() });
+
+    await expect(
+      executor.claimLiveQueryDeliveryBatch({
+        deploymentId: "deployment_invalid_claim",
+        limit: 0,
+      }),
+    ).rejects.toThrow(LiveQueryDeliveryPolicyError);
   });
 
   it("reruns a live query subscription and refreshes unchanged results", async () => {

@@ -1,5 +1,9 @@
 import { LiveQueryDeliveryPolicyError } from "./errors";
 import type {
+  AckLiveQueryDeliveriesInput,
+  AckLiveQueryDeliveriesResult,
+  ClaimLiveQueryDeliveryBatchInput,
+  ClaimLiveQueryDeliveryBatchResult,
   Clock,
   FlarexExecutorPersistence,
   ListUndeliveredLiveQueryDeliveriesInput,
@@ -26,21 +30,36 @@ export async function markLiveQueryDeliveriesDelivered(
   return await persistence.markLiveQueryDeliveriesDelivered(input);
 }
 
+export async function claimLiveQueryDeliveryBatch(
+  persistence: FlarexExecutorPersistence,
+  input: ClaimLiveQueryDeliveryBatchInput,
+): Promise<ClaimLiveQueryDeliveryBatchResult> {
+  const limit = liveQueryDeliveryLimit(input.limit);
+  return await persistence.listUndeliveredLiveQueryDeliveries({
+    deploymentId: input.deploymentId,
+    limit,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
+export async function ackLiveQueryDeliveries(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: AckLiveQueryDeliveriesInput,
+): Promise<AckLiveQueryDeliveriesResult> {
+  return await persistence.markLiveQueryDeliveriesDelivered({
+    deploymentId: input.deploymentId,
+    deliveryIds: input.deliveryIds,
+    deliveredAt: input.deliveredAt ?? clock.now(),
+  });
+}
+
 export async function runLiveQueryDeliveryBatch(
   persistence: FlarexExecutorPersistence,
   clock: Clock,
   input: RunLiveQueryDeliveryBatchInput,
 ): Promise<RunLiveQueryDeliveryBatchResult> {
-  const limit = input.limit ?? DEFAULT_LIVE_QUERY_DELIVERY_LIMIT;
-  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
-    throw new LiveQueryDeliveryPolicyError("limit must be a positive integer.");
-  }
-
-  const page = await persistence.listUndeliveredLiveQueryDeliveries({
-    deploymentId: input.deploymentId,
-    limit,
-    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-  });
+  const page = await claimLiveQueryDeliveryBatch(persistence, input);
   if (page.deliveries.length === 0) {
     return {
       deliveries: [],
@@ -51,10 +70,10 @@ export async function runLiveQueryDeliveryBatch(
   }
 
   await input.deliver(page.deliveries);
-  const delivered = await persistence.markLiveQueryDeliveriesDelivered({
+  const delivered = await ackLiveQueryDeliveries(persistence, clock, {
     deploymentId: input.deploymentId,
     deliveryIds: page.deliveries.map((delivery) => delivery.deliveryId),
-    deliveredAt: input.deliveredAt ?? clock.now(),
+    ...(input.deliveredAt === undefined ? {} : { deliveredAt: input.deliveredAt }),
   });
 
   return {
@@ -63,4 +82,12 @@ export async function runLiveQueryDeliveryBatch(
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
   };
+}
+
+function liveQueryDeliveryLimit(limit: number | undefined): number {
+  const resolved = limit ?? DEFAULT_LIVE_QUERY_DELIVERY_LIMIT;
+  if (!Number.isFinite(resolved) || !Number.isInteger(resolved) || resolved <= 0) {
+    throw new LiveQueryDeliveryPolicyError("limit must be a positive integer.");
+  }
+  return resolved;
 }

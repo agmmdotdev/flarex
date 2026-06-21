@@ -126,6 +126,12 @@ export interface FlarexExecutor {
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
+  claimLiveQueryDeliveryBatch(
+    input: ClaimLiveQueryDeliveryBatchInput,
+  ): Promise<ClaimLiveQueryDeliveryBatchResult>;
+  ackLiveQueryDeliveries(
+    input: AckLiveQueryDeliveriesInput,
+  ): Promise<AckLiveQueryDeliveriesResult>;
   runLiveQueryDeliveryBatch(
     input: RunLiveQueryDeliveryBatchInput,
   ): Promise<RunLiveQueryDeliveryBatchResult>;
@@ -301,6 +307,28 @@ export interface RunLiveQueryDeliveryBatchResult {
   delivered: number;
   nextCursor: LiveQueryDeliveryCursor | null;
   hasMore: boolean;
+}
+
+export interface ClaimLiveQueryDeliveryBatchInput {
+  deploymentId: string;
+  cursor?: LiveQueryDeliveryCursor;
+  limit?: number;
+}
+
+export interface ClaimLiveQueryDeliveryBatchResult {
+  deliveries: LiveQueryDeliveryRecord[];
+  nextCursor: LiveQueryDeliveryCursor | null;
+  hasMore: boolean;
+}
+
+export interface AckLiveQueryDeliveriesInput {
+  deploymentId: string;
+  deliveryIds: string[];
+  deliveredAt?: Date;
+}
+
+export interface AckLiveQueryDeliveriesResult {
+  delivered: number;
 }
 
 export interface RecordLiveQuerySubscriptionInput {

@@ -322,6 +322,16 @@ export function fakeExecutor(
         "markLiveQueryDeliveriesDelivered is not implemented by test fake",
       );
     },
+    async claimLiveQueryDeliveryBatch() {
+      throw new Error(
+        "claimLiveQueryDeliveryBatch is not implemented by test fake",
+      );
+    },
+    async ackLiveQueryDeliveries() {
+      throw new Error(
+        "ackLiveQueryDeliveries is not implemented by test fake",
+      );
+    },
     async runLiveQueryDeliveryBatch() {
       throw new Error(
         "runLiveQueryDeliveryBatch is not implemented by test fake",

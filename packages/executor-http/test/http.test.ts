@@ -1125,6 +1125,138 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps live query delivery claim requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async claimLiveQueryDeliveryBatch(input) {
+          calls.push(input);
+          return {
+            deliveries: [
+              {
+                deploymentId: input.deploymentId,
+                deliveryId: "delivery_1",
+                connectionId: "connection:deployment_active:session_1",
+                queryId: 1,
+                payloadJson: {
+                  deploymentId: input.deploymentId,
+                  connectionId: "connection:deployment_active:session_1",
+                  queryId: 1,
+                  resultJson: ["fresh"],
+                },
+                deliveredAt: null,
+                createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/claim", {
+        deploymentId: "deployment_active",
+        limit: 2,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{ deploymentId: "deployment_active", limit: 2 }]);
+    await expect(response.json()).resolves.toEqual({
+      deliveries: [
+        {
+          deploymentId: "deployment_active",
+          deliveryId: "delivery_1",
+          connectionId: "connection:deployment_active:session_1",
+          queryId: 1,
+          payloadJson: {
+            deploymentId: "deployment_active",
+            connectionId: "connection:deployment_active:session_1",
+            queryId: 1,
+            resultJson: ["fresh"],
+          },
+          deliveredAt: null,
+          createdAt: "2026-06-21T00:00:00.000Z",
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it("maps live query delivery ack requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async ackLiveQueryDeliveries(input) {
+          calls.push(input);
+          return { delivered: input.deliveryIds.length };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/ack", {
+        deploymentId: "deployment_active",
+        deliveryIds: ["delivery_1", "delivery_2"],
+        deliveredAt: "2026-06-21T00:00:01.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        deliveryIds: ["delivery_1", "delivery_2"],
+        deliveredAt: new Date("2026-06-21T00:00:01.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({ delivered: 2 });
+  });
+
+  it("validates live query delivery claim and ack requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async claimLiveQueryDeliveryBatch() {
+          called = true;
+          throw new Error("should not be called");
+        },
+        async ackLiveQueryDeliveries() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const claim = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/claim", {
+        deploymentId: "deployment_active",
+        limit: 0,
+      }),
+    );
+    const ack = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/ack", {
+        deploymentId: "deployment_active",
+        deliveryIds: [""],
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(claim.status).toBe(400);
+    await expect(claim.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
+    });
+    expect(ack.status).toBe(400);
+    await expect(ack.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "deliveryIds must be an array of non-empty strings.",
+    });
+  });
+
   it("posts live query deliveries to the Flarex backend callback endpoint", async () => {
     const requests: Array<{ url: string; headers: Record<string, string | null>; body: unknown }> = [];
     const deliver = createFlarexBackendLiveQueryDelivery({
@@ -1551,6 +1683,12 @@ function fakeExecutor(
       return { deliveries: [], nextCursor: null, hasMore: false };
     },
     async markLiveQueryDeliveriesDelivered() {
+      return { delivered: 0 };
+    },
+    async claimLiveQueryDeliveryBatch() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
+    },
+    async ackLiveQueryDeliveries() {
       return { delivered: 0 };
     },
     async runLiveQueryDeliveryBatch() {

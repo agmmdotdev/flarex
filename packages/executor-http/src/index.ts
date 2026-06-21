@@ -38,7 +38,9 @@ import {
   InvokeSessionDeleteTargetError,
   type AbortInvokeSessionInput,
   type AbortStaleInvokeSessionsInput,
+  type AckLiveQueryDeliveriesInput,
   type BeginInvokeSessionInput,
+  type ClaimLiveQueryDeliveryBatchInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
   type InvokableFunctionKind,
@@ -80,6 +82,8 @@ export interface FlarexHttpAppConfig {
   maintenanceInvokeSessionsPath?: string;
   maintenanceLiveQueryRerunPath?: string;
   maintenanceLiveQueryDeliveryPath?: string;
+  maintenanceLiveQueryClaimPath?: string;
+  maintenanceLiveQueryAckPath?: string;
   liveQueryRerun?: FlarexLiveQueryRerunConfig;
   liveQueryDelivery?: FlarexLiveQueryDeliveryConfig;
 }
@@ -115,6 +119,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const maintenanceLiveQueryDeliveryPath = normalizePath(
     config.maintenanceLiveQueryDeliveryPath ??
       "/maintenance/live-queries/deliver",
+  );
+  const maintenanceLiveQueryClaimPath = normalizePath(
+    config.maintenanceLiveQueryClaimPath ??
+      "/maintenance/live-queries/claim",
+  );
+  const maintenanceLiveQueryAckPath = normalizePath(
+    config.maintenanceLiveQueryAckPath ?? "/maintenance/live-queries/ack",
   );
   const capabilityToken = config.capabilityToken;
 
@@ -158,6 +169,12 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         capabilityToken,
         config.liveQueryDelivery,
       ),
+    )
+    .post(maintenanceLiveQueryClaimPath, ({ request, set }) =>
+      handleLiveQueryClaimMaintenance(executor, request, set, capabilityToken),
+    )
+    .post(maintenanceLiveQueryAckPath, ({ request, set }) =>
+      handleLiveQueryAckMaintenance(executor, request, set, capabilityToken),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -220,6 +237,20 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryDeliveryPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryClaimPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryClaimPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryAckPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryAckPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -598,6 +629,76 @@ async function handleLiveQueryDeliveryMaintenance(
   }
 }
 
+async function handleLiveQueryClaimMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryClaimMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.claimLiveQueryDeliveryBatch(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQueryAckMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryAckMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.ackLiveQueryDeliveries(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -913,6 +1014,66 @@ function parseLiveQueryDeliveryMaintenanceBody(
   };
 }
 
+function parseLiveQueryClaimMaintenanceBody(
+  body: unknown,
+):
+  | { value: ClaimLiveQueryDeliveryBatchInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const limit = optionalPositiveInteger(record, "limit");
+  if ("error" in limit) return limit;
+  const cursor = optionalLiveQueryDeliveryCursor(record.cursor);
+  if ("error" in cursor) return cursor;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      ...(limit.value === undefined ? {} : { limit: limit.value }),
+      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+    },
+  };
+}
+
+function parseLiveQueryAckMaintenanceBody(
+  body: unknown,
+):
+  | { value: AckLiveQueryDeliveriesInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
+  if ("error" in deliveryIds) return deliveryIds;
+  const deliveredAt = optionalDate(record.deliveredAt, "deliveredAt");
+  if ("error" in deliveredAt) return deliveredAt;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      deliveryIds: deliveryIds.value,
+      ...(deliveredAt.value === undefined ? {} : { deliveredAt: deliveredAt.value }),
+    },
+  };
+}
+
 function parseSyscallRequest(
   record: Record<string, unknown>,
 ):
@@ -1032,6 +1193,91 @@ function requiredDate(
     };
   }
   return { value: date };
+}
+
+function optionalDate(
+  value: unknown,
+  field: string,
+): { value?: Date } | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (typeof value !== "string" || value.length === 0) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be an ISO timestamp string.`,
+      },
+    };
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be an ISO timestamp string.`,
+      },
+    };
+  }
+  return { value: date };
+}
+
+function requiredStringArray(
+  value: unknown,
+  field: string,
+): { value: string[] } | { error: { error: "bad_request"; message: string } } {
+  if (
+    Array.isArray(value) &&
+    value.every(item => typeof item === "string" && item.length > 0)
+  ) {
+    return { value };
+  }
+  return {
+    error: {
+      error: "bad_request",
+      message: `${field} must be an array of non-empty strings.`,
+    },
+  };
+}
+
+function optionalLiveQueryDeliveryCursor(
+  value: unknown,
+):
+  | { value?: { createdAt: Date; deliveryId: string } }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor must be an object.",
+      },
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const createdAt = optionalDate(record.createdAt, "cursor.createdAt");
+  if ("error" in createdAt) return createdAt;
+  const deliveryId = requiredString(record, "deliveryId");
+  if ("error" in deliveryId) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.deliveryId must be a non-empty string.",
+      },
+    };
+  }
+  if (createdAt.value === undefined) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.createdAt must be an ISO timestamp string.",
+      },
+    };
+  }
+  return {
+    value: {
+      createdAt: createdAt.value,
+      deliveryId: deliveryId.value,
+    },
+  };
 }
 
 function requiredPositiveInteger(

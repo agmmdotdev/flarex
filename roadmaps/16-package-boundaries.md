@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Executor Injection For DeliveryDO
+
+Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.
+
+What changed:
+
+- Added platform-agnostic claim/ack methods to `@flarex/executor`.
+- Exposed them through `@flarex/executor-http` and `@flarex/executor-nitro`.
+- Kept Cloudflare-specific delivery work out of executor packages.
+
+Boundary rule:
+
+`DeliveryDO` should receive an injected executor client/config later:
+
+```ts
+{
+  executorUrl,
+  capabilityToken,
+}
+```
+
+It should call the executor over HTTP:
+
+```txt
+POST /maintenance/live-queries/claim
+POST /maintenance/live-queries/ack
+```
+
+It should not import `@flarex/executor`, open Postgres connections, or depend
+on Nitro internals.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex difference:
+
+Convex's sync worker does not need an injected executor boundary. Flarex keeps
+the boundary explicit because Cloudflare fanout and trusted Postgres execution
+are separate runtime deployments.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## DeliveryDO Production Boundary
 
 Previous completed checkpoint: `3288183` Wire live query delivery callback

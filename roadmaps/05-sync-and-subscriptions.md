@@ -1,5 +1,52 @@
 # Sync And Subscriptions
 
+## DeliveryDO Claim/Ack Prelude
+
+Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.
+
+What changed:
+
+- Added executor claim/ack APIs that `DeliveryDO` will call later:
+  - claim pending `live_query_deliveries`,
+  - ack rows only after successful Cloudflare fanout.
+- Exposed the APIs through HTTP/Nitro without any Cloudflare dependency.
+- Kept the existing direct callback bridge as a compatibility path while the
+  `DeliveryDO` implementation is still pending.
+
+Why it changed:
+
+The sync architecture needs Cloudflare to own fanout while the executor remains
+the durable source of truth. This prelude creates the injected executor
+contract before adding `DeliveryDO`.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex differences:
+
+- Convex keeps this inside the sync worker. Flarex has a runtime boundary:
+  `DeliveryDO` will use claim/ack over HTTP to bridge executor durability and
+  Cloudflare WebSocket fanout.
+
+Known limitations:
+
+- No `DeliveryDO` yet.
+- No wake route yet.
+- No lease/visibility timeout yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+```
+
 ## DeliveryDO Notify-Only Fanout Decision
 
 Previous completed checkpoint: `3288183` Wire live query delivery callback

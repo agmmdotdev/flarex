@@ -1,5 +1,72 @@
 # Postgres Executor
 
+## Platform-Agnostic Delivery Claim/Ack APIs
+
+Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.
+
+What changed:
+
+- Added framework-neutral executor methods:
+  - `claimLiveQueryDeliveryBatch({ deploymentId, limit, cursor })`
+  - `ackLiveQueryDeliveries({ deploymentId, deliveryIds, deliveredAt })`
+- `claimLiveQueryDeliveryBatch` maps to the existing durable
+  `listUndeliveredLiveQueryDeliveries` persistence operation and validates the
+  batch limit.
+- `ackLiveQueryDeliveries` maps to
+  `markLiveQueryDeliveriesDelivered` and fills `deliveredAt` from the executor
+  clock when callers omit it.
+- Refactored `runLiveQueryDeliveryBatch({ deliver })` to use claim/ack
+  internally, preserving the old callback path as compatibility/fallback.
+- Added authenticated HTTP/Nitro routes:
+  - `POST /maintenance/live-queries/claim`
+  - `POST /maintenance/live-queries/ack`
+- Added executor, HTTP, and Nitro tests for claim/ack behavior and request
+  validation.
+
+Why it changed:
+
+`DeliveryDO` must be injected with an executor API instead of importing
+Postgres or platform-specific executor code. Claim/ack is the minimal
+platform-agnostic contract that lets Cloudflare own fanout while the trusted
+executor remains authoritative for durable delivery rows.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` owns result-hash state for query transition
+    dedupe.
+- `crates/sync/src/worker.rs`
+  - transition send-side work is bounded by transition count/backpressure and
+    emits `ServerMessage::Transition`.
+
+Flarex differences:
+
+- Convex does not need claim/ack APIs because its sync worker and backend state
+  are colocated. Flarex needs claim/ack because `DeliveryDO` will run in
+  Cloudflare and the trusted executor may run on Nitro/Vercel.
+- The first claim implementation does not lease rows. It lists undelivered
+  rows and relies on future per-deployment `DeliveryDO` serialization. A later
+  production pass should add leases/visibility timeouts.
+
+Known limitations:
+
+- `DeliveryDO` is not implemented yet.
+- No wake-notification route exists yet.
+- No claim lease, retry count, or poison-row handling yet.
+- Project/deployment authorization for claim/ack still relies on the executor
+  adapter capability token.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+```
+
 ## DeliveryDO Claim/Ack Direction
 
 Previous completed checkpoint: `3288183` Wire live query delivery callback

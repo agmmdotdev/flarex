@@ -12,6 +12,8 @@ import {
   runOutboxDeliveryBatch,
 } from "./outbox";
 import {
+  ackLiveQueryDeliveries,
+  claimLiveQueryDeliveryBatch,
   listUndeliveredLiveQueryDeliveries,
   markLiveQueryDeliveriesDelivered,
   runLiveQueryDeliveryBatch,
@@ -95,8 +97,12 @@ export type {
   AbortInvokeSessionResult,
   AbortStaleInvokeSessionsInput,
   AbortStaleInvokeSessionsResult,
+  AckLiveQueryDeliveriesInput,
+  AckLiveQueryDeliveriesResult,
   BeginInvokeSessionInput,
   BeginInvokeSessionResult,
+  ClaimLiveQueryDeliveryBatchInput,
+  ClaimLiveQueryDeliveryBatchResult,
   Clock,
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
@@ -207,6 +213,10 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       listUndeliveredLiveQueryDeliveries(persistence, input),
     markLiveQueryDeliveriesDelivered: (input) =>
       markLiveQueryDeliveriesDelivered(persistence, input),
+    claimLiveQueryDeliveryBatch: (input) =>
+      claimLiveQueryDeliveryBatch(persistence, input),
+    ackLiveQueryDeliveries: (input) =>
+      ackLiveQueryDeliveries(persistence, clock, input),
     runLiveQueryDeliveryBatch: (input) =>
       runLiveQueryDeliveryBatch(persistence, clock, input),
     recordLiveQuerySubscription: (input) =>

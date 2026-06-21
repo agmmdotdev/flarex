@@ -1,5 +1,35 @@
 # Cloudflare Freshness Cache
 
+## DeliveryDO Executor Contract Ready
+
+Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.
+
+What changed:
+
+- Added the executor-side claim/ack contract that `DeliveryDO` will consume:
+  - `POST /maintenance/live-queries/claim`
+  - `POST /maintenance/live-queries/ack`
+- The contract is platform-agnostic and available through Nitro/HTTP.
+
+Cloudflare implication:
+
+`DeliveryDO` should be implemented as a Cloudflare-specific consumer of this
+contract. It should inject executor URL/token configuration and should not
+import executor internals or own Postgres access.
+
+Next Cloudflare step:
+
+1. Add `DeliveryDO` class and `DELIVERIES` binding.
+2. Add `POST /deployments/:deploymentId/sync/wake-delivery`.
+3. In `DeliveryDO`, call claim -> fanout to `ConnectionDO` -> ack.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+```
+
 ## DeliveryDO Fanout Worker
 
 Previous completed checkpoint: `3288183` Wire live query delivery callback
