@@ -232,6 +232,50 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## PGlite Local Executor Runtime Test
+
+Previous completed checkpoint: `3efd2a0` Wire local executor live query
+reruns.
+
+What changed:
+
+- Added PGlite-backed coverage for `createLocalExecutorHttpRuntime(...)`.
+- The test uses a real `FlarexExecutor`, real package registration/activation,
+  real invoke-session writes, durable freshness projection, and the local HTTP
+  maintenance route.
+
+Why it changed:
+
+The local Postgres executor runtime should be reusable for examples and future
+dev tooling without starting Nitro or relying on fake callback behavior. This
+test makes that local runtime concrete against the PGlite lane.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
+  - local dev provides a real backend target.
+- `crates/sync/src/worker.rs`
+  - local backend behavior should still exercise live-query reruns.
+
+Flarex differences:
+
+- Convex local dev starts a local backend binary. Flarex composes executor core,
+  PGlite persistence, an HTTP adapter, and a Miniflare source-package artifact.
+
+Known limitations:
+
+- This is test/runtime infrastructure only; the Vite plugin is not yet using
+  this path.
+- The test currently covers HTTP rerun behavior, not browser WebSocket sync.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Execution Artifact Analysis Update
 
 Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local

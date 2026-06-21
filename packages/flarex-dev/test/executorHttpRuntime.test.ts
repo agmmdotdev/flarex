@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOutboxEventsToFreshnessMirror,
+  createPostgresFreshnessMirrorStore,
+} from "@flarex/freshness";
+import {
   executionArtifactRefForSourcePackage,
   type ArtifactSourcePackage,
 } from "flarex/artifacts";
@@ -12,6 +16,8 @@ import type {
   RerunStaleLiveQuerySubscriptionsInput,
   RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
+import { createFlarexExecutor } from "@flarex/executor";
+import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import type { PushSourcePackage } from "flarex-backend/types";
 
 import { createLocalExecutorHttpRuntime } from "../src/executorHttpRuntime";
@@ -158,6 +164,133 @@ describe("createLocalExecutorHttpRuntime", () => {
       },
     ]);
   });
+
+  it("reruns stale live queries through PGlite-backed executor state", async () => {
+    let now = 100;
+    let nextSession = 0;
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date(++now) },
+      ids: { nextId: () => `session_pglite_${++nextSession}` },
+      persistence,
+    });
+    const sourcePackage = getMessageSourcePackage();
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment-pglite-live",
+      projectId: "project-pglite-live",
+      sourcePackage,
+      analysisJson: getMessageAnalysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment-pglite-live",
+      projectId: "project-pglite-live",
+      packageId: registered.package.packageId,
+      schemaVersion: 1,
+    });
+
+    const seeded = await executor.runInvokeWithRetries({
+      deploymentId: "deployment-pglite-live",
+      projectId: "project-pglite-live",
+      path: "messages:seed",
+      kind: "mutation",
+      args: { messageId: "1:message", text: "fresh" },
+      partitionKey: "1:message",
+      runAttempt: async attempt =>
+        (await attempt.syscall({
+          op: "insert",
+          table: "messages",
+          id: "1:message",
+          value: { text: "fresh" },
+        })).value,
+    });
+    expect(seeded.value).toBe("1:message");
+
+    const outbox = await persistence.listOutboxEvents({
+      deploymentId: "deployment-pglite-live",
+      limit: 10,
+    });
+    const freshnessStore = createPostgresFreshnessMirrorStore(persistence);
+    await applyOutboxEventsToFreshnessMirror({
+      store: freshnessStore,
+      events: outbox.events,
+    });
+
+    const initial = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment-pglite-live",
+      connectionId: "connection-pglite",
+      queryId: 1,
+      functionPath: "messages:get",
+      argsJson: { messageId: "1:message" },
+      partitionKey: "1:message",
+      beginTs: seeded.beginTs - 1,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message", observedTs: null }],
+      },
+      resultJson: { missing: true },
+    });
+
+    const runtime = createLocalExecutorHttpRuntime({
+      executor,
+      projectId: "project-pglite-live",
+      capabilityToken: "executor-secret",
+      freshnessStore,
+    });
+
+    try {
+      const response = await runtime.fetch(jsonRequest(
+        "https://executor.test/maintenance/live-queries/rerun",
+        {
+          deploymentId: "deployment-pglite-live",
+          projectId: "project-pglite-live",
+          limit: 1,
+        },
+        "executor-secret",
+      ));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        changed: [
+          {
+            previousResultHash: initial.resultHash,
+            changed: true,
+            subscription: {
+              deploymentId: "deployment-pglite-live",
+              connectionId: "connection-pglite",
+              queryId: 1,
+              functionPath: "messages:get",
+              resultJson: { _id: "1:message", text: "fresh" },
+            },
+          },
+        ],
+        unchanged: [],
+        hasMoreStale: false,
+      });
+      expect(runtime.cacheSize()).toBe(1);
+    } finally {
+      await runtime.dispose();
+    }
+
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment-pglite-live",
+        "session_pglite_2",
+      ),
+    ).resolves.toMatchObject({
+      state: "finished",
+      functionKind: "query",
+    });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment-pglite-live",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        resultJson: { _id: "1:message", text: "fresh" },
+      }),
+    ]);
+  });
 });
 
 function indexedQuerySourcePackage(): PushSourcePackage {
@@ -184,6 +317,75 @@ function indexedQuerySourcePackage(): PushSourcePackage {
     ],
     functions: ["_flarex/execution.js"],
     execution: "_flarex/execution.js",
+  };
+}
+
+function getMessageSourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "e".repeat(64),
+        source: `export default {
+  messages: {
+    get: {
+      isQuery: true,
+      _handler: async ({ db }, args) => {
+        return await db.get(args.messageId);
+      },
+    },
+    seed: {
+      isMutation: true,
+      _handler: async () => {
+        throw new Error("seed is exercised directly through executor syscalls");
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function getMessageAnalysisJson(): Record<string, unknown> {
+  const partition = {
+    type: "partition",
+    table: "messages",
+    selector: "byId",
+    partitionField: "_id",
+    argField: "messageId",
+  };
+  return {
+    schema: {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "messages",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    },
+    functions: {
+      functions: [
+        {
+          path: "messages:get",
+          kind: "query",
+          route: { type: "args", field: "messageId" },
+          partition,
+        },
+        {
+          path: "messages:seed",
+          kind: "mutation",
+          route: { type: "args", field: "messageId" },
+          partition,
+        },
+      ],
+    },
   };
 }
 

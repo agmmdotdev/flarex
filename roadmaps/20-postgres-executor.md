@@ -191,6 +191,61 @@ corepack pnpm --filter @flarex/executor typecheck
 git diff --check
 ```
 
+## PGlite Rerun Integration
+
+Previous completed checkpoint: `3efd2a0` Wire local executor live query
+reruns.
+
+What changed:
+
+- Extended `flarex-dev` runtime tests with a real PGlite executor integration.
+- The test uses `createPGlitePersistence()`, `createFlarexExecutor()`,
+  `createPostgresFreshnessMirrorStore()`, and
+  `createLocalExecutorHttpRuntime()`.
+- The document is inserted through executor invoke/session syscalls, not raw
+  SQL.
+- The stale subscription is rerun through the executor HTTP maintenance route
+  and persists the fresh query result back to `live_query_subscriptions`.
+
+Why it changed:
+
+The previous local runtime test used a fake executor to prove route wiring.
+This checkpoint proves the local runtime against the actual forward executor
+stack and PGlite persistence lane.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - reads happen against a transaction snapshot and are recorded.
+- `crates/database/src/write_log.rs`
+  - committed writes feed freshness/invalidation.
+- `crates/sync/src/worker.rs`
+  - stale subscriptions are rerun through backend-owned query execution.
+
+Flarex differences:
+
+- Flarex explicitly persists live-query subscriptions in Postgres and projects
+  freshness from outbox events. Convex keeps more of this as integrated backend
+  state.
+- The local integration uses PGlite as a fast lane; real Postgres remains the
+  production correctness target for locks and isolation behavior.
+
+Known limitations:
+
+- JSON null storage in `live_query_subscriptions.result_json` needs a separate
+  persistence fix if we want JSON null to round-trip through PGlite/Drizzle.
+- The test uses a document `get` query. Indexed query freshness still needs
+  range/version support.
+- Hosted Dynamic Worker execution still needs a production runtime equivalent.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Invoke Replace Syscall
 
 Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.

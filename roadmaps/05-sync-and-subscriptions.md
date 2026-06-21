@@ -157,6 +157,70 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## PGlite Live-Query Rerun Integration
+
+Previous completed checkpoint: `3efd2a0` Wire local executor live query
+reruns.
+
+What changed:
+
+- Added a PGlite-backed integration test for local live-query reruns.
+- The test registers and activates a real source package through
+  `@flarex/executor`.
+- It seeds a document through the executor's mutation invoke/session path,
+  projects the commit outbox event into the Postgres freshness mirror, records
+  a stale live-query subscription, and reruns it through
+  `/maintenance/live-queries/rerun`.
+- The rerun executes user query code in the materialized artifact and updates
+  the durable live-query subscription row with the fresh result.
+
+Why it matters for sync:
+
+This proves the forward sync rerun path against durable local storage instead
+of a fake executor:
+
+```txt
+PGlite persistence
+  -> committed document + outbox event
+  -> Postgres freshness mirror
+  -> live_query_subscriptions stale row
+  -> executor HTTP maintenance rerun
+  -> materialized query artifact
+  -> /invoke/syscall
+  -> updated live_query_subscriptions result
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale active queries are rerun and their results drive transitions.
+- `crates/database/src/subscription.rs`
+  - read dependencies determine whether a query is stale.
+- `crates/database/src/write_log.rs`
+  - committed writes feed freshness/subscription invalidation.
+
+Flarex differences:
+
+- Convex keeps this inside backend sync state. Flarex uses explicit Postgres
+  persistence rows, outbox/freshness projection, and a Cloudflare-shaped
+  materialized artifact runtime.
+
+Known limitations:
+
+- The test covers document-read freshness, not index/range freshness.
+- Connection fanout is still future work.
+- During test development, PGlite/Drizzle treated JSON `null` for
+  `live_query_subscriptions.result_json` as SQL `NULL`; a separate persistence
+  hardening step should preserve JSON null if we want to store it directly.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Read-Set Freshness Checker
 
 Previous completed checkpoint: `3913b02` Add freshness delivery handler.

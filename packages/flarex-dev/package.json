@@ -18,6 +18,10 @@
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:"
   },
+  "devDependencies": {
+    "@flarex/freshness": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*"
+  },
   "peerDependencies": {
     "vite": "^7.0.0"
   }
