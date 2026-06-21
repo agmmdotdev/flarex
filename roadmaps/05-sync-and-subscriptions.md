@@ -94,6 +94,69 @@ corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 corepack pnpm --filter flarex-backend typecheck
 ```
 
+## Local HTTP Maintenance Rerun Wiring
+
+Previous completed checkpoint: `3f441a8` Add local live query execution host.
+
+What changed:
+
+- Added `createLocalExecutorHttpRuntime(...)` in `flarex-dev`.
+- The helper creates an `@flarex/executor-http` handler with a concrete
+  `liveQueryRerun.executeQuery` callback.
+- The callback resolves the active deployment package through the executor,
+  materializes the stored source package, runs the subscribed query, and sends
+  `ctx.db` reads back through the same executor HTTP handler as
+  `/invoke/syscall`.
+- Added a regression test that exercises
+  `/maintenance/live-queries/rerun` end to end through the local runtime.
+
+Why it matters for sync:
+
+The stale-query maintenance route can now run real query code in local/dev
+instead of requiring tests or callers to inject a fake callback:
+
+```txt
+POST /maintenance/live-queries/rerun
+  -> executor scans stale subscriptions
+  -> executor begins query session
+  -> local materialized artifact runs query
+  -> /invoke/syscall returns read data
+  -> executor receives rerun value/read set
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker reruns active queries and compares results.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned execution coordinates function lookup and transaction state.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user query code reaches storage only through syscalls.
+
+Flarex differences:
+
+- Convex keeps this path inside one backend. Flarex local/dev uses
+  `@flarex/executor-http` plus a Miniflare materialized execution artifact, so
+  the syscall path crosses an internal HTTP-style boundary.
+- The helper is framework-neutral local infrastructure. Hosted production still
+  needs the equivalent Dynamic Worker artifact runtime.
+
+Known limitations:
+
+- `ConnectionDO` fanout still does not consume rerun results.
+- The helper requires a local `projectId` and active package metadata that
+  includes module source text. A manifest-only package cannot be materialized
+  locally.
+- Index/range freshness support is still incomplete.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Read-Set Freshness Checker
 
 Previous completed checkpoint: `3913b02` Add freshness delivery handler.

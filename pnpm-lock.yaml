@@ -164,6 +164,9 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
+      '@flarex/executor-http':
+        specifier: workspace:*
+        version: link:../executor-http
       flarex:
         specifier: workspace:*
         version: link:../flarex

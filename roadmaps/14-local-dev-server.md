@@ -182,6 +182,56 @@ corepack pnpm build
 git diff --check
 ```
 
+## Postgres Executor HTTP Local Runtime
+
+Previous completed checkpoint: `3f441a8` Add local live query execution host.
+
+What changed:
+
+- Added `createLocalExecutorHttpRuntime(...)` in `flarex-dev`.
+- This is a forward-path local runtime for the Postgres executor HTTP adapter,
+  separate from the older Miniflare Durable Object dev backend.
+- It wires live-query rerun maintenance to materialized user query execution:
+  `/maintenance/live-queries/rerun` can now run stored query code locally and
+  route its `ctx.db` reads through `/invoke/syscall`.
+
+Why it changed:
+
+The Vite/DO dev runtime is still useful for legacy examples, but the forward
+architecture is the trusted Postgres executor plus managed source-package
+execution. Local tests and future dev middleware need a reusable assembly point
+for that path without booting Nitro or a hosted platform service.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
+  - local dev runs a backend service and points SDK traffic at that local URL.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev orchestrates codegen, push, backend state, and runtime behavior.
+- `crates/sync/src/worker.rs`
+  - live-query rerun behavior belongs to backend/sync orchestration.
+
+Flarex differences:
+
+- Convex's local backend is one binary. Flarex local forward path composes an
+  executor core, HTTP adapter, and Miniflare source-package artifact.
+- This helper does not replace the Vite plugin yet; it gives the Postgres
+  executor path a testable local runtime first.
+
+Known limitations:
+
+- Vite middleware is not yet switched to this Postgres executor runtime.
+- There is still no browser WebSocket dev route for the Postgres sync path.
+- The helper requires local package metadata with module source text.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Execution Artifact Analysis Update
 
 Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local

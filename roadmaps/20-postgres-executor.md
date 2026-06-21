@@ -132,6 +132,65 @@ corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 corepack pnpm --filter flarex-backend typecheck
 ```
 
+## Local Executor HTTP Runtime For Reruns
+
+Previous completed checkpoint: `3f441a8` Add local live query execution host.
+
+What changed:
+
+- Added `createLocalExecutorHttpRuntime(...)` to assemble a local
+  Postgres-executor HTTP handler with live-query rerun execution configured.
+- The runtime reuses the same `FlarexExecutor` instance for:
+  - maintenance route handling,
+  - active package lookup,
+  - query-session begin/finish through `runLiveQuerySubscriptionWithInvoke`,
+  - and artifact `ctx.db` syscalls through `/invoke/syscall`.
+- Added test coverage for the complete local HTTP path.
+
+Why it changed:
+
+The trusted executor is the authoritative Postgres transaction owner. The HTTP
+adapter already exposed the maintenance route, but local/dev had no default way
+to provide the user-code execution callback. This helper gives tests and future
+dev servers a concrete assembly point without making Nitro or Elysia own Flarex
+platform behavior.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend execution owns session/function coordination.
+- `crates/function_runner/src/lib.rs`
+  - function execution returns values while backend transaction state remains
+    authoritative.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - database operations are mediated through syscalls.
+
+Flarex differences:
+
+- Convex's executor and function runner are colocated. Flarex deliberately
+  composes an HTTP adapter, trusted executor, and Cloudflare-shaped artifact
+  runtime for local/dev.
+- Nitro remains only an adapter; this helper lives in `flarex-dev` because it
+  is local orchestration.
+
+Known limitations:
+
+- Production hosted Dynamic Worker execution still needs its own runtime
+  assembly.
+- The helper assumes one local `projectId`.
+- Manifest-only package metadata cannot be materialized; local/test packages
+  must retain module source text.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor typecheck
+git diff --check
+```
+
 ## Invoke Replace Syscall
 
 Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.

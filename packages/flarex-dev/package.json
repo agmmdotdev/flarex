@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@flarex/executor": "workspace:*",
+    "@flarex/executor-http": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:"

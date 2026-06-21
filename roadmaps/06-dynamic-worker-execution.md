@@ -223,6 +223,62 @@ corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
 corepack pnpm --filter flarex-backend typecheck
 ```
 
+## Local Executor HTTP Runtime
+
+Previous completed checkpoint: `3f441a8` Add local live query execution host.
+
+What changed:
+
+- Added a local executor HTTP runtime factory in `flarex-dev`.
+- The factory assembles:
+  - `@flarex/executor-http`,
+  - a cached execution-artifact materializer,
+  - `LocalMiniflareExecutionArtifactMaterializer`, and
+  - the live-query rerun query-session bridge.
+- Materialized query artifacts call back into the same HTTP handler for
+  `/invoke/syscall`, preserving the backend-owned transaction/session boundary.
+
+Why it changed:
+
+The previous checkpoint added the artifact-side query-session route, but the
+executor HTTP maintenance route still needed a concrete callback. This
+checkpoint connects those pieces for local/dev and tests without changing the
+core HTTP adapter API.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution runs under backend coordination.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code is isolated from direct database access.
+- `crates/sync/src/worker.rs`
+  - query reruns are part of sync worker behavior.
+
+Flarex differences:
+
+- Convex has no Miniflare/materialized artifact loop. Flarex uses one locally
+  because hosted Flarex will run uploaded source packages in managed Cloudflare
+  runtime artifacts.
+- This helper targets the forward Postgres executor path, not the legacy
+  Durable Object backend runtime used by older local dev routes.
+
+Known limitations:
+
+- Hosted Dynamic Worker loading remains future work.
+- The helper currently materializes from active package metadata and therefore
+  requires stored module source text in local/test packages.
+- It does not yet integrate with the Vite plugin's legacy DO dev backend.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor typecheck
+git diff --check
+```
+
 ## Postgres Executor Transport Bridge
 
 Previous completed checkpoint: `6c7c80a` Harden generated indexed query API.
