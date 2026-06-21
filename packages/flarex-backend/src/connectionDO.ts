@@ -40,6 +40,17 @@ type ActiveQuery = {
   rerunQueued?: boolean;
 };
 
+type LiveQueryDeliveryChange = {
+  deploymentId: string;
+  connectionId: string;
+  queryId: QueryId;
+  functionPath: string;
+  argsJson: Json;
+  resultJson: Json;
+  previousResultHash: string;
+  resultHash: string;
+};
+
 type ConnectionState = {
   deploymentId: string | null;
   connectionName: string | null;
@@ -65,6 +76,9 @@ export class ConnectionDO extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/invalidate" && request.method === "POST") {
       return this.invalidate(await request.json());
+    }
+    if (url.pathname === "/deliver/live-query" && request.method === "POST") {
+      return this.deliverLiveQueryChanges(await request.json());
     }
     if (request.headers.get("Upgrade") !== "websocket") {
       return json({ service: "flarex-connection", status: "ok" });
@@ -331,6 +345,60 @@ export class ConnectionDO extends DurableObject<Env> {
     return json({ invalidated: true });
   }
 
+  private async deliverLiveQueryChanges(body: unknown): Promise<Response> {
+    const deliveries = liveQueryDeliveryChangesFromBody(body);
+    const startVersion = this.currentVersion();
+    const modifications: StateModification[] = [];
+    let skipped = 0;
+
+    for (const delivery of deliveries) {
+      if (this.state.deploymentId !== null && delivery.deploymentId !== this.state.deploymentId) {
+        skipped += 1;
+        continue;
+      }
+      if (this.state.connectionName !== null && delivery.connectionId !== this.state.connectionName) {
+        skipped += 1;
+        continue;
+      }
+      const query = this.state.queries.get(delivery.queryId);
+      if (query === undefined) {
+        skipped += 1;
+        continue;
+      }
+      if (query.resultHash === delivery.resultHash) {
+        skipped += 1;
+        continue;
+      }
+      if (
+        query.resultHash !== undefined &&
+        query.resultHash !== delivery.previousResultHash
+      ) {
+        skipped += 1;
+        continue;
+      }
+
+      query.resultHash = delivery.resultHash;
+      this.state.ts += 1;
+      modifications.push({
+        type: "QueryUpdated",
+        queryId: delivery.queryId,
+        value: delivery.resultJson,
+        logLines: [],
+        journal: query.journal,
+      });
+    }
+
+    if (modifications.length > 0) {
+      for (const ws of this.ctx.getWebSockets()) {
+        await this.sendTransition(ws, startVersion, modifications);
+      }
+    }
+    return json({
+      delivered: modifications.length,
+      skipped,
+    });
+  }
+
   private async rerunQueriesForPartition(ws: WebSocket, partitionKey: string): Promise<void> {
     const stateModifications: StateModification[] = [];
     const startVersion = this.currentVersion();
@@ -514,6 +582,72 @@ function queryIdFromInvalidation(body: unknown): QueryId {
     return (body as { queryId: number }).queryId;
   }
   throw new Error("Invalidation queryId must be an integer.");
+}
+
+function liveQueryDeliveryChangesFromBody(body: unknown): LiveQueryDeliveryChange[] {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    Array.isArray(body) ||
+    !Array.isArray((body as { deliveries?: unknown }).deliveries)
+  ) {
+    throw new Error("Live query delivery body must be an object with a deliveries array.");
+  }
+  return (body as { deliveries: unknown[] }).deliveries.map((value, index) =>
+    liveQueryDeliveryChangeFromUnknown(value, `deliveries[${index}]`),
+  );
+}
+
+function liveQueryDeliveryChangeFromUnknown(
+  value: unknown,
+  path: string,
+): LiveQueryDeliveryChange {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${path} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
+    connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
+    queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),
+    functionPath: requiredDeliveryString(record.functionPath, `${path}.functionPath`),
+    argsJson: deliveryJson(record.argsJson, `${path}.argsJson`),
+    resultJson: deliveryJson(record.resultJson, `${path}.resultJson`),
+    previousResultHash: requiredDeliveryString(
+      record.previousResultHash,
+      `${path}.previousResultHash`,
+    ),
+    resultHash: requiredDeliveryString(record.resultHash, `${path}.resultHash`),
+  };
+}
+
+function requiredDeliveryString(value: unknown, field: string): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(`${field} must be a non-empty string.`);
+}
+
+function requiredDeliveryInteger(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  throw new Error(`${field} must be an integer.`);
+}
+
+function deliveryJson(value: unknown, field: string): Json {
+  if (isDeliveryJson(value)) return value;
+  throw new Error(`${field} must be a JSON value.`);
+}
+
+function isDeliveryJson(value: unknown): value is Json {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) return value.every(isDeliveryJson);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value as Record<string, unknown>).every(isDeliveryJson);
 }
 
 function parseSocketMessage(message: string | ArrayBuffer): unknown {

@@ -294,6 +294,53 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## ConnectionDO Materialized Delivery Consumer
+
+Previous completed checkpoint: `3c9952e` Add live query delivery maintenance
+route.
+
+What changed:
+
+- Added `ConnectionDO` internal fanout endpoint `POST /deliver/live-query`.
+- The endpoint consumes the same `LiveQueryChange` shape stored in
+  `live_query_deliveries.payload_json`.
+- Accepted deliveries are emitted as public sync `Transition` messages with
+  `QueryUpdated` modifications.
+- The active connection's `resultHash` is used to skip duplicate and stale
+  deliveries.
+
+Why it changed:
+
+The trusted Postgres executor now materializes changed live-query results and
+stores durable delivery rows. A Cloudflare socket owner must publish those rows
+without rerunning user code and without exposing Postgres state to the client.
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  - result hashes dedupe query transitions.
+- `crates/sync/src/worker.rs`
+  - transition emission is owned by sync worker state after result computation.
+
+Flarex differences:
+
+- Convex's sync worker owns both result computation and socket transition
+  emission. Flarex splits result computation into the trusted executor and
+  socket transition emission into `ConnectionDO`.
+
+Known limitations:
+
+- No executor/Nitro delivery callback routes rows to `ConnectionDO` yet.
+- `ConnectionDO` active query state is not durable across DO eviction.
+- Delivery payloads still do not include logs, journals, or error results.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## Live-Query Delivery Maintenance Route
 
 Previous completed checkpoint: `3f96fa6` Add durable live query delivery outbox.

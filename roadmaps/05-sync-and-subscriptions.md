@@ -268,6 +268,87 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## ConnectionDO Live-Query Delivery Consumer
+
+Previous completed checkpoint: `3c9952e` Add live query delivery maintenance route.
+
+What changed:
+
+- Added internal `ConnectionDO` endpoint:
+  - `POST /deliver/live-query`
+- The endpoint accepts materialized `LiveQueryChange` payloads grouped as:
+
+```ts
+{
+  deliveries: Array<{
+    deploymentId,
+    connectionId,
+    queryId,
+    functionPath,
+    argsJson,
+    resultJson,
+    previousResultHash,
+    resultHash,
+  }>
+}
+```
+
+- Active `ConnectionDO` instances now turn accepted deliveries into sync
+  `Transition` messages with `QueryUpdated` modifications.
+- Delivery application is idempotent against the active query `resultHash`:
+  duplicate `resultHash` payloads are skipped, and stale
+  `previousResultHash` payloads are skipped.
+- Added Miniflare sync tests proving:
+  - a materialized delivery reaches the active WebSocket without rerunning user
+    code,
+  - stale delivery rows are skipped and do not overwrite newer socket state.
+
+Why it matters for sync:
+
+The previous checkpoint exposed durable delivery rows through an HTTP/Nitro
+maintenance route, but no socket owner could consume them. This checkpoint adds
+the first real fanout consumer:
+
+```txt
+live_query_deliveries
+  -> maintenance deliver callback
+  -> ConnectionDO /deliver/live-query
+  -> WebSocket Transition(QueryUpdated)
+```
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  - `complete_fetch` tracks query result hashes and suppresses unchanged
+    modifications.
+- `crates/sync/src/worker.rs`
+  - emits `ServerMessage::Transition` after changed query results have been
+    computed.
+
+Flarex differences:
+
+- Convex keeps this inside one sync worker state machine. Flarex splits it:
+  the Postgres executor materializes changed query results, while
+  `ConnectionDO` owns the WebSocket session and transition versions.
+- The delivery endpoint does not rerun queries. It only publishes already
+  materialized results from trusted executor delivery rows.
+
+Known limitations:
+
+- The Nitro delivery maintenance route is not yet wired to call
+  `ConnectionDO` by name.
+- `ConnectionDO` query state is still in memory; durable WebSocket hibernation
+  restoration for query state is not implemented.
+- Logs, error transitions, and journal updates are still not carried in
+  `LiveQueryChange`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## Live-Query Delivery Maintenance Endpoint
 
 Previous completed checkpoint: `3f96fa6` Add durable live query delivery outbox.

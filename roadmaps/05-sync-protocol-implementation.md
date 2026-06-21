@@ -1,5 +1,56 @@
 # Sync Protocol Implementation Details
 
+## Materialized Delivery Consumer
+
+Previous completed checkpoint: `3c9952e` Add live query delivery maintenance
+route.
+
+What changed:
+
+- Added `ConnectionDO` support for `POST /deliver/live-query`.
+- The endpoint accepts already-materialized live-query delivery payloads and
+  emits `Transition` messages to active WebSockets.
+- Delivery is guarded by the active query hash:
+  - matching `resultHash` is treated as duplicate and skipped,
+  - mismatched `previousResultHash` is treated as stale and skipped,
+  - matching `previousResultHash` advances the active query result and emits
+    `QueryUpdated`.
+- Added sync tests for successful materialized delivery and stale delivery
+  suppression.
+
+Why it changed:
+
+The Postgres executor path now produces durable live-query delivery rows. The
+socket/session owner must be able to publish those rows without rerunning user
+code inside `ConnectionDO`.
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  - query `result_hash` is the dedupe guard for transition modifications.
+- `crates/sync/src/worker.rs`
+  - sends `ServerMessage::Transition` only after the next query result is known.
+
+Flarex differences:
+
+- Convex's sync worker computes and sends the transition in one loop. Flarex's
+  Postgres path computes the result in the trusted executor, persists a delivery
+  row, then asks `ConnectionDO` to publish the already-materialized value.
+
+Known limitations:
+
+- `ConnectionDO` still stores active query state in memory.
+- No automatic bridge from `live_query_deliveries` to `ConnectionDO` exists yet.
+- Error payloads, log lines, and query journals are not in the durable delivery
+  payload yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## Superseded Transport Constraint
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

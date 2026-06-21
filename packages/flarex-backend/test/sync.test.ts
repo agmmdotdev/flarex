@@ -194,6 +194,170 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("delivers materialized live query changes to active WebSocket connections", async () => {
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-delivery-deployment");
+
+    const ws = await openSync(harness, "sync-delivery-deployment", "delivery-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 14,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", value: { user: "Ada" } }],
+    });
+    expect(runtimeCalls).toHaveLength(1);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-delivery-deployment:delivery-session",
+    );
+    const delivered = nextJsonMessage(ws);
+    const response = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            deploymentId: "sync-delivery-deployment",
+            connectionId: "connection:sync-delivery-deployment:delivery-session",
+            queryId: 14,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ delivered: 1, skipped: 0 });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 0 },
+      endVersion: { querySet: 1, ts: 4, identity: 0 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 14,
+          value: { user: "Grace" },
+          logLines: [],
+          journal: null,
+        },
+      ],
+    });
+    expect(runtimeCalls).toHaveLength(1);
+    ws.close();
+  });
+
+  it("skips stale live query delivery rows for active WebSocket connections", async () => {
+    const harness = await createSyncHarness([], () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-stale-delivery-deployment");
+
+    const ws = await openSync(harness, "sync-stale-delivery-deployment", "stale-delivery-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 15,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-stale-delivery-deployment:stale-delivery-session",
+    );
+    await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            deploymentId: "sync-stale-delivery-deployment",
+            connectionId: "connection:sync-stale-delivery-deployment:stale-delivery-session",
+            queryId: 15,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+        ],
+      }),
+    });
+    await nextJsonMessage(ws);
+
+    const stale = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            deploymentId: "sync-stale-delivery-deployment",
+            connectionId: "connection:sync-stale-delivery-deployment:stale-delivery-session",
+            queryId: 15,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Lin" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Lin"}',
+          },
+        ],
+      }),
+    });
+
+    expect(stale.status).toBe(200);
+    await expect(stale.json()).resolves.toEqual({ delivered: 0, skipped: 1 });
+    const valid = nextJsonMessage(ws);
+    await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            deploymentId: "sync-stale-delivery-deployment",
+            connectionId: "connection:sync-stale-delivery-deployment:stale-delivery-session",
+            queryId: 15,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Lin" },
+            previousResultHash: '{"user":"Grace"}',
+            resultHash: '{"user":"Lin"}',
+          },
+        ],
+      }),
+    });
+    await expect(valid).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", value: { user: "Lin" } }],
+    });
+    ws.close();
+  });
+
   it("coalesces concurrent invalidations for one query", async () => {
     let currentName = "Ada";
     let blockRerun = false;
