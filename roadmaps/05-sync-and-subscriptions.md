@@ -268,6 +268,95 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Durable Live-Query Delivery Outbox
+
+Previous completed checkpoint: `99ed29d` Add live query change delivery payload.
+
+What changed:
+
+- Added durable `live_query_deliveries` Postgres/PGlite storage with:
+  - `deployment_id`
+  - `delivery_id`
+  - `connection_id`
+  - `query_id`
+  - `payload_json`
+  - `delivered_at`
+  - `created_at`
+- Added low-level persistence helpers to insert, list undelivered, and mark
+  live-query deliveries delivered.
+- Added `recordLiveQueryRerunResult(...)` so a refreshed
+  `live_query_subscriptions` row and its delivery row are stored by one
+  persistence operation.
+- Updated `rerunLiveQuerySubscription(...)` and
+  `rerunStaleLiveQuerySubscriptions(...)` so changed result hashes create a
+  durable delivery row, while unchanged reruns only refresh the subscription
+  result/read set.
+- Added executor delivery-queue APIs:
+  - `listUndeliveredLiveQueryDeliveries(...)`
+  - `markLiveQueryDeliveriesDelivered(...)`
+  - `runLiveQueryDeliveryBatch(...)`
+- Kept `deliverChanges(...)` as an optional immediate callback, but the durable
+  delivery row is now the safer handoff point.
+
+Why it matters for sync:
+
+The previous checkpoint could produce a `LiveQueryChange` payload but delivery
+was callback-only. If callback delivery failed after the subscription result was
+persisted, the changed result could be lost because the next scan would see the
+query as already refreshed.
+
+The current flow is now:
+
+```txt
+stale live-query row
+  -> rerun query
+  -> compare result hash
+  -> atomically persist refreshed subscription result + delivery row
+  -> optional immediate callback
+  -> future ConnectionDO/WebSocket consumer reads live_query_deliveries
+  -> mark delivery delivered after successful socket fanout
+```
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  - `result_hash` is used to deduplicate unchanged query results before
+    producing client-facing modifications.
+- `crates/sync/src/worker.rs`
+  - invalidated queries are rerun, subscriptions are refilled, and transitions
+    are emitted only after the sync state has the next result.
+
+Flarex differences:
+
+- Convex keeps query state, invalidation, result comparison, and transition
+  emission inside the integrated sync worker. Flarex separates those concerns:
+  Postgres stores subscription results and delivery rows, while future
+  Cloudflare `ConnectionDO` instances own sockets.
+- This is an outbox-style queue for changed live-query results, not the commit
+  outbox used for write freshness projection.
+
+Known limitations:
+
+- No `ConnectionDO` or WebSocket consumer reads `live_query_deliveries` yet.
+- There is no lease/claim protocol for multiple fanout workers. Current batch
+  semantics are at-least-once and acknowledge only after the injected deliver
+  handler succeeds.
+- `LiveQueryChange` still omits logs and error-transition details.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+```
+
 ## Changed-Result Delivery Payload
 
 Previous completed checkpoint: `84b9422` Preserve JSON null live query values.

@@ -1235,6 +1235,15 @@ function fakeExecutor(
     async runOutboxDeliveryBatch() {
       return { events: [], delivered: 0, nextCursor: null, hasMore: false };
     },
+    async listUndeliveredLiveQueryDeliveries() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
+    },
+    async markLiveQueryDeliveriesDelivered() {
+      return { delivered: 0 };
+    },
+    async runLiveQueryDeliveryBatch() {
+      return { deliveries: [], delivered: 0, nextCursor: null, hasMore: false };
+    },
     async recordLiveQuerySubscription() {
       throw new Error(
         "recordLiveQuerySubscription is not implemented by test fake",

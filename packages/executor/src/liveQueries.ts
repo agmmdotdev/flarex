@@ -103,7 +103,20 @@ export async function rerunLiveQuerySubscription(
 ): Promise<RerunLiveQuerySubscriptionResult> {
   const rerun = await input.runQuery(input.subscription);
   const previousResultHash = input.subscription.resultHash;
-  const recorded = await recordLiveQuerySubscription(persistence, {
+  const resultHash = fingerprintJson(rerun.value);
+  const changed = previousResultHash !== resultHash;
+  const readSet = readSetToFreshnessReadSet(rerun.readSet, rerun.beginTs);
+  const deliveryPayload: LiveQueryChange = {
+    deploymentId: input.subscription.deploymentId,
+    connectionId: input.subscription.connectionId,
+    queryId: input.subscription.queryId,
+    functionPath: input.subscription.functionPath,
+    argsJson: input.subscription.argsJson as Json,
+    resultJson: rerun.value,
+    previousResultHash,
+    resultHash,
+  };
+  const recorded = await persistence.recordLiveQueryRerunResult({
     deploymentId: input.subscription.deploymentId,
     connectionId: input.subscription.connectionId,
     queryId: input.subscription.queryId,
@@ -111,21 +124,38 @@ export async function rerunLiveQuerySubscription(
     argsJson: input.subscription.argsJson as Json,
     partitionKey: input.subscription.partitionKey,
     beginTs: rerun.beginTs,
-    readSet: rerun.readSet,
+    readSetJson: readSet as Record<string, unknown>,
     resultJson: rerun.value,
+    resultHash,
+    ...(changed && input.deliveryId !== undefined
+      ? {
+          delivery: {
+            deploymentId: input.subscription.deploymentId,
+            deliveryId: input.deliveryId,
+            connectionId: input.subscription.connectionId,
+            queryId: input.subscription.queryId,
+            payloadJson: deliveryPayload,
+            ...(input.updatedAt === undefined
+              ? {}
+              : { createdAt: input.updatedAt }),
+          },
+        }
+      : {}),
     ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
   });
 
   return {
     subscription: recorded.subscription,
     previousResultHash,
-    resultHash: recorded.resultHash,
-    changed: previousResultHash !== recorded.resultHash,
+    resultHash,
+    changed,
+    delivery: recorded.delivery,
   };
 }
 
 export async function rerunStaleLiveQuerySubscriptions(
   persistence: FlarexExecutorPersistence,
+  ids: IdGenerator,
   input: RerunStaleLiveQuerySubscriptionsInput,
 ): Promise<RerunStaleLiveQuerySubscriptionsResult> {
   if (
@@ -150,6 +180,7 @@ export async function rerunStaleLiveQuerySubscriptions(
   for (const entry of staleToRerun) {
     const rerun = await rerunLiveQuerySubscription(persistence, {
       subscription: entry.subscription,
+      deliveryId: ids.nextId(),
       ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
       runQuery: input.runQuery,
     });

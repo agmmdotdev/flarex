@@ -222,11 +222,37 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         updatedAt: input.updatedAt ?? new Date("2026-06-19T00:00:00.000Z"),
       };
     },
+    async recordLiveQueryRerunResult(input) {
+      const subscription = await this.upsertLiveQuerySubscription(input);
+      return {
+        subscription,
+        delivery:
+          input.delivery === undefined
+            ? null
+            : {
+                deploymentId: input.delivery.deploymentId,
+                deliveryId: input.delivery.deliveryId,
+                connectionId: input.delivery.connectionId,
+                queryId: input.delivery.queryId,
+                payloadJson: input.delivery.payloadJson,
+                deliveredAt: null,
+                createdAt:
+                  input.delivery.createdAt ??
+                  new Date("2026-06-19T00:00:00.000Z"),
+              },
+      };
+    },
     async deleteLiveQuerySubscription() {
       return { deleted: 0 };
     },
     async listLiveQuerySubscriptions() {
       return [];
+    },
+    async listUndeliveredLiveQueryDeliveries() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
+    },
+    async markLiveQueryDeliveriesDelivered() {
+      return { delivered: 0 };
     },
   };
 }
@@ -285,6 +311,21 @@ export function fakeExecutor(
     },
     async runOutboxDeliveryBatch() {
       throw new Error("runOutboxDeliveryBatch is not implemented by test fake");
+    },
+    async listUndeliveredLiveQueryDeliveries() {
+      throw new Error(
+        "listUndeliveredLiveQueryDeliveries is not implemented by test fake",
+      );
+    },
+    async markLiveQueryDeliveriesDelivered() {
+      throw new Error(
+        "markLiveQueryDeliveriesDelivered is not implemented by test fake",
+      );
+    },
+    async runLiveQueryDeliveryBatch() {
+      throw new Error(
+        "runLiveQueryDeliveryBatch is not implemented by test fake",
+      );
     },
     async recordLiveQuerySubscription() {
       throw new Error(

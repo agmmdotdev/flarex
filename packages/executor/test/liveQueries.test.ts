@@ -316,6 +316,21 @@ describe("executor live query subscriptions", () => {
       previousResultHash: '["old"]',
       resultHash: '["new"]',
       changed: true,
+      delivery: {
+        deploymentId: "deployment_rerun_changed",
+        connectionId: "connection_a",
+        queryId: 1,
+        payloadJson: {
+          deploymentId: "deployment_rerun_changed",
+          connectionId: "connection_a",
+          queryId: 1,
+          functionPath: "messages:list",
+          argsJson: { teamId: "team_a" },
+          resultJson: ["new"],
+          previousResultHash: '["old"]',
+          resultHash: '["new"]',
+        },
+      },
       subscription: {
         beginTs: 20,
         readSetJson: {
@@ -339,6 +354,60 @@ describe("executor live query subscriptions", () => {
         resultHash: '["new"]',
       },
     ]);
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_rerun_changed",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deploymentId: "deployment_rerun_changed",
+          connectionId: "connection_a",
+          queryId: 1,
+          payloadJson: {
+            resultJson: ["new"],
+            previousResultHash: '["old"]',
+            resultHash: '["new"]',
+          },
+          deliveredAt: null,
+        },
+      ],
+      hasMore: false,
+    });
+
+    const delivered: unknown[] = [];
+    await expect(
+      executor.runLiveQueryDeliveryBatch({
+        deploymentId: "deployment_rerun_changed",
+        limit: 10,
+        deliveredAt: new Date("2026-06-20T00:15:00.000Z"),
+        async deliver(deliveries) {
+          delivered.push(...deliveries.map((delivery) => delivery.payloadJson));
+        },
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [{ connectionId: "connection_a", queryId: 1 }],
+      delivered: 1,
+      hasMore: false,
+    });
+    expect(delivered).toMatchObject([
+      {
+        deploymentId: "deployment_rerun_changed",
+        connectionId: "connection_a",
+        queryId: 1,
+        resultJson: ["new"],
+      },
+    ]);
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_rerun_changed",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
   });
 
   it("reruns a live query subscription and refreshes unchanged results", async () => {
@@ -370,6 +439,7 @@ describe("executor live query subscriptions", () => {
       previousResultHash: '{"a":1,"b":2}',
       resultHash: '{"a":1,"b":2}',
       changed: false,
+      delivery: null,
       subscription: {
         beginTs: 30,
         readSetJson: {
@@ -620,6 +690,16 @@ describe("executor live query subscriptions", () => {
           previousResultHash: '"old"',
           resultHash: '"new"',
           changed: true,
+          delivery: {
+            deploymentId: "deployment_batch_rerun",
+            connectionId: "connection_a",
+            queryId: 2,
+            payloadJson: {
+              resultJson: "new",
+              previousResultHash: '"old"',
+              resultHash: '"new"',
+            },
+          },
         },
       ],
       changes: [
@@ -651,6 +731,25 @@ describe("executor live query subscriptions", () => {
         resultHash: '"new"',
       },
     ]);
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_batch_rerun",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          connectionId: "connection_a",
+          queryId: 2,
+          payloadJson: {
+            resultJson: "new",
+            previousResultHash: '"old"',
+            resultHash: '"new"',
+          },
+          deliveredAt: null,
+        },
+      ],
+    });
   });
 
   it("reruns stale live query subscriptions and reports unchanged rows", async () => {
@@ -697,6 +796,7 @@ describe("executor live query subscriptions", () => {
           previousResultHash: '{"a":1,"b":2}',
           resultHash: '{"a":1,"b":2}',
           changed: false,
+          delivery: null,
           subscription: {
             beginTs: 25,
             readSetJson: { tables: [{ tableId: 1, observedTs: 25 }] },
@@ -704,6 +804,69 @@ describe("executor live query subscriptions", () => {
         },
       ],
       hasMoreStale: false,
+    });
+  });
+
+  it("keeps durable live query deliveries when immediate delivery fails", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_delivery_failure",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:changed"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_delivery_failure",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:changed",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      resultJson: "old",
+    });
+
+    await expect(
+      executor.rerunStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_delivery_failure",
+        freshnessStore,
+        deliverChanges: async () => {
+          throw new Error("socket delivery failed");
+        },
+        runQuery: async () => ({
+          value: "new",
+          beginTs: 25,
+          readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+        }),
+      }),
+    ).rejects.toThrow("socket delivery failed");
+
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_failure",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          connectionId: "connection_a",
+          queryId: 1,
+          payloadJson: {
+            resultJson: "new",
+            previousResultHash: '"old"',
+            resultHash: '"new"',
+          },
+          deliveredAt: null,
+        },
+      ],
+      hasMore: false,
     });
   });
 

@@ -131,6 +131,13 @@ export class OutboxDeliveryPolicyError extends Error {
   }
 }
 
+export class LiveQueryDeliveryPolicyError extends Error {
+  constructor(message: string) {
+    super(`Invalid live query delivery policy: ${message}`);
+    this.name = "LiveQueryDeliveryPolicyError";
+  }
+}
+
 export class LiveQuerySubscriptionRerunError extends Error {
   constructor(message: string) {
     super(`Cannot rerun live query subscription: ${message}`);

@@ -31,11 +31,17 @@ import type {
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
   ListLiveQuerySubscriptionsInput,
+  ListUndeliveredLiveQueryDeliveriesInput,
+  ListUndeliveredLiveQueryDeliveriesResult,
   ListOutboxEventsInput,
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  LiveQueryDeliveryCursor,
+  LiveQueryDeliveryRecord,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
+  MarkLiveQueryDeliveriesDeliveredInput,
+  MarkLiveQueryDeliveriesDeliveredResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
   DocumentRevisionRecord,
@@ -43,6 +49,8 @@ import type {
   ListDocumentsInIndexAtTsInput,
   OutboxEventCursor,
   OutboxEventRecord,
+  RecordLiveQueryRerunResultInput,
+  RecordLiveQueryRerunResultResult,
   UpsertLiveQuerySubscriptionInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
@@ -51,8 +59,14 @@ import type { ArtifactSourcePackage } from "flarex/artifacts";
 export type {
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  ListUndeliveredLiveQueryDeliveriesInput,
+  ListUndeliveredLiveQueryDeliveriesResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  MarkLiveQueryDeliveriesDeliveredInput,
+  MarkLiveQueryDeliveriesDeliveredResult,
+  LiveQueryDeliveryCursor,
+  LiveQueryDeliveryRecord,
   OutboxEventCursor,
 } from "@flarex/persistence-postgres";
 
@@ -106,6 +120,15 @@ export interface FlarexExecutor {
   runOutboxDeliveryBatch(
     input: RunOutboxDeliveryBatchInput,
   ): Promise<RunOutboxDeliveryBatchResult>;
+  listUndeliveredLiveQueryDeliveries(
+    input: ListUndeliveredLiveQueryDeliveriesInput,
+  ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
+  markLiveQueryDeliveriesDelivered(
+    input: MarkLiveQueryDeliveriesDeliveredInput,
+  ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
+  runLiveQueryDeliveryBatch(
+    input: RunLiveQueryDeliveryBatchInput,
+  ): Promise<RunLiveQueryDeliveryBatchResult>;
   recordLiveQuerySubscription(
     input: RecordLiveQuerySubscriptionInput,
   ): Promise<RecordLiveQuerySubscriptionResult>;
@@ -233,12 +256,21 @@ export interface FlarexExecutorPersistence {
   upsertLiveQuerySubscription(
     input: UpsertLiveQuerySubscriptionInput,
   ): Promise<LiveQuerySubscriptionRecord>;
+  recordLiveQueryRerunResult(
+    input: RecordLiveQueryRerunResultInput,
+  ): Promise<RecordLiveQueryRerunResultResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
   ): Promise<LiveQuerySubscriptionRecord[]>;
+  listUndeliveredLiveQueryDeliveries(
+    input: ListUndeliveredLiveQueryDeliveriesInput,
+  ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
+  markLiveQueryDeliveriesDelivered(
+    input: MarkLiveQueryDeliveriesDeliveredInput,
+  ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
 }
 
 export interface RunOutboxDeliveryBatchInput {
@@ -253,6 +285,21 @@ export interface RunOutboxDeliveryBatchResult {
   events: OutboxEventRecord[];
   delivered: number;
   nextCursor: OutboxEventCursor | null;
+  hasMore: boolean;
+}
+
+export interface RunLiveQueryDeliveryBatchInput {
+  deploymentId: string;
+  cursor?: LiveQueryDeliveryCursor;
+  limit?: number;
+  deliveredAt?: Date;
+  deliver(deliveries: LiveQueryDeliveryRecord[]): Promise<void>;
+}
+
+export interface RunLiveQueryDeliveryBatchResult {
+  deliveries: LiveQueryDeliveryRecord[];
+  delivered: number;
+  nextCursor: LiveQueryDeliveryCursor | null;
   hasMore: boolean;
 }
 
@@ -300,6 +347,7 @@ export interface RerunLiveQuerySubscriptionOutput {
 
 export interface RerunLiveQuerySubscriptionInput {
   subscription: LiveQuerySubscriptionRecord;
+  deliveryId?: string;
   updatedAt?: Date;
   runQuery(
     subscription: LiveQuerySubscriptionRecord,
@@ -311,6 +359,7 @@ export interface RerunLiveQuerySubscriptionResult {
   previousResultHash: string;
   resultHash: string;
   changed: boolean;
+  delivery: LiveQueryDeliveryRecord | null;
 }
 
 export interface LiveQueryChange {

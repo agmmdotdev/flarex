@@ -57,6 +57,7 @@ describe("createPGlitePersistence", () => {
       "invoke_session_table_reads",
       "invoke_sessions",
       "leases",
+      "live_query_deliveries",
       "live_query_subscriptions",
       "outbox",
       "persistence_globals",
@@ -2515,6 +2516,95 @@ describe("createPGlitePersistence", () => {
         ["deployment_live_query_null"],
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it("records live query rerun results with durable delivery rows", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const createdAt = new Date("2026-06-20T00:10:00.000Z");
+
+    await expect(
+      persistence.recordLiveQueryRerunResult({
+        deploymentId: "deployment_live_query_delivery",
+        connectionId: "connection_a",
+        queryId: 1,
+        functionPath: "messages:get",
+        argsJson: { id: "1:message" },
+        partitionKey: "team_a",
+        beginTs: 20,
+        readSetJson: {
+          documents: [{ tableId: 1, id: "1:message", observedTs: 20 }],
+        },
+        resultJson: { _id: "1:message", text: "fresh" },
+        resultHash: "fresh_hash",
+        updatedAt: createdAt,
+        delivery: {
+          deploymentId: "deployment_live_query_delivery",
+          deliveryId: "delivery_1",
+          connectionId: "connection_a",
+          queryId: 1,
+          payloadJson: {
+            deploymentId: "deployment_live_query_delivery",
+            connectionId: "connection_a",
+            queryId: 1,
+            functionPath: "messages:get",
+            argsJson: { id: "1:message" },
+            resultJson: { _id: "1:message", text: "fresh" },
+            previousResultHash: "old_hash",
+            resultHash: "fresh_hash",
+          },
+          createdAt,
+        },
+      }),
+    ).resolves.toMatchObject({
+      subscription: {
+        deploymentId: "deployment_live_query_delivery",
+        connectionId: "connection_a",
+        queryId: 1,
+        resultHash: "fresh_hash",
+      },
+      delivery: {
+        deploymentId: "deployment_live_query_delivery",
+        deliveryId: "delivery_1",
+        connectionId: "connection_a",
+        queryId: 1,
+        payloadJson: {
+          resultJson: { _id: "1:message", text: "fresh" },
+          previousResultHash: "old_hash",
+          resultHash: "fresh_hash",
+        },
+        deliveredAt: null,
+        createdAt,
+      },
+    });
+
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_live_query_delivery",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [{ deliveryId: "delivery_1", deliveredAt: null }],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.markLiveQueryDeliveriesDelivered({
+        deploymentId: "deployment_live_query_delivery",
+        deliveryIds: ["delivery_1"],
+        deliveredAt: new Date("2026-06-20T00:11:00.000Z"),
+      }),
+    ).resolves.toEqual({ delivered: 1 });
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_live_query_delivery",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
   });
 
   it("commits staged invoke session deletes after read validation", async () => {

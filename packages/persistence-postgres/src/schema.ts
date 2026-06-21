@@ -261,6 +261,39 @@ export const liveQuerySubscriptions = pgTable(
   ],
 );
 
+export const liveQueryDeliveries = pgTable(
+  "live_query_deliveries",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    queryId: bigint("query_id", { mode: "number" }).notNull(),
+    payloadJson: jsonb("payload_json").$type<unknown>().notNull(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.deliveryId],
+    }),
+    index("live_query_deliveries_by_undelivered").on(
+      table.deploymentId,
+      table.deliveredAt,
+      table.createdAt,
+      table.deliveryId,
+    ),
+    index("live_query_deliveries_by_connection").on(
+      table.deploymentId,
+      table.connectionId,
+      table.queryId,
+      table.createdAt,
+      table.deliveryId,
+    ),
+  ],
+);
+
 export const invokeSessions = pgTable(
   "invoke_sessions",
   {
@@ -418,6 +451,7 @@ export const flarexSchema = {
   invokeSessionDocumentWrites,
   invokeSessions,
   leases,
+  liveQueryDeliveries,
   liveQuerySubscriptions,
   outbox,
   persistenceGlobals,

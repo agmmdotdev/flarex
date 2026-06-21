@@ -68,8 +68,18 @@ import type {
   ListLiveQuerySubscriptionsInput,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
+  RecordLiveQueryRerunResultInput,
+  RecordLiveQueryRerunResultResult,
   UpsertLiveQuerySubscriptionInput,
 } from "./liveQuerySubscriptions";
+import type {
+  InsertLiveQueryDeliveryInput,
+  ListUndeliveredLiveQueryDeliveriesInput,
+  ListUndeliveredLiveQueryDeliveriesResult,
+  LiveQueryDeliveryRecord,
+  MarkLiveQueryDeliveriesDeliveredInput,
+  MarkLiveQueryDeliveriesDeliveredResult,
+} from "./liveQueryDeliveries";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -201,12 +211,24 @@ export interface FlarexPersistence extends FlarexSqlClient {
   upsertLiveQuerySubscription(
     input: UpsertLiveQuerySubscriptionInput,
   ): Promise<LiveQuerySubscriptionRecord>;
+  recordLiveQueryRerunResult(
+    input: RecordLiveQueryRerunResultInput,
+  ): Promise<RecordLiveQueryRerunResultResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
   ): Promise<LiveQuerySubscriptionRecord[]>;
+  insertLiveQueryDelivery(
+    input: InsertLiveQueryDeliveryInput,
+  ): Promise<LiveQueryDeliveryRecord>;
+  listUndeliveredLiveQueryDeliveries(
+    input: ListUndeliveredLiveQueryDeliveriesInput,
+  ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
+  markLiveQueryDeliveriesDelivered(
+    input: MarkLiveQueryDeliveriesDeliveredInput,
+  ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }
@@ -228,6 +250,7 @@ export * from "./invokeSessionWrites";
 export * from "./outbox";
 export * from "./freshness";
 export * from "./liveQuerySubscriptions";
+export * from "./liveQueryDeliveries";
 export * from "./validation";
 export { flarexSchema } from "./schema";
 export * from "./schema";

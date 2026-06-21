@@ -294,6 +294,72 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Durable Live-Query Delivery Rows
+
+Previous completed checkpoint: `99ed29d` Add live query change delivery payload.
+
+What changed:
+
+- Added Drizzle schema and migration `0010_sparkling_umar.sql` for
+  `live_query_deliveries`.
+- Added `liveQueryDeliveries` to `flarexSchema`.
+- Added Postgres/PGlite row helpers:
+  - `insertLiveQueryDelivery(...)`
+  - `listUndeliveredLiveQueryDeliveries(...)`
+  - `markLiveQueryDeliveriesDelivered(...)`
+- Added `recordLiveQueryRerunResult(...)` to persist the refreshed
+  `live_query_subscriptions` result and optional delivery row through one
+  adapter transaction.
+- Extended the framework-neutral executor with delivery batch helpers while
+  keeping Nitro/HTTP as adapters.
+- Updated PGlite tests to cover migration, delivery row persistence, JSONB
+  payload round-trip, and delivered acknowledgement.
+
+Why it changed:
+
+Changed live-query results need a durable handoff between the trusted Postgres
+executor and the future Cloudflare socket owner. The executor cannot rely only
+on an in-memory callback because the refreshed subscription result is already
+persisted by the time fanout happens.
+
+Convex references:
+
+- `crates/sync/src/state.rs`
+  - stores query result hashes and returns no modification when a rerun result
+    is unchanged.
+- `crates/sync/src/worker.rs`
+  - owns the loop that reruns invalidated queries and produces transitions.
+
+Flarex differences:
+
+- Convex does not need a separate SQL delivery table for changed query results
+  because its sync worker owns the transition channel. Flarex uses Postgres as
+  the durable bridge between trusted execution and Cloudflare `ConnectionDO`
+  fanout.
+- This table is not authoritative document state. It is a retryable delivery
+  queue for already-materialized live-query results.
+
+Known limitations:
+
+- No worker leases, `skip locked`, retry counters, or dead-letter state exist
+  yet for `live_query_deliveries`.
+- No HTTP endpoint exposes the delivery queue directly yet.
+- No WebSocket/`ConnectionDO` consumer marks rows delivered.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+```
+
 ## Live-Query Change Delivery Shape
 
 Previous completed checkpoint: `84b9422` Preserve JSON null live query values.

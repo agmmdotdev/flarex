@@ -1,6 +1,11 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  insertLiveQueryDelivery,
+  type InsertLiveQueryDeliveryInput,
+  type LiveQueryDeliveryRecord,
+} from "./liveQueryDeliveries";
 import { liveQuerySubscriptions } from "./schema";
 
 export interface LiveQuerySubscriptionKey {
@@ -31,6 +36,16 @@ export interface DeleteLiveQuerySubscriptionResult {
 
 export type LiveQuerySubscriptionRecord =
   typeof liveQuerySubscriptions.$inferSelect;
+
+export interface RecordLiveQueryRerunResultInput
+  extends UpsertLiveQuerySubscriptionInput {
+  delivery?: InsertLiveQueryDeliveryInput;
+}
+
+export interface RecordLiveQueryRerunResultResult {
+  subscription: LiveQuerySubscriptionRecord;
+  delivery: LiveQueryDeliveryRecord | null;
+}
 
 export async function upsertLiveQuerySubscription(
   db: FlarexMetadataDatabase,
@@ -77,6 +92,21 @@ export async function upsertLiveQuerySubscription(
     );
   }
   return subscription;
+}
+
+export async function recordLiveQueryRerunResult(
+  db: FlarexMetadataDatabase,
+  input: RecordLiveQueryRerunResultInput,
+): Promise<RecordLiveQueryRerunResultResult> {
+  const subscription = await upsertLiveQuerySubscription(db, input);
+  const delivery =
+    input.delivery === undefined
+      ? null
+      : await insertLiveQueryDelivery(db, input.delivery);
+  return {
+    subscription,
+    delivery,
+  };
 }
 
 export async function deleteLiveQuerySubscription(

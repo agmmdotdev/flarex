@@ -12,6 +12,11 @@ import {
   runOutboxDeliveryBatch,
 } from "./outbox";
 import {
+  listUndeliveredLiveQueryDeliveries,
+  markLiveQueryDeliveriesDelivered,
+  runLiveQueryDeliveryBatch,
+} from "./liveQueryDeliveries";
+import {
   findStaleLiveQuerySubscriptions,
   fingerprintJson,
   recordLiveQuerySubscription,
@@ -58,6 +63,7 @@ export {
   InvokeRetryExhaustedError,
   InvokeRetryPolicyError,
   LiveQuerySubscriptionRerunError,
+  LiveQueryDeliveryPolicyError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -121,10 +127,16 @@ export type {
   Json,
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  ListUndeliveredLiveQueryDeliveriesInput,
+  ListUndeliveredLiveQueryDeliveriesResult,
   ListMaintenanceDeploymentsInput,
   ListMaintenanceDeploymentsResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  MarkLiveQueryDeliveriesDeliveredInput,
+  MarkLiveQueryDeliveriesDeliveredResult,
+  LiveQueryDeliveryCursor,
+  LiveQueryDeliveryRecord,
   LiveQueryChange,
   MaintenanceSweepDeploymentResult,
   RunInvokeSessionMaintenanceInput,
@@ -141,6 +153,8 @@ export type {
   RegisterDeploymentPackageResult,
   RunOutboxDeliveryBatchInput,
   RunOutboxDeliveryBatchResult,
+  RunLiveQueryDeliveryBatchInput,
+  RunLiveQueryDeliveryBatchResult,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
@@ -189,6 +203,12 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       markOutboxEventsDelivered(persistence, input),
     runOutboxDeliveryBatch: (input) =>
       runOutboxDeliveryBatch(persistence, clock, input),
+    listUndeliveredLiveQueryDeliveries: (input) =>
+      listUndeliveredLiveQueryDeliveries(persistence, input),
+    markLiveQueryDeliveriesDelivered: (input) =>
+      markLiveQueryDeliveriesDelivered(persistence, input),
+    runLiveQueryDeliveryBatch: (input) =>
+      runLiveQueryDeliveryBatch(persistence, clock, input),
     recordLiveQuerySubscription: (input) =>
       recordLiveQuerySubscription(persistence, input),
     removeLiveQuerySubscription: (input) =>
@@ -196,9 +216,12 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     findStaleLiveQuerySubscriptions: (input) =>
       findStaleLiveQuerySubscriptions(persistence, input),
     rerunLiveQuerySubscription: (input) =>
-      rerunLiveQuerySubscription(persistence, input),
+      rerunLiveQuerySubscription(persistence, {
+        ...input,
+        deliveryId: input.deliveryId ?? ids.nextId(),
+      }),
     rerunStaleLiveQuerySubscriptions: (input) =>
-      rerunStaleLiveQuerySubscriptions(persistence, input),
+      rerunStaleLiveQuerySubscriptions(persistence, ids, input),
     runLiveQuerySubscriptionWithInvoke: (input) =>
       runLiveQuerySubscriptionWithInvoke(persistence, clock, ids, input),
     runMaintenanceSweep: (input) =>

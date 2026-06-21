@@ -33,13 +33,20 @@ import {
   type OutboxEventRecord,
   type ListDeploymentMetadataInput,
   type ListLiveQuerySubscriptionsInput,
+  type ListUndeliveredLiveQueryDeliveriesInput,
+  type ListUndeliveredLiveQueryDeliveriesResult,
   type ListOutboxEventsInput,
   type ListOutboxEventsResult,
   type ListUndeliveredOutboxEventsInput,
+  type LiveQueryDeliveryRecord,
   type LiveQuerySubscriptionKey,
   type LiveQuerySubscriptionRecord,
+  type MarkLiveQueryDeliveriesDeliveredInput,
+  type MarkLiveQueryDeliveriesDeliveredResult,
   type MarkOutboxEventsDeliveredInput,
   type MarkOutboxEventsDeliveredResult,
+  type RecordLiveQueryRerunResultInput,
+  type RecordLiveQueryRerunResultResult,
   schemaTableValidatorsFromAnalysis,
   type InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataAlreadyExistsError,
@@ -130,6 +137,7 @@ export function memoryPersistence(
   const commits: Array<{ deploymentId: string; ts: number }> = [];
   const outboxEvents: OutboxEventRecord[] = [];
   const liveQuerySubscriptions = new Map<string, LiveQuerySubscriptionRecord>();
+  const liveQueryDeliveries: LiveQueryDeliveryRecord[] = [];
 
   return {
     async check() {
@@ -852,6 +860,22 @@ export function memoryPersistence(
       liveQuerySubscriptions.set(key, subscription);
       return subscription;
     },
+    async recordLiveQueryRerunResult(
+      input: RecordLiveQueryRerunResultInput,
+    ): Promise<RecordLiveQueryRerunResultResult> {
+      const subscription = await this.upsertLiveQuerySubscription(input);
+      const delivery =
+        input.delivery === undefined
+          ? null
+          : liveQueryDelivery(input.delivery);
+      if (delivery !== null) {
+        liveQueryDeliveries.push(delivery);
+      }
+      return {
+        subscription,
+        delivery,
+      };
+    },
     async deleteLiveQuerySubscription(
       input: LiveQuerySubscriptionKey,
     ): Promise<{ deleted: number }> {
@@ -875,6 +899,62 @@ export function memoryPersistence(
             left.connectionId.localeCompare(right.connectionId) ||
             left.queryId - right.queryId,
         );
+    },
+    async listUndeliveredLiveQueryDeliveries(
+      input: ListUndeliveredLiveQueryDeliveriesInput,
+    ): Promise<ListUndeliveredLiveQueryDeliveriesResult> {
+      const sorted = liveQueryDeliveries
+        .filter(
+          (delivery) =>
+            delivery.deploymentId === input.deploymentId &&
+            delivery.deliveredAt === null &&
+            (input.cursor === undefined ||
+              delivery.createdAt > input.cursor.createdAt ||
+              (delivery.createdAt.getTime() ===
+                input.cursor.createdAt.getTime() &&
+                delivery.deliveryId > input.cursor.deliveryId)),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            left.deliveryId.localeCompare(right.deliveryId),
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const deliveries = rows.slice(0, input.limit);
+      const hasMore = rows.length > input.limit;
+      const last = deliveries.at(-1);
+      return {
+        deliveries,
+        hasMore,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                createdAt: last.createdAt,
+                deliveryId: last.deliveryId,
+              }
+            : null,
+      };
+    },
+    async markLiveQueryDeliveriesDelivered(
+      input: MarkLiveQueryDeliveriesDeliveredInput,
+    ): Promise<MarkLiveQueryDeliveriesDeliveredResult> {
+      const deliveryIds = new Set(input.deliveryIds);
+      let delivered = 0;
+      for (let index = 0; index < liveQueryDeliveries.length; index += 1) {
+        const delivery = liveQueryDeliveries[index]!;
+        if (
+          delivery.deploymentId === input.deploymentId &&
+          delivery.deliveredAt === null &&
+          deliveryIds.has(delivery.deliveryId)
+        ) {
+          liveQueryDeliveries[index] = {
+            ...delivery,
+            deliveredAt: input.deliveredAt,
+          };
+          delivered += 1;
+        }
+      }
+      return { delivered };
     },
   };
 }
@@ -920,6 +1000,25 @@ function liveQuerySubscriptionKey(input: {
   queryId: number;
 }): string {
   return `${input.deploymentId}:${input.connectionId}:${input.queryId}`;
+}
+
+function liveQueryDelivery(input: {
+  deploymentId: string;
+  deliveryId: string;
+  connectionId: string;
+  queryId: number;
+  payloadJson: unknown;
+  createdAt?: Date;
+}): LiveQueryDeliveryRecord {
+  return {
+    deploymentId: input.deploymentId,
+    deliveryId: input.deliveryId,
+    connectionId: input.connectionId,
+    queryId: input.queryId,
+    payloadJson: input.payloadJson,
+    deliveredAt: null,
+    createdAt: input.createdAt ?? new Date("2026-06-20T00:00:00.000Z"),
+  };
 }
 
 export function deploymentPackageMetadata(

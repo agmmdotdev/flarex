@@ -286,13 +286,35 @@ describe("createLocalExecutorHttpRuntime", () => {
     }
 
     await expect(
-      persistence.getInvokeSessionMetadata(
-        "deployment-pglite-live",
-        "session_pglite_2",
+      persistence.query<{ count: number }>(
+        `
+          select count(*)::int as count
+          from invoke_sessions
+          where deployment_id = $1
+            and function_kind = 'query'
+            and state = 'finished'
+        `,
+        ["deployment-pglite-live"],
       ),
+    ).resolves.toMatchObject({ rows: [{ count: 1 }] });
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment-pglite-live",
+        limit: 10,
+      }),
     ).resolves.toMatchObject({
-      state: "finished",
-      functionKind: "query",
+      deliveries: [
+        {
+          connectionId: "connection-pglite",
+          queryId: 1,
+          payloadJson: {
+            resultJson: { _id: "1:message", text: "fresh" },
+            previousResultHash: initial.resultHash,
+          },
+          deliveredAt: null,
+        },
+      ],
+      hasMore: false,
     });
     await expect(
       persistence.listLiveQuerySubscriptions({

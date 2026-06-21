@@ -69,8 +69,14 @@ import {
 import {
   deleteLiveQuerySubscription as deleteLiveQuerySubscriptionWithDb,
   listLiveQuerySubscriptions as listLiveQuerySubscriptionsWithDb,
+  recordLiveQueryRerunResult as recordLiveQueryRerunResultWithDb,
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
 } from "./liveQuerySubscriptions";
+import {
+  insertLiveQueryDelivery as insertLiveQueryDeliveryWithDb,
+  listUndeliveredLiveQueryDeliveries as listUndeliveredLiveQueryDeliveriesWithDb,
+  markLiveQueryDeliveriesDelivered as markLiveQueryDeliveriesDeliveredWithDb,
+} from "./liveQueryDeliveries";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -203,10 +209,23 @@ export async function createPGlitePersistence(
       getTableFreshnessVersionWithDb(drizzleDb, deploymentId, tableId),
     upsertLiveQuerySubscription: (input) =>
       upsertLiveQuerySubscriptionWithDb(drizzleDb, input),
+    recordLiveQueryRerunResult: (input) =>
+      drizzleDb.transaction((tx) =>
+        recordLiveQueryRerunResultWithDb(
+          tx as unknown as Parameters<typeof recordLiveQueryRerunResultWithDb>[0],
+          input,
+        ),
+      ),
     deleteLiveQuerySubscription: (input) =>
       deleteLiveQuerySubscriptionWithDb(drizzleDb, input),
     listLiveQuerySubscriptions: (input) =>
       listLiveQuerySubscriptionsWithDb(drizzleDb, input),
+    insertLiveQueryDelivery: (input) =>
+      insertLiveQueryDeliveryWithDb(drizzleDb, input),
+    listUndeliveredLiveQueryDeliveries: (input) =>
+      listUndeliveredLiveQueryDeliveriesWithDb(drizzleDb, input),
+    markLiveQueryDeliveriesDelivered: (input) =>
+      markLiveQueryDeliveriesDeliveredWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });
