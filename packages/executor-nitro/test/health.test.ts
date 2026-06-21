@@ -19,6 +19,7 @@ import {
   healthyPersistence,
   jsonRequest,
   preparedInvokeResult,
+  testFreshnessStore,
 } from "./helpers";
 
 describe("createFlarexNitroHandler", () => {
@@ -145,6 +146,57 @@ describe("createFlarexNitroHandler", () => {
         partitionKey: "team:1",
       },
       executionModule: "_flarex/execution.js",
+    });
+  });
+
+  it("maps live query rerun maintenance requests through the Nitro handler", async () => {
+    const freshnessStore = testFreshnessStore();
+    const calls: Array<{ deploymentId: string; limit?: number }> = [];
+    const handler = createFlarexNitroHandler({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions(input) {
+          calls.push({
+            deploymentId: input.deploymentId,
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+          });
+          expect(input.freshnessStore).toBe(freshnessStore);
+          return {
+            scanned: { fresh: [], stale: [], unsupported: [] },
+            changed: [],
+            unchanged: [],
+            unsupported: [],
+            hasMoreStale: false,
+          };
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore,
+        runQuery: async () => ({
+          value: null,
+          beginTs: 1,
+          readSet: {},
+        }),
+      },
+    });
+
+    const response = await handler({
+      request: jsonRequest(
+        "https://executor.test/maintenance/live-queries/rerun",
+        {
+          deploymentId: "deployment_active",
+          limit: 3,
+        },
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{ deploymentId: "deployment_active", limit: 3 }]);
+    await expect(response.json()).resolves.toEqual({
+      scanned: { fresh: [], stale: [], unsupported: [] },
+      changed: [],
+      unchanged: [],
+      unsupported: [],
+      hasMoreStale: false,
     });
   });
 

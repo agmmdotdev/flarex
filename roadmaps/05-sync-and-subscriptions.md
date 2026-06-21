@@ -363,6 +363,65 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Live-Query Rerun Maintenance Route
+
+Previous completed checkpoint: `2b91699` Add batch stale live query rerun.
+
+What changed:
+
+- Added `POST /maintenance/live-queries/rerun` to `@flarex/executor-http`.
+- Exposed the same route through the Nitro adapter.
+- The route accepts `{ deploymentId, limit? }`.
+- The route requires configured live-query rerun dependencies:
+  - a freshness store, and
+  - a `runQuery(subscription)` callback.
+- Added HTTP and Nitro tests for the configured route, invalid input,
+  missing configuration, and method handling.
+
+Why it matters for sync:
+
+The scheduler core now has a service boundary:
+
+```txt
+cron / scheduler
+  -> POST /maintenance/live-queries/rerun
+  -> rerunStaleLiveQuerySubscriptions(...)
+```
+
+This keeps fanout separate while making stale-query reruns callable by Nitro,
+Vercel cron, local tests, or future scheduled workers.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend worker is the callable runtime boundary for processing stale query
+    work.
+- `crates/application/src/api.rs`
+  - server APIs expose backend operations while keeping execution internals
+    behind trusted boundaries.
+
+Flarex differences:
+
+- Convex owns this inside its backend worker. Flarex exposes an HTTP/Nitro route
+  because scheduler hosting is deliberately framework-neutral.
+
+Known limitations:
+
+- The route does not implement real Dynamic Worker query execution yet.
+- The route does not fan out changed results to connected clients yet.
+- The route returns 501 until a freshness store and `runQuery` callback are
+  configured.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

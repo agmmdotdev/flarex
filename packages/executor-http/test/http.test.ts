@@ -26,6 +26,7 @@ import {
   type PrepareInvokeInput,
   type PrepareInvokeResult,
   type RunInvokeSessionMaintenanceInput,
+  type RerunStaleLiveQuerySubscriptionsInput,
 } from "@flarex/executor";
 
 import { createFlarexHttpApp } from "../src";
@@ -750,6 +751,152 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps live query rerun maintenance requests to the executor core", async () => {
+    const freshnessStore = testFreshnessStore();
+    const runQuery: RerunStaleLiveQuerySubscriptionsInput["runQuery"] =
+      async () => ({
+        value: null,
+        beginTs: 1,
+        readSet: {},
+      });
+    const calls: Array<{
+      deploymentId: string;
+      limit?: number;
+      freshnessStore: unknown;
+      runQuery: unknown;
+    }> = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions(input) {
+          calls.push({
+            deploymentId: input.deploymentId,
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+            freshnessStore: input.freshnessStore,
+            runQuery: input.runQuery,
+          });
+          return {
+            scanned: { fresh: [], stale: [], unsupported: [] },
+            changed: [],
+            unchanged: [],
+            unsupported: [],
+            hasMoreStale: false,
+          };
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore,
+        runQuery,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+        limit: 2,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        limit: 2,
+        freshnessStore,
+        runQuery,
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      scanned: { fresh: [], stale: [], unsupported: [] },
+      changed: [],
+      unchanged: [],
+      unsupported: [],
+      hasMoreStale: false,
+    });
+  });
+
+  it("requires live query rerun maintenance configuration", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toEqual({
+      error: "not_implemented",
+      message: "Live query rerun maintenance is not configured.",
+    });
+  });
+
+  it("validates live query rerun maintenance requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore: testFreshnessStore(),
+        runQuery: async () => ({
+          value: null,
+          beginTs: 1,
+          readSet: {},
+        }),
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+        limit: 0,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
+    });
+  });
+
+  it("rejects non-POST live query rerun maintenance requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+      liveQueryRerun: {
+        freshnessStore: testFreshnessStore(),
+        runQuery: async () => ({
+          value: null,
+          beginTs: 1,
+          readSet: {},
+        }),
+      },
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/maintenance/live-queries/rerun"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/maintenance/live-queries/rerun only supports POST",
+    });
+  });
+
   it("returns a JSON 404 for unknown routes", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
@@ -1141,6 +1288,24 @@ function jsonRequest(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
+}
+
+function testFreshnessStore(): RerunStaleLiveQuerySubscriptionsInput["freshnessStore"] {
+  return {
+    async applyCommitFreshness() {
+      return {
+        applied: true,
+        documentVersions: [],
+        tableVersions: [],
+      };
+    },
+    getDocumentVersion() {
+      return null;
+    },
+    getTableVersion() {
+      return null;
+    },
+  };
 }
 
 async function expectPrepareError(error: Error): Promise<{

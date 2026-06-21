@@ -436,6 +436,55 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Live-Query Rerun Maintenance Route
+
+Previous completed checkpoint: `2b91699` Add batch stale live query rerun.
+
+What changed:
+
+- Added an HTTP adapter route for batch stale live-query reruns:
+  `POST /maintenance/live-queries/rerun`.
+- Added `liveQueryRerun` adapter config carrying:
+  - `freshnessStore`, and
+  - `runQuery`.
+- Added `maintenanceLiveQueryRerunPath` so hosts can customize the route.
+- Nitro inherits the route through `createFlarexNitroHandler(...)`.
+
+Why it changed:
+
+The Postgres executor now has framework-neutral batch rerun logic, but
+schedulers need a callable boundary. The HTTP/Nitro adapter exposes that
+operation without baking in cron, Dynamic Worker execution, or WebSocket fanout.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - worker processing owns stale-query rerun work.
+- `crates/application/src/api.rs`
+  - backend APIs expose trusted runtime operations.
+
+Flarex differences:
+
+- Convex runs this inside its backend service. Flarex keeps a portable route so
+  Nitro on Vercel, local tests, or another host can trigger the same executor
+  operation.
+
+Known limitations:
+
+- `runQuery` remains injected; the real invoke/session query bridge is next.
+- No changed-result fanout is implemented.
+- No scheduler/cron wiring is implemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

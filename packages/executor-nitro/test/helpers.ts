@@ -2,6 +2,7 @@ import type {
   FlarexExecutor,
   FlarexExecutorPersistence,
   PrepareInvokeResult,
+  RerunStaleLiveQuerySubscriptionsInput,
 } from "@flarex/executor";
 
 import { createFlarexNitroHandler } from "../src/index";
@@ -395,6 +396,24 @@ export function jsonRequest(url: string, body: unknown): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export function testFreshnessStore(): RerunStaleLiveQuerySubscriptionsInput["freshnessStore"] {
+  return {
+    async applyCommitFreshness() {
+      return {
+        applied: true,
+        documentVersions: [],
+        tableVersions: [],
+      };
+    },
+    getDocumentVersion() {
+      return null;
+    },
+    getTableVersion() {
+      return null;
+    },
+  };
 }
 
 export async function expectPrepareError(error: Error): Promise<{

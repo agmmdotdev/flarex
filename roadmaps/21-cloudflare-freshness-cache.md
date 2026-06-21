@@ -1047,3 +1047,59 @@ corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
+
+## Live-Query Rerun Maintenance Route
+
+Previous completed checkpoint: `2b91699` Add batch stale live query rerun.
+
+What changed:
+
+- Added `POST /maintenance/live-queries/rerun` to the HTTP adapter and Nitro
+  handler path.
+- The route delegates to the executor's
+  `rerunStaleLiveQuerySubscriptions(...)` operation.
+- The route uses configured `freshnessStore` and `runQuery` dependencies. The
+  request body only supplies `deploymentId` and optional `limit`.
+
+Cache impact:
+
+```txt
+scheduler / cron
+  -> maintenance route
+  -> batch stale live-query rerun
+  -> changed rows for future WebSocket fanout
+```
+
+This is the first hosted boundary for stale-query refresh work. It does not
+perform Cloudflare cache invalidation yet, but it gives a scheduler or platform
+job a stable place to ask the trusted executor to re-evaluate stale
+subscriptions.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync workers process active-query refresh work.
+- `crates/application/src/api.rs`
+  - trusted backend APIs expose runtime operations behind service boundaries.
+
+Flarex differences:
+
+- Convex keeps this work internal to the backend service. Flarex exposes a
+  portable route because scheduler hosting, Nitro executor hosting, and
+  Cloudflare WebSocket/cache hosting are separate deployment concerns.
+
+Known limitations:
+
+- No WebSocket fanout is implemented yet.
+- The real Dynamic Worker query bridge is not wired into `runQuery` yet.
+- The route returns `501` until the host configures `liveQueryRerun`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
