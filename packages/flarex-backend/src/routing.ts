@@ -14,6 +14,10 @@ export function connectionObjectName(deploymentId: string, sessionId: string): s
   return `connection:${deploymentId}:${sessionId}`;
 }
 
+export function deliveryObjectName(deploymentId: string): string {
+  return `delivery:${deploymentId}`;
+}
+
 export function schedulerObjectName(deploymentId: string): string {
   return `scheduler:${deploymentId}`;
 }

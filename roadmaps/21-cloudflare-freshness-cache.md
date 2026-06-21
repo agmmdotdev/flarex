@@ -1,5 +1,69 @@
 # Cloudflare Freshness Cache
 
+## DeliveryDO Wake And Bounded Drain
+
+Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack APIs.
+
+What changed:
+
+- Added Cloudflare `DeliveryDO` in `packages/flarex-backend`.
+- Added deterministic DO binding/name:
+  - binding: `DELIVERIES`
+  - object name: `delivery:{deploymentId}`
+- Added backend route:
+  `POST /deployments/:deploymentId/sync/wake-delivery`.
+- `DeliveryDO` now performs a bounded drain:
+  - claim rows from the injected executor endpoint,
+  - fanout materialized payloads to `ConnectionDO`,
+  - ack row IDs through the injected executor endpoint,
+  - stop after `maxBatches` or when `hasMore` is false.
+- Executor injection is config-based:
+  - `FLAREX_EXECUTOR` service binding when present,
+  - otherwise `FLAREX_EXECUTOR_URL`,
+  - optional `FLAREX_EXECUTOR_TOKEN` bearer auth.
+- Added Miniflare coverage proving wake -> claim -> fanout -> ack with an
+  active WebSocket subscription.
+
+Why it changed:
+
+This moves the delivery loop owner to Cloudflare without giving Cloudflare
+Postgres access. `DeliveryDO` is the runtime worker close to `ConnectionDO`,
+while the executor remains authoritative for claim/ack state.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - sync worker bounds transition production and owns send-side fanout.
+- `crates/sync/src/state.rs`
+  - sync state owns result-hash transition dedupe.
+
+Flarex differences:
+
+- Convex keeps this inside its backend sync worker. Flarex uses an injected
+  executor boundary because the trusted Postgres executor can live on
+  Nitro/Vercel while client connections live on Cloudflare.
+- This first `DeliveryDO` does not schedule alarms or queues yet. A wake
+  request drains only the configured bounded batch budget.
+
+Known limitations:
+
+- No automatic alarm/queue continuation when `hasMore` remains true.
+- No claim leases/visibility timeout yet.
+- No fallback scanner that wakes deployments with old undelivered rows.
+- Error/log/journal delivery payloads are still not implemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend build
+```
+
 ## DeliveryDO Executor Contract Ready
 
 Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.

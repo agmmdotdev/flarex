@@ -35,6 +35,7 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
       PARTITIONS: { className: "PartitionDO", useSQLite: true },
       EXECUTIONS: { className: "ExecutionDO", useSQLite: true },
       CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+      DELIVERIES: { className: "DeliveryDO", useSQLite: true },
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
     },
     ...(options.r2Buckets === undefined

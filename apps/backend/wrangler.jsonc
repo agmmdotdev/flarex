@@ -26,6 +26,10 @@
         "class_name": "ConnectionDO"
       },
       {
+        "name": "DELIVERIES",
+        "class_name": "DeliveryDO"
+      },
+      {
         "name": "SCHEDULERS",
         "class_name": "SchedulerDO"
       }
@@ -40,6 +44,7 @@
         "PartitionDO",
         "ExecutionDO",
         "ConnectionDO",
+        "DeliveryDO",
         "SchedulerDO"
       ]
     }

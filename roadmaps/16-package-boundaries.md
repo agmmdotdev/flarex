@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## DeliveryDO Executor Injection Implementation
+
+Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack
+APIs.
+
+What changed:
+
+- Implemented `DeliveryDO` in `packages/flarex-backend` without importing
+  executor internals.
+- `DeliveryDO` calls executor claim/ack through injected env config:
+  - `FLAREX_EXECUTOR` service binding, or
+  - `FLAREX_EXECUTOR_URL` external endpoint,
+  - `FLAREX_EXECUTOR_TOKEN` optional bearer token.
+- Added `DELIVERIES` to backend Miniflare and Wrangler Durable Object bindings.
+- Re-exported `DeliveryDO` from the deployable backend wrapper.
+
+Boundary rule preserved:
+
+Cloudflare owns fanout. The executor owns durable delivery-row state. The only
+runtime contract between them is HTTP claim/ack.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Known limitations:
+
+- No shared typed HTTP client package exists yet; `DeliveryDO` currently owns
+  minimal response parsing.
+- No queue/alarm continuation boundary yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+```
+
 ## Executor Injection For DeliveryDO
 
 Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.

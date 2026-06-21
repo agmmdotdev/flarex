@@ -1,5 +1,51 @@
 # Sync And Subscriptions
 
+## DeliveryDO Wake Route Implementation
+
+Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack
+APIs.
+
+What changed:
+
+- Added `DeliveryDO` as the Cloudflare-side live-query delivery worker.
+- Added `POST /deployments/:deploymentId/sync/wake-delivery`.
+- Wake requests route to `delivery:{deploymentId}` and drain bounded batches
+  through executor claim/ack.
+- Delivery fanout reuses the existing materialized payload path into
+  `ConnectionDO`, so client-visible protocol remains
+  `Transition(QueryUpdated)`.
+- Added sync test coverage for claim -> fanout -> ack.
+
+Why it changed:
+
+This is the first real implementation of the notify-only design: Vercel/Nitro
+can notify Cloudflare, and Cloudflare owns the delivery work next to live
+connections.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex differences:
+
+- Convex's sync worker owns the whole transition/fanout lifecycle. Flarex
+  splits it into executor claim/ack plus Cloudflare `DeliveryDO` fanout.
+
+Known limitations:
+
+- Wake is still an explicit HTTP route; post-commit notification wiring is not
+  implemented yet.
+- `DeliveryDO` does not use alarms or queues yet.
+- No claim lease support yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## DeliveryDO Claim/Ack Prelude
 
 Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.

@@ -11,7 +11,11 @@ import type {
   PushSourcePackage,
   PushStatus,
 } from "../src/types";
-import { createBackendHarness, type BackendHarness } from "./backendHarness";
+import {
+  createBackendHarness,
+  type BackendHarness,
+  type BackendHarnessOptions,
+} from "./backendHarness";
 
 type MiniflareWebSocket = {
   accept(): void;
@@ -336,6 +340,139 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("wakes DeliveryDO to claim, fanout, and ack live query deliveries", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId: "sync-delivery-do-deployment",
+                    deliveryId: "delivery_1",
+                    connectionId: "connection:sync-delivery-do-deployment:delivery-do-session",
+                    queryId: 17,
+                    payloadJson: {
+                      deploymentId: "sync-delivery-do-deployment",
+                      connectionId: "connection:sync-delivery-do-deployment:delivery-do-session",
+                      queryId: 17,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Grace" },
+                      previousResultHash: '{"user":"Ada"}',
+                      resultHash: '{"user":"Grace"}',
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-delivery-do-deployment");
+
+    const ws = await openSync(
+      harness,
+      "sync-delivery-do-deployment",
+      "delivery-do-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 17,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const delivered = nextJsonMessage(ws);
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-delivery-do-deployment/sync/wake-delivery",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId: "sync-delivery-do-deployment",
+      batches: 1,
+      claimed: 1,
+      acked: 1,
+      delivered: 1,
+      skipped: 0,
+      hasMore: false,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 17,
+          value: { user: "Grace" },
+        },
+      ],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-delivery-do-deployment",
+          limit: 10,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-delivery-do-deployment",
+          deliveryIds: ["delivery_1"],
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
@@ -362,6 +499,7 @@ describe("sync protocol", () => {
     const connection = env.CONNECTIONS.getByName(
       "connection:sync-stale-delivery-deployment:stale-delivery-session",
     );
+    const firstDelivery = nextJsonMessage(ws);
     await connection.fetch("https://flarex.internal/deliver/live-query", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -380,7 +518,7 @@ describe("sync protocol", () => {
         ],
       }),
     });
-    await nextJsonMessage(ws);
+    await firstDelivery;
 
     const stale = await connection.fetch("https://flarex.internal/deliver/live-query", {
       method: "POST",
@@ -821,9 +959,13 @@ async function createSyncHarness(
       partitionKey?: string;
     };
   }) => InvokeResponse | Promise<InvokeResponse>,
+  options: BackendHarnessOptions = {},
 ): Promise<BackendHarness> {
   return createBackendHarness({
-    bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret" },
+    bindings: {
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret",
+      ...options.bindings,
+    },
     r2Buckets: ["ARTIFACTS"],
     serviceBindings: {
       FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
@@ -844,6 +986,7 @@ async function createSyncHarness(
           }),
         },
       }),
+      ...options.serviceBindings,
     },
   });
 }

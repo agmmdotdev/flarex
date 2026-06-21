@@ -77,6 +77,7 @@ export async function createFlarexDevRuntime(
       durableObjectsPersist: appPersist,
       durableObjects: {
         CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
       },
     });
   }
@@ -297,6 +298,7 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Backe
       PARTITIONS: { className: "PartitionDO", useSQLite: true },
       EXECUTIONS: { className: "ExecutionDO", useSQLite: true },
       CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+      DELIVERIES: { className: "DeliveryDO", useSQLite: true },
       SCHEDULERS: { className: "SchedulerDO", useSQLite: true },
     },
     serviceBindings: {

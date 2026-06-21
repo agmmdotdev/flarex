@@ -373,6 +373,7 @@ export const list = query({ args: {}, handler: async () => [] });
       },
       durableObjects: {
         CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
       },
     });
     try {

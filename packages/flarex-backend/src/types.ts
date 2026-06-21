@@ -24,8 +24,12 @@ export type Env = {
   PARTITIONS: DurableObjectNamespace;
   EXECUTIONS: DurableObjectNamespace;
   CONNECTIONS: DurableObjectNamespace;
+  DELIVERIES: DurableObjectNamespace;
   SCHEDULERS: DurableObjectNamespace;
   FLAREX_ANALYZER?: Fetcher;
+  FLAREX_EXECUTOR?: Fetcher;
+  FLAREX_EXECUTOR_URL?: string;
+  FLAREX_EXECUTOR_TOKEN?: string;
   FLAREX_ARTIFACT_RUNTIME?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME_TOKEN?: string;
   FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE?: string;

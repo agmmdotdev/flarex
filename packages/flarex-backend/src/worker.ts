@@ -8,6 +8,7 @@ import {
   type BackendExecutionArtifactRuntime,
 } from "./artifactRuntime";
 import { ConnectionDO } from "./connectionDO";
+import { DeliveryDO } from "./deliveryDO";
 import { DeploymentDO } from "./deploymentDO";
 import { errorResponse, HttpError, json, readJson, required } from "./http";
 import { ExecutionDO } from "./executionDO";
@@ -26,6 +27,7 @@ import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import {
   connectionObjectName,
+  deliveryObjectName,
   deploymentObjectName,
   executionObjectName,
   partitionObjectName,
@@ -45,7 +47,7 @@ import type {
   StartPushRequest,
 } from "./types";
 
-export { ConnectionDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
+export { ConnectionDO, DeliveryDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
 export { ExecutionDO };
 
 const functions: BackendFunctionRegistry = {};
@@ -102,6 +104,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "sync") {
       if (parts[3] === "deliver-live-query" && request.method === "POST") {
         return routeLiveQueryDelivery(request, env, deploymentId);
+      }
+      if (parts[3] === "wake-delivery" && request.method === "POST") {
+        return routeWakeDelivery(request, env, deploymentId);
       }
       const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
       const connectionName = connectionObjectName(deploymentId, sessionId);
@@ -374,6 +379,22 @@ async function routeLiveQueryDelivery(
   authorizeLiveQueryDeliveryRequest(request, env);
   const deliveries = liveQueryDeliveryChangesFromBody(await readJson(request));
   return json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries));
+}
+
+async function routeWakeDelivery(
+  request: Request,
+  env: Env,
+  deploymentId: string,
+): Promise<Response> {
+  authorizeLiveQueryDeliveryRequest(request, env);
+  const body = await readJson<Record<string, unknown>>(request);
+  return env.DELIVERIES
+    .getByName(deliveryObjectName(deploymentId))
+    .fetch("https://flarex.internal/wake", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, deploymentId }),
+    });
 }
 
 function authorizeLiveQueryDeliveryRequest(request: Request, env: Env): void {

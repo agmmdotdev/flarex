@@ -1,5 +1,6 @@
 export {
   ConnectionDO,
+  DeliveryDO,
   DeploymentDO,
   ExecutionDO,
   PartitionDO,

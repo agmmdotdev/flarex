@@ -1,5 +1,47 @@
 # Postgres Executor
 
+## DeliveryDO Claim/Ack Consumer
+
+Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack
+APIs.
+
+What changed:
+
+- Added Cloudflare `DeliveryDO` consumer for executor claim/ack routes.
+- The executor remains platform-agnostic; `DeliveryDO` calls the existing HTTP
+  routes instead of importing executor code.
+- The direct callback delivery bridge remains available, but the preferred
+  production path is now:
+
+```txt
+executor writes live_query_deliveries
+  -> executor notifies Cloudflare wake route
+  -> DeliveryDO claims rows through executor HTTP
+  -> DeliveryDO fans out to ConnectionDO
+  -> DeliveryDO acks rows through executor HTTP
+```
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex differences:
+
+- Convex does not need an HTTP claim/ack consumer. Flarex does because
+  transaction durability and Cloudflare fanout are separate runtimes.
+
+Known limitations:
+
+- Executor post-commit notification to Cloudflare is still not wired.
+- No delivery leases or retry metadata yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## Platform-Agnostic Delivery Claim/Ack APIs
 
 Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.
