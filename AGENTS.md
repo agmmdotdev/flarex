@@ -172,6 +172,7 @@ user request.
     registry:v1
     deployment:{deploymentId}
     connection:{deploymentId}:{sessionId}
+    delivery:{deploymentId}
     scheduler:{deploymentId}
     version:{deploymentId}:{bucket}
     query-cache:{deploymentId}:{queryHash}

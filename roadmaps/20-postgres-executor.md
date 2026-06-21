@@ -1,5 +1,101 @@
 # Postgres Executor
 
+## DeliveryDO Claim/Ack Direction
+
+Previous completed checkpoint: `3288183` Wire live query delivery callback
+bridge.
+
+Decision:
+
+The Vercel/Nitro executor should not own the live-query delivery drain loop in
+production. It should:
+
+```txt
+1. commit mutation,
+2. write durable live_query_deliveries rows,
+3. notify Cloudflare that a deployment has pending rows,
+4. expose internal claim/ack APIs for Cloudflare DeliveryDO.
+```
+
+Cloudflare `DeliveryDO` should then claim rows, fan them out to `ConnectionDO`,
+and ack them through the executor.
+
+Target executor API shape:
+
+```ts
+executor.claimLiveQueryDeliveryBatch({
+  deploymentId,
+  limit,
+  cursor,
+});
+
+executor.ackLiveQueryDeliveries({
+  deploymentId,
+  deliveryIds,
+  deliveredAt,
+});
+```
+
+Target HTTP routes:
+
+```txt
+POST /maintenance/live-queries/claim
+POST /maintenance/live-queries/ack
+```
+
+The existing `runLiveQueryDeliveryBatch({ deliver })` remains a compatibility
+helper while the `DeliveryDO` path is introduced, but it is not the preferred
+production owner for fanout.
+
+Why it changed:
+
+Serverless executor hosts such as Vercel should not be responsible for
+unbounded drain loops or high-frequency polling. Delivery work scales with open
+connections and should run close to Cloudflare `ConnectionDO` instances.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - result-hash state belongs to sync transition ownership.
+- `crates/sync/src/worker.rs`
+  - transition production is single-flighted and sent from the sync worker.
+
+Flarex differences:
+
+- Convex does not need claim/ack over HTTP because its sync worker and backend
+  state are colocated. Flarex needs claim/ack because Postgres durability and
+  Cloudflare fanout live in different runtimes.
+- The executor stays authoritative for delivery-row state; Cloudflare gets
+  only bounded batches and ack authority for rows it successfully fans out.
+
+Known limitations:
+
+- Claim semantics are not implemented yet. The first version can list
+  undelivered rows without leasing because `DeliveryDO` serializes per
+  deployment; a later production version should add leases or visibility
+  timeouts.
+- Ack is currently available through persistence and executor internals but not
+  as a first-class HTTP route.
+- There is no Postgres-side metric for repeated delivery failure or poison
+  rows yet.
+
+First implementation plan:
+
+1. Add framework-neutral executor methods:
+   - `claimLiveQueryDeliveryBatch`
+   - `ackLiveQueryDeliveries`
+2. Map them to existing persistence functions first:
+   - `listUndeliveredLiveQueryDeliveries`
+   - `markLiveQueryDeliveriesDelivered`
+3. Add authenticated HTTP/Nitro routes and tests.
+4. After that, implement Cloudflare `DeliveryDO` against these routes.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Live-Query Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

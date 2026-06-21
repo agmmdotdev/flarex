@@ -1,5 +1,86 @@
 # Cloudflare Freshness Cache
 
+## DeliveryDO Fanout Worker
+
+Previous completed checkpoint: `3288183` Wire live query delivery callback
+bridge.
+
+Decision:
+
+Add a Cloudflare `DeliveryDO` per deployment:
+
+```txt
+delivery:{deploymentId}
+```
+
+Role:
+
+- receive wake-up notifications from the executor after mutation commits,
+- serialize delivery draining for one deployment,
+- claim pending `live_query_deliveries` rows from the trusted executor,
+- forward materialized query results to named `ConnectionDO` instances,
+- ack successfully fanned-out rows through the executor,
+- schedule/requeue bounded continuation when `hasMore` remains true.
+
+`DeliveryDO` is not a cache and is not the source of truth. It is the
+Cloudflare-side delivery worker that connects durable Postgres outbox state to
+active client sessions.
+
+Target flow:
+
+```txt
+Postgres commit
+  -> live_query_deliveries rows
+  -> executor sends wake-up
+  -> DeliveryDO claims batch
+  -> ConnectionDO emits Transition(QueryUpdated)
+  -> DeliveryDO acks batch
+```
+
+Why it belongs on Cloudflare:
+
+- fanout is close to active WebSocket/SSE connections,
+- per-deployment serialized DO state prevents duplicate concurrent drains,
+- Vercel/Nitro avoids loops and high-frequency polling,
+- retry work can be bounded and requeued without blocking user requests.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns transition production and send-side backpressure.
+- `crates/sync/src/state.rs`
+  - result hashes dedupe transition modifications.
+
+Flarex differences:
+
+- Convex does not need a separate `DeliveryDO`; the sync worker is already
+  part of the backend. Flarex uses `DeliveryDO` because sync connections live in
+  Cloudflare while the trusted executor may live on Vercel/Nitro.
+
+Known limitations:
+
+- No Cloudflare queue/alarm continuation policy has been chosen yet.
+- No claim lease/visibility timeout exists yet; v1 can rely on per-deployment
+  `DeliveryDO` serialization, but production should add leasing.
+- `ConnectionDO` hibernation recovery remains separate work.
+
+First implementation plan:
+
+1. Add executor claim/ack APIs first so `DeliveryDO` does not need the old
+   callback-style maintenance route.
+2. Add `DeliveryDO` and `DELIVERIES` binding in the Cloudflare backend package.
+3. Add `POST /deployments/:deploymentId/sync/wake-delivery`.
+4. Implement a bounded drain method with `maxBatches`, `limit`, and has-more
+   continuation metadata.
+5. Keep fallback manual maintenance route for recovery until alarms/queues are
+   wired.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Decision
 
 Cloudflare cache layers are part of the future Postgres-authoritative design,

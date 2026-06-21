@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## DeliveryDO Production Boundary
+
+Previous completed checkpoint: `3288183` Wire live query delivery callback
+bridge.
+
+Decision:
+
+Production live-query delivery should be split like this:
+
+```txt
+@flarex/executor
+  owns durable delivery-row claim/ack semantics
+
+@flarex/executor-http / @flarex/executor-nitro
+  expose authenticated claim/ack routes
+
+packages/flarex-backend
+  owns Cloudflare DeliveryDO, wake route, ConnectionDO fanout
+
+ConnectionDO
+  owns per-client sync state and Transition emission
+```
+
+Boundary rule:
+
+- Vercel/Nitro may notify Cloudflare after commit.
+- Vercel/Nitro should not own an unbounded fanout loop.
+- Cloudflare `DeliveryDO` should own bounded fanout and retries because it runs
+  next to `ConnectionDO`.
+- The direct executor HTTP callback helper remains a test/fallback primitive,
+  not the preferred production drain owner.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex difference:
+
+Convex's sync worker is colocated with backend state. Flarex needs an explicit
+runtime boundary because the trusted Postgres executor and Cloudflare WebSocket
+ownership are separate deployments.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Live-Query Delivery Bridge Boundary
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

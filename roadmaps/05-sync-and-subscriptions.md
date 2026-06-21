@@ -1,5 +1,104 @@
 # Sync And Subscriptions
 
+## DeliveryDO Notify-Only Fanout Decision
+
+Previous completed checkpoint: `3288183` Wire live query delivery callback
+bridge.
+
+Decision:
+
+Move the live-query delivery drain loop to Cloudflare. The Vercel/Nitro
+executor should write durable delivery rows and send only a wake-up notification
+to Cloudflare:
+
+```txt
+Vercel/Nitro executor
+  -> commit mutation in Postgres
+  -> insert live_query_deliveries rows
+  -> notify Cloudflare: deployment has pending deliveries
+
+Cloudflare DeliveryDO
+  -> serialize delivery work per deployment
+  -> claim/fetch pending delivery rows from executor
+  -> fanout materialized results to ConnectionDO
+  -> ack delivered rows through executor
+  -> requeue itself if hasMore
+
+ConnectionDO
+  -> own per-client query state
+  -> emit Transition(QueryUpdated)
+```
+
+Why it changed:
+
+The previous bridge allowed a Nitro/Vercel executor to call Cloudflare directly
+with delivery payloads. That is useful as a primitive, but it puts drain-loop
+pressure on a serverless executor host. Vercel functions should not run
+unbounded loops, and frequent polling/cron would make cost follow idle time.
+
+The new rule is:
+
+```txt
+notification = wake-up signal
+Postgres live_query_deliveries = durable source of truth
+DeliveryDO = bounded fanout worker
+```
+
+Vercel sends a small wake-up after commit. If the wake-up is duplicated,
+`DeliveryDO` claims only undelivered rows. If the wake-up is lost, fallback cron
+or a later mutation can wake the same deployment and the rows remain durable in
+Postgres.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` tracks result hashes and suppresses unchanged
+    query transitions.
+- `crates/sync/src/worker.rs`
+  - sync worker single-flights transition production and emits
+    `ServerMessage::Transition` after changed results are computed.
+
+Flarex differences:
+
+- Convex can keep query recomputation, transition state, and fanout inside one
+  backend sync worker. Flarex splits the trusted transaction executor from
+  Cloudflare WebSocket ownership, so Cloudflare needs a `DeliveryDO` to play
+  the fanout-worker role close to `ConnectionDO`.
+- `DeliveryDO` should not own Postgres credentials or database semantics. It
+  calls executor claim/ack APIs; the trusted executor remains the authority for
+  durable delivery rows.
+
+Known limitations:
+
+- Current code still has the direct callback bridge from executor HTTP to the
+  backend route. That remains useful for tests and a fallback path, but it is no
+  longer the preferred production drain owner.
+- Claim/ack APIs do not exist yet; the current maintenance route combines
+  list, deliver, and ack through a callback.
+- `DeliveryDO` is not implemented yet.
+- Fallback wake-up scheduling is not designed yet.
+
+First implementation plan:
+
+1. Add executor core claim/ack primitives over `live_query_deliveries` without
+   fanout callbacks:
+   - `claimLiveQueryDeliveryBatch({ deploymentId, limit })`
+   - `ackLiveQueryDeliveries({ deploymentId, deliveryIds, deliveredAt })`
+2. Expose those through `@flarex/executor-http` and `@flarex/executor-nitro`
+   as internal authenticated routes.
+3. Add `DeliveryDO` in `packages/flarex-backend` with a wake endpoint and a
+   bounded drain loop that calls claim, fans out to `ConnectionDO`, then acks.
+4. Add a Worker route:
+   `POST /deployments/:deploymentId/sync/wake-delivery`.
+5. Keep the existing direct callback route during the transition until
+   DeliveryDO is proven by tests.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Executor Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
