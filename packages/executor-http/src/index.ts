@@ -32,6 +32,7 @@ import {
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   LiveQuerySubscriptionRerunError,
+  LiveQueryDeliveryPolicyError,
   MaintenancePolicyError,
   PartitionValidationError,
   InvokeSessionDeleteTargetError,
@@ -47,6 +48,7 @@ import {
   type PrepareInvokeInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
+  type RunLiveQueryDeliveryBatchInput,
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
@@ -54,6 +56,10 @@ export interface FlarexLiveQueryRerunConfig {
   freshnessStore: RerunStaleLiveQuerySubscriptionsInput["freshnessStore"];
   executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"];
   deliverChanges?: RerunStaleLiveQuerySubscriptionsInput["deliverChanges"];
+}
+
+export interface FlarexLiveQueryDeliveryConfig {
+  deliver: RunLiveQueryDeliveryBatchInput["deliver"];
 }
 
 export interface FlarexHttpAppConfig {
@@ -68,7 +74,9 @@ export interface FlarexHttpAppConfig {
   invokeAbortStalePath?: string;
   maintenanceInvokeSessionsPath?: string;
   maintenanceLiveQueryRerunPath?: string;
+  maintenanceLiveQueryDeliveryPath?: string;
   liveQueryRerun?: FlarexLiveQueryRerunConfig;
+  liveQueryDelivery?: FlarexLiveQueryDeliveryConfig;
 }
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
@@ -98,6 +106,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const maintenanceLiveQueryRerunPath = normalizePath(
     config.maintenanceLiveQueryRerunPath ??
       "/maintenance/live-queries/rerun",
+  );
+  const maintenanceLiveQueryDeliveryPath = normalizePath(
+    config.maintenanceLiveQueryDeliveryPath ??
+      "/maintenance/live-queries/deliver",
   );
   const capabilityToken = config.capabilityToken;
 
@@ -131,6 +143,15 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         set,
         capabilityToken,
         config.liveQueryRerun,
+      ),
+    )
+    .post(maintenanceLiveQueryDeliveryPath, ({ request, set }) =>
+      handleLiveQueryDeliveryMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+        config.liveQueryDelivery,
       ),
     )
     .all(invokePreparePath, ({ set }) => {
@@ -187,6 +208,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryRerunPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryDeliveryPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryDeliveryPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -517,6 +545,54 @@ async function handleLiveQueryRerunMaintenance(
   }
 }
 
+async function handleLiveQueryDeliveryMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+  config: FlarexLiveQueryDeliveryConfig | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  if (config === undefined) {
+    set.status = 501;
+    return {
+      error: "not_implemented",
+      message: "Live query delivery maintenance is not configured.",
+    };
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryDeliveryMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.runLiveQueryDeliveryBatch({
+      deploymentId: input.value.deploymentId,
+      ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
+      deliver: config.deliver,
+    });
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -805,6 +881,33 @@ function parseLiveQueryRerunMaintenanceBody(
   };
 }
 
+function parseLiveQueryDeliveryMaintenanceBody(
+  body: unknown,
+):
+  | { value: { deploymentId: string; limit?: number } }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const limit = optionalPositiveInteger(record, "limit");
+  if ("error" in limit) return limit;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      ...(limit.value === undefined ? {} : { limit: limit.value }),
+    },
+  };
+}
+
 function parseSyscallRequest(
   record: Record<string, unknown>,
 ):
@@ -1021,6 +1124,7 @@ function executorErrorBody(error: unknown): {
     error instanceof InvokeSessionDocumentValidationError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
+    error instanceof LiveQueryDeliveryPolicyError ||
     error instanceof LiveQuerySubscriptionRerunError ||
     error instanceof MaintenancePolicyError ||
     error instanceof PartitionValidationError

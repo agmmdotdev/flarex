@@ -15,6 +15,7 @@ import {
   InvokeSessionOccConflictError,
   InvokeSyscallNotImplementedError,
   LiveQuerySubscriptionRerunError,
+  LiveQueryDeliveryPolicyError,
   PartitionValidationError,
   type FlarexExecutor,
   type AbortInvokeSessionInput,
@@ -28,6 +29,7 @@ import {
   type PrepareInvokeResult,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
+  type RunLiveQueryDeliveryBatchInput,
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
@@ -1007,6 +1009,218 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       error: "method_not_allowed",
       message: "/maintenance/live-queries/rerun only supports POST",
+    });
+  });
+
+  it("maps live query delivery maintenance requests to the executor core", async () => {
+    const delivered: unknown[] = [];
+    const deliveryHandler: RunLiveQueryDeliveryBatchInput["deliver"] = async (
+      deliveries,
+    ) => {
+      delivered.push(...deliveries.map((delivery) => delivery.payloadJson));
+    };
+    const calls: Array<{
+      deploymentId: string;
+      limit?: number;
+      deliver: unknown;
+    }> = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runLiveQueryDeliveryBatch(input) {
+          calls.push({
+            deploymentId: input.deploymentId,
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+            deliver: input.deliver,
+          });
+          await input.deliver([
+            {
+              deploymentId: "deployment_active",
+              deliveryId: "delivery_1",
+              connectionId: "connection_a",
+              queryId: 1,
+              payloadJson: {
+                deploymentId: "deployment_active",
+                connectionId: "connection_a",
+                queryId: 1,
+                resultJson: ["fresh"],
+              },
+              deliveredAt: null,
+              createdAt: new Date("2026-06-21T00:00:00.000Z"),
+            },
+          ]);
+          return {
+            deliveries: [
+              {
+                deploymentId: "deployment_active",
+                deliveryId: "delivery_1",
+                connectionId: "connection_a",
+                queryId: 1,
+                payloadJson: {
+                  deploymentId: "deployment_active",
+                  connectionId: "connection_a",
+                  queryId: 1,
+                  resultJson: ["fresh"],
+                },
+                deliveredAt: new Date("2026-06-21T00:00:01.000Z"),
+                createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              },
+            ],
+            delivered: 1,
+            nextCursor: null,
+            hasMore: false,
+          };
+        },
+      }),
+      liveQueryDelivery: {
+        deliver: deliveryHandler,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/deliver", {
+        deploymentId: "deployment_active",
+        limit: 5,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        limit: 5,
+        deliver: deliveryHandler,
+      },
+    ]);
+    expect(delivered).toEqual([
+      {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 1,
+        resultJson: ["fresh"],
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deliveries: [
+        {
+          deploymentId: "deployment_active",
+          deliveryId: "delivery_1",
+          connectionId: "connection_a",
+          queryId: 1,
+          payloadJson: {
+            deploymentId: "deployment_active",
+            connectionId: "connection_a",
+            queryId: 1,
+            resultJson: ["fresh"],
+          },
+          deliveredAt: "2026-06-21T00:00:01.000Z",
+          createdAt: "2026-06-21T00:00:00.000Z",
+        },
+      ],
+      delivered: 1,
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it("requires live query delivery maintenance configuration", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runLiveQueryDeliveryBatch() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/deliver", {
+        deploymentId: "deployment_active",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toEqual({
+      error: "not_implemented",
+      message: "Live query delivery maintenance is not configured.",
+    });
+  });
+
+  it("validates live query delivery maintenance requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runLiveQueryDeliveryBatch() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+      liveQueryDelivery: {
+        deliver: async () => undefined,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/deliver", {
+        deploymentId: "deployment_active",
+        limit: 0,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
+    });
+  });
+
+  it("maps live query delivery policy errors to bad requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async runLiveQueryDeliveryBatch() {
+          throw new LiveQueryDeliveryPolicyError(
+            "limit must be a positive integer.",
+          );
+        },
+      }),
+      liveQueryDelivery: {
+        deliver: async () => undefined,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/deliver", {
+        deploymentId: "deployment_active",
+        limit: 1,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "LiveQueryDeliveryPolicyError",
+      message:
+        "Invalid live query delivery policy: limit must be a positive integer.",
+    });
+  });
+
+  it("rejects non-POST live query delivery maintenance requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+      liveQueryDelivery: {
+        deliver: async () => undefined,
+      },
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/maintenance/live-queries/deliver"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/maintenance/live-queries/deliver only supports POST",
     });
   });
 

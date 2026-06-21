@@ -294,6 +294,61 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Live-Query Delivery Maintenance Route
+
+Previous completed checkpoint: `3f96fa6` Add durable live query delivery outbox.
+
+What changed:
+
+- Added `maintenanceLiveQueryDeliveryPath` to `FlarexHttpAppConfig`.
+- Added `FlarexLiveQueryDeliveryConfig` with an injected
+  `deliver(deliveries)` callback.
+- Added `POST /maintenance/live-queries/deliver`, mapping request JSON to
+  `executor.runLiveQueryDeliveryBatch(...)`.
+- Added stable HTTP behavior:
+  - `501` when delivery maintenance is not configured,
+  - `400` for invalid limit/body,
+  - `405` for non-POST route access,
+  - mapped `LiveQueryDeliveryPolicyError` to `400`.
+- Added HTTP and Nitro tests for the new route.
+
+Why it changed:
+
+The Postgres executor now has durable changed-query delivery rows. A hosted
+executor needs a small maintenance endpoint so a scheduler, cron job, or future
+Cloudflare connection fanout service can drain those rows without depending on
+Nitro internals.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - owns transition emission after query result changes.
+- `crates/sync/src/state.rs`
+  - owns query result dedupe before emitting modifications.
+
+Flarex differences:
+
+- Convex does not need an HTTP delivery maintenance route because its sync
+  worker owns both query rerun and transition fanout. Flarex uses an adapter
+  route because execution and socket delivery can be deployed separately.
+
+Known limitations:
+
+- The route does not itself know how to deliver to WebSockets; the host must
+  inject `deliver(deliveries)`.
+- No durable lease/claim/visibility timeout exists yet.
+- No route-level project ownership validation exists; this remains protected
+  by executor capability token.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+```
+
 ## Durable Live-Query Delivery Rows
 
 Previous completed checkpoint: `99ed29d` Add live query change delivery payload.

@@ -268,6 +268,67 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Live-Query Delivery Maintenance Endpoint
+
+Previous completed checkpoint: `3f96fa6` Add durable live query delivery outbox.
+
+What changed:
+
+- Added `POST /maintenance/live-queries/deliver` to `@flarex/executor-http`.
+- Added `maintenanceLiveQueryDeliveryPath` so hosts can customize the route.
+- Added `liveQueryDelivery: { deliver }` adapter config. The handler calls
+  `executor.runLiveQueryDeliveryBatch(...)` with the configured delivery
+  function.
+- Added validation for `{ deploymentId, limit? }`.
+- Added Nitro passthrough coverage for the same route.
+
+Why it matters for sync:
+
+The prior checkpoint created durable delivery rows but had no adapter-level way
+to drain them. This endpoint is the first framework-neutral fanout boundary:
+
+```txt
+live_query_deliveries
+  -> POST /maintenance/live-queries/deliver
+  -> runLiveQueryDeliveryBatch(...)
+  -> injected deliver(deliveries)
+  -> mark rows delivered after successful handler return
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sends `ServerMessage::Transition` after the sync state computes changed
+    query results.
+- `crates/sync/src/state.rs`
+  - `complete_fetch` hashes query results and suppresses unchanged
+    modifications.
+
+Flarex differences:
+
+- Convex emits transitions from the sync worker directly. Flarex externalizes
+  the fanout step because Postgres execution, Nitro/Vercel maintenance, and
+  Cloudflare `ConnectionDO` socket ownership are separate components.
+- This route still does not define the WebSocket protocol. It only drains
+  already-materialized delivery rows through an injected delivery callback.
+
+Known limitations:
+
+- No `ConnectionDO` implementation consumes this endpoint yet.
+- No delivery lease/claim protocol exists; concurrent callers can still deliver
+  at-least-once.
+- The route is deployment-scoped, not project-authorized beyond the executor
+  capability token.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+```
+
 ## Durable Live-Query Delivery Outbox
 
 Previous completed checkpoint: `99ed29d` Add live query change delivery payload.

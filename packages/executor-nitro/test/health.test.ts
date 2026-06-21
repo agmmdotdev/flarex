@@ -228,6 +228,75 @@ describe("createFlarexNitroHandler", () => {
     });
   });
 
+  it("maps live query delivery maintenance requests through the Nitro handler", async () => {
+    const delivered: unknown[] = [];
+    const calls: Array<{ deploymentId: string; limit?: number }> = [];
+    const handler = createFlarexNitroHandler({
+      executor: fakeExecutor({
+        async runLiveQueryDeliveryBatch(input) {
+          calls.push({
+            deploymentId: input.deploymentId,
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+          });
+          await input.deliver([
+            {
+              deploymentId: "deployment_active",
+              deliveryId: "delivery_1",
+              connectionId: "connection_a",
+              queryId: 1,
+              payloadJson: {
+                deploymentId: "deployment_active",
+                connectionId: "connection_a",
+                queryId: 1,
+                resultJson: ["fresh"],
+              },
+              deliveredAt: null,
+              createdAt: new Date("2026-06-21T00:00:00.000Z"),
+            },
+          ]);
+          return {
+            deliveries: [],
+            delivered: 1,
+            nextCursor: null,
+            hasMore: false,
+          };
+        },
+      }),
+      liveQueryDelivery: {
+        deliver: async deliveries => {
+          delivered.push(...deliveries.map((delivery) => delivery.payloadJson));
+        },
+      },
+    });
+
+    const response = await handler({
+      request: jsonRequest(
+        "https://executor.test/maintenance/live-queries/deliver",
+        {
+          deploymentId: "deployment_active",
+          limit: 2,
+        },
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{ deploymentId: "deployment_active", limit: 2 }]);
+    expect(delivered).toEqual([
+      {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 1,
+        resultJson: ["fresh"],
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deliveries: [],
+      delivered: 1,
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("rejects malformed invoke prepare JSON", async () => {
     const handler = createFlarexNitroHandler({
       executor: fakeExecutor(),
