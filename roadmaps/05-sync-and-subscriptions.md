@@ -277,6 +277,57 @@ corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "cont
 git diff --check
 ```
 
+## Lost-Wake Sync Reconciler
+
+Previous completed checkpoint: `c8f2f93` Continue DeliveryDO drains with
+alarms.
+
+What changed:
+
+- Added the fallback sync path for lost live-query wake notifications.
+- SchedulerDO scans the executor for deployments with undelivered
+  `live_query_deliveries`.
+- SchedulerDO wakes the corresponding per-deployment DeliveryDO.
+- DeliveryDO remains the only component that talks to ConnectionDO and acks
+  delivery rows.
+
+Sync behavior:
+
+```txt
+normal:
+  executor rerun -> wake DeliveryDO
+fallback:
+  SchedulerDO scan -> wake DeliveryDO
+always:
+  DeliveryDO -> ConnectionDO fanout -> executor ack
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker processes query updates inside the backend.
+- `crates/sync/src/state.rs`
+  - client-visible transitions come from backend-maintained query state.
+
+Flarex differences:
+
+- Flarex has to model wake recovery explicitly because sync fanout runs in
+  Cloudflare while durable query delivery rows live behind the executor API.
+
+Known limitations:
+
+- SchedulerDO does not yet store a cursor for multi-page scans.
+- The scheduler route uses the existing live-query delivery capability token
+  when configured; platform-level ops auth is still future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reconciles lost live query"
+git diff --check
+```
+
 ## Executor Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

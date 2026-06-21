@@ -74,6 +74,8 @@ import type {
 } from "./liveQuerySubscriptions";
 import type {
   InsertLiveQueryDeliveryInput,
+  ListPendingLiveQueryDeliveryDeploymentsInput,
+  ListPendingLiveQueryDeliveryDeploymentsResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   LiveQueryDeliveryRecord,
@@ -226,6 +228,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   listUndeliveredLiveQueryDeliveries(
     input: ListUndeliveredLiveQueryDeliveriesInput,
   ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
+  listPendingLiveQueryDeliveryDeployments(
+    input: ListPendingLiveQueryDeliveryDeploymentsInput,
+  ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;

@@ -1294,6 +1294,66 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({ delivered: 2 });
   });
 
+  it("maps live query pending deployment requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listPendingLiveQueryDeliveryDeployments(input) {
+          calls.push(input);
+          return {
+            deployments: [
+              {
+                deploymentId: "deployment_pending",
+                oldestCreatedAt: new Date("2026-06-21T00:00:00.000Z"),
+                pending: 3,
+              },
+            ],
+            nextCursor: {
+              deploymentId: "deployment_pending",
+              oldestCreatedAt: new Date("2026-06-21T00:00:00.000Z"),
+            },
+            hasMore: true,
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/pending-deployments", {
+        limit: 2,
+        cursor: {
+          deploymentId: "deployment_before",
+          oldestCreatedAt: "2026-06-20T00:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        limit: 2,
+        cursor: {
+          deploymentId: "deployment_before",
+          oldestCreatedAt: new Date("2026-06-20T00:00:00.000Z"),
+        },
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deployments: [
+        {
+          deploymentId: "deployment_pending",
+          oldestCreatedAt: "2026-06-21T00:00:00.000Z",
+          pending: 3,
+        },
+      ],
+      nextCursor: {
+        deploymentId: "deployment_pending",
+        oldestCreatedAt: "2026-06-21T00:00:00.000Z",
+      },
+      hasMore: true,
+    });
+  });
+
   it("validates live query delivery claim and ack requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -1332,6 +1392,31 @@ describe("createFlarexHttpApp", () => {
     await expect(ack.json()).resolves.toEqual({
       error: "bad_request",
       message: "deliveryIds must be an array of non-empty strings.",
+    });
+  });
+
+  it("validates live query pending deployment requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listPendingLiveQueryDeliveryDeployments() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/pending-deployments", {
+        limit: 0,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
     });
   });
 
@@ -1819,6 +1904,9 @@ function fakeExecutor(
     },
     async runLiveQueryDeliveryBatch() {
       return { deliveries: [], delivered: 0, nextCursor: null, hasMore: false };
+    },
+    async listPendingLiveQueryDeliveryDeployments() {
+      return { deployments: [], nextCursor: null, hasMore: false };
     },
     async recordLiveQuerySubscription() {
       throw new Error(

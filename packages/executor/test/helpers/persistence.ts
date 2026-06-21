@@ -33,6 +33,8 @@ import {
   type OutboxEventRecord,
   type ListDeploymentMetadataInput,
   type ListLiveQuerySubscriptionsInput,
+  type ListPendingLiveQueryDeliveryDeploymentsInput,
+  type ListPendingLiveQueryDeliveryDeploymentsResult,
   type ListUndeliveredLiveQueryDeliveriesInput,
   type ListUndeliveredLiveQueryDeliveriesResult,
   type ListOutboxEventsInput,
@@ -931,6 +933,58 @@ export function memoryPersistence(
             ? {
                 createdAt: last.createdAt,
                 deliveryId: last.deliveryId,
+              }
+          : null,
+      };
+    },
+    async listPendingLiveQueryDeliveryDeployments(
+      input: ListPendingLiveQueryDeliveryDeploymentsInput,
+    ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult> {
+      const byDeployment = new Map<string, { oldestCreatedAt: Date; pending: number }>();
+      for (const delivery of liveQueryDeliveries) {
+        if (delivery.deliveredAt !== null) continue;
+        const existing = byDeployment.get(delivery.deploymentId);
+        if (existing === undefined) {
+          byDeployment.set(delivery.deploymentId, {
+            oldestCreatedAt: delivery.createdAt,
+            pending: 1,
+          });
+        } else {
+          if (delivery.createdAt < existing.oldestCreatedAt) {
+            existing.oldestCreatedAt = delivery.createdAt;
+          }
+          existing.pending += 1;
+        }
+      }
+      const sorted = Array.from(byDeployment, ([deploymentId, deployment]) => ({
+        deploymentId,
+        ...deployment,
+      }))
+        .filter(
+          (deployment) =>
+            input.cursor === undefined ||
+            deployment.oldestCreatedAt > input.cursor.oldestCreatedAt ||
+            (deployment.oldestCreatedAt.getTime() ===
+              input.cursor.oldestCreatedAt.getTime() &&
+              deployment.deploymentId > input.cursor.deploymentId),
+        )
+        .sort(
+          (left, right) =>
+            left.oldestCreatedAt.getTime() - right.oldestCreatedAt.getTime() ||
+            left.deploymentId.localeCompare(right.deploymentId),
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const deployments = rows.slice(0, input.limit);
+      const hasMore = rows.length > input.limit;
+      const last = deployments.at(-1);
+      return {
+        deployments,
+        hasMore,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                oldestCreatedAt: last.oldestCreatedAt,
+                deploymentId: last.deploymentId,
               }
             : null,
       };

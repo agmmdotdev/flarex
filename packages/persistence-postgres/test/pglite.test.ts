@@ -2607,6 +2607,84 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("lists deployments with pending live query deliveries", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_pending_b",
+      deliveryId: "delivery_b1",
+      connectionId: "connection_b",
+      queryId: 1,
+      payloadJson: { resultJson: "b1" },
+      createdAt: new Date("2026-06-20T00:00:20.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_pending_a",
+      deliveryId: "delivery_a1",
+      connectionId: "connection_a",
+      queryId: 1,
+      payloadJson: { resultJson: "a1" },
+      createdAt: new Date("2026-06-20T00:00:10.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_pending_a",
+      deliveryId: "delivery_a2",
+      connectionId: "connection_a",
+      queryId: 1,
+      payloadJson: { resultJson: "a2" },
+      createdAt: new Date("2026-06-20T00:00:30.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_delivered",
+      deliveryId: "delivery_delivered",
+      connectionId: "connection_delivered",
+      queryId: 1,
+      payloadJson: { resultJson: "delivered" },
+      createdAt: new Date("2026-06-20T00:00:05.000Z"),
+    });
+    await persistence.markLiveQueryDeliveriesDelivered({
+      deploymentId: "deployment_delivered",
+      deliveryIds: ["delivery_delivered"],
+      deliveredAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+
+    const first = await persistence.listPendingLiveQueryDeliveryDeployments({
+      limit: 1,
+    });
+    expect(first).toEqual({
+      deployments: [
+        {
+          deploymentId: "deployment_pending_a",
+          oldestCreatedAt: new Date("2026-06-20T00:00:10.000Z"),
+          pending: 2,
+        },
+      ],
+      nextCursor: {
+        oldestCreatedAt: new Date("2026-06-20T00:00:10.000Z"),
+        deploymentId: "deployment_pending_a",
+      },
+      hasMore: true,
+    });
+
+    await expect(
+      persistence.listPendingLiveQueryDeliveryDeployments({
+        cursor: first.nextCursor!,
+        limit: 10,
+      }),
+    ).resolves.toEqual({
+      deployments: [
+        {
+          deploymentId: "deployment_pending_b",
+          oldestCreatedAt: new Date("2026-06-20T00:00:20.000Z"),
+          pending: 1,
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("commits staged invoke session deletes after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

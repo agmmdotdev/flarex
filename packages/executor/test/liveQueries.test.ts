@@ -472,12 +472,93 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("lists deployments with pending live query delivery rows", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const first = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_pending_a",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: ["old"],
+    });
+    const second = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_pending_b",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: ["old"],
+    });
+
+    await executor.rerunLiveQuerySubscription({
+      subscription: first.subscription,
+      deliveryId: "delivery_a1",
+      updatedAt: new Date("2026-06-20T00:00:10.000Z"),
+      runQuery: async () => ({
+        value: ["new_a"],
+        beginTs: 20,
+        readSet: { tables: [{ tableId: 1 }] },
+      }),
+    });
+    await executor.rerunLiveQuerySubscription({
+      subscription: second.subscription,
+      deliveryId: "delivery_b1",
+      updatedAt: new Date("2026-06-20T00:00:20.000Z"),
+      runQuery: async () => ({
+        value: ["new_b"],
+        beginTs: 20,
+        readSet: { tables: [{ tableId: 1 }] },
+      }),
+    });
+
+    const page = await executor.listPendingLiveQueryDeliveryDeployments({
+      limit: 1,
+    });
+    expect(page).toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_pending_a",
+          oldestCreatedAt: new Date("2026-06-20T00:00:10.000Z"),
+          pending: 1,
+        },
+      ],
+      hasMore: true,
+    });
+
+    await expect(
+      executor.listPendingLiveQueryDeliveryDeployments({
+        cursor: page.nextCursor!,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_pending_b",
+          oldestCreatedAt: new Date("2026-06-20T00:00:20.000Z"),
+          pending: 1,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
   it("validates live query delivery claim limits", async () => {
     const executor = createFlarexExecutor({ persistence: memoryPersistence() });
 
     await expect(
       executor.claimLiveQueryDeliveryBatch({
         deploymentId: "deployment_invalid_claim",
+        limit: 0,
+      }),
+    ).rejects.toThrow(LiveQueryDeliveryPolicyError);
+    await expect(
+      executor.listPendingLiveQueryDeliveryDeployments({
         limit: 0,
       }),
     ).rejects.toThrow(LiveQueryDeliveryPolicyError);

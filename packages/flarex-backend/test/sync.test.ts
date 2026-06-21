@@ -663,6 +663,152 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("reconciles lost live query wake notifications through SchedulerDO", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-reconcile-deployment";
+    const connectionId = `connection:${deploymentId}:delivery-reconcile-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId,
+                    oldestCreatedAt: "2026-06-21T00:00:00.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_reconcile_1",
+                    connectionId,
+                    queryId: 19,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId,
+                      queryId: 19,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Lovelace" },
+                      previousResultHash: '{"user":"Ada"}',
+                      resultHash: '{"user":"Lovelace"}',
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "delivery-reconcile-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 19,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const delivered = nextJsonMessage(ws);
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 5, deliveryLimit: 10, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deployments: 1,
+      woken: 1,
+      failed: [],
+      hasMore: false,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 19,
+          value: { user: "Lovelace" },
+        },
+      ],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        authorization: "Bearer executor-secret",
+        body: { limit: 5 },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 10,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_reconcile_1"],
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);

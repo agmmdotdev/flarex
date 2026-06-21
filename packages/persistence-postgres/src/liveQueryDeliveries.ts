@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull, min, or, sql } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { liveQueryDeliveries } from "./schema";
@@ -26,6 +26,28 @@ export interface ListUndeliveredLiveQueryDeliveriesInput {
 export interface ListUndeliveredLiveQueryDeliveriesResult {
   deliveries: LiveQueryDeliveryRecord[];
   nextCursor: LiveQueryDeliveryCursor | null;
+  hasMore: boolean;
+}
+
+export interface PendingLiveQueryDeliveryDeploymentCursor {
+  oldestCreatedAt: Date;
+  deploymentId: string;
+}
+
+export interface PendingLiveQueryDeliveryDeployment {
+  deploymentId: string;
+  oldestCreatedAt: Date;
+  pending: number;
+}
+
+export interface ListPendingLiveQueryDeliveryDeploymentsInput {
+  cursor?: PendingLiveQueryDeliveryDeploymentCursor;
+  limit: number;
+}
+
+export interface ListPendingLiveQueryDeliveryDeploymentsResult {
+  deployments: PendingLiveQueryDeliveryDeployment[];
+  nextCursor: PendingLiveQueryDeliveryDeploymentCursor | null;
   hasMore: boolean;
 }
 
@@ -144,6 +166,62 @@ export async function markLiveQueryDeliveriesDelivered(
 
   return {
     delivered: rows.length,
+  };
+}
+
+export async function listPendingLiveQueryDeliveryDeployments(
+  db: FlarexMetadataDatabase,
+  input: ListPendingLiveQueryDeliveryDeploymentsInput,
+): Promise<ListPendingLiveQueryDeliveryDeploymentsResult> {
+  const oldestCreatedAt = min(liveQueryDeliveries.createdAt);
+  const pending = count();
+  const cursorFilter =
+    input.cursor === undefined
+      ? undefined
+      : or(
+          gt(oldestCreatedAt, input.cursor.oldestCreatedAt),
+          and(
+            eq(oldestCreatedAt, input.cursor.oldestCreatedAt),
+            gt(liveQueryDeliveries.deploymentId, input.cursor.deploymentId),
+          ),
+        );
+  const rows = await db
+    .select({
+      deploymentId: liveQueryDeliveries.deploymentId,
+      oldestCreatedAt,
+      pending,
+    })
+    .from(liveQueryDeliveries)
+    .where(isNull(liveQueryDeliveries.deliveredAt))
+    .groupBy(liveQueryDeliveries.deploymentId)
+    .having(cursorFilter)
+    .orderBy(asc(oldestCreatedAt), asc(liveQueryDeliveries.deploymentId))
+    .limit(input.limit + 1);
+
+  const hasMore = rows.length > input.limit;
+  const page = rows.slice(0, input.limit).map((row) => {
+    if (row.oldestCreatedAt === null) {
+      throw new Error(
+        `Pending live query delivery deployment ${row.deploymentId} has no oldest created_at.`,
+      );
+    }
+    return {
+      deploymentId: row.deploymentId,
+      oldestCreatedAt: row.oldestCreatedAt,
+      pending: row.pending,
+    };
+  });
+  const last = page.at(-1);
+  return {
+    deployments: page,
+    nextCursor:
+      hasMore && last !== undefined
+        ? {
+            oldestCreatedAt: last.oldestCreatedAt,
+            deploymentId: last.deploymentId,
+          }
+        : null,
+    hasMore,
   };
 }
 

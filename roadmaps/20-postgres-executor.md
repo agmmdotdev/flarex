@@ -1255,6 +1255,70 @@ corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "cont
 git diff --check
 ```
 
+## Pending Live-Query Delivery Deployment Scan
+
+Previous completed checkpoint: `c8f2f93` Continue DeliveryDO drains with
+alarms.
+
+What changed:
+
+- Added persistence query
+  `listPendingLiveQueryDeliveryDeployments({ limit, cursor })`.
+- The query groups undelivered `live_query_deliveries` by `deployment_id`,
+  orders deployments by oldest pending row, and returns pending counts.
+- Added executor core method
+  `executor.listPendingLiveQueryDeliveryDeployments(...)`.
+- Added authenticated HTTP adapter route
+  `POST /maintenance/live-queries/pending-deployments`.
+- Added PGlite, executor, and HTTP adapter coverage.
+
+Why it changed:
+
+Wake notifications are best-effort. If the executor writes durable delivery
+rows but the wake request never reaches Cloudflare, the rows must still become
+discoverable without Vercel/Nitro running a polling loop.
+
+Flow:
+
+```txt
+live_query_deliveries.delivered_at is null
+  -> pending-deployments lists affected deployments
+  -> Cloudflare SchedulerDO wakes each deployment's DeliveryDO
+  -> DeliveryDO claim/fanout/ack remains the only delivery path
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync worker can find and process active query work internally.
+- `crates/database/src/committer.rs`
+  - committed durable metadata drives downstream work.
+
+Flarex differences:
+
+- Convex does not need a pending-deployment endpoint because its sync worker and
+  storage live together.
+- Flarex exposes a maintenance endpoint because the trusted executor and
+  Cloudflare WebSocket runtime are separate deployments.
+
+Known limitations:
+
+- This is a scan/list API, not a lease. Safety still depends on one
+  `DeliveryDO` per deployment performing claim/fanout/ack.
+- It does not dead-letter permanently failing deployments.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+git diff --check
+```
+
 ## Delivery Wake Notification After Rerun
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

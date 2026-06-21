@@ -1235,6 +1235,65 @@ corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "cont
 git diff --check
 ```
 
+## SchedulerDO Lost-Wake Reconciler
+
+Previous completed checkpoint: `c8f2f93` Continue DeliveryDO drains with
+alarms.
+
+What changed:
+
+- Added `SchedulerDO` live-query delivery reconciliation endpoint:
+  `/reconcile/live-query-deliveries`.
+- Added Worker route for manual/internal maintenance:
+  `POST /scheduler/live-query-deliveries/reconcile`.
+- Added Worker `scheduled(...)` handler that calls the same SchedulerDO.
+- Added Wrangler cron trigger for the deployable backend wrapper.
+- SchedulerDO calls executor
+  `/maintenance/live-queries/pending-deployments`, then wakes each matching
+  `DeliveryDO`.
+- Added backend sync coverage proving SchedulerDO recovers a lost wake by
+  waking DeliveryDO, which then claims, fans out, and acks.
+
+Freshness/cache impact:
+
+```txt
+lost executor wake
+  -> delivery row remains durable and undelivered
+  -> SchedulerDO scan finds deployment
+  -> SchedulerDO wakes DeliveryDO
+  -> DeliveryDO drains and acks after ConnectionDO fanout
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns active query update processing.
+- `crates/sync/src/state.rs`
+  - query transitions are applied as backend state advances.
+
+Flarex differences:
+
+- Convex does not expose this fallback boundary because wakeup and processing
+  are internal to one backend.
+- Flarex needs an explicit Cloudflare reconciler because the trusted executor
+  can run on Nitro/Vercel and wake notifications are not durable.
+
+Known limitations:
+
+- SchedulerDO scans one bounded page per run and reports `hasMore`; it does not
+  yet persist cursor continuation across cron runs.
+- No dead-letter/observability table tracks repeatedly failing deployments.
+- The manual route uses the existing live-query delivery capability token when
+  configured; platform-level auth/ops scoping is still future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reconciles lost live query"
+git diff --check
+```
+
 ## Outbox Delivery Prerequisite
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

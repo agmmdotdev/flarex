@@ -10,6 +10,8 @@ import type {
   ListUndeliveredLiveQueryDeliveriesResult,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
+  ListPendingLiveQueryDeliveryDeploymentsInput,
+  ListPendingLiveQueryDeliveryDeploymentsResult,
   RunLiveQueryDeliveryBatchInput,
   RunLiveQueryDeliveryBatchResult,
 } from "./types";
@@ -28,6 +30,17 @@ export async function markLiveQueryDeliveriesDelivered(
   input: MarkLiveQueryDeliveriesDeliveredInput,
 ): Promise<MarkLiveQueryDeliveriesDeliveredResult> {
   return await persistence.markLiveQueryDeliveriesDelivered(input);
+}
+
+export async function listPendingLiveQueryDeliveryDeployments(
+  persistence: FlarexExecutorPersistence,
+  input: ListPendingLiveQueryDeliveryDeploymentsInput,
+): Promise<ListPendingLiveQueryDeliveryDeploymentsResult> {
+  const limit = liveQueryDeliveryLimit(input.limit);
+  return await persistence.listPendingLiveQueryDeliveryDeployments({
+    limit,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
 }
 
 export async function claimLiveQueryDeliveryBatch(

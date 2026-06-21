@@ -60,6 +60,21 @@ export default {
       return errorResponse(error);
     }
   },
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      env.SCHEDULERS
+        .getByName(schedulerObjectName("live-query-deliveries"))
+        .fetch("https://flarex.internal/reconcile/live-query-deliveries", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+    );
+  },
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env): Promise<Response> {
@@ -79,6 +94,20 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/deployments" && ["GET", "POST"].includes(request.method)) {
     return env.REGISTRY.getByName("registry:v1").fetch(request);
+  }
+
+  if (
+    url.pathname === "/scheduler/live-query-deliveries/reconcile" &&
+    request.method === "POST"
+  ) {
+    authorizeLiveQueryDeliveryRequest(request, env);
+    return env.SCHEDULERS
+      .getByName(schedulerObjectName("live-query-deliveries"))
+      .fetch("https://flarex.internal/reconcile/live-query-deliveries", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await readJson(request)),
+      });
   }
 
   if (parts[0] === "deployments") {

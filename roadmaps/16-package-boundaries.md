@@ -605,6 +605,56 @@ corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "cont
 git diff --check
 ```
 
+## SchedulerDO Reconciler Boundary
+
+Previous completed checkpoint: `c8f2f93` Continue DeliveryDO drains with
+alarms.
+
+What changed:
+
+- `@flarex/persistence-postgres` owns the SQL/PGlite pending-deployment scan.
+- `@flarex/executor` exposes the scan as platform behavior.
+- `@flarex/executor-http` exposes the authenticated maintenance route.
+- `flarex-backend` owns SchedulerDO, cron wiring, and DeliveryDO wake fanout.
+
+Boundary rule:
+
+```txt
+executor packages:
+  find deployments with durable pending rows
+SchedulerDO:
+  wake DeliveryDOs only
+DeliveryDO:
+  claim, fanout, ack
+ConnectionDO:
+  client socket transition delivery
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - one internal worker owns rerun and send work in Convex.
+
+Flarex difference:
+
+- Flarex deliberately keeps the executor framework-neutral and moves repeated
+  wake/fanout recovery to Cloudflare Durable Objects.
+
+Known limitations:
+
+- Route constants are still duplicated string literals across packages.
+- SchedulerDO has bounded one-page scans; cursor persistence is future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Executor HTTP Boundary Update
 
 Previous completed checkpoint for this roadmap: `c563d88` Make push start

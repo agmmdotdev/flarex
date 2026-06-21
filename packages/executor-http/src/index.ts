@@ -47,6 +47,7 @@ import {
   type InvokeSyscallInput,
   type InvokeSyscallRequest,
   type Json,
+  type ListPendingLiveQueryDeliveryDeploymentsInput,
   type PrepareInvokeInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
@@ -91,6 +92,7 @@ export interface FlarexHttpAppConfig {
   maintenanceLiveQueryDeliveryPath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
+  maintenanceLiveQueryPendingDeploymentsPath?: string;
   liveQueryRerun?: FlarexLiveQueryRerunConfig;
   liveQueryDelivery?: FlarexLiveQueryDeliveryConfig;
 }
@@ -133,6 +135,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   );
   const maintenanceLiveQueryAckPath = normalizePath(
     config.maintenanceLiveQueryAckPath ?? "/maintenance/live-queries/ack",
+  );
+  const maintenanceLiveQueryPendingDeploymentsPath = normalizePath(
+    config.maintenanceLiveQueryPendingDeploymentsPath ??
+      "/maintenance/live-queries/pending-deployments",
   );
   const capabilityToken = config.capabilityToken;
 
@@ -182,6 +188,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(maintenanceLiveQueryAckPath, ({ request, set }) =>
       handleLiveQueryAckMaintenance(executor, request, set, capabilityToken),
+    )
+    .post(maintenanceLiveQueryPendingDeploymentsPath, ({ request, set }) =>
+      handleLiveQueryPendingDeploymentsMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
     )
     .all(invokePreparePath, ({ set }) => {
       set.status = 405;
@@ -258,6 +272,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryAckPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryPendingDeploymentsPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryPendingDeploymentsPath} only supports POST`,
       };
     })
     .all("*", ({ request, set }) => {
@@ -713,6 +734,41 @@ async function handleLiveQueryAckMaintenance(
   }
 }
 
+async function handleLiveQueryPendingDeploymentsMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryPendingDeploymentsMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.listPendingLiveQueryDeliveryDeployments(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 function authorizeExecutorRequest(
   request: Request,
   capabilityToken: string | undefined,
@@ -1088,6 +1144,33 @@ function parseLiveQueryAckMaintenanceBody(
   };
 }
 
+function parseLiveQueryPendingDeploymentsMaintenanceBody(
+  body: unknown,
+):
+  | { value: ListPendingLiveQueryDeliveryDeploymentsInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const limit = optionalPositiveInteger(record, "limit");
+  if ("error" in limit) return limit;
+  const cursor = optionalPendingLiveQueryDeliveryDeploymentCursor(record.cursor);
+  if ("error" in cursor) return cursor;
+
+  return {
+    value: {
+      limit: limit.value ?? 100,
+      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+    },
+  };
+}
+
 function parseSyscallRequest(
   record: Record<string, unknown>,
 ):
@@ -1290,6 +1373,51 @@ function optionalLiveQueryDeliveryCursor(
     value: {
       createdAt: createdAt.value,
       deliveryId: deliveryId.value,
+    },
+  };
+}
+
+function optionalPendingLiveQueryDeliveryDeploymentCursor(
+  value: unknown,
+):
+  | { value?: { oldestCreatedAt: Date; deploymentId: string } }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor must be an object.",
+      },
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const oldestCreatedAt = optionalDate(
+    record.oldestCreatedAt,
+    "cursor.oldestCreatedAt",
+  );
+  if ("error" in oldestCreatedAt) return oldestCreatedAt;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.deploymentId must be a non-empty string.",
+      },
+    };
+  }
+  if (oldestCreatedAt.value === undefined) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.oldestCreatedAt must be an ISO timestamp string.",
+      },
+    };
+  }
+  return {
+    value: {
+      oldestCreatedAt: oldestCreatedAt.value,
+      deploymentId: deploymentId.value,
     },
   };
 }

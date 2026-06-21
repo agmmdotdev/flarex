@@ -31,6 +31,8 @@ import type {
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
   ListLiveQuerySubscriptionsInput,
+  ListPendingLiveQueryDeliveryDeploymentsInput,
+  ListPendingLiveQueryDeliveryDeploymentsResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   ListOutboxEventsInput,
@@ -59,6 +61,8 @@ import type { ArtifactSourcePackage } from "flarex/artifacts";
 export type {
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  ListPendingLiveQueryDeliveryDeploymentsInput,
+  ListPendingLiveQueryDeliveryDeploymentsResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   MarkOutboxEventsDeliveredInput,
@@ -135,6 +139,9 @@ export interface FlarexExecutor {
   runLiveQueryDeliveryBatch(
     input: RunLiveQueryDeliveryBatchInput,
   ): Promise<RunLiveQueryDeliveryBatchResult>;
+  listPendingLiveQueryDeliveryDeployments(
+    input: ListPendingLiveQueryDeliveryDeploymentsInput,
+  ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
   recordLiveQuerySubscription(
     input: RecordLiveQuerySubscriptionInput,
   ): Promise<RecordLiveQuerySubscriptionResult>;
@@ -274,6 +281,9 @@ export interface FlarexExecutorPersistence {
   listUndeliveredLiveQueryDeliveries(
     input: ListUndeliveredLiveQueryDeliveriesInput,
   ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
+  listPendingLiveQueryDeliveryDeployments(
+    input: ListPendingLiveQueryDeliveryDeploymentsInput,
+  ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
