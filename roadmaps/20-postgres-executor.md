@@ -232,8 +232,9 @@ Flarex differences:
 
 Known limitations:
 
-- JSON null storage in `live_query_subscriptions.result_json` needs a separate
-  persistence fix if we want JSON null to round-trip through PGlite/Drizzle.
+- JSON null storage in `live_query_subscriptions.result_json` was fixed in the
+  next checkpoint. Other JSONB/not-null columns should get equivalent handling
+  when they accept JSON null.
 - The test uses a document `get` query. Indexed query freshness still needs
   range/version support.
 - Hosted Dynamic Worker execution still needs a production runtime equivalent.
@@ -242,6 +243,53 @@ Verification:
 
 ```sh
 corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
+## Live-Query JSON Null Persistence
+
+Previous completed checkpoint: `170a4a0` Add PGlite live query rerun
+integration.
+
+What changed:
+
+- Added a JSONB value helper for live-query subscription persistence.
+- `argsJson: null` and `resultJson: null` now write JSONB `null` instead of
+  SQL `NULL`.
+- Added PGlite coverage proving live-query rows round-trip JSON null and do
+  not store SQL NULL in those not-null columns.
+
+Why it changed:
+
+The PGlite live-query integration exposed a correctness bug in the persistence
+boundary. A query result of `null` is a valid JSON result. The registry schema
+uses `not null` because every subscription row must have a stored result value,
+so the persistence layer must encode JSON null explicitly.
+
+Convex references:
+
+- `npm-packages/convex/src/values/value.ts`
+  - null is a valid public value.
+- `crates/database/src/value.rs`
+  - Convex distinguishes stored value null from absent storage state.
+
+Flarex differences:
+
+- Flarex relies on Postgres JSONB for registry values. The JavaScript database
+  adapter can otherwise collapse JSON null into SQL NULL, so the persistence
+  package owns that encoding rule.
+
+Known limitations:
+
+- This patch covers `live_query_subscriptions`. Audit other JSONB/not-null
+  columns before exposing API paths that intentionally store JSON null there.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```

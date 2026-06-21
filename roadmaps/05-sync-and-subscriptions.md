@@ -209,14 +209,61 @@ Known limitations:
 
 - The test covers document-read freshness, not index/range freshness.
 - Connection fanout is still future work.
-- During test development, PGlite/Drizzle treated JSON `null` for
-  `live_query_subscriptions.result_json` as SQL `NULL`; a separate persistence
-  hardening step should preserve JSON null if we want to store it directly.
+- JSON `null` result persistence was fixed in the next checkpoint so nullable
+  query results can stay valid JSON values without becoming SQL `NULL`.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
+## JSON Null Live-Query Results
+
+Previous completed checkpoint: `170a4a0` Add PGlite live query rerun
+integration.
+
+What changed:
+
+- Fixed `live_query_subscriptions.args_json` and `result_json` writes so
+  JavaScript `null` is stored as JSONB `null`, not SQL `NULL`.
+- Restored the PGlite live-query rerun integration test to use
+  `resultJson: null` for the stale result.
+- Added a direct PGlite persistence regression that inserts, lists, and checks
+  SQL storage for JSON null live-query args/results.
+
+Why it matters for sync:
+
+Convex-style queries can legitimately return `null`, and one-shot or live query
+args can also be `null`. The live-query registry must preserve those as JSON
+values because the column is intentionally not nullable; SQL `NULL` would mean
+"missing registry value", not "query returned JSON null".
+
+Convex references:
+
+- `npm-packages/convex/src/values/value.ts`
+  - `null` is a valid Convex value.
+- `crates/sync/src/worker.rs`
+  - query results are stored and compared for transitions.
+
+Flarex differences:
+
+- Flarex stores active live-query results in Postgres JSONB rows. Drizzle/PGlite
+  need an explicit JSONB null SQL expression to avoid inserting SQL `NULL`.
+
+Known limitations:
+
+- This fix is scoped to the live-query registry. Other JSONB/not-null columns
+  that need to distinguish JSON null from SQL NULL should receive the same
+  helper when a valid API path can pass `null`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```

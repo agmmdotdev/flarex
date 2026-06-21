@@ -227,7 +227,7 @@ describe("createLocalExecutorHttpRuntime", () => {
       readSet: {
         documents: [{ tableId: 1, id: "1:message", observedTs: null }],
       },
-      resultJson: { missing: true },
+      resultJson: null,
     });
 
     const runtime = createLocalExecutorHttpRuntime({

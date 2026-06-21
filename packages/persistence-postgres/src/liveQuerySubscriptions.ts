@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { liveQuerySubscriptions } from "./schema";
@@ -43,11 +43,11 @@ export async function upsertLiveQuerySubscription(
       connectionId: input.connectionId,
       queryId: input.queryId,
       functionPath: input.functionPath,
-      argsJson: input.argsJson,
+      argsJson: jsonbValue(input.argsJson),
       partitionKey: input.partitionKey ?? null,
       beginTs: input.beginTs,
       readSetJson: input.readSetJson,
-      resultJson: input.resultJson,
+      resultJson: jsonbValue(input.resultJson),
       resultHash: input.resultHash,
       ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
     })
@@ -59,11 +59,11 @@ export async function upsertLiveQuerySubscription(
       ],
       set: {
         functionPath: input.functionPath,
-        argsJson: input.argsJson,
+        argsJson: jsonbValue(input.argsJson),
         partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,
-        resultJson: input.resultJson,
+        resultJson: jsonbValue(input.resultJson),
         resultHash: input.resultHash,
         updatedAt: input.updatedAt ?? new Date(),
       },
@@ -116,4 +116,8 @@ export async function listLiveQuerySubscriptions(
       asc(liveQuerySubscriptions.connectionId),
       asc(liveQuerySubscriptions.queryId),
     );
+}
+
+function jsonbValue(value: unknown): unknown {
+  return value === null ? sql`'null'::jsonb` : value;
 }
