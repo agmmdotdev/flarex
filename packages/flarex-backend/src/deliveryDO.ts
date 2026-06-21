@@ -49,6 +49,8 @@ type DeliveryDrainResult = {
   hasMore: boolean;
 };
 
+type DeliveryFailureStage = "fanout" | "ack";
+
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
 const PENDING_DRAIN_KEY = "pendingDrain";
@@ -136,18 +138,30 @@ export class DeliveryDO extends DurableObject<Env> {
 
       claimed += page.deliveries.length;
       const changes = deliveryChangesFromRecords(page.deliveries);
-      const fanout = await deliverLiveQueryChangesToConnections(
-        this.env,
-        deploymentId,
-        changes,
-      );
+      let fanout;
+      try {
+        fanout = await deliverLiveQueryChangesToConnections(
+          this.env,
+          deploymentId,
+          changes,
+        );
+      } catch (error) {
+        await this.reportDeliveryFailure(deploymentId, page.deliveries, "fanout", error);
+        throw error;
+      }
       delivered += fanout.delivered;
       skipped += fanout.skipped;
 
-      const ack = await this.ack(
-        deploymentId,
-        page.deliveries.map(delivery => delivery.deliveryId),
-      );
+      let ack;
+      try {
+        ack = await this.ack(
+          deploymentId,
+          page.deliveries.map(delivery => delivery.deliveryId),
+        );
+      } catch (error) {
+        await this.reportDeliveryFailure(deploymentId, page.deliveries, "ack", error);
+        throw error;
+      }
       acked += ack.delivered;
       hasMore = page.hasMore;
       if (!page.hasMore) break;
@@ -229,6 +243,33 @@ export class DeliveryDO extends DurableObject<Env> {
     return ackResultFromUnknown(await response.json().catch(() => null));
   }
 
+  private async reportDeliveryFailure(
+    deploymentId: string,
+    deliveries: LiveQueryDeliveryRecord[],
+    stage: DeliveryFailureStage,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      const response = await this.executorFetch(
+        "/maintenance/live-queries/failure",
+        {
+          deploymentId,
+          deliveryIds: deliveries.map(delivery => delivery.deliveryId),
+          stage,
+          error: errorMessage(error),
+          failedAt: new Date().toISOString(),
+        },
+      );
+      if (!response.ok) {
+        console.error(
+          `Live query delivery failure report failed with status ${response.status}.`,
+        );
+      }
+    } catch (reportError) {
+      console.error("Live query delivery failure report failed.", reportError);
+    }
+  }
+
   private async executorFetch(path: string, body: unknown): Promise<Response> {
     const url = executorUrl(this.env, path);
     const headers = new Headers({ "content-type": "application/json" });
@@ -245,6 +286,11 @@ export class DeliveryDO extends DurableObject<Env> {
     }
     return fetch(request);
   }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {

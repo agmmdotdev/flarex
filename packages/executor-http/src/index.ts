@@ -49,6 +49,7 @@ import {
   type Json,
   type ListPendingLiveQueryDeliveryDeploymentsInput,
   type PrepareInvokeInput,
+  type RecordLiveQueryDeliveryFailureInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
   type RunLiveQueryDeliveryBatchInput,
@@ -92,6 +93,7 @@ export interface FlarexHttpAppConfig {
   maintenanceLiveQueryDeliveryPath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
+  maintenanceLiveQueryFailurePath?: string;
   maintenanceLiveQueryPendingDeploymentsPath?: string;
   liveQueryRerun?: FlarexLiveQueryRerunConfig;
   liveQueryDelivery?: FlarexLiveQueryDeliveryConfig;
@@ -135,6 +137,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   );
   const maintenanceLiveQueryAckPath = normalizePath(
     config.maintenanceLiveQueryAckPath ?? "/maintenance/live-queries/ack",
+  );
+  const maintenanceLiveQueryFailurePath = normalizePath(
+    config.maintenanceLiveQueryFailurePath ??
+      "/maintenance/live-queries/failure",
   );
   const maintenanceLiveQueryPendingDeploymentsPath = normalizePath(
     config.maintenanceLiveQueryPendingDeploymentsPath ??
@@ -188,6 +194,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(maintenanceLiveQueryAckPath, ({ request, set }) =>
       handleLiveQueryAckMaintenance(executor, request, set, capabilityToken),
+    )
+    .post(maintenanceLiveQueryFailurePath, ({ request, set }) =>
+      handleLiveQueryFailureMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
     )
     .post(maintenanceLiveQueryPendingDeploymentsPath, ({ request, set }) =>
       handleLiveQueryPendingDeploymentsMaintenance(
@@ -272,6 +286,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryAckPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryFailurePath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryFailurePath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryPendingDeploymentsPath, ({ set }) => {
@@ -734,6 +755,41 @@ async function handleLiveQueryAckMaintenance(
   }
 }
 
+async function handleLiveQueryFailureMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryFailureMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.recordLiveQueryDeliveryFailure(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 async function handleLiveQueryPendingDeploymentsMaintenance(
   executor: FlarexExecutor,
   request: Request,
@@ -1144,6 +1200,42 @@ function parseLiveQueryAckMaintenanceBody(
   };
 }
 
+function parseLiveQueryFailureMaintenanceBody(
+  body: unknown,
+):
+  | { value: RecordLiveQueryDeliveryFailureInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
+  if ("error" in deliveryIds) return deliveryIds;
+  const stage = requiredLiveQueryDeliveryFailureStage(record.stage);
+  if ("error" in stage) return stage;
+  const error = requiredString(record, "error");
+  if ("error" in error) return error;
+  const failedAt = requiredDate(record, "failedAt");
+  if ("error" in failedAt) return failedAt;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      deliveryIds: deliveryIds.value,
+      stage: stage.value,
+      error: error.value,
+      failedAt: failedAt.value,
+    },
+  };
+}
+
 function parseLiveQueryPendingDeploymentsMaintenanceBody(
   body: unknown,
 ):
@@ -1167,6 +1259,20 @@ function parseLiveQueryPendingDeploymentsMaintenanceBody(
     value: {
       limit: limit.value ?? 100,
       ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+    },
+  };
+}
+
+function requiredLiveQueryDeliveryFailureStage(
+  value: unknown,
+):
+  | { value: "fanout" | "ack" }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === "fanout" || value === "ack") return { value };
+  return {
+    error: {
+      error: "bad_request",
+      message: "stage must be fanout or ack.",
     },
   };
 }

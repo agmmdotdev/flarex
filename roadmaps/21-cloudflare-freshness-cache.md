@@ -1177,6 +1177,54 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## DeliveryDO Failure Reporting
+
+Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
+
+What changed:
+
+- `DeliveryDO` now reports claimed delivery IDs back to the executor when
+  `ConnectionDO` fanout fails.
+- `DeliveryDO` also reports claimed delivery IDs when executor ack fails.
+- Failure reporting is best-effort and never masks the original delivery error.
+- Existing retry behavior remains unchanged: the DO schedules retry/alarm work
+  and the delivery row remains unacked.
+
+Runtime flow:
+
+```text
+claim pending delivery rows
+  -> fanout to ConnectionDO
+  -> fanout or ack fails
+  -> POST /maintenance/live-queries/failure
+  -> executor increments attempt metadata
+  -> DeliveryDO rethrows and schedules retry
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own transition processing without a Cloudflare edge
+    handoff.
+
+Flarex differences:
+
+- Flarex must observe failures across Cloudflare DO and executor boundaries.
+- Reporting is not an acknowledgement; it only records retry diagnostics.
+
+Known limitations:
+
+- Claim failures cannot report delivery IDs because no rows have been claimed.
+- No automatic dead-letter threshold is implemented yet.
+- No metrics exporter or dashboard exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "records DeliveryDO fanout failures"
+```
+
 ## DeliveryDO Alarm Continuation For Pending Rows
 
 Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query

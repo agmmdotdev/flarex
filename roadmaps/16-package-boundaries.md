@@ -505,6 +505,38 @@ corepack pnpm build
 git diff --check
 ```
 
+## Delivery Failure Boundary
+
+Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
+
+Boundary decision:
+
+- `@flarex/persistence-postgres` owns the delivery-row failure columns and
+  low-level update operation.
+- `@flarex/executor` owns validation and the framework-neutral
+  `recordLiveQueryDeliveryFailure(...)` API.
+- `@flarex/executor-http` exposes the maintenance route for deployed executor
+  hosts.
+- `packages/flarex-backend` calls that route from `DeliveryDO` when fanout or
+  ack fails.
+
+This keeps Cloudflare Durable Objects from owning durable failure history while
+still letting them report runtime failures at the correct boundary.
+
+Convex difference:
+
+- Convex does this work inside one backend sync runtime. Flarex preserves the
+  same durable-before-deliver principle with explicit executor/edge handoff
+  APIs.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Executor HTTP Wake Notifier Boundary
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

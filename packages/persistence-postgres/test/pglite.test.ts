@@ -2685,6 +2685,50 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("records live query delivery failures without acking the row", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_delivery_failure",
+      deliveryId: "delivery_failed",
+      connectionId: "connection_failed",
+      queryId: 1,
+      payloadJson: { resultJson: "fresh" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await expect(
+      persistence.recordLiveQueryDeliveryFailure({
+        deploymentId: "deployment_delivery_failure",
+        deliveryIds: ["delivery_failed"],
+        stage: "fanout",
+        error: "ConnectionDO failed",
+        failedAt: new Date("2026-06-20T00:01:00.000Z"),
+      }),
+    ).resolves.toEqual({ failed: 1 });
+
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_failure",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_failed",
+          deliveredAt: null,
+          attemptCount: 1,
+          lastAttemptedAt: new Date("2026-06-20T00:01:00.000Z"),
+          lastErrorStage: "fanout",
+          lastError: "ConnectionDO failed",
+          deadLetteredAt: null,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
   it("commits staged invoke session deletes after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

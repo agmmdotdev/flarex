@@ -473,6 +473,102 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("records DeliveryDO fanout failures before retrying pending rows", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-failure-deployment";
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_failed",
+                    connectionId: "wrong_connection",
+                    queryId: 18,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId: "wrong_connection",
+                      queryId: 18,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Grace" },
+                      previousResultHash: '{"user":"Ada"}',
+                      resultHash: '{"user":"Grace"}',
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/failure") {
+              return Response.json({ failed: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(500);
+    expect(executorRequests).toHaveLength(2);
+    expect(executorRequests[0]).toEqual({
+      path: "/maintenance/live-queries/claim",
+      authorization: "Bearer executor-secret",
+      body: {
+        deploymentId,
+        limit: 10,
+      },
+    });
+    expect(executorRequests[1]).toMatchObject({
+      path: "/maintenance/live-queries/failure",
+      authorization: "Bearer executor-secret",
+      body: {
+        deploymentId,
+        deliveryIds: ["delivery_failed"],
+        stage: "fanout",
+      },
+    });
+    expect((executorRequests[1]!.body as { error: string }).error).toContain(
+      "wrong_connection",
+    );
+    expect(typeof (executorRequests[1]!.body as { failedAt: unknown }).failedAt)
+      .toBe("string");
+  });
+
   it("continues DeliveryDO draining from pending alarm state when more deliveries remain", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

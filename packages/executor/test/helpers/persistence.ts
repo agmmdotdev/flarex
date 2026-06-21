@@ -47,6 +47,8 @@ import {
   type MarkLiveQueryDeliveriesDeliveredResult,
   type MarkOutboxEventsDeliveredInput,
   type MarkOutboxEventsDeliveredResult,
+  type RecordLiveQueryDeliveryFailureInput,
+  type RecordLiveQueryDeliveryFailureResult,
   type RecordLiveQueryRerunResultInput,
   type RecordLiveQueryRerunResultResult,
   schemaTableValidatorsFromAnalysis,
@@ -910,6 +912,7 @@ export function memoryPersistence(
           (delivery) =>
             delivery.deploymentId === input.deploymentId &&
             delivery.deliveredAt === null &&
+            delivery.deadLetteredAt === null &&
             (input.cursor === undefined ||
               delivery.createdAt > input.cursor.createdAt ||
               (delivery.createdAt.getTime() ===
@@ -943,6 +946,7 @@ export function memoryPersistence(
       const byDeployment = new Map<string, { oldestCreatedAt: Date; pending: number }>();
       for (const delivery of liveQueryDeliveries) {
         if (delivery.deliveredAt !== null) continue;
+        if (delivery.deadLetteredAt !== null) continue;
         const existing = byDeployment.get(delivery.deploymentId);
         if (existing === undefined) {
           byDeployment.set(delivery.deploymentId, {
@@ -999,6 +1003,7 @@ export function memoryPersistence(
         if (
           delivery.deploymentId === input.deploymentId &&
           delivery.deliveredAt === null &&
+          delivery.deadLetteredAt === null &&
           deliveryIds.has(delivery.deliveryId)
         ) {
           liveQueryDeliveries[index] = {
@@ -1009,6 +1014,31 @@ export function memoryPersistence(
         }
       }
       return { delivered };
+    },
+    async recordLiveQueryDeliveryFailure(
+      input: RecordLiveQueryDeliveryFailureInput,
+    ): Promise<RecordLiveQueryDeliveryFailureResult> {
+      const deliveryIds = new Set(input.deliveryIds);
+      let failed = 0;
+      for (let index = 0; index < liveQueryDeliveries.length; index += 1) {
+        const delivery = liveQueryDeliveries[index]!;
+        if (
+          delivery.deploymentId === input.deploymentId &&
+          delivery.deliveredAt === null &&
+          delivery.deadLetteredAt === null &&
+          deliveryIds.has(delivery.deliveryId)
+        ) {
+          liveQueryDeliveries[index] = {
+            ...delivery,
+            attemptCount: delivery.attemptCount + 1,
+            lastAttemptedAt: input.failedAt,
+            lastErrorStage: input.stage,
+            lastError: input.error,
+          };
+          failed += 1;
+        }
+      }
+      return { failed };
     },
   };
 }
@@ -1071,6 +1101,12 @@ function liveQueryDelivery(input: {
     queryId: input.queryId,
     payloadJson: input.payloadJson,
     deliveredAt: null,
+    attemptCount: 0,
+    lastAttemptedAt: null,
+    lastErrorStage: null,
+    lastError: null,
+    deadLetteredAt: null,
+    deadLetterReason: null,
     createdAt: input.createdAt ?? new Date("2026-06-20T00:00:00.000Z"),
   };
 }

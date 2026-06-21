@@ -192,6 +192,58 @@ Verification:
 git diff --check
 ```
 
+## Live-Query Delivery Failure Observability
+
+Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
+
+What changed:
+
+- Added durable failure metadata to live-query delivery rows.
+- Added executor-level failure reporting so Cloudflare delivery failures are
+  visible in Postgres state.
+- Wired `DeliveryDO` to report fanout and ack failures after rows are claimed.
+- Added tests proving a failed delivery remains pending and records attempt
+  metadata.
+
+Sync invariant:
+
+```text
+failed delivery report != delivered ack
+```
+
+The client may still need the update. Therefore the row must remain pending
+until successful fanout plus ack, or until a future explicit dead-letter policy
+forces reconnect/resubscribe behavior.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - query result transitions are backend-owned work.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - clients consume query updates as result replacement transitions.
+
+Flarex differences:
+
+- Convex does not expose a separate delivery failure ledger because sync is
+  backend-internal.
+- Flarex needs delivery attempt metadata because updates cross from the
+  executor to Cloudflare `DeliveryDO` and then to `ConnectionDO`.
+
+Known limitations:
+
+- Duplicate updates remain possible if fanout succeeds and ack fails. This is
+  acceptable for result-replacement query updates but must be documented before
+  event-style streams exist.
+- Dead-lettering is not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "records DeliveryDO fanout failures"
+```
+
 ## Rerun-To-DeliveryDO Wake Contract
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

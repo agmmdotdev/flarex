@@ -205,6 +205,50 @@ Verification:
 git diff --check
 ```
 
+## Live-Query Delivery Failure Metadata
+
+Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
+
+What changed:
+
+- Extended `live_query_deliveries` with retry/failure metadata:
+  `attempt_count`, `last_attempted_at`, `last_error_stage`, `last_error`,
+  `dead_lettered_at`, and `dead_letter_reason`.
+- Added Drizzle migration `0011_pretty_shaman.sql`.
+- Added low-level Postgres persistence API
+  `recordLiveQueryDeliveryFailure(...)`.
+- Updated undelivered and pending-deployment scans so retryable pending rows
+  mean `delivered_at is null` and `dead_lettered_at is null`.
+- Preserved the core safety rule: reporting a failure does not ack the row.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync work processes query transitions from durable backend state.
+- `crates/database/src/committer.rs`
+  - durable commits advance before subscribers are notified.
+
+Flarex differences:
+
+- Convex keeps this inside one backend. Flarex has a network boundary between
+  the trusted executor, `DeliveryDO`, and `ConnectionDO`, so failure attempts
+  need durable metadata.
+- This is a runtime maintenance primitive, not a user-facing Convex API.
+
+Known limitations:
+
+- No automatic dead-letter policy yet.
+- No stuck-delivery listing endpoint yet.
+- Failure errors are bounded text, not structured error codes.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter @flarex/persistence-postgres db:check
+```
+
 ## Live-Query Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

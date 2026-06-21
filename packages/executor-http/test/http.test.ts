@@ -1126,6 +1126,12 @@ describe("createFlarexHttpApp", () => {
                 resultJson: ["fresh"],
               },
               deliveredAt: null,
+              attemptCount: 0,
+              lastAttemptedAt: null,
+              lastErrorStage: null,
+              lastError: null,
+              deadLetteredAt: null,
+              deadLetterReason: null,
               createdAt: new Date("2026-06-21T00:00:00.000Z"),
             },
           ]);
@@ -1143,6 +1149,12 @@ describe("createFlarexHttpApp", () => {
                   resultJson: ["fresh"],
                 },
                 deliveredAt: new Date("2026-06-21T00:00:01.000Z"),
+                attemptCount: 0,
+                lastAttemptedAt: null,
+                lastErrorStage: null,
+                lastError: null,
+                deadLetteredAt: null,
+                deadLetterReason: null,
                 createdAt: new Date("2026-06-21T00:00:00.000Z"),
               },
             ],
@@ -1194,6 +1206,12 @@ describe("createFlarexHttpApp", () => {
             resultJson: ["fresh"],
           },
           deliveredAt: "2026-06-21T00:00:01.000Z",
+          attemptCount: 0,
+          lastAttemptedAt: null,
+          lastErrorStage: null,
+          lastError: null,
+          deadLetteredAt: null,
+          deadLetterReason: null,
           createdAt: "2026-06-21T00:00:00.000Z",
         },
       ],
@@ -1223,6 +1241,12 @@ describe("createFlarexHttpApp", () => {
                   resultJson: ["fresh"],
                 },
                 deliveredAt: null,
+                attemptCount: 0,
+                lastAttemptedAt: null,
+                lastErrorStage: null,
+                lastError: null,
+                deadLetteredAt: null,
+                deadLetterReason: null,
                 createdAt: new Date("2026-06-21T00:00:00.000Z"),
               },
             ],
@@ -1256,6 +1280,12 @@ describe("createFlarexHttpApp", () => {
             resultJson: ["fresh"],
           },
           deliveredAt: null,
+          attemptCount: 0,
+          lastAttemptedAt: null,
+          lastErrorStage: null,
+          lastError: null,
+          deadLetteredAt: null,
+          deadLetterReason: null,
           createdAt: "2026-06-21T00:00:00.000Z",
         },
       ],
@@ -1292,6 +1322,40 @@ describe("createFlarexHttpApp", () => {
       },
     ]);
     await expect(response.json()).resolves.toEqual({ delivered: 2 });
+  });
+
+  it("maps live query delivery failure requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQueryDeliveryFailure(input) {
+          calls.push(input);
+          return { failed: input.deliveryIds.length };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/failure", {
+        deploymentId: "deployment_active",
+        deliveryIds: ["delivery_1", "delivery_2"],
+        stage: "fanout",
+        error: "ConnectionDO failed",
+        failedAt: "2026-06-21T00:00:02.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        deliveryIds: ["delivery_1", "delivery_2"],
+        stage: "fanout",
+        error: "ConnectionDO failed",
+        failedAt: new Date("2026-06-21T00:00:02.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({ failed: 2 });
   });
 
   it("maps live query pending deployment requests to the executor core", async () => {
@@ -1395,6 +1459,35 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("validates live query delivery failure requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQueryDeliveryFailure() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/failure", {
+        deploymentId: "deployment_active",
+        deliveryIds: ["delivery_1"],
+        stage: "claim",
+        error: "bad",
+        failedAt: "2026-06-21T00:00:02.000Z",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "stage must be fanout or ack.",
+    });
+  });
+
   it("validates live query pending deployment requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -1456,6 +1549,12 @@ describe("createFlarexHttpApp", () => {
           resultHash: "fresh",
         },
         deliveredAt: null,
+        attemptCount: 0,
+        lastAttemptedAt: null,
+        lastErrorStage: null,
+        lastError: null,
+        deadLetteredAt: null,
+        deadLetterReason: null,
         createdAt: new Date("2026-06-21T00:00:00.000Z"),
       },
     ]);
@@ -1556,6 +1655,12 @@ describe("createFlarexHttpApp", () => {
           resultHash: "fresh",
         },
         deliveredAt: null,
+        attemptCount: 0,
+        lastAttemptedAt: null,
+        lastErrorStage: null,
+        lastError: null,
+        deadLetteredAt: null,
+        deadLetterReason: null,
         createdAt: new Date("2026-06-21T00:00:00.000Z"),
       },
     ])).rejects.toThrow(
@@ -1907,6 +2012,9 @@ function fakeExecutor(
     },
     async listPendingLiveQueryDeliveryDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
+    },
+    async recordLiveQueryDeliveryFailure() {
+      return { failed: 0 };
     },
     async recordLiveQuerySubscription() {
       throw new Error(

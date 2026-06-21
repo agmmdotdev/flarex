@@ -81,6 +81,8 @@ import type {
   LiveQueryDeliveryRecord,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
+  RecordLiveQueryDeliveryFailureInput,
+  RecordLiveQueryDeliveryFailureResult,
 } from "./liveQueryDeliveries";
 export { sql } from "drizzle-orm";
 
@@ -234,6 +236,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
+  recordLiveQueryDeliveryFailure(
+    input: RecordLiveQueryDeliveryFailureInput,
+  ): Promise<RecordLiveQueryDeliveryFailureResult>;
   migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
 }

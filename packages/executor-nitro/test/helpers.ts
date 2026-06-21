@@ -236,6 +236,12 @@ export function healthyPersistence(): FlarexExecutorPersistence {
                 queryId: input.delivery.queryId,
                 payloadJson: input.delivery.payloadJson,
                 deliveredAt: null,
+                attemptCount: 0,
+                lastAttemptedAt: null,
+                lastErrorStage: null,
+                lastError: null,
+                deadLetteredAt: null,
+                deadLetterReason: null,
                 createdAt:
                   input.delivery.createdAt ??
                   new Date("2026-06-19T00:00:00.000Z"),
@@ -256,6 +262,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     },
     async markLiveQueryDeliveriesDelivered() {
       return { delivered: 0 };
+    },
+    async recordLiveQueryDeliveryFailure() {
+      return { failed: 0 };
     },
   };
 }
@@ -343,6 +352,11 @@ export function fakeExecutor(
     async listPendingLiveQueryDeliveryDeployments() {
       throw new Error(
         "listPendingLiveQueryDeliveryDeployments is not implemented by test fake",
+      );
+    },
+    async recordLiveQueryDeliveryFailure() {
+      throw new Error(
+        "recordLiveQueryDeliveryFailure is not implemented by test fake",
       );
     },
     async recordLiveQuerySubscription() {

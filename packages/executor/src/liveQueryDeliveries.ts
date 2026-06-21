@@ -12,11 +12,14 @@ import type {
   MarkLiveQueryDeliveriesDeliveredResult,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
+  RecordLiveQueryDeliveryFailureInput,
+  RecordLiveQueryDeliveryFailureResult,
   RunLiveQueryDeliveryBatchInput,
   RunLiveQueryDeliveryBatchResult,
 } from "./types";
 
 const DEFAULT_LIVE_QUERY_DELIVERY_LIMIT = 100;
+const MAX_DELIVERY_FAILURE_ERROR_LENGTH = 4000;
 
 export async function listUndeliveredLiveQueryDeliveries(
   persistence: FlarexExecutorPersistence,
@@ -40,6 +43,28 @@ export async function listPendingLiveQueryDeliveryDeployments(
   return await persistence.listPendingLiveQueryDeliveryDeployments({
     limit,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
+export async function recordLiveQueryDeliveryFailure(
+  persistence: FlarexExecutorPersistence,
+  input: RecordLiveQueryDeliveryFailureInput,
+): Promise<RecordLiveQueryDeliveryFailureResult> {
+  if (input.stage !== "fanout" && input.stage !== "ack") {
+    throw new LiveQueryDeliveryPolicyError("stage must be fanout or ack.");
+  }
+  if (
+    input.deliveryIds.some(
+      (deliveryId) => typeof deliveryId !== "string" || deliveryId.length === 0,
+    )
+  ) {
+    throw new LiveQueryDeliveryPolicyError(
+      "deliveryIds must contain only non-empty strings.",
+    );
+  }
+  return await persistence.recordLiveQueryDeliveryFailure({
+    ...input,
+    error: truncateDeliveryFailureError(input.error),
   });
 }
 
@@ -95,6 +120,11 @@ export async function runLiveQueryDeliveryBatch(
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
   };
+}
+
+function truncateDeliveryFailureError(error: string): string {
+  if (error.length <= MAX_DELIVERY_FAILURE_ERROR_LENGTH) return error;
+  return error.slice(0, MAX_DELIVERY_FAILURE_ERROR_LENGTH);
 }
 
 function liveQueryDeliveryLimit(limit: number | undefined): number {

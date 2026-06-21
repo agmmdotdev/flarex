@@ -251,6 +251,12 @@ describe("createFlarexNitroHandler", () => {
                 resultJson: ["fresh"],
               },
               deliveredAt: null,
+              attemptCount: 0,
+              lastAttemptedAt: null,
+              lastErrorStage: null,
+              lastError: null,
+              deadLetteredAt: null,
+              deadLetterReason: null,
               createdAt: new Date("2026-06-21T00:00:00.000Z"),
             },
           ]);

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, isNull, min, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, isNull, min, or, sql } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { liveQueryDeliveries } from "./schema";
@@ -61,6 +61,20 @@ export interface MarkLiveQueryDeliveriesDeliveredResult {
   delivered: number;
 }
 
+export type LiveQueryDeliveryFailureStage = "fanout" | "ack";
+
+export interface RecordLiveQueryDeliveryFailureInput {
+  deploymentId: string;
+  deliveryIds: string[];
+  stage: LiveQueryDeliveryFailureStage;
+  error: string;
+  failedAt: Date;
+}
+
+export interface RecordLiveQueryDeliveryFailureResult {
+  failed: number;
+}
+
 export type LiveQueryDeliveryRecord = typeof liveQueryDeliveries.$inferSelect;
 
 export async function insertLiveQueryDelivery(
@@ -105,6 +119,7 @@ export async function listUndeliveredLiveQueryDeliveries(
   const baseFilter = and(
     eq(liveQueryDeliveries.deploymentId, input.deploymentId),
     isNull(liveQueryDeliveries.deliveredAt),
+    isNull(liveQueryDeliveries.deadLetteredAt),
   );
 
   const rows = await db
@@ -159,6 +174,7 @@ export async function markLiveQueryDeliveriesDelivered(
       and(
         eq(liveQueryDeliveries.deploymentId, input.deploymentId),
         isNull(liveQueryDeliveries.deliveredAt),
+        isNull(liveQueryDeliveries.deadLetteredAt),
         deliveryFilter,
       ),
     )
@@ -192,7 +208,12 @@ export async function listPendingLiveQueryDeliveryDeployments(
       pending,
     })
     .from(liveQueryDeliveries)
-    .where(isNull(liveQueryDeliveries.deliveredAt))
+    .where(
+      and(
+        isNull(liveQueryDeliveries.deliveredAt),
+        isNull(liveQueryDeliveries.deadLetteredAt),
+      ),
+    )
     .groupBy(liveQueryDeliveries.deploymentId)
     .having(cursorFilter)
     .orderBy(asc(oldestCreatedAt), asc(liveQueryDeliveries.deploymentId))
@@ -222,6 +243,37 @@ export async function listPendingLiveQueryDeliveryDeployments(
           }
         : null,
     hasMore,
+  };
+}
+
+export async function recordLiveQueryDeliveryFailure(
+  db: FlarexMetadataDatabase,
+  input: RecordLiveQueryDeliveryFailureInput,
+): Promise<RecordLiveQueryDeliveryFailureResult> {
+  if (input.deliveryIds.length === 0) {
+    return { failed: 0 };
+  }
+
+  const rows = await db
+    .update(liveQueryDeliveries)
+    .set({
+      attemptCount: sql`${liveQueryDeliveries.attemptCount} + 1`,
+      lastAttemptedAt: input.failedAt,
+      lastErrorStage: input.stage,
+      lastError: input.error,
+    })
+    .where(
+      and(
+        eq(liveQueryDeliveries.deploymentId, input.deploymentId),
+        isNull(liveQueryDeliveries.deliveredAt),
+        isNull(liveQueryDeliveries.deadLetteredAt),
+        inArray(liveQueryDeliveries.deliveryId, input.deliveryIds),
+      ),
+    )
+    .returning();
+
+  return {
+    failed: rows.length,
   };
 }
 

@@ -1024,6 +1024,91 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("records live query delivery failure attempts while keeping rows pending", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_delivery_record_failure",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:changed"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_delivery_record_failure",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:changed",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      resultJson: "old",
+    });
+    await executor.rerunStaleLiveQuerySubscriptions({
+      deploymentId: "deployment_delivery_record_failure",
+      freshnessStore,
+      runQuery: async () => ({
+        value: "new",
+        beginTs: 25,
+        readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      }),
+    });
+    const page = await executor.listUndeliveredLiveQueryDeliveries({
+      deploymentId: "deployment_delivery_record_failure",
+      limit: 10,
+    });
+    const deliveryId = page.deliveries[0]!.deliveryId;
+
+    await expect(
+      executor.recordLiveQueryDeliveryFailure({
+        deploymentId: "deployment_delivery_record_failure",
+        deliveryIds: [deliveryId],
+        stage: "ack",
+        error: "executor ack failed",
+        failedAt: new Date("2026-06-20T00:02:00.000Z"),
+      }),
+    ).resolves.toEqual({ failed: 1 });
+
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_record_failure",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId,
+          deliveredAt: null,
+          attemptCount: 1,
+          lastAttemptedAt: new Date("2026-06-20T00:02:00.000Z"),
+          lastErrorStage: "ack",
+          lastError: "executor ack failed",
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it("rejects invalid live query delivery failure reports", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.recordLiveQueryDeliveryFailure({
+        deploymentId: "deployment_invalid_failure",
+        deliveryIds: ["delivery_1"],
+        stage: "claim" as "fanout",
+        error: "bad",
+        failedAt: new Date("2026-06-20T00:02:00.000Z"),
+      }),
+    ).rejects.toThrow("stage must be fanout or ack.");
+  });
+
   it("rejects invalid stale live query rerun limits", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });

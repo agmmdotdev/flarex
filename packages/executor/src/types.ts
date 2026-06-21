@@ -46,6 +46,8 @@ import type {
   MarkLiveQueryDeliveriesDeliveredResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  RecordLiveQueryDeliveryFailureInput,
+  RecordLiveQueryDeliveryFailureResult,
   DocumentRevisionRecord,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
@@ -69,6 +71,8 @@ export type {
   MarkOutboxEventsDeliveredResult,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
+  RecordLiveQueryDeliveryFailureInput,
+  RecordLiveQueryDeliveryFailureResult,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
   OutboxEventCursor,
@@ -142,6 +146,9 @@ export interface FlarexExecutor {
   listPendingLiveQueryDeliveryDeployments(
     input: ListPendingLiveQueryDeliveryDeploymentsInput,
   ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
+  recordLiveQueryDeliveryFailure(
+    input: RecordLiveQueryDeliveryFailureInput,
+  ): Promise<RecordLiveQueryDeliveryFailureResult>;
   recordLiveQuerySubscription(
     input: RecordLiveQuerySubscriptionInput,
   ): Promise<RecordLiveQuerySubscriptionResult>;
@@ -287,6 +294,9 @@ export interface FlarexExecutorPersistence {
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
+  recordLiveQueryDeliveryFailure(
+    input: RecordLiveQueryDeliveryFailureInput,
+  ): Promise<RecordLiveQueryDeliveryFailureResult>;
 }
 
 export interface RunOutboxDeliveryBatchInput {

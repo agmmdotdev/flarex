@@ -77,6 +77,7 @@ import {
   listPendingLiveQueryDeliveryDeployments as listPendingLiveQueryDeliveryDeploymentsWithDb,
   listUndeliveredLiveQueryDeliveries as listUndeliveredLiveQueryDeliveriesWithDb,
   markLiveQueryDeliveriesDelivered as markLiveQueryDeliveriesDeliveredWithDb,
+  recordLiveQueryDeliveryFailure as recordLiveQueryDeliveryFailureWithDb,
 } from "./liveQueryDeliveries";
 import { flarexSchema } from "./schema";
 
@@ -229,6 +230,8 @@ export async function createPGlitePersistence(
       listPendingLiveQueryDeliveryDeploymentsWithDb(drizzleDb, input),
     markLiveQueryDeliveriesDelivered: (input) =>
       markLiveQueryDeliveriesDeliveredWithDb(drizzleDb, input),
+    recordLiveQueryDeliveryFailure: (input) =>
+      recordLiveQueryDeliveryFailureWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });

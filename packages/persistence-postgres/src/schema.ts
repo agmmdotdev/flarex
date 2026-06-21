@@ -3,6 +3,7 @@ import {
   boolean,
   customType,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -270,6 +271,12 @@ export const liveQueryDeliveries = pgTable(
     queryId: bigint("query_id", { mode: "number" }).notNull(),
     payloadJson: jsonb("payload_json").$type<unknown>().notNull(),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
+    lastErrorStage: text("last_error_stage"),
+    lastError: text("last_error"),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+    deadLetterReason: text("dead_letter_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -281,6 +288,7 @@ export const liveQueryDeliveries = pgTable(
     index("live_query_deliveries_by_undelivered").on(
       table.deploymentId,
       table.deliveredAt,
+      table.deadLetteredAt,
       table.createdAt,
       table.deliveryId,
     ),
