@@ -1,5 +1,47 @@
 # Package Boundaries
 
+## Live-Query Delivery Bridge Boundary
+
+Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
+consumer.
+
+What changed:
+
+- `packages/flarex-backend` now owns the Cloudflare-specific delivery route
+  and `ConnectionDO` fanout:
+  `POST /deployments/:deploymentId/sync/deliver-live-query`.
+- `@flarex/executor-http` now owns a framework-neutral HTTP callback helper:
+  `createFlarexBackendLiveQueryDelivery(...)`.
+- `@flarex/executor-nitro` re-exports that helper for Nitro/Vercel executor
+  apps.
+
+Boundary rule:
+
+- Executor core decides when rows can be acked.
+- HTTP/Nitro adapter wires a `deliver(...)` callback.
+- Cloudflare backend Worker owns Durable Object namespace access.
+- `ConnectionDO` owns the live WebSocket session and transition versioning.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+
+Flarex difference:
+
+Convex does not need this package split because its sync worker and backend
+execution are part of the same trusted backend. Flarex needs the split so a
+trusted Postgres executor can run on Nitro/Vercel while Cloudflare still owns
+WebSocket fanout.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Postgres Executor Package Boundary Pivot
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

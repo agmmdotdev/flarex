@@ -1,5 +1,76 @@
 # Postgres Executor
 
+## Live-Query Delivery Callback Bridge
+
+Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
+consumer.
+
+What changed:
+
+- Added a Cloudflare backend Worker callback route for materialized delivery
+  rows:
+  `POST /deployments/:deploymentId/sync/deliver-live-query`.
+- Added `createFlarexBackendLiveQueryDelivery(...)` to
+  `@flarex/executor-http` and re-exported it from `@flarex/executor-nitro`.
+- The helper is intended to be passed into the Nitro executor adapter as:
+
+```ts
+createFlarexNitroHandler({
+  executor,
+  liveQueryDelivery: {
+    deliver: createFlarexBackendLiveQueryDelivery({
+      backendUrl: process.env.FLAREX_BACKEND_URL!,
+      capabilityToken: process.env.FLAREX_DELIVERY_TOKEN,
+    }),
+  },
+});
+```
+
+- The executor core still owns the durable ack rule:
+  `runLiveQueryDeliveryBatch(...)` calls `deliver(rows)` first and only then
+  marks `live_query_deliveries.delivered_at`.
+
+Why it changed:
+
+Nitro/Vercel cannot directly access a Cloudflare Durable Object namespace. The
+executor therefore needs an HTTP fanout callback into the Cloudflare backend
+Worker, and that Worker performs the actual `CONNECTIONS.getByName(...)` call.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - result hashes are the sync state dedupe guard.
+- `crates/sync/src/worker.rs`
+  - transition emission belongs to the sync connection worker after result
+    computation.
+
+Flarex differences:
+
+- Convex's backend is process-local around sync state and execution. Flarex's
+  Postgres executor can be deployed separately from Cloudflare, so fanout is an
+  authenticated HTTP callback.
+- A successful callback may report skipped rows for inactive/stale socket
+  state. Those rows are still safe to ack because there is no active connection
+  state left to update or the connection has already moved past the row.
+
+Known limitations:
+
+- No queue/cron owns repeated delivery batches yet.
+- No retry backoff or poison-row visibility for repeated callback failure yet.
+- The callback route currently validates deterministic connection-name scope
+  but does not verify project ownership; it relies on the maintenance executor
+  path plus bearer token.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Current Package Fate And Migration Map
 
 Previous completed checkpoint: `74d8b74` Align docs with Postgres executor

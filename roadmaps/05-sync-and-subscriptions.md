@@ -1,5 +1,84 @@
 # Sync And Subscriptions
 
+## Executor Delivery Callback Bridge
+
+Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
+consumer.
+
+What changed:
+
+- Added backend Worker route:
+  `POST /deployments/:deploymentId/sync/deliver-live-query`.
+- The route parses materialized live-query delivery payloads, validates that
+  each `connectionId` is scoped to the route deployment, groups deliveries by
+  connection, and forwards each group to the named `ConnectionDO`.
+- Added optional bearer protection through
+  `FLAREX_LIVE_QUERY_DELIVERY_TOKEN`.
+- Extracted shared backend live-query delivery parsing/routing helpers into
+  `packages/flarex-backend/src/liveQueryDelivery.ts`.
+- Added `createFlarexBackendLiveQueryDelivery(...)` in
+  `@flarex/executor-http` and re-exported it from `@flarex/executor-nitro` so
+  a Nitro/Vercel executor can use the Cloudflare backend Worker as its delivery
+  fanout callback.
+- Added tests proving:
+  - the backend Worker route reaches the active `ConnectionDO` and emits a
+    `QueryUpdated` transition,
+  - the executor helper posts the expected payload and auth header,
+  - a failed backend fanout response rejects the callback, preserving the core
+    executor's ack-after-success behavior.
+- Increased the sync WebSocket test helper timeout so full workspace test runs
+  do not fail only because multiple packages are executing concurrently.
+
+Why it changed:
+
+The durable `live_query_deliveries` table should only be acked after socket
+fanout succeeds. The executor core already performs `deliver(...)` before
+marking rows delivered. This checkpoint adds the production-shaped callback:
+
+```txt
+Nitro/Vercel executor maintenance route
+  -> createFlarexBackendLiveQueryDelivery()
+  -> Cloudflare backend Worker route
+  -> named ConnectionDO
+  -> WebSocket Transition(QueryUpdated)
+```
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` updates query result hashes and suppresses
+    unchanged results.
+- `crates/sync/src/worker.rs`
+  - sync worker emits `ServerMessage::Transition` after changed query results
+    are available.
+
+Flarex differences:
+
+- Convex keeps transition computation and socket fanout inside the sync worker.
+  Flarex splits the path because the trusted Postgres executor may run outside
+  Cloudflare while WebSockets live in `ConnectionDO`.
+- The callback carries materialized query results; the Cloudflare Worker does
+  not access Postgres or rerun user code.
+
+Known limitations:
+
+- Delivery scheduling is still manually invoked through the maintenance route;
+  no cron/queue runner is wired yet.
+- `ConnectionDO` active query state is still in memory and needs durable
+  hibernation restoration.
+- Delivery payloads still do not include logs, query errors, or updated
+  journals.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Postgres Authority Pivot
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

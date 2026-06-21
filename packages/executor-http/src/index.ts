@@ -52,6 +52,11 @@ import {
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
+export {
+  createFlarexBackendLiveQueryDelivery,
+  type FlarexBackendLiveQueryDeliveryConfig,
+} from "./liveQueryDelivery";
+
 export interface FlarexLiveQueryRerunConfig {
   freshnessStore: RerunStaleLiveQuerySubscriptionsInput["freshnessStore"];
   executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"];

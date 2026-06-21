@@ -7,6 +7,10 @@ import {
   loadActiveDeployment,
 } from "./invoke";
 import {
+  liveQueryDeliveryChangesFromBody,
+  type LiveQueryDeliveryChange,
+} from "./liveQueryDelivery";
+import {
   partitionObjectName,
 } from "./routing";
 import {
@@ -38,17 +42,6 @@ type ActiveQuery = {
   resultHash?: string;
   rerunInFlight?: boolean;
   rerunQueued?: boolean;
-};
-
-type LiveQueryDeliveryChange = {
-  deploymentId: string;
-  connectionId: string;
-  queryId: QueryId;
-  functionPath: string;
-  argsJson: Json;
-  resultJson: Json;
-  previousResultHash: string;
-  resultHash: string;
 };
 
 type ConnectionState = {
@@ -582,72 +575,6 @@ function queryIdFromInvalidation(body: unknown): QueryId {
     return (body as { queryId: number }).queryId;
   }
   throw new Error("Invalidation queryId must be an integer.");
-}
-
-function liveQueryDeliveryChangesFromBody(body: unknown): LiveQueryDeliveryChange[] {
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    Array.isArray(body) ||
-    !Array.isArray((body as { deliveries?: unknown }).deliveries)
-  ) {
-    throw new Error("Live query delivery body must be an object with a deliveries array.");
-  }
-  return (body as { deliveries: unknown[] }).deliveries.map((value, index) =>
-    liveQueryDeliveryChangeFromUnknown(value, `deliveries[${index}]`),
-  );
-}
-
-function liveQueryDeliveryChangeFromUnknown(
-  value: unknown,
-  path: string,
-): LiveQueryDeliveryChange {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
-    connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
-    queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),
-    functionPath: requiredDeliveryString(record.functionPath, `${path}.functionPath`),
-    argsJson: deliveryJson(record.argsJson, `${path}.argsJson`),
-    resultJson: deliveryJson(record.resultJson, `${path}.resultJson`),
-    previousResultHash: requiredDeliveryString(
-      record.previousResultHash,
-      `${path}.previousResultHash`,
-    ),
-    resultHash: requiredDeliveryString(record.resultHash, `${path}.resultHash`),
-  };
-}
-
-function requiredDeliveryString(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new Error(`${field} must be a non-empty string.`);
-}
-
-function requiredDeliveryInteger(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  throw new Error(`${field} must be an integer.`);
-}
-
-function deliveryJson(value: unknown, field: string): Json {
-  if (isDeliveryJson(value)) return value;
-  throw new Error(`${field} must be a JSON value.`);
-}
-
-function isDeliveryJson(value: unknown): value is Json {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return true;
-  }
-  if (Array.isArray(value)) return value.every(isDeliveryJson);
-  if (typeof value !== "object" || value === null) return false;
-  return Object.values(value as Record<string, unknown>).every(isDeliveryJson);
 }
 
 function parseSocketMessage(message: string | ArrayBuffer): unknown {

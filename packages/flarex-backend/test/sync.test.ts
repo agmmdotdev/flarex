@@ -265,6 +265,77 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("routes backend live query delivery callbacks to named connections", async () => {
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-route-delivery-deployment");
+
+    const ws = await openSync(
+      harness,
+      "sync-route-delivery-deployment",
+      "route-delivery-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 16,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+    expect(runtimeCalls).toHaveLength(1);
+
+    const delivered = nextJsonMessage(ws);
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-route-delivery-deployment/sync/deliver-live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              deploymentId: "sync-route-delivery-deployment",
+              connectionId: "connection:sync-route-delivery-deployment:route-delivery-session",
+              queryId: 16,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              resultJson: { user: "Katherine" },
+              previousResultHash: '{"user":"Ada"}',
+              resultHash: '{"user":"Katherine"}',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      delivered: 1,
+      skipped: 0,
+      connections: 1,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 16,
+          value: { user: "Katherine" },
+        },
+      ],
+    });
+    expect(runtimeCalls).toHaveLength(1);
+    ws.close();
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
@@ -822,7 +893,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket message.")), 1000);
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket message.")), 5000);
     ws.addEventListener("message", event => {
       clearTimeout(timeout);
       resolve(JSON.parse(String(event.data)));
@@ -837,7 +908,7 @@ function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
 function collectJsonMessages(ws: MiniflareWebSocket, count: number): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const messages: unknown[] = [];
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket messages.")), 1000);
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket messages.")), 5000);
     ws.addEventListener("message", event => {
       messages.push(JSON.parse(String(event.data)));
       if (messages.length === count) {

@@ -33,7 +33,10 @@ import {
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
-import { createFlarexHttpApp } from "../src";
+import {
+  createFlarexBackendLiveQueryDelivery,
+  createFlarexHttpApp,
+} from "../src";
 
 describe("createFlarexHttpApp", () => {
   it("maps health requests to the executor core", async () => {
@@ -1120,6 +1123,101 @@ describe("createFlarexHttpApp", () => {
       nextCursor: null,
       hasMore: false,
     });
+  });
+
+  it("posts live query deliveries to the Flarex backend callback endpoint", async () => {
+    const requests: Array<{ url: string; headers: Record<string, string | null>; body: unknown }> = [];
+    const deliver = createFlarexBackendLiveQueryDelivery({
+      backendUrl: "https://backend.test/base",
+      capabilityToken: "delivery-token",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push({
+          url: request.url,
+          headers: {
+            authorization: request.headers.get("authorization"),
+            contentType: request.headers.get("content-type"),
+          },
+          body: await request.json(),
+        });
+        return Response.json({ delivered: 1, skipped: 0, connections: 1 });
+      },
+    });
+
+    await deliver([
+      {
+        deploymentId: "deployment_active",
+        deliveryId: "delivery_1",
+        connectionId: "connection:deployment_active:session_1",
+        queryId: 1,
+        payloadJson: {
+          deploymentId: "deployment_active",
+          connectionId: "connection:deployment_active:session_1",
+          queryId: 1,
+          functionPath: "messages:list",
+          argsJson: { teamId: "team_a" },
+          resultJson: ["fresh"],
+          previousResultHash: "old",
+          resultHash: "fresh",
+        },
+        deliveredAt: null,
+        createdAt: new Date("2026-06-21T00:00:00.000Z"),
+      },
+    ]);
+
+    expect(requests).toEqual([
+      {
+        url: "https://backend.test/base/deployments/deployment_active/sync/deliver-live-query",
+        headers: {
+          authorization: "Bearer delivery-token",
+          contentType: "application/json",
+        },
+        body: {
+          deliveries: [
+            {
+              deploymentId: "deployment_active",
+              connectionId: "connection:deployment_active:session_1",
+              queryId: 1,
+              functionPath: "messages:list",
+              argsJson: { teamId: "team_a" },
+              resultJson: ["fresh"],
+              previousResultHash: "old",
+              resultHash: "fresh",
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("fails live query delivery callbacks when the backend rejects fanout", async () => {
+    const deliver = createFlarexBackendLiveQueryDelivery({
+      backendUrl: "https://backend.test",
+      fetch: async () => Response.json({ error: "fanout failed" }, { status: 502 }),
+    });
+
+    await expect(deliver([
+      {
+        deploymentId: "deployment_active",
+        deliveryId: "delivery_1",
+        connectionId: "connection:deployment_active:session_1",
+        queryId: 1,
+        payloadJson: {
+          deploymentId: "deployment_active",
+          connectionId: "connection:deployment_active:session_1",
+          queryId: 1,
+          functionPath: "messages:list",
+          argsJson: { teamId: "team_a" },
+          resultJson: ["fresh"],
+          previousResultHash: "old",
+          resultHash: "fresh",
+        },
+        deliveredAt: null,
+        createdAt: new Date("2026-06-21T00:00:00.000Z"),
+      },
+    ])).rejects.toThrow(
+      'Flarex backend live query delivery failed for deployment_active: 502 {"error":"fanout failed"}',
+    );
   });
 
   it("requires live query delivery maintenance configuration", async () => {

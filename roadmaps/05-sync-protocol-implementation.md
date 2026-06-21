@@ -1,5 +1,60 @@
 # Sync Protocol Implementation Details
 
+## Backend Delivery Callback Route
+
+Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
+consumer.
+
+What changed:
+
+- Added a top-level backend Worker callback route for materialized live-query
+  delivery:
+  `POST /deployments/:deploymentId/sync/deliver-live-query`.
+- The route validates deployment-scoped connection names, groups payloads by
+  `connectionId`, and forwards them to each named `ConnectionDO` through
+  `/deliver/live-query`.
+- Added an executor HTTP/Nitro helper,
+  `createFlarexBackendLiveQueryDelivery(...)`, that posts durable delivery rows
+  to that backend route.
+
+Protocol behavior:
+
+- `ConnectionDO` still emits the public `Transition(QueryUpdated)` message.
+- The backend callback route is an internal fanout boundary; it does not change
+  the client protocol message shape.
+- Failed callback responses reject the executor delivery callback, so durable
+  delivery rows are not acked by executor core.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - query result hashes dedupe update transitions.
+- `crates/sync/src/worker.rs`
+  - transition messages are emitted by the sync worker after result changes.
+
+Flarex differences:
+
+- Convex has no HTTP callback between executor and sync worker. Flarex needs
+  the boundary because the trusted Postgres executor can run outside
+  Cloudflare, while WebSockets are owned by `ConnectionDO`.
+
+Known limitations:
+
+- No delivery queue runner is wired yet.
+- The route is protected only when `FLAREX_LIVE_QUERY_DELIVERY_TOKEN` is
+  configured.
+- Error/log/journal payloads are still not part of the delivery protocol.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Materialized Delivery Consumer
 
 Previous completed checkpoint: `3c9952e` Add live query delivery maintenance

@@ -18,6 +18,10 @@ import {
   parseInvokeKind,
   type BackendFunctionRegistry,
 } from "./invoke";
+import {
+  deliverLiveQueryChangesToConnections,
+  liveQueryDeliveryChangesFromBody,
+} from "./liveQueryDelivery";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import {
@@ -96,6 +100,9 @@ async function route(request: Request, env: Env): Promise<Response> {
       return routePartition(request, env, deploymentId, partitionKey, parts.slice(4), url);
     }
     if (parts[2] === "sync") {
+      if (parts[3] === "deliver-live-query" && request.method === "POST") {
+        return routeLiveQueryDelivery(request, env, deploymentId);
+      }
       const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
       const connectionName = connectionObjectName(deploymentId, sessionId);
       const headers = new Headers(request.headers);
@@ -357,4 +364,21 @@ async function routePartition(
   }
 
   return json({ error: "Partition route not found." }, { status: 404 });
+}
+
+async function routeLiveQueryDelivery(
+  request: Request,
+  env: Env,
+  deploymentId: string,
+): Promise<Response> {
+  authorizeLiveQueryDeliveryRequest(request, env);
+  const deliveries = liveQueryDeliveryChangesFromBody(await readJson(request));
+  return json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries));
+}
+
+function authorizeLiveQueryDeliveryRequest(request: Request, env: Env): void {
+  if (env.FLAREX_LIVE_QUERY_DELIVERY_TOKEN === undefined) return;
+  const expected = `Bearer ${env.FLAREX_LIVE_QUERY_DELIVERY_TOKEN}`;
+  if (request.headers.get("authorization") === expected) return;
+  throw new HttpError(401, "Unauthorized live query delivery request.");
 }

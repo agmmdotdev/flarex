@@ -11,6 +11,10 @@ export interface FlarexNitroEventLike {
 export interface FlarexNitroAdapterConfig extends FlarexHttpAppConfig {}
 
 export { createFlarexHttpApp, createFlarexHttpHandler };
+export {
+  createFlarexBackendLiveQueryDelivery,
+  type FlarexBackendLiveQueryDeliveryConfig,
+} from "@flarex/executor-http";
 
 export function createFlarexNitroHandler(
   config: FlarexNitroAdapterConfig,
