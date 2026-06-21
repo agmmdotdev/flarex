@@ -76,6 +76,62 @@ Verification:
 git diff --check
 ```
 
+## Query-Session Artifact Bridge
+
+Previous completed checkpoint: `92c38cf` Wire live query rerun route to invoke
+bridge.
+
+What changed:
+
+- Materialized execution artifacts can now run a query against an existing
+  Postgres invoke session through `executeQuerySession(...)`.
+- The local runtime materializer exposes an internal query-session route that
+  resolves the query function, creates a read-only syscall-backed `ctx.db`, and
+  forwards all database reads to `/invoke/syscall`.
+- `flarex-dev` exports a helper that adapts this to the executor's
+  live-query rerun callback shape.
+
+Why it changed:
+
+The Postgres executor owns transaction/session state, retry, OCC validation,
+and read-set capture. Live-query reruns still need to execute arbitrary
+developer query code. This bridge lets the executor own the session while the
+materialized artifact owns only untrusted user-code execution.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - trusted backend coordinates function execution and transaction state.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code database access is mediated by syscalls.
+- `crates/function_runner/src/lib.rs`
+  - function execution returns values while backend transaction state remains
+    separate.
+
+Flarex differences:
+
+- Convex does not need an HTTP/service-boundary query-session route for local
+  reruns. Flarex does because Dynamic Worker execution and the trusted
+  Postgres executor are separate runtime components.
+- This bridge deliberately does not expose a database connection or transaction
+  handle to user code.
+
+Known limitations:
+
+- Only local Miniflare materialized artifacts implement the method today.
+- The hosted executor adapter still needs to provide the same callback for
+  deployed source packages.
+- The bridge supports read-only query sessions; mutations still use the normal
+  invoke start/syscall/finish flow.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Invoke Replace Syscall
 
 Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.

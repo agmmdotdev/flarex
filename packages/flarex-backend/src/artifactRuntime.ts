@@ -4,6 +4,7 @@ import type {
   ActiveDeploymentStatus,
   InvokeRequest,
   InvokeResponse,
+  Json,
   PushSourcePackage,
 } from "./types.ts";
 
@@ -17,6 +18,15 @@ export type ExecutionArtifactInvokePayload = {
 export type MaterializedExecutionArtifactPayload =
   ExecutionArtifactInvokePayload & { sourcePackage: PushSourcePackage };
 
+export type ExecutionArtifactQuerySessionRequest = {
+  deploymentId: string;
+  projectId?: string;
+  path: string;
+  args: Json;
+  partitionKey?: string;
+  sessionId: string;
+};
+
 export interface BackendExecutionArtifactRuntime {
   invoke(
     deployment: ActiveDeploymentStatus,
@@ -26,6 +36,10 @@ export interface BackendExecutionArtifactRuntime {
 
 export interface MaterializedExecutionArtifact {
   invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse>;
+  executeQuerySession?(
+    payload: MaterializedExecutionArtifactPayload,
+    request: ExecutionArtifactQuerySessionRequest,
+  ): Promise<Json>;
   dispose?(): Promise<void> | void;
 }
 

@@ -21,8 +21,18 @@ import {
   bundleFlarexSourcePackage,
   initialCodegen,
 } from "../src/generate";
-import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMaterializer";
+import {
+  createMaterializedArtifactLiveQueryExecutionHost,
+  LocalMiniflareExecutionArtifactMaterializer,
+} from "../src/runtimeMaterializer";
 import type { PushSourcePackage } from "flarex-backend/types";
+import type {
+  InvokeAttemptContext,
+  RunLiveQuerySubscriptionWithInvokeInput,
+} from "@flarex/executor";
+
+type LiveQuerySubscriptionForInvokeHost =
+  Parameters<RunLiveQuerySubscriptionWithInvokeInput["executeQuery"]>[1];
 
 describe("runtime materializer", () => {
   const harnesses: BackendHarness[] = [];
@@ -398,6 +408,110 @@ describe("runtime materializer", () => {
           projectId: "project-index",
           sessionId: "session-index",
           value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+        },
+      },
+    ]);
+  });
+
+  it("executes live-query reruns against an existing Postgres invoke session", async () => {
+    const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-live",
+      executorToken: "executor-secret",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({
+            value: {
+              page: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+              isDone: true,
+              continueCursor: "cursor-live",
+            },
+            readSet: { indexes: [{ indexId: 1 }] },
+          });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = indexedQueryPayload();
+    const artifact = await materializer.materialize(payload);
+    const executeQuery = createMaterializedArtifactLiveQueryExecutionHost({
+      artifact,
+      payload,
+      projectId: "project-live",
+    });
+    const attempt: InvokeAttemptContext = {
+      attempt: 1,
+      maxAttempts: 1,
+      session: {
+        sessionId: "session-live",
+        beginTs: 20,
+        schemaVersion: 1,
+        function: { path: "messages:list", kind: "query" },
+        scope: {
+          kind: "partition",
+          table: "lessons",
+          selector: "byId",
+          partitionField: "_id",
+          argField: "lessonId",
+          partitionKey: "1:lesson",
+        },
+        executionModule: "_flarex/execution.js",
+      },
+      syscall: async () => {
+        throw new Error("live-query execution host should use the artifact db bridge");
+      },
+    };
+    const subscription: LiveQuerySubscriptionForInvokeHost = {
+      deploymentId: "deployment-index",
+      connectionId: "connection-live",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      beginTs: 10,
+      readSetJson: {},
+      resultJson: [],
+      resultHash: "previous",
+      createdAt: new Date("2026-06-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+    };
+
+    try {
+      await expect(executeQuery(attempt, subscription)).resolves.toEqual([
+        { _id: "2:message", lessonId: "1:lesson", text: "hello" },
+      ]);
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls).toEqual([
+      {
+        path: "/invoke/syscall",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-index",
+          projectId: "project-live",
+          sessionId: "session-live",
+          op: "query",
+          request: {
+            table: "messages",
+            index: "by_lesson_text",
+            range: {
+              expressions: [
+                { op: "eq", field: "lessonId", value: "1:lesson" },
+                { op: "eq", field: "text", value: "hello" },
+              ],
+            },
+            limit: 2,
+          },
         },
       },
     ]);

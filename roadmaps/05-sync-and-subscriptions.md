@@ -33,6 +33,67 @@ Verification:
 git diff --check
 ```
 
+## Local Live-Query Rerun Execution Host
+
+Previous completed checkpoint: `92c38cf` Wire live query rerun route to invoke
+bridge.
+
+What changed:
+
+- Added a concrete local execution callback for
+  `runLiveQuerySubscriptionWithInvoke(...)`.
+- The callback runs the subscribed query inside the materialized source-package
+  artifact and binds `ctx.db` to the executor-owned session.
+- Added coverage that a live-query rerun sends only `/invoke/syscall` to the
+  trusted Postgres executor. It reuses the session supplied by the executor
+  retry loop and does not start or finish a nested transaction.
+
+Why it matters for sync:
+
+The rerun path is now shaped like the intended Convex-style live-query engine:
+
+```txt
+stale live-query subscription
+  -> executor begin query session
+  -> materialized user query runs with syscall-backed ctx.db
+  -> executor finish records read set/result
+  -> registry stores new result hash
+  -> future connection fanout publishes transition
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - active queries are rerun and compared before transitions are emitted.
+- `crates/database/src/subscription.rs`
+  - query read dependencies determine invalidation.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - query code reads through backend-owned syscalls.
+
+Flarex differences:
+
+- Convex's sync worker and function runner are part of one backend. Flarex
+  splits query execution across a Cloudflare artifact runtime and the trusted
+  Postgres executor.
+- The current helper is local/dev infrastructure. A hosted platform runtime
+  must later provide the same callback against real Dynamic Worker artifacts.
+
+Known limitations:
+
+- Maintenance rerun HTTP wiring exists, but the dev server does not yet inject
+  this concrete callback into that route.
+- No `ConnectionDO` fanout consumes rerun results yet.
+- Index/range freshness is still incomplete, so many indexed subscriptions can
+  still be classified as unsupported by the freshness checker.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Read-Set Freshness Checker
 
 Previous completed checkpoint: `3913b02` Add freshness delivery handler.

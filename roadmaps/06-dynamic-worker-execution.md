@@ -159,6 +159,70 @@ git diff --check
 - Index reads through the wrapper do not yet overlay staged writes.
 - Cross-shard calls remain intentionally out of scope for normal mutations.
 
+## Local Live-Query Execution Host
+
+Previous completed checkpoint: `92c38cf` Wire live query rerun route to invoke
+bridge.
+
+What changed:
+
+- Added an optional `executeQuerySession(...)` method to materialized execution
+  artifacts.
+- Added a local Miniflare internal route:
+  `/__flarex_internal/query-session`.
+- Added `createMaterializedArtifactLiveQueryExecutionHost(...)` in
+  `flarex-dev`.
+- The helper adapts the executor's
+  `RunLiveQuerySubscriptionWithInvokeInput["executeQuery"]` callback to a
+  materialized user-code artifact.
+- Query reruns now execute user query code against an existing backend-owned
+  Postgres invoke session. The artifact calls `/invoke/syscall`; it does not
+  call `/invoke/start`, `/invoke/finish`, or `/invoke/abort`.
+
+Why it changed:
+
+Live-query reruns need the same Convex-style boundary as normal invokes:
+trusted backend creates the transaction/session, user code runs in an isolate,
+and all `ctx.db.*` operations go back through restricted syscalls. The previous
+HTTP maintenance route accepted an `executeQuery` callback, but there was no
+concrete local execution host to run the stored query function.
+
+Convex references:
+
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code reaches storage through a syscall boundary.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend application execution owns function/session coordination.
+- `crates/sync/src/worker.rs`
+  - sync workers rerun subscribed queries and publish transitions.
+
+Flarex differences:
+
+- Convex reruns queries inside its integrated backend runtime. Flarex's current
+  local path materializes the uploaded `flarex/` source package into Miniflare
+  and talks to the trusted Postgres executor over internal HTTP-style syscalls.
+- This is a local/dev host over materialized artifacts. The production
+  Cloudflare Dynamic Worker artifact loader is still future work.
+- The query-session route only supports the Postgres executor transport because
+  the legacy Durable Object execution path owns its own session lifecycle.
+
+Known limitations:
+
+- The executor HTTP maintenance route still needs to be wired to this helper by
+  the dev/server adapter.
+- Hosted Dynamic Worker artifact loading is not implemented.
+- Query-session execution currently returns only the user query value; the
+  executor remains responsible for finishing the session and collecting the
+  final read set.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Postgres Executor Transport Bridge
 
 Previous completed checkpoint: `6c7c80a` Harden generated indexed query API.

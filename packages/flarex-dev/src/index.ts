@@ -39,10 +39,12 @@ export type {
   ExecutionArtifactRuntime,
 } from "./executionArtifact.ts";
 export {
+  createMaterializedArtifactLiveQueryExecutionHost,
   LocalMiniflareExecutionArtifactMaterializer,
 } from "./runtimeMaterializer.ts";
 export type {
   LocalMiniflareExecutionArtifactMaterializerOptions,
+  MaterializedArtifactLiveQueryExecutionHostOptions,
   RuntimeBackendDispatcher,
 } from "./runtimeMaterializer.ts";
 export {

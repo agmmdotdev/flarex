@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/executor": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:"

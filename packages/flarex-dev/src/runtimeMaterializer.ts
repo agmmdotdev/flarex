@@ -1,10 +1,12 @@
 import { Miniflare } from "miniflare";
+import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
 import type {
+  ExecutionArtifactQuerySessionRequest,
   ExecutionArtifactMaterializer,
   MaterializedExecutionArtifactPayload,
   MaterializedExecutionArtifact,
 } from "flarex-backend/artifact-runtime";
-import type { InvokeResponse } from "flarex-backend/types";
+import type { InvokeResponse, Json } from "flarex-backend/types";
 
 export type RuntimeBackendDispatcher = (request: Request) => Response | Promise<Response>;
 
@@ -16,6 +18,32 @@ export type LocalMiniflareExecutionArtifactMaterializerOptions = {
   internalToken?: string;
   compatibilityDate?: string;
 };
+
+export type MaterializedArtifactLiveQueryExecutionHostOptions = {
+  artifact: MaterializedExecutionArtifact;
+  payload: MaterializedExecutionArtifactPayload;
+  projectId?: string;
+};
+
+export function createMaterializedArtifactLiveQueryExecutionHost(
+  options: MaterializedArtifactLiveQueryExecutionHostOptions,
+): RunLiveQuerySubscriptionWithInvokeInput["executeQuery"] {
+  return async (attempt, subscription) => {
+    if (options.artifact.executeQuerySession === undefined) {
+      throw new Error(
+        "Materialized execution artifact does not support query-session execution.",
+      );
+    }
+    return await options.artifact.executeQuerySession(options.payload, {
+      deploymentId: subscription.deploymentId,
+      ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
+      path: subscription.functionPath,
+      args: subscription.argsJson as Json,
+      ...(subscription.partitionKey === null ? {} : { partitionKey: subscription.partitionKey }),
+      sessionId: attempt.session.sessionId,
+    });
+  };
+}
 
 export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArtifactMaterializer {
   private readonly backend: RuntimeBackendDispatcher;
@@ -113,6 +141,38 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
     return body as InvokeResponse;
   }
 
+  async executeQuerySession(
+    payload: MaterializedExecutionArtifactPayload,
+    input: ExecutionArtifactQuerySessionRequest,
+  ): Promise<Json> {
+    const response = await this.artifact.dispatchFetch(
+      "https://flarex-artifact.internal/__flarex_internal/query-session",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-artifact-id": payload.ref.artifactId,
+          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+          ...(this.internalToken === undefined
+            ? {}
+            : { authorization: `Bearer ${this.internalToken}` }),
+        },
+        body: JSON.stringify(input),
+      },
+    );
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message =
+        typeof body === "object" && body !== null && "error" in body
+          ? String((body as { error: unknown }).error)
+          : `Materialized execution artifact failed with status ${response.status}`;
+      const error = new Error(message) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
+    }
+    return body as Json;
+  }
+
   async dispose(): Promise<void> {
     await this.artifact.dispose();
   }
@@ -132,6 +192,13 @@ export default {
     if (url.pathname === "/__flarex_internal/invoke" && request.method === "POST") {
       try {
         return Response.json(await invokeWithBackend(await request.json(), env, request));
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+    if (url.pathname === "/__flarex_internal/query-session" && request.method === "POST") {
+      try {
+        return Response.json(await executeQuerySession(await request.json(), env, request));
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 400 });
       }
@@ -201,6 +268,35 @@ async function invokeWithBackend(body, env, request) {
     });
     throw error;
   }
+}
+
+async function executeQuerySession(body, env, request) {
+  const fn = await resolveFunction(body.path);
+  const kind = functionKind(fn);
+  if (kind !== "query") {
+    throw new Error(\`\${kind ?? "unknown"} execution is not a query.\`);
+  }
+  const deploymentId = request.headers.get("x-flarex-deployment") ?? body.deploymentId;
+  if (!deploymentId) throw new Error("A deploymentId or x-flarex-deployment header is required.");
+  if (typeof body.sessionId !== "string" || body.sessionId.length === 0) {
+    throw new Error("sessionId is required for query-session execution.");
+  }
+  const transport = executorTransport(request, env);
+  if (transport !== "postgres") {
+    throw new Error("Query-session execution requires postgres executor transport.");
+  }
+  const projectId = projectIdForTransport(transport, body, env, request);
+  const handler = handlerFor(fn);
+  const db = databaseForSession(
+    env.FLAREX_BACKEND,
+    deploymentId,
+    body.sessionId,
+    "query",
+    transport,
+    projectId,
+    env.FLAREX_EXECUTOR_TOKEN,
+  );
+  return await handler({ db }, body.args ?? null);
 }
 
 function executorTransport(request, env) {
