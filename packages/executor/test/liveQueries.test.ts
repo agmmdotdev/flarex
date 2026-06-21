@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
-import { createFlarexExecutor, fingerprintJson } from "../src";
-import { memoryPersistence } from "./helpers/persistence";
+import type { DocumentRevisionRecord } from "@flarex/persistence-postgres";
+import {
+  createFlarexExecutor,
+  DeploymentProjectMismatchError,
+  fingerprintJson,
+  LiveQuerySubscriptionRerunError,
+} from "../src";
+import {
+  deploymentMetadata,
+  deploymentPackageMetadata,
+  memoryPersistence,
+} from "./helpers/persistence";
 
 describe("executor live query subscriptions", () => {
   it("records a live query subscription with timestamped read set and result hash", async () => {
@@ -370,6 +380,143 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("runs a live query subscription through an invoke query session", async () => {
+    const persistence = memoryPersistence(
+      [
+        deploymentMetadata({
+          deploymentId: "deployment_invoke_live_query",
+          projectId: "project_live_query",
+          activePackageId: "package_live_query",
+          activeSchemaVersion: 1,
+        }),
+      ],
+      [
+        deploymentPackageMetadata({
+          deploymentId: "deployment_invoke_live_query",
+          packageId: "package_live_query",
+          sourcePackageHash: "a".repeat(64),
+          executionModule: "_flarex/execution.js",
+          sourcePackageJson: {
+            modules: [],
+            functions: [],
+            execution: "_flarex/execution.js",
+          },
+          analysisJson: liveQueryAnalysisJson(),
+        }),
+      ],
+      [],
+      [
+        documentRevision({
+          deploymentId: "deployment_invoke_live_query",
+          id: "1:message",
+          documentId: "message",
+          ts: 10,
+          value: { text: "hello" },
+        }),
+      ],
+    );
+    let nextSession = 0;
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date(20) },
+      ids: { nextId: () => `session_live_query_${++nextSession}` },
+      persistence,
+    });
+    const recorded = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_invoke_live_query",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+      resultJson: null,
+    });
+
+    await expect(
+      executor.runLiveQuerySubscriptionWithInvoke({
+        subscription: recorded.subscription,
+        projectId: "project_live_query",
+        executeQuery: async (attempt, subscription) => {
+          expect(attempt.session).toMatchObject({
+            sessionId: "session_live_query_1",
+            beginTs: 20,
+            function: { path: "messages:list", kind: "query" },
+            scope: { partitionKey: "team_a" },
+          });
+          expect(subscription.functionPath).toBe("messages:list");
+          const message = await attempt.syscall({
+            op: "get",
+            id: "1:message",
+          });
+          return message.value;
+        },
+      }),
+    ).resolves.toEqual({
+      value: { _id: "1:message", text: "hello" },
+      beginTs: 20,
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+    });
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_invoke_live_query",
+        "session_live_query_1",
+      ),
+    ).resolves.toMatchObject({ state: "finished", functionKind: "query" });
+  });
+
+  it("rejects invoke-backed live query reruns without partition keys", async () => {
+    const executor = createFlarexExecutor({ persistence: memoryPersistence() });
+    const recorded = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_missing_partition",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: null,
+    });
+
+    await expect(
+      executor.runLiveQuerySubscriptionWithInvoke({
+        subscription: recorded.subscription,
+        executeQuery: async () => null,
+      }),
+    ).rejects.toThrow(LiveQuerySubscriptionRerunError);
+  });
+
+  it("validates project ownership for invoke-backed live query reruns", async () => {
+    const persistence = memoryPersistence([
+      deploymentMetadata({
+        deploymentId: "deployment_project_mismatch",
+        projectId: "project_actual",
+        activePackageId: "package_live_query",
+        activeSchemaVersion: 1,
+      }),
+    ]);
+    const executor = createFlarexExecutor({ persistence });
+    const recorded = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_project_mismatch",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: null,
+    });
+
+    await expect(
+      executor.runLiveQuerySubscriptionWithInvoke({
+        subscription: recorded.subscription,
+        projectId: "project_expected",
+        executeQuery: async () => null,
+      }),
+    ).rejects.toThrow(DeploymentProjectMismatchError);
+  });
+
   it("reruns stale live query subscriptions in limited batches", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });
@@ -550,3 +697,51 @@ describe("executor live query subscriptions", () => {
     ).rejects.toThrow("limit must be a positive integer.");
   });
 });
+
+function liveQueryAnalysisJson(): Record<string, unknown> {
+  return {
+    schema: {
+      version: 1,
+      tables: [
+        {
+          tableId: 1,
+          name: "messages",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    },
+    functions: {
+      functions: [
+        {
+          path: "messages:list",
+          kind: "query",
+          route: { type: "args", field: "teamId" },
+          partition: {
+            type: "partition",
+            table: "messages",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function documentRevision(
+  overrides: Partial<DocumentRevisionRecord> = {},
+): DocumentRevisionRecord {
+  return {
+    deploymentId: "deployment_live_query",
+    id: "1:message",
+    tableId: 1,
+    documentId: "message",
+    ts: 10,
+    value: { text: "old" },
+    deleted: false,
+    prevTs: null,
+    ...overrides,
+  };
+}

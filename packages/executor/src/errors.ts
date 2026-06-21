@@ -131,6 +131,13 @@ export class OutboxDeliveryPolicyError extends Error {
   }
 }
 
+export class LiveQuerySubscriptionRerunError extends Error {
+  constructor(message: string) {
+    super(`Cannot rerun live query subscription: ${message}`);
+    this.name = "LiveQuerySubscriptionRerunError";
+  }
+}
+
 export class InvokeSessionNotFoundError extends Error {
   constructor(
     readonly deploymentId: string,

@@ -121,6 +121,9 @@ export interface FlarexExecutor {
   rerunStaleLiveQuerySubscriptions(
     input: RerunStaleLiveQuerySubscriptionsInput,
   ): Promise<RerunStaleLiveQuerySubscriptionsResult>;
+  runLiveQuerySubscriptionWithInvoke(
+    input: RunLiveQuerySubscriptionWithInvokeInput,
+  ): Promise<RerunLiveQuerySubscriptionOutput>;
   runMaintenanceSweep(
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
@@ -326,6 +329,16 @@ export interface RerunStaleLiveQuerySubscriptionsResult {
   unchanged: RerunLiveQuerySubscriptionResult[];
   unsupported: LiveQuerySubscriptionFreshnessEntry[];
   hasMoreStale: boolean;
+}
+
+export interface RunLiveQuerySubscriptionWithInvokeInput {
+  subscription: LiveQuerySubscriptionRecord;
+  projectId?: string;
+  maxAttempts?: number;
+  executeQuery(
+    attempt: InvokeAttemptContext,
+    subscription: LiveQuerySubscriptionRecord,
+  ): Promise<Json>;
 }
 
 export interface ActivateDeploymentPackageInput {
@@ -558,6 +571,7 @@ export interface RunInvokeWithRetriesInput extends BeginInvokeSessionInput {
 
 export interface RunInvokeWithRetriesResult extends FinishInvokeSessionResult {
   attempts: number;
+  beginTs: number;
 }
 
 export interface FinishInvokeSessionInput {

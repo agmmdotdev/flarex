@@ -1147,6 +1147,11 @@ function fakeExecutor(
         "rerunStaleLiveQuerySubscriptions is not implemented by test fake",
       );
     },
+    async runLiveQuerySubscriptionWithInvoke() {
+      throw new Error(
+        "runLiveQuerySubscriptionWithInvoke is not implemented by test fake",
+      );
+    },
     async runMaintenanceSweep() {
       return {
         deployments: [],
@@ -1170,6 +1175,7 @@ function fakeExecutor(
           syscall: async () => invokeSyscallResult(null),
         }),
         attempts: 1,
+        beginTs: 1781913600123,
       };
     },
     async invokeSyscall() {

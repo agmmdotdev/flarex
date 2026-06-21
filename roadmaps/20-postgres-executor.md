@@ -541,6 +541,60 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke-Backed Live-Query Rerun Bridge
+
+Previous completed checkpoint: `21de98d` Persist live query partition keys.
+
+What changed:
+
+- Added framework-neutral executor method
+  `runLiveQuerySubscriptionWithInvoke(...)`.
+- The method validates the stored subscription has a non-empty `partitionKey`.
+- It loads deployment metadata and optionally validates project ownership.
+- It calls `runInvokeWithRetries(...)` as a query with the stored function path,
+  args, and partition key.
+- It returns the rerun output needed by
+  `rerunLiveQuerySubscription(...)`: `{ value, beginTs, readSet }`.
+- `RunInvokeWithRetriesResult` now includes the session `beginTs`.
+
+Why it changed:
+
+The executor already had stale subscription scanning and a maintenance route,
+but the route still depended on a completely injected `runQuery` function. This
+bridge makes rerun execution use the same backend-owned invoke session and
+syscall path as normal query execution.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend runner coordinates function execution.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - database access goes through syscalls.
+- `crates/sync/src/worker.rs`
+  - sync worker reruns active queries from backend state.
+
+Flarex differences:
+
+- Flarex does not run bundled user code inside this package. The bridge accepts
+  `executeQuery(attempt, subscription)` so a Dynamic Worker host can execute the
+  app query while Postgres executor owns the query session.
+
+Known limitations:
+
+- This is an executor-core bridge only. HTTP/Nitro route config still needs to
+  provide an execution host that calls it.
+- No fanout of changed rerun results is implemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

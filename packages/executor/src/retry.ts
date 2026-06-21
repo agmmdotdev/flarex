@@ -64,6 +64,7 @@ export async function runInvokeWithRetries(
       return {
         ...finished,
         attempts: attempt,
+        beginTs: session.beginTs,
       };
     } catch (error) {
       await abortAttempt(persistence, clock, input, session.sessionId);

@@ -477,6 +477,66 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
+## Invoke-Backed Live-Query Rerun Bridge
+
+Previous completed checkpoint: `21de98d` Persist live query partition keys.
+
+What changed:
+
+- Added `executor.runLiveQuerySubscriptionWithInvoke(...)`.
+- The bridge turns a stored live-query subscription into a real query invoke
+  session using:
+  - `subscription.functionPath`,
+  - `subscription.argsJson`, and
+  - `subscription.partitionKey`.
+- The host still supplies `executeQuery(attempt, subscription)` so Dynamic
+  Worker execution remains outside the trusted executor package.
+- The executor owns session begin, syscall routing, finish, read-set
+  accumulation, and returned `{ value, beginTs, readSet }`.
+- `runInvokeWithRetries(...)` now returns `beginTs`, which live-query freshness
+  needs when recording the refreshed read set.
+
+Why it matters for sync:
+
+This closes the first half of the stale-query rerun gap. The maintenance route
+can now be wired to a real query-session runner instead of a fully ad hoc
+`runQuery(subscription)` callback. The remaining host-specific part is the
+Dynamic Worker user-code call.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale active queries are rerun by backend-owned sync workers.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code reaches the database through a syscall boundary while backend
+    services own transaction state.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application function execution is coordinated by the backend runner.
+
+Flarex differences:
+
+- Convex runs the query and syscall bridge inside one backend. Flarex keeps
+  user-code execution host-supplied so the Dynamic Worker runtime can execute
+  bundled app code while the Postgres executor owns query sessions.
+- Old subscription rows with `partition_key = null` are rejected before a
+  session starts.
+
+Known limitations:
+
+- The HTTP/Nitro maintenance route still accepts an injected `runQuery`; wiring
+  it to this bridge plus the Dynamic Worker host is the next step.
+- Changed results are still not fanned out to WebSocket clients.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

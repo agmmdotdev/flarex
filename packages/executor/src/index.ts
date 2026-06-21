@@ -16,6 +16,7 @@ import {
   fingerprintJson,
   recordLiveQuerySubscription,
   removeLiveQuerySubscription,
+  runLiveQuerySubscriptionWithInvoke,
   rerunLiveQuerySubscription,
   rerunStaleLiveQuerySubscriptions,
 } from "./liveQueries";
@@ -56,6 +57,7 @@ export {
   InvokeReplaceDocumentNotFoundError,
   InvokeRetryExhaustedError,
   InvokeRetryPolicyError,
+  LiveQuerySubscriptionRerunError,
   InvokeSessionNotActiveError,
   InvokeSessionNotFoundError,
   InvokeSessionProjectMismatchError,
@@ -146,6 +148,7 @@ export type {
   RerunLiveQuerySubscriptionResult,
   RerunStaleLiveQuerySubscriptionsInput,
   RerunStaleLiveQuerySubscriptionsResult,
+  RunLiveQuerySubscriptionWithInvokeInput,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
@@ -195,6 +198,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       rerunLiveQuerySubscription(persistence, input),
     rerunStaleLiveQuerySubscriptions: (input) =>
       rerunStaleLiveQuerySubscriptions(persistence, input),
+    runLiveQuerySubscriptionWithInvoke: (input) =>
+      runLiveQuerySubscriptionWithInvoke(persistence, clock, ids, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>

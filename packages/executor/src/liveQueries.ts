@@ -7,18 +7,28 @@ import type {
 } from "@flarex/persistence-postgres";
 import type { FreshnessReadSet } from "@flarex/freshness";
 
+import {
+  DeploymentNotFoundError,
+  DeploymentProjectMismatchError,
+  LiveQuerySubscriptionRerunError,
+} from "./errors";
+import { runInvokeWithRetries } from "./retry";
 import type {
+  Clock,
   FindStaleLiveQuerySubscriptionsInput,
   FindStaleLiveQuerySubscriptionsResult,
   FlarexExecutorPersistence,
+  IdGenerator,
   Json,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionInput,
+  RerunLiveQuerySubscriptionOutput,
   RerunLiveQuerySubscriptionResult,
   RerunStaleLiveQuerySubscriptionsInput,
   RerunStaleLiveQuerySubscriptionsResult,
+  RunLiveQuerySubscriptionWithInvokeInput,
 } from "./types";
 
 export async function recordLiveQuerySubscription(
@@ -155,6 +165,57 @@ export async function rerunStaleLiveQuerySubscriptions(
     unsupported: scanned.unsupported,
     hasMoreStale:
       input.limit !== undefined && scanned.stale.length > staleToRerun.length,
+  };
+}
+
+export async function runLiveQuerySubscriptionWithInvoke(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  ids: IdGenerator,
+  input: RunLiveQuerySubscriptionWithInvokeInput,
+): Promise<RerunLiveQuerySubscriptionOutput> {
+  const subscription = input.subscription;
+  if (
+    typeof subscription.partitionKey !== "string" ||
+    subscription.partitionKey.length === 0
+  ) {
+    throw new LiveQuerySubscriptionRerunError(
+      `${subscription.deploymentId}/${subscription.connectionId}/${subscription.queryId} is missing partitionKey`,
+    );
+  }
+
+  const deployment = await persistence.getDeploymentMetadata(
+    subscription.deploymentId,
+  );
+  if (deployment === null) {
+    throw new DeploymentNotFoundError(subscription.deploymentId);
+  }
+  if (
+    input.projectId !== undefined &&
+    deployment.projectId !== input.projectId
+  ) {
+    throw new DeploymentProjectMismatchError(
+      subscription.deploymentId,
+      input.projectId,
+      deployment.projectId,
+    );
+  }
+
+  const result = await runInvokeWithRetries(persistence, clock, ids, {
+    deploymentId: subscription.deploymentId,
+    projectId: deployment.projectId,
+    path: subscription.functionPath,
+    kind: "query",
+    args: subscription.argsJson as Json,
+    partitionKey: subscription.partitionKey,
+    ...(input.maxAttempts === undefined ? {} : { maxAttempts: input.maxAttempts }),
+    runAttempt: (attempt) => input.executeQuery(attempt, subscription),
+  });
+
+  return {
+    value: result.value,
+    beginTs: result.beginTs,
+    readSet: result.readSet ?? {},
   };
 }
 

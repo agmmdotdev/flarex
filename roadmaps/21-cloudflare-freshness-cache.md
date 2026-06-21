@@ -1153,3 +1153,58 @@ corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
+
+## Invoke-Backed Live-Query Rerun Bridge
+
+Previous completed checkpoint: `21de98d` Persist live query partition keys.
+
+What changed:
+
+- Added executor bridge `runLiveQuerySubscriptionWithInvoke(...)`.
+- The bridge converts a stale subscription row into a query invoke session and
+  returns a fresh result/read-set snapshot.
+- The Dynamic Worker/user-code execution call remains injected through
+  `executeQuery(...)`.
+
+Cache impact:
+
+```txt
+freshness mirror says subscription is stale
+  -> executor bridge starts query session
+  -> Dynamic Worker executes user query with syscall client
+  -> executor finishes query session and returns new read set
+  -> future fanout publishes changed result
+```
+
+This is the trusted rerun primitive a Cloudflare freshness/cache scheduler can
+use after stale detection. It keeps the freshness proof tied to the executor's
+query-session `beginTs`, not to Hyperdrive cache timing.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync worker owns stale active-query reruns.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application execution is coordinated by backend services.
+
+Flarex differences:
+
+- Convex reruns inside one backend runtime. Flarex splits rerun into trusted
+  session ownership plus host-supplied Dynamic Worker execution.
+
+Known limitations:
+
+- The Cloudflare worker/DO scheduler is not wired yet.
+- Changed result fanout is still missing.
+- Rows without `partition_key` are rejected until clients refresh
+  subscriptions.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+git diff --check
+```

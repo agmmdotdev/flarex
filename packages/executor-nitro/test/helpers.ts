@@ -311,6 +311,11 @@ export function fakeExecutor(
         "rerunStaleLiveQuerySubscriptions is not implemented by test fake",
       );
     },
+    async runLiveQuerySubscriptionWithInvoke() {
+      throw new Error(
+        "runLiveQuerySubscriptionWithInvoke is not implemented by test fake",
+      );
+    },
     async runMaintenanceSweep() {
       throw new Error("runMaintenanceSweep is not implemented by test fake");
     },
