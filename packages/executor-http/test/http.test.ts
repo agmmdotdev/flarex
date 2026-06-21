@@ -767,7 +767,9 @@ describe("createFlarexHttpApp", () => {
       deploymentId: string;
       limit?: number;
       freshnessStore: unknown;
+      deliverChanges: unknown;
     }> = [];
+    const delivered: unknown[] = [];
     const app = createFlarexHttpApp({
       executor: fakeExecutor({
         async rerunStaleLiveQuerySubscriptions(input) {
@@ -775,12 +777,26 @@ describe("createFlarexHttpApp", () => {
             deploymentId: input.deploymentId,
             ...(input.limit === undefined ? {} : { limit: input.limit }),
             freshnessStore: input.freshnessStore,
+            deliverChanges: input.deliverChanges,
           });
           await input.runQuery(liveQuerySubscription());
+          await input.deliverChanges?.([
+            {
+              deploymentId: "deployment_active",
+              connectionId: "connection_a",
+              queryId: 1,
+              functionPath: "messages:list",
+              argsJson: { teamId: "team_a" },
+              resultJson: ["fresh"],
+              previousResultHash: "old_hash",
+              resultHash: "new_hash",
+            },
+          ]);
           return {
             scanned: { fresh: [], stale: [], unsupported: [] },
             changed: [],
             unchanged: [],
+            changes: [],
             unsupported: [],
             hasMoreStale: false,
           };
@@ -802,6 +818,9 @@ describe("createFlarexHttpApp", () => {
       liveQueryRerun: {
         freshnessStore,
         executeQuery,
+        deliverChanges: async changes => {
+          delivered.push(...changes);
+        },
       },
     });
 
@@ -827,12 +846,26 @@ describe("createFlarexHttpApp", () => {
         deploymentId: "deployment_active",
         limit: 2,
         freshnessStore,
+        deliverChanges: expect.any(Function),
+      },
+    ]);
+    expect(delivered).toEqual([
+      {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: { teamId: "team_a" },
+        resultJson: ["fresh"],
+        previousResultHash: "old_hash",
+        resultHash: "new_hash",
       },
     ]);
     await expect(response.json()).resolves.toEqual({
       scanned: { fresh: [], stale: [], unsupported: [] },
       changed: [],
       unchanged: [],
+      changes: [],
       unsupported: [],
       hasMoreStale: false,
     });

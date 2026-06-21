@@ -77,6 +77,7 @@ describe("createLocalExecutorHttpRuntime", () => {
           scanned: { fresh: [], stale: [], unsupported: [] },
           changed: [],
           unchanged: [],
+          changes: [],
           unsupported: [],
           hasMoreStale: false,
         };
@@ -129,6 +130,7 @@ describe("createLocalExecutorHttpRuntime", () => {
         scanned: { fresh: [], stale: [], unsupported: [] },
         changed: [],
         unchanged: [],
+        changes: [],
         unsupported: [],
         hasMoreStale: false,
       });
@@ -262,6 +264,17 @@ describe("createLocalExecutorHttpRuntime", () => {
               functionPath: "messages:get",
               resultJson: { _id: "1:message", text: "fresh" },
             },
+          },
+        ],
+        changes: [
+          {
+            deploymentId: "deployment-pglite-live",
+            connectionId: "connection-pglite",
+            queryId: 1,
+            functionPath: "messages:get",
+            argsJson: { messageId: "1:message" },
+            resultJson: { _id: "1:message", text: "fresh" },
+            previousResultHash: initial.resultHash,
           },
         ],
         unchanged: [],

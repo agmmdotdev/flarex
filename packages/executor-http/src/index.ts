@@ -53,6 +53,7 @@ import {
 export interface FlarexLiveQueryRerunConfig {
   freshnessStore: RerunStaleLiveQuerySubscriptionsInput["freshnessStore"];
   executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"];
+  deliverChanges?: RerunStaleLiveQuerySubscriptionsInput["deliverChanges"];
 }
 
 export interface FlarexHttpAppConfig {
@@ -499,6 +500,9 @@ async function handleLiveQueryRerunMaintenance(
       deploymentId: input.value.deploymentId,
       ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
       freshnessStore: config.freshnessStore,
+      ...(config.deliverChanges === undefined
+        ? {}
+        : { deliverChanges: config.deliverChanges }),
       runQuery: (subscription) =>
         executor.runLiveQuerySubscriptionWithInvoke({
           subscription,

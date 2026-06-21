@@ -313,6 +313,17 @@ export interface RerunLiveQuerySubscriptionResult {
   changed: boolean;
 }
 
+export interface LiveQueryChange {
+  deploymentId: string;
+  connectionId: string;
+  queryId: number;
+  functionPath: string;
+  argsJson: Json;
+  resultJson: Json;
+  previousResultHash: string;
+  resultHash: string;
+}
+
 export interface RerunStaleLiveQuerySubscriptionsInput {
   deploymentId: string;
   freshnessStore: FreshnessMirrorStore;
@@ -321,12 +332,14 @@ export interface RerunStaleLiveQuerySubscriptionsInput {
   runQuery(
     subscription: LiveQuerySubscriptionRecord,
   ): Promise<RerunLiveQuerySubscriptionOutput>;
+  deliverChanges?(changes: LiveQueryChange[]): Promise<void> | void;
 }
 
 export interface RerunStaleLiveQuerySubscriptionsResult {
   scanned: FindStaleLiveQuerySubscriptionsResult;
   changed: RerunLiveQuerySubscriptionResult[];
   unchanged: RerunLiveQuerySubscriptionResult[];
+  changes: LiveQueryChange[];
   unsupported: LiveQuerySubscriptionFreshnessEntry[];
   hasMoreStale: boolean;
 }

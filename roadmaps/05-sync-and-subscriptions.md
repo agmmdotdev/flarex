@@ -268,6 +268,86 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Changed-Result Delivery Payload
+
+Previous completed checkpoint: `84b9422` Preserve JSON null live query values.
+
+What changed:
+
+- Added a stable `LiveQueryChange` payload in `@flarex/executor`.
+- `rerunStaleLiveQuerySubscriptions(...)` now returns a `changes` array derived
+  only from changed reruns.
+- Added an optional `deliverChanges(changes)` callback on stale rerun
+  maintenance.
+- Wired `deliverChanges` through `@flarex/executor-http` live-query rerun
+  config.
+- Updated executor, HTTP, Nitro, and PGlite-backed local runtime tests so
+  unchanged reruns are not delivered and changed reruns have a stable delivery
+  shape:
+
+```ts
+{
+  deploymentId,
+  connectionId,
+  queryId,
+  functionPath,
+  argsJson,
+  resultJson,
+  previousResultHash,
+  resultHash,
+}
+```
+
+Why it matters for sync:
+
+The rerun engine can now produce the exact data the next fanout layer needs,
+without binding executor core to `ConnectionDO` or any specific WebSocket
+runtime:
+
+```txt
+stale subscription rerun
+  -> changed result detected by hash
+  -> LiveQueryChange payload
+  -> optional delivery callback
+  -> future ConnectionDO/WebSocket transition fanout
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker compares query results and emits transitions only when needed.
+- `crates/sync/src/state.rs`
+  - active query state maps client query IDs to result transitions.
+
+Flarex differences:
+
+- Convex emits transitions inside its integrated sync worker. Flarex first
+  exposes a framework-neutral change payload because the trusted executor,
+  Cloudflare socket ownership, and hosted artifact runtime are separate
+  components.
+
+Known limitations:
+
+- This does not send WebSocket messages yet.
+- Delivery callback failures are surfaced to the maintenance caller, but the
+  rerun result has already been persisted. A durable delivery outbox may be
+  needed before production fanout.
+- Query logs and error transitions are not represented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Read-Set Freshness Checker
 
 Previous completed checkpoint: `3913b02` Add freshness delivery handler.

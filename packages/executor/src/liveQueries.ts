@@ -20,6 +20,7 @@ import type {
   FlarexExecutorPersistence,
   IdGenerator,
   Json,
+  LiveQueryChange,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
@@ -144,6 +145,7 @@ export async function rerunStaleLiveQuerySubscriptions(
       : scanned.stale.slice(0, input.limit);
   const changed: RerunLiveQuerySubscriptionResult[] = [];
   const unchanged: RerunLiveQuerySubscriptionResult[] = [];
+  const changes: LiveQueryChange[] = [];
 
   for (const entry of staleToRerun) {
     const rerun = await rerunLiveQuerySubscription(persistence, {
@@ -153,15 +155,21 @@ export async function rerunStaleLiveQuerySubscriptions(
     });
     if (rerun.changed) {
       changed.push(rerun);
+      changes.push(liveQueryChangeFromRerun(rerun));
     } else {
       unchanged.push(rerun);
     }
+  }
+
+  if (changes.length > 0) {
+    await input.deliverChanges?.(changes);
   }
 
   return {
     scanned,
     changed,
     unchanged,
+    changes,
     unsupported: scanned.unsupported,
     hasMoreStale:
       input.limit !== undefined && scanned.stale.length > staleToRerun.length,
@@ -221,6 +229,21 @@ export async function runLiveQuerySubscriptionWithInvoke(
 
 export function fingerprintJson(value: Json): string {
   return stableJson(value);
+}
+
+function liveQueryChangeFromRerun(
+  rerun: RerunLiveQuerySubscriptionResult,
+): LiveQueryChange {
+  return {
+    deploymentId: rerun.subscription.deploymentId,
+    connectionId: rerun.subscription.connectionId,
+    queryId: rerun.subscription.queryId,
+    functionPath: rerun.subscription.functionPath,
+    argsJson: rerun.subscription.argsJson as Json,
+    resultJson: rerun.subscription.resultJson as Json,
+    previousResultHash: rerun.previousResultHash,
+    resultHash: rerun.resultHash,
+  };
 }
 
 function stableJson(value: Json): string {

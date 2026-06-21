@@ -125,6 +125,7 @@ export type {
   ListMaintenanceDeploymentsResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  LiveQueryChange,
   MaintenanceSweepDeploymentResult,
   RunInvokeSessionMaintenanceInput,
   RunInvokeSessionMaintenanceResult,

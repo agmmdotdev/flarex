@@ -294,6 +294,60 @@ corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
 git diff --check
 ```
 
+## Live-Query Change Delivery Shape
+
+Previous completed checkpoint: `84b9422` Preserve JSON null live query values.
+
+What changed:
+
+- Added `LiveQueryChange` to the executor public type surface.
+- `rerunStaleLiveQuerySubscriptions(...)` now computes stable change payloads
+  from changed rerun results and exposes them as `result.changes`.
+- Added optional `deliverChanges(...)` support to executor core and the HTTP
+  adapter config.
+- Verified the PGlite local executor runtime returns the new `changes` shape
+  through `/maintenance/live-queries/rerun`.
+
+Why it changed:
+
+The Postgres executor now owns enough state to know which live-query results
+changed. The next layer needs a small, stable payload to fan out to connection
+owners, but the executor should not know about Cloudflare `ConnectionDO` yet.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - changed query results become client transitions.
+- `crates/database/src/subscription.rs`
+  - subscription invalidation is separate from result publication.
+
+Flarex differences:
+
+- Convex does rerun and fanout inside backend sync machinery. Flarex exposes
+  the delivery shape from the trusted executor so Cloudflare connection owners
+  can consume it later.
+
+Known limitations:
+
+- No durable delivery queue exists yet.
+- No `ConnectionDO` or WebSocket transition writer consumes the payload yet.
+- If `deliverChanges` throws, the maintenance request fails after rerun rows
+  have been updated. Production delivery likely needs an outbox-style handoff.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Invoke Replace Syscall
 
 Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.

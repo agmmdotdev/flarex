@@ -585,11 +585,15 @@ describe("executor live query subscriptions", () => {
     });
 
     const rerunPaths: string[] = [];
+    const delivered: unknown[] = [];
     await expect(
       executor.rerunStaleLiveQuerySubscriptions({
         deploymentId: "deployment_batch_rerun",
         freshnessStore,
         limit: 1,
+        deliverChanges: async changes => {
+          delivered.push(...changes);
+        },
         runQuery: async (subscription) => {
           rerunPaths.push(subscription.functionPath);
           return {
@@ -618,11 +622,35 @@ describe("executor live query subscriptions", () => {
           changed: true,
         },
       ],
+      changes: [
+        {
+          deploymentId: "deployment_batch_rerun",
+          connectionId: "connection_a",
+          queryId: 2,
+          functionPath: "messages:changed",
+          argsJson: {},
+          resultJson: "new",
+          previousResultHash: '"old"',
+          resultHash: '"new"',
+        },
+      ],
       unchanged: [],
       unsupported: [{ subscription: { connectionId: "connection_b" } }],
       hasMoreStale: true,
     });
     expect(rerunPaths).toEqual(["messages:changed"]);
+    expect(delivered).toEqual([
+      {
+        deploymentId: "deployment_batch_rerun",
+        connectionId: "connection_a",
+        queryId: 2,
+        functionPath: "messages:changed",
+        argsJson: {},
+        resultJson: "new",
+        previousResultHash: '"old"',
+        resultHash: '"new"',
+      },
+    ]);
   });
 
   it("reruns stale live query subscriptions and reports unchanged rows", async () => {
@@ -663,6 +691,7 @@ describe("executor live query subscriptions", () => {
       }),
     ).resolves.toMatchObject({
       changed: [],
+      changes: [],
       unchanged: [
         {
           previousResultHash: '{"a":1,"b":2}',

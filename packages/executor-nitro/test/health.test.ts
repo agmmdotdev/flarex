@@ -182,6 +182,7 @@ describe("createFlarexNitroHandler", () => {
             scanned: { fresh: [], stale: [], unsupported: [] },
             changed: [],
             unchanged: [],
+            changes: [],
             unsupported: [],
             hasMoreStale: false,
           };
@@ -221,6 +222,7 @@ describe("createFlarexNitroHandler", () => {
       scanned: { fresh: [], stale: [], unsupported: [] },
       changed: [],
       unchanged: [],
+      changes: [],
       unsupported: [],
       hasMoreStale: false,
     });
