@@ -35,6 +35,7 @@ import {
 
 import {
   createFlarexBackendLiveQueryDelivery,
+  createFlarexBackendLiveQueryWakeNotifier,
   createFlarexHttpApp,
 } from "../src";
 
@@ -876,6 +877,83 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("notifies the backend delivery wake route after changed live query reruns", async () => {
+    const notifyCalls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions(input) {
+          return {
+            scanned: { fresh: [], stale: [], unsupported: [] },
+            changed: [
+              {
+                subscription: liveQuerySubscription({
+                  deploymentId: input.deploymentId,
+                  connectionId: "connection_a",
+                  queryId: 1,
+                }),
+                previousResultHash: '"old"',
+                resultHash: '"new"',
+                changed: true,
+                delivery: null,
+              },
+            ],
+            unchanged: [],
+            changes: [
+              {
+                deploymentId: input.deploymentId,
+                connectionId: "connection_a",
+                queryId: 1,
+                functionPath: "messages:list",
+                argsJson: {},
+                resultJson: "new",
+                previousResultHash: '"old"',
+                resultHash: '"new"',
+              },
+            ],
+            unsupported: [],
+            hasMoreStale: false,
+          };
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore: testFreshnessStore(),
+        executeQuery: async () => null,
+        notifyDelivery: async input => {
+          notifyCalls.push(input);
+        },
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        limit: 2,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(notifyCalls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        limit: 2,
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      changed: [
+        {
+          subscription: {
+            deploymentId: "deployment_active",
+            connectionId: "connection_a",
+            queryId: 1,
+          },
+          changed: true,
+        },
+      ],
+      hasMoreStale: false,
+    });
+  });
+
   it("requires live query rerun maintenance configuration", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -1317,6 +1395,54 @@ describe("createFlarexHttpApp", () => {
               resultHash: "fresh",
             },
           ],
+        },
+      },
+    ]);
+  });
+
+  it("posts live query wake notifications to the Flarex backend DeliveryDO route", async () => {
+    const requests: Array<{ url: string; headers: Record<string, string | null>; body: unknown }> = [];
+    const notifyDelivery = createFlarexBackendLiveQueryWakeNotifier({
+      backendUrl: "https://backend.test/base",
+      capabilityToken: "delivery-token",
+      limit: 10,
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push({
+          url: request.url,
+          headers: {
+            authorization: request.headers.get("authorization"),
+            contentType: request.headers.get("content-type"),
+          },
+          body: await request.json(),
+        });
+        return Response.json({
+          deploymentId: "deployment_active",
+          batches: 1,
+          claimed: 1,
+          acked: 1,
+          delivered: 1,
+          skipped: 0,
+          hasMore: false,
+        });
+      },
+    });
+
+    await notifyDelivery({
+      deploymentId: "deployment_active",
+      maxBatches: 2,
+    });
+
+    expect(requests).toEqual([
+      {
+        url: "https://backend.test/base/deployments/deployment_active/sync/wake-delivery",
+        headers: {
+          authorization: "Bearer delivery-token",
+          contentType: "application/json",
+        },
+        body: {
+          limit: 10,
+          maxBatches: 2,
         },
       },
     ]);

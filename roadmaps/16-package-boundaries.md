@@ -505,6 +505,57 @@ corepack pnpm build
 git diff --check
 ```
 
+## Executor HTTP Wake Notifier Boundary
+
+Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
+
+What changed:
+
+- `@flarex/executor-http` now owns the reusable backend wake notifier helper.
+- `@flarex/executor-nitro` re-exports that helper for Nitro/Vercel hosts.
+- Executor core remains Cloudflare-agnostic; it only returns rerun results and
+  persists delivery rows through the persistence interface.
+- Cloudflare-specific DeliveryDO behavior remains in `flarex-backend`.
+
+Boundary rule:
+
+```txt
+@flarex/executor
+  owns durable rerun and delivery-row semantics
+@flarex/executor-http
+  owns HTTP adapter callbacks/notifiers
+@flarex/executor-nitro
+  re-exports adapter helpers for Nitro deployment
+flarex-backend
+  owns Durable Object fanout
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - one backend component owns rerun and send work in Convex.
+
+Flarex difference:
+
+- Flarex must expose an adapter-level wake contract because the executor and
+  Cloudflare fanout runtime are separate deployable units.
+
+Known limitations:
+
+- The direct delivery callback helper still lives beside the preferred wake
+  notifier until examples/tests fully migrate.
+- No shared package owns delivery route constants yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor HTTP Boundary Update
 
 Previous completed checkpoint for this roadmap: `c563d88` Make push start

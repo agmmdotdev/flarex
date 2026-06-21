@@ -1116,6 +1116,67 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Executor Wake Notification Hook
+
+Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
+
+What changed:
+
+- Added the HTTP/Nitro adapter hook that lets the trusted executor notify
+  Cloudflare after durable live-query delivery rows are written.
+- Added a reusable backend wake notifier that calls
+  `/deployments/:deploymentId/sync/wake-delivery`.
+- The wake notifier carries optional `limit` and `maxBatches` controls for the
+  DeliveryDO bounded drain.
+
+Freshness/cache impact:
+
+```txt
+Postgres freshness marks subscriptions stale
+  -> executor reruns stale subscriptions
+  -> changed results become durable delivery rows
+  -> executor notifies Cloudflare wake route
+  -> DeliveryDO drains and fans out
+```
+
+This makes the freshness pipeline event-driven for the normal case. The
+delivery row remains the source of truth, so a failed wake notification does not
+lose the client update.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend worker owns query rerun and transition send work.
+- `crates/sync/src/state.rs`
+  - active query state moves forward after rerun completion.
+
+Flarex differences:
+
+- Convex can call directly across in-process backend components. Flarex uses an
+  explicit wake notification because Postgres execution and Cloudflare
+  WebSocket fanout are separate deployments.
+- The wake notification does not include result payloads. It only asks
+  DeliveryDO to claim durable rows from the executor.
+
+Known limitations:
+
+- No Cloudflare Queue, alarm, or background continuation exists yet for
+  `hasMore`.
+- No periodic reconciler scans undelivered rows if every wake notification
+  fails.
+- The direct `/deliver-live-query` callback path still exists as a legacy/local
+  helper until tests and examples fully move to durable wake delivery.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Outbox Delivery Prerequisite
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

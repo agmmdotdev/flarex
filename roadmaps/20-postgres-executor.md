@@ -1201,6 +1201,71 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Delivery Wake Notification After Rerun
+
+Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
+
+What changed:
+
+- Added a framework-neutral HTTP/Nitro adapter hook
+  `liveQueryRerun.notifyDelivery(...)`.
+- After the executor reruns stale live queries and writes durable
+  `live_query_deliveries` rows, the rerun route now calls this hook only when
+  the rerun result contains changed subscriptions.
+- Added `createFlarexBackendLiveQueryWakeNotifier(...)` in
+  `@flarex/executor-http`.
+- The notifier posts to
+  `/deployments/:deploymentId/sync/wake-delivery` with the existing capability
+  token model.
+- Nitro re-exports the wake notifier through `@flarex/executor-nitro`.
+
+Intended production flow:
+
+```txt
+executor rerun route
+  -> rerun stale query through invoke bridge
+  -> persist updated subscription + live_query_deliveries row
+  -> notify Cloudflare backend wake route
+  -> DeliveryDO claims rows from executor
+  -> ConnectionDO fanout
+  -> executor ack after successful fanout
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker reruns queries and pushes transitions inside the backend.
+- `crates/sync/src/state.rs`
+  - active query state is advanced after completed fetches.
+
+Flarex differences:
+
+- Convex does not need a wake callback because the sync worker and database
+  live in the same backend runtime.
+- Flarex splits this into a durable Postgres executor and a Cloudflare
+  DeliveryDO. The executor only notifies; Cloudflare owns fanout and must ack
+  through the executor.
+- The old direct delivery callback helper remains for tests/local compatibility,
+  but the preferred durable production path is wake-notify plus claim/ack.
+
+Known limitations:
+
+- The rerun route waits for the wake notification. If notification fails, the
+  route fails but durable delivery rows remain for retry.
+- No queue/alarm continuation is wired yet when DeliveryDO reports `hasMore`.
+- No scheduler is wired yet for retrying deployments that still have pending
+  delivery rows after notification failure.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Live-Query Partition Routing Metadata
 
 Previous completed checkpoint: `196cef9` Add live query rerun maintenance

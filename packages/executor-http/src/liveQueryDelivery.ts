@@ -9,6 +9,20 @@ export interface FlarexBackendLiveQueryDeliveryConfig {
   fetch?: typeof fetch;
 }
 
+export interface FlarexBackendLiveQueryWakeConfig {
+  backendUrl: string | URL;
+  capabilityToken?: string;
+  fetch?: typeof fetch;
+  limit?: number;
+  maxBatches?: number;
+}
+
+export interface FlarexBackendLiveQueryWakeInput {
+  deploymentId: string;
+  limit?: number;
+  maxBatches?: number;
+}
+
 export function createFlarexBackendLiveQueryDelivery(
   config: FlarexBackendLiveQueryDeliveryConfig,
 ): RunLiveQueryDeliveryBatchInput["deliver"] {
@@ -35,6 +49,34 @@ export function createFlarexBackendLiveQueryDelivery(
   };
 }
 
+export function createFlarexBackendLiveQueryWakeNotifier(
+  config: FlarexBackendLiveQueryWakeConfig,
+): (input: FlarexBackendLiveQueryWakeInput) => Promise<void> {
+  const fetcher = config.fetch ?? fetch;
+  return async input => {
+    const response = await fetcher(
+      liveQueryWakeUrl(config.backendUrl, input.deploymentId),
+      {
+        method: "POST",
+        headers: liveQueryDeliveryHeaders(config.capabilityToken),
+        body: JSON.stringify({
+          ...((input.limit ?? config.limit) === undefined
+            ? {}
+            : { limit: input.limit ?? config.limit }),
+          ...((input.maxBatches ?? config.maxBatches) === undefined
+            ? {}
+            : { maxBatches: input.maxBatches ?? config.maxBatches }),
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Flarex backend live query wake failed for ${input.deploymentId}: ${response.status} ${await response.text()}`,
+      );
+    }
+  };
+}
+
 function groupDeliveriesByDeployment(
   deliveries: LiveQueryDeliveryRecord[],
 ): Map<string, LiveQueryDeliveryRecord[]> {
@@ -53,6 +95,14 @@ function groupDeliveriesByDeployment(
 function liveQueryDeliveryUrl(endpoint: string | URL, deploymentId: string): URL {
   const url = endpoint instanceof URL ? new URL(endpoint.href) : new URL(endpoint);
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/deployments/${encodeURIComponent(deploymentId)}/sync/deliver-live-query`;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+function liveQueryWakeUrl(endpoint: string | URL, deploymentId: string): URL {
+  const url = endpoint instanceof URL ? new URL(endpoint.href) : new URL(endpoint);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/deployments/${encodeURIComponent(deploymentId)}/sync/wake-delivery`;
   url.search = "";
   url.hash = "";
   return url;

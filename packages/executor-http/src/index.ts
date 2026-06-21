@@ -56,13 +56,20 @@ import {
 
 export {
   createFlarexBackendLiveQueryDelivery,
+  createFlarexBackendLiveQueryWakeNotifier,
   type FlarexBackendLiveQueryDeliveryConfig,
+  type FlarexBackendLiveQueryWakeConfig,
+  type FlarexBackendLiveQueryWakeInput,
 } from "./liveQueryDelivery";
 
 export interface FlarexLiveQueryRerunConfig {
   freshnessStore: RerunStaleLiveQuerySubscriptionsInput["freshnessStore"];
   executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"];
   deliverChanges?: RerunStaleLiveQuerySubscriptionsInput["deliverChanges"];
+  notifyDelivery?: (input: {
+    deploymentId: string;
+    limit?: number;
+  }) => Promise<void> | void;
 }
 
 export interface FlarexLiveQueryDeliveryConfig {
@@ -560,7 +567,7 @@ async function handleLiveQueryRerunMaintenance(
   }
 
   try {
-    return await executor.rerunStaleLiveQuerySubscriptions({
+    const result = await executor.rerunStaleLiveQuerySubscriptions({
       deploymentId: input.value.deploymentId,
       ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
       freshnessStore: config.freshnessStore,
@@ -574,6 +581,13 @@ async function handleLiveQueryRerunMaintenance(
           executeQuery: config.executeQuery,
         }),
     });
+    if (result.changed.length > 0) {
+      await config.notifyDelivery?.({
+        deploymentId: input.value.deploymentId,
+        ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
+      });
+    }
+    return result;
   } catch (error) {
     const response = executorErrorBody(error);
     set.status = response.status;

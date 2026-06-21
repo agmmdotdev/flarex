@@ -192,6 +192,45 @@ Verification:
 git diff --check
 ```
 
+## Rerun-To-DeliveryDO Wake Contract
+
+Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
+
+What changed:
+
+- The executor HTTP/Nitro rerun route can now notify the backend wake route
+  after changed live-query results are persisted as durable delivery rows.
+- The preferred sync delivery path is now wake notification plus DeliveryDO
+  claim/fanout/ack, not direct executor-to-socket fanout.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns active query reruns and client transition sends.
+- `crates/sync/src/state.rs`
+  - query state advances after completed backend fetches.
+
+Flarex differences:
+
+- Convex keeps this internal to one sync backend. Flarex splits the work across
+  the Postgres executor and Cloudflare ConnectionDO/DeliveryDO, so the wake
+  route is the explicit handoff.
+
+Known limitations:
+
+- No continuation mechanism exists yet for `hasMore` delivery rows.
+- No periodic reconciler exists yet if wake notifications fail repeatedly.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery
