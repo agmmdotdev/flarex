@@ -1201,6 +1201,60 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## DeliveryDO HasMore Continuation
+
+Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query
+reruns.
+
+What changed:
+
+- Cloudflare `DeliveryDO` now schedules itself when executor claim responses
+  indicate `hasMore: true`.
+- The executor remains the source of durable delivery rows and acknowledgement
+  state.
+- Continuation claims from the beginning of undelivered rows instead of
+  persisting a cursor across alarms.
+
+Why no cursor is persisted:
+
+```txt
+batch claimed
+  -> fanout succeeds
+  -> ack succeeds
+  -> later alarm claims currently-undelivered rows
+```
+
+This is safer than storing `nextCursor` because retry, partial ack, or newly
+inserted rows cannot make the DeliveryDO skip an undelivered row. The executor's
+`delivered_at` field remains the durable filter.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend worker keeps processing active query transitions.
+- `crates/database/src/committer.rs`
+  - committed state is the source for downstream work.
+
+Flarex differences:
+
+- Convex does not need a Postgres claim/ack boundary. Flarex uses
+  `live_query_deliveries.delivered_at` because executor durability and
+  Cloudflare fanout are separate runtimes.
+
+Known limitations:
+
+- No lease protocol exists yet for multiple DeliveryDO-style consumers. The
+  current safety model depends on one named `DeliveryDO` per deployment.
+- No dead-letter handling exists for rows that repeatedly fail fanout.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO"
+git diff --check
+```
+
 ## Delivery Wake Notification After Rerun
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

@@ -556,6 +556,55 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## DeliveryDO Alarm Boundary
+
+Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query
+reruns.
+
+What changed:
+
+- Alarm continuation is implemented entirely in `flarex-backend`'s
+  `DeliveryDO`.
+- Executor and executor-http package boundaries did not change.
+- `DeliveryDO` stores pending drain metadata in Durable Object storage and
+  keeps executor access behind the injected claim/ack HTTP/service-binding
+  boundary.
+
+Boundary rule:
+
+```txt
+Nitro/executor host
+  -> notify wake route once
+DeliveryDO
+  -> repeat bounded claim/fanout/ack through alarms until no rows remain
+executor core
+  -> persists and acknowledges durable rows only
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns ongoing delivery work in Convex.
+
+Flarex difference:
+
+- Flarex moves repeated fanout work to Cloudflare DO alarms because the trusted
+  executor can run on serverless Nitro/Vercel and should not keep a loop alive.
+
+Known limitations:
+
+- No shared observability surface exists yet for pending alarm retry state.
+- No Cloudflare Queue abstraction is wired yet; alarms are the first
+  per-deployment continuation primitive.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO"
+git diff --check
+```
+
 ## Executor HTTP Boundary Update
 
 Previous completed checkpoint for this roadmap: `c563d88` Make push start

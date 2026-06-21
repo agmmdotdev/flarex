@@ -1177,6 +1177,64 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## DeliveryDO Alarm Continuation For Pending Rows
+
+Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query
+reruns.
+
+What changed:
+
+- `DeliveryDO` persists pending drain config when a wake drain still has more
+  rows.
+- `DeliveryDO.alarm()` resumes claim/fanout/ack work from Durable Object
+  storage.
+- Failed alarm drains persist retry attempt state and schedule exponential
+  backoff.
+- Tests cover the persisted continuation path through an internal DO endpoint.
+
+Freshness/cache impact:
+
+```txt
+executor writes durable delivery rows
+  -> wake DeliveryDO once
+  -> DeliveryDO drains bounded work
+  -> if hasMore, alarm repeats from durable pending state
+  -> rows are acked only after ConnectionDO fanout
+```
+
+This is the first version of Cloudflare-owned fanout continuation. Nitro/Vercel
+does not need a loop, queue worker, or cron for the common `hasMore` case.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker keeps processing active query updates.
+- `crates/sync/src/state.rs`
+  - active query state advances with completed transitions.
+
+Flarex differences:
+
+- Convex does this inside the backend sync worker. Flarex uses DO storage plus
+  alarms because WebSocket fanout lives in Cloudflare while trusted execution
+  and Postgres ownership may live elsewhere.
+
+Known limitations:
+
+- There is still no global reconciler for wake notifications that never reach
+  Cloudflare.
+- There is no queue/dead-letter mechanism for repeatedly failing deployments.
+- Miniflare does not reliably auto-dispatch alarms in the current harness, so
+  tests use an internal DO continuation endpoint that calls the same persisted
+  drain logic.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO"
+git diff --check
+```
+
 ## Outbox Delivery Prerequisite
 
 Previous completed checkpoint: `b4f98a4` Write commit outbox events.

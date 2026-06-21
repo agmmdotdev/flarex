@@ -231,6 +231,52 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## DeliveryDO Alarm Continuation
+
+Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query
+reruns.
+
+What changed:
+
+- `DeliveryDO` now persists pending drain state when a bounded drain returns
+  `hasMore: true`.
+- The pending state contains only `deploymentId`, `limit`, `maxBatches`, and a
+  retry attempt counter.
+- `DeliveryDO.alarm()` resumes the same drain path from persisted state.
+- The continuation deliberately does not persist executor cursors; each alarm
+  claims the next undelivered rows from the executor after previous rows were
+  acked.
+- Added an internal DO `/continue` path so tests can exercise the same
+  persisted continuation logic without relying on Miniflare's alarm scheduler.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - bounded sync work is owned by the backend worker.
+- `crates/sync/src/state.rs`
+  - query state progresses only after completed fetch/send transitions.
+
+Flarex differences:
+
+- Convex's sync worker runs continuously inside the backend. Flarex uses a
+  Cloudflare Durable Object alarm because Vercel/Nitro should only notify and
+  Cloudflare should own repeated WebSocket fanout work.
+
+Known limitations:
+
+- Alarm retry state is simple exponential backoff; no queue dead-letter or
+  observability table exists yet.
+- The internal `/continue` route is test/harness-only and is not exposed by the
+  public Worker route.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO"
+git diff --check
+```
+
 ## Executor Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

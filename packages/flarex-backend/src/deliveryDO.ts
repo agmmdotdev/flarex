@@ -13,6 +13,13 @@ type DeliveryWakeRequest = {
   maxBatches?: number;
 };
 
+type PendingDeliveryDrain = {
+  deploymentId: string;
+  limit: number;
+  maxBatches: number;
+  retryAttempt: number;
+};
+
 type LiveQueryDeliveryRecord = {
   deploymentId: string;
   deliveryId: string;
@@ -44,6 +51,10 @@ type DeliveryDrainResult = {
 
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
+const PENDING_DRAIN_KEY = "pendingDrain";
+const CONTINUE_ALARM_DELAY_MS = 100;
+const RETRY_ALARM_BASE_DELAY_MS = 250;
+const RETRY_ALARM_MAX_DELAY_MS = 30_000;
 
 export class DeliveryDO extends DurableObject<Env> {
   private drainInFlight: Promise<DeliveryDrainResult> | undefined;
@@ -53,14 +64,45 @@ export class DeliveryDO extends DurableObject<Env> {
     if (url.pathname === "/wake" && request.method === "POST") {
       return json(await this.wake(await readJson<DeliveryWakeRequest>(request)));
     }
+    if (url.pathname === "/continue" && request.method === "POST") {
+      return json(await this.continuePendingDrain());
+    }
     return json({ service: "flarex-delivery", status: "ok" });
+  }
+
+  async alarm(): Promise<void> {
+    try {
+      await this.continuePendingDrain();
+    } catch {
+      // Retry state is persisted by continuePendingDrain().
+    }
+  }
+
+  private async continuePendingDrain(): Promise<DeliveryDrainResult | { skipped: true }> {
+    const pending = await this.ctx.storage.get<PendingDeliveryDrain>(
+      PENDING_DRAIN_KEY,
+    );
+    if (pending === undefined) return { skipped: true };
+
+    try {
+      const result = await this.drain(pending);
+      await this.persistDrainContinuation(pending, result);
+      return result;
+    } catch (error) {
+      await this.scheduleDrainRetry(pending);
+      throw error;
+    }
   }
 
   private async wake(body: DeliveryWakeRequest): Promise<DeliveryDrainResult> {
     if (this.drainInFlight !== undefined) {
       return this.drainInFlight;
     }
-    const drain = this.drain(body).finally(() => {
+    const pending = pendingDrainFromWake(body);
+    const drain = this.drain(pending).then(async result => {
+      await this.persistDrainContinuation(pending, result);
+      return result;
+    }).finally(() => {
       this.drainInFlight = undefined;
     });
     this.drainInFlight = drain;
@@ -123,6 +165,33 @@ export class DeliveryDO extends DurableObject<Env> {
     };
   }
 
+  private async persistDrainContinuation(
+    pending: PendingDeliveryDrain,
+    result: DeliveryDrainResult,
+  ): Promise<void> {
+    if (!result.hasMore) {
+      await this.ctx.storage.delete(PENDING_DRAIN_KEY);
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.put(PENDING_DRAIN_KEY, {
+      ...pending,
+      retryAttempt: 0,
+    });
+    await this.ctx.storage.setAlarm(Date.now() + CONTINUE_ALARM_DELAY_MS);
+  }
+
+  private async scheduleDrainRetry(pending: PendingDeliveryDrain): Promise<void> {
+    const retryAttempt = pending.retryAttempt + 1;
+    await this.ctx.storage.put(PENDING_DRAIN_KEY, {
+      ...pending,
+      retryAttempt,
+    });
+    await this.ctx.storage.setAlarm(
+      Date.now() + retryDelayMs(retryAttempt),
+    );
+  }
+
   private async claim(
     deploymentId: string,
     limit: number,
@@ -176,6 +245,26 @@ export class DeliveryDO extends DurableObject<Env> {
     }
     return fetch(request);
   }
+}
+
+function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
+  return {
+    deploymentId: requiredWakeString(body.deploymentId, "deploymentId"),
+    limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit"),
+    maxBatches: optionalPositiveInteger(
+      body.maxBatches,
+      DEFAULT_MAX_BATCHES,
+      "maxBatches",
+    ),
+    retryAttempt: 0,
+  };
+}
+
+function retryDelayMs(retryAttempt: number): number {
+  return Math.min(
+    RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
+    RETRY_ALARM_MAX_DELAY_MS,
+  );
 }
 
 function deliveryChangesFromRecords(

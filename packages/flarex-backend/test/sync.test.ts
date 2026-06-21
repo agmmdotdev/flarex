@@ -473,6 +473,196 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("continues DeliveryDO draining from pending alarm state when more deliveries remain", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    let claimCount = 0;
+    const deploymentId = "sync-delivery-alarm-deployment";
+    const connectionId = `connection:${deploymentId}:delivery-alarm-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              claimCount += 1;
+              const resultJson = claimCount === 1
+                ? { user: "Grace" }
+                : { user: "Hopper" };
+              const previousResultHash = claimCount === 1
+                ? '{"user":"Ada"}'
+                : '{"user":"Grace"}';
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: `delivery_${claimCount}`,
+                    connectionId,
+                    queryId: 18,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId,
+                      queryId: 18,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson,
+                      previousResultHash,
+                      resultHash: JSON.stringify(resultJson),
+                    },
+                    deliveredAt: null,
+                    createdAt: `2026-06-21T00:00:0${claimCount}.000Z`,
+                  },
+                ],
+                nextCursor: {
+                  createdAt: `2026-06-21T00:00:0${claimCount}.000Z`,
+                  deliveryId: `delivery_${claimCount}`,
+                },
+                hasMore: claimCount === 1,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "delivery-alarm-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 18,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const delivered = collectJsonMessages(ws, 2);
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 1, maxBatches: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId,
+      batches: 1,
+      claimed: 1,
+      acked: 1,
+      delivered: 1,
+      skipped: 0,
+      hasMore: true,
+    });
+    const env = await harness.mf.getBindings<Env>();
+    const delivery = env.DELIVERIES.getByName(`delivery:${deploymentId}`);
+    const continued = await delivery.fetch("https://flarex.internal/continue", {
+      method: "POST",
+    });
+
+    expect(continued.status).toBe(200);
+    await expect(continued.json()).resolves.toEqual({
+      deploymentId,
+      batches: 1,
+      claimed: 1,
+      acked: 1,
+      delivered: 1,
+      skipped: 0,
+      hasMore: false,
+    });
+    await expect(delivered).resolves.toMatchObject([
+      {
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 18,
+            value: { user: "Grace" },
+          },
+        ],
+      },
+      {
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 18,
+            value: { user: "Hopper" },
+          },
+        ],
+      },
+    ]);
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_1"],
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_2"],
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
