@@ -537,6 +537,60 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 git diff --check
 ```
 
+## Live-Query Rerun Route Uses Invoke Bridge
+
+Previous completed checkpoint: `895e221` Add invoke backed live query rerun
+bridge.
+
+What changed:
+
+- `@flarex/executor-http` live-query rerun config now accepts
+  `executeQuery(attempt, subscription)` instead of raw
+  `runQuery(subscription)`.
+- `POST /maintenance/live-queries/rerun` now requires `projectId`.
+- The route calls `executor.rerunStaleLiveQuerySubscriptions(...)` with a
+  `runQuery` implementation backed by
+  `executor.runLiveQuerySubscriptionWithInvoke(...)`.
+- Nitro inherits the same route behavior through the shared HTTP adapter.
+- Added HTTP/Nitro tests for bridge wiring, missing `projectId`, and
+  subscription rerun bridge errors.
+
+Why it matters for sync:
+
+The hosted maintenance route now uses the real Flarex query-session boundary
+for reruns. The only injected part is the Dynamic Worker execution callback,
+which is the correct split for the current architecture.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - stale active-query work is owned by the backend worker.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend services coordinate function execution.
+
+Flarex differences:
+
+- Convex does not need an HTTP adapter-level `executeQuery` callback because
+  its backend runner and sync worker are colocated. Flarex keeps the host
+  callback explicit so Nitro/Vercel and Dynamic Worker execution can be wired
+  separately.
+
+Known limitations:
+
+- The real Dynamic Worker host implementation is not wired yet.
+- The route returns changed/unchanged rows but still does not fan out changed
+  results to connected WebSocket clients.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Executor Read-Set Freshness Adapter
 
 Previous completed checkpoint: `bd78a7b` Add read-set freshness checker.

@@ -1208,3 +1208,58 @@ corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter @flarex/executor-nitro typecheck
 git diff --check
 ```
+
+## Live-Query Rerun Route Uses Invoke Bridge
+
+Previous completed checkpoint: `895e221` Add invoke backed live query rerun
+bridge.
+
+What changed:
+
+- The maintenance route now delegates stale subscription reruns to the
+  invoke-backed executor bridge.
+- Route config now carries only the host-side `executeQuery(...)` callback plus
+  the freshness store.
+- The route body carries `projectId` so reruns validate deployment ownership.
+
+Cache impact:
+
+```txt
+stale subscription scan
+  -> maintenance route
+  -> invoke-backed rerun bridge
+  -> host executes Dynamic Worker query
+  -> route returns changed/unchanged rows for future fanout
+```
+
+This keeps cache freshness tied to executor-owned query sessions while still
+leaving Cloudflare-side user-code execution outside the Postgres executor
+package.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker performs stale query processing inside the backend.
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is coordinated by backend services.
+
+Flarex differences:
+
+- Convex does not need a public maintenance route or host callback here.
+  Flarex exposes this boundary because scheduler/cache hosting and query
+  execution are intentionally split.
+
+Known limitations:
+
+- Changed results are not pushed to WebSocket clients yet.
+- The real Dynamic Worker execution host is not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```

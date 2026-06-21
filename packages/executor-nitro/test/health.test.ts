@@ -12,6 +12,7 @@ import {
   type PrepareInvokeInput,
 } from "@flarex/executor";
 
+import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
 import { createFlarexNitroHandler } from "../src/index";
 import {
   expectPrepareError,
@@ -151,15 +152,32 @@ describe("createFlarexNitroHandler", () => {
 
   it("maps live query rerun maintenance requests through the Nitro handler", async () => {
     const freshnessStore = testFreshnessStore();
-    const calls: Array<{ deploymentId: string; limit?: number }> = [];
+    const executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"] =
+      async () => null;
+    const calls: Array<{ deploymentId: string; projectId?: string }> = [];
+    const rerunCalls: Array<{ deploymentId: string; limit?: number }> = [];
     const handler = createFlarexNitroHandler({
       executor: fakeExecutor({
         async rerunStaleLiveQuerySubscriptions(input) {
-          calls.push({
+          rerunCalls.push({
             deploymentId: input.deploymentId,
             ...(input.limit === undefined ? {} : { limit: input.limit }),
           });
           expect(input.freshnessStore).toBe(freshnessStore);
+          await input.runQuery({
+            deploymentId: "deployment_active",
+            connectionId: "connection_a",
+            queryId: 1,
+            functionPath: "messages:list",
+            argsJson: { teamId: "team_a" },
+            partitionKey: "team_a",
+            beginTs: 10,
+            readSetJson: {},
+            resultJson: null,
+            resultHash: "null",
+            createdAt: new Date("2026-06-19T00:00:00.000Z"),
+            updatedAt: new Date("2026-06-19T00:00:00.000Z"),
+          });
           return {
             scanned: { fresh: [], stale: [], unsupported: [] },
             changed: [],
@@ -168,14 +186,18 @@ describe("createFlarexNitroHandler", () => {
             hasMoreStale: false,
           };
         },
+        async runLiveQuerySubscriptionWithInvoke(input) {
+          calls.push({
+            deploymentId: input.subscription.deploymentId,
+            ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+          });
+          expect(input.executeQuery).toBe(executeQuery);
+          return { value: null, beginTs: 1, readSet: {} };
+        },
       }),
       liveQueryRerun: {
         freshnessStore,
-        runQuery: async () => ({
-          value: null,
-          beginTs: 1,
-          readSet: {},
-        }),
+        executeQuery,
       },
     });
 
@@ -184,13 +206,17 @@ describe("createFlarexNitroHandler", () => {
         "https://executor.test/maintenance/live-queries/rerun",
         {
           deploymentId: "deployment_active",
+          projectId: "project_active",
           limit: 3,
         },
       ),
     });
 
     expect(response.status).toBe(200);
-    expect(calls).toEqual([{ deploymentId: "deployment_active", limit: 3 }]);
+    expect(calls).toEqual([
+      { deploymentId: "deployment_active", projectId: "project_active" },
+    ]);
+    expect(rerunCalls).toEqual([{ deploymentId: "deployment_active", limit: 3 }]);
     await expect(response.json()).resolves.toEqual({
       scanned: { fresh: [], stale: [], unsupported: [] },
       changed: [],

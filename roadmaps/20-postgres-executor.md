@@ -595,6 +595,58 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 git diff --check
 ```
 
+## Live-Query Rerun Route Uses Invoke Bridge
+
+Previous completed checkpoint: `895e221` Add invoke backed live query rerun
+bridge.
+
+What changed:
+
+- Changed HTTP/Nitro live-query rerun configuration from injected
+  `runQuery(subscription)` to injected `executeQuery(attempt, subscription)`.
+- Added required `projectId` to the route body so the invoke-backed bridge can
+  validate deployment ownership.
+- The route now builds `runQuery` by calling
+  `executor.runLiveQuerySubscriptionWithInvoke(...)`.
+- Added adapter tests that prove `projectId`, `executeQuery`, and stale rerun
+  limits cross the correct boundaries.
+
+Why it changed:
+
+The executor core now owns live-query rerun sessions. The HTTP adapter should
+not bypass that by accepting a fully formed query result callback. It should
+only receive the host's user-code execution function and let executor core own
+session lifecycle and read-set capture.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - application function execution is backend-coordinated.
+- `crates/sync/src/worker.rs`
+  - stale query reruns are backend worker work.
+
+Flarex differences:
+
+- Flarex still has a deployment-host callback because user code executes in the
+  Cloudflare Dynamic Worker side, not inside the Nitro/Postgres executor
+  package.
+
+Known limitations:
+
+- The concrete Dynamic Worker execution host still needs to be implemented.
+- No scheduler invokes this route automatically yet.
+- No WebSocket fanout exists for changed rerun results.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro test
+git diff --check
+```
+
 ## Durable Live-Query Registry
 
 Previous completed checkpoint: `7eee662` Add executor read-set freshness adapter.

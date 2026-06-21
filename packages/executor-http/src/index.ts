@@ -31,6 +31,7 @@ import {
   InvokeSessionUnsupportedStagedWriteError,
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
+  LiveQuerySubscriptionRerunError,
   MaintenancePolicyError,
   PartitionValidationError,
   InvokeSessionDeleteTargetError,
@@ -46,11 +47,12 @@ import {
   type PrepareInvokeInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
+  type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
 export interface FlarexLiveQueryRerunConfig {
   freshnessStore: RerunStaleLiveQuerySubscriptionsInput["freshnessStore"];
-  runQuery: RerunStaleLiveQuerySubscriptionsInput["runQuery"];
+  executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"];
 }
 
 export interface FlarexHttpAppConfig {
@@ -497,7 +499,12 @@ async function handleLiveQueryRerunMaintenance(
       deploymentId: input.value.deploymentId,
       ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
       freshnessStore: config.freshnessStore,
-      runQuery: config.runQuery,
+      runQuery: (subscription) =>
+        executor.runLiveQuerySubscriptionWithInvoke({
+          subscription,
+          projectId: input.value.projectId,
+          executeQuery: config.executeQuery,
+        }),
     });
   } catch (error) {
     const response = executorErrorBody(error);
@@ -767,7 +774,7 @@ function parseInvokeSessionMaintenanceBody(
 function parseLiveQueryRerunMaintenanceBody(
   body: unknown,
 ):
-  | { value: { deploymentId: string; limit?: number } }
+  | { value: { deploymentId: string; projectId: string; limit?: number } }
   | { error: { error: "bad_request"; message: string } } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return {
@@ -780,12 +787,15 @@ function parseLiveQueryRerunMaintenanceBody(
   const record = body as Record<string, unknown>;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
   const limit = optionalPositiveInteger(record, "limit");
   if ("error" in limit) return limit;
 
   return {
     value: {
       deploymentId: deploymentId.value,
+      projectId: projectId.value,
       ...(limit.value === undefined ? {} : { limit: limit.value }),
     },
   };
@@ -1007,6 +1017,7 @@ function executorErrorBody(error: unknown): {
     error instanceof InvokeSessionDocumentValidationError ||
     error instanceof InvokeSessionDocumentWriteAlreadyExistsError ||
     error instanceof InvokeSyscallNotAllowedError ||
+    error instanceof LiveQuerySubscriptionRerunError ||
     error instanceof MaintenancePolicyError ||
     error instanceof PartitionValidationError
   ) {

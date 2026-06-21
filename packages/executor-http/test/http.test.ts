@@ -14,6 +14,7 @@ import {
   InvokeSessionInsertConflictError,
   InvokeSessionOccConflictError,
   InvokeSyscallNotImplementedError,
+  LiveQuerySubscriptionRerunError,
   PartitionValidationError,
   type FlarexExecutor,
   type AbortInvokeSessionInput,
@@ -27,6 +28,7 @@ import {
   type PrepareInvokeResult,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
+  type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
 import { createFlarexHttpApp } from "../src";
@@ -753,27 +755,28 @@ describe("createFlarexHttpApp", () => {
 
   it("maps live query rerun maintenance requests to the executor core", async () => {
     const freshnessStore = testFreshnessStore();
-    const runQuery: RerunStaleLiveQuerySubscriptionsInput["runQuery"] =
-      async () => ({
-        value: null,
-        beginTs: 1,
-        readSet: {},
-      });
+    const executeQuery: RunLiveQuerySubscriptionWithInvokeInput["executeQuery"] =
+      async () => null;
     const calls: Array<{
+      deploymentId: string;
+      projectId?: string;
+      freshnessStore: unknown;
+      executeQuery: unknown;
+    }> = [];
+    const rerunCalls: Array<{
       deploymentId: string;
       limit?: number;
       freshnessStore: unknown;
-      runQuery: unknown;
     }> = [];
     const app = createFlarexHttpApp({
       executor: fakeExecutor({
         async rerunStaleLiveQuerySubscriptions(input) {
-          calls.push({
+          rerunCalls.push({
             deploymentId: input.deploymentId,
             ...(input.limit === undefined ? {} : { limit: input.limit }),
             freshnessStore: input.freshnessStore,
-            runQuery: input.runQuery,
           });
+          await input.runQuery(liveQuerySubscription());
           return {
             scanned: { fresh: [], stale: [], unsupported: [] },
             changed: [],
@@ -782,16 +785,30 @@ describe("createFlarexHttpApp", () => {
             hasMoreStale: false,
           };
         },
+        async runLiveQuerySubscriptionWithInvoke(input) {
+          calls.push({
+            deploymentId: input.subscription.deploymentId,
+            freshnessStore,
+            executeQuery: input.executeQuery,
+            ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+          });
+          return {
+            value: null,
+            beginTs: 1,
+            readSet: {},
+          };
+        },
       }),
       liveQueryRerun: {
         freshnessStore,
-        runQuery,
+        executeQuery,
       },
     });
 
     const response = await app.handle(
       jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         limit: 2,
       }),
     );
@@ -800,9 +817,16 @@ describe("createFlarexHttpApp", () => {
     expect(calls).toEqual([
       {
         deploymentId: "deployment_active",
+        projectId: "project_active",
+        freshnessStore,
+        executeQuery,
+      },
+    ]);
+    expect(rerunCalls).toEqual([
+      {
+        deploymentId: "deployment_active",
         limit: 2,
         freshnessStore,
-        runQuery,
       },
     ]);
     await expect(response.json()).resolves.toEqual({
@@ -850,17 +874,14 @@ describe("createFlarexHttpApp", () => {
       }),
       liveQueryRerun: {
         freshnessStore: testFreshnessStore(),
-        runQuery: async () => ({
-          value: null,
-          beginTs: 1,
-          readSet: {},
-        }),
+        executeQuery: async () => null,
       },
     });
 
     const response = await app.handle(
       jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         limit: 0,
       }),
     );
@@ -873,16 +894,75 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("requires project id for live query rerun maintenance requests", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore: testFreshnessStore(),
+        executeQuery: async () => null,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "projectId must be a non-empty string.",
+    });
+  });
+
+  it("maps live query rerun bridge errors to bad requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async rerunStaleLiveQuerySubscriptions(input) {
+          await input.runQuery(liveQuerySubscription({ partitionKey: null }));
+          throw new Error("should not reach");
+        },
+        async runLiveQuerySubscriptionWithInvoke() {
+          throw new LiveQuerySubscriptionRerunError(
+            "deployment_active/connection_a/1 is missing partitionKey",
+          );
+        },
+      }),
+      liveQueryRerun: {
+        freshnessStore: testFreshnessStore(),
+        executeQuery: async () => null,
+      },
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/rerun", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "LiveQuerySubscriptionRerunError",
+      message:
+        "Cannot rerun live query subscription: deployment_active/connection_a/1 is missing partitionKey",
+    });
+  });
+
   it("rejects non-POST live query rerun maintenance requests", async () => {
     const app = createFlarexHttpApp({
       executor: fakeExecutor(),
       liveQueryRerun: {
         freshnessStore: testFreshnessStore(),
-        runQuery: async () => ({
-          value: null,
-          beginTs: 1,
-          readSet: {},
-        }),
+        executeQuery: async () => null,
       },
     });
 
@@ -1294,6 +1374,26 @@ function jsonRequest(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
+}
+
+function liveQuerySubscription(
+  overrides: Partial<Parameters<RerunStaleLiveQuerySubscriptionsInput["runQuery"]>[0]> = {},
+): Parameters<RerunStaleLiveQuerySubscriptionsInput["runQuery"]>[0] {
+  return {
+    deploymentId: "deployment_active",
+    connectionId: "connection_a",
+    queryId: 1,
+    functionPath: "messages:list",
+    argsJson: { teamId: "team_a" },
+    partitionKey: "team_a",
+    beginTs: 10,
+    readSetJson: { documents: [{ tableId: 1, id: "1:message", observedTs: 10 }] },
+    resultJson: null,
+    resultHash: "null",
+    createdAt: new Date("2026-06-19T00:00:00.000Z"),
+    updatedAt: new Date("2026-06-19T00:00:00.000Z"),
+    ...overrides,
+  };
 }
 
 function testFreshnessStore(): RerunStaleLiveQuerySubscriptionsInput["freshnessStore"] {
