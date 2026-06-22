@@ -1,5 +1,60 @@
 # Indexes
 
+## Real Postgres Indexed Freshness Plan Check
+
+Previous completed checkpoint: `51911da` Harden indexed freshness range checks.
+
+What changed:
+
+- Added an optional real Postgres integration check for the indexed freshness
+  predicate used by live-query invalidation and index-read OCC validation.
+- The test runs in temporary schemas, commits an indexed document write through
+  the same persistence API as PGlite, and verifies the SQL plan can use
+  `indexes_by_index_id_key_prefix_ts` for:
+
+```sql
+deployment_id = ?
+and index_id = ?
+and key_prefix >= ?
+and key_prefix < ?
+and ts > ?
+```
+
+Why it changed:
+
+The previous PGlite checkpoint proved the range predicate is semantically
+correct. Real Postgres must also prove that the planner sees the btree path
+the hosted executor depends on before indexed live-query fanout scales beyond
+prototype traffic.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - index read intervals conflict only with overlapping index writes.
+- `crates/database/src/query/index_range.rs`
+  - range bounds are part of the recorded read dependency.
+
+Flarex differences:
+
+- Convex validates overlap inside backend read/write-log structures. Flarex
+  validates overlap through persisted ordered index bytes and SQL predicates.
+- The test is skipped unless `FLAREX_POSTGRES_DATABASE_URL` is set, so default
+  local runs remain fast and do not require an external service.
+
+Known limitations:
+
+- This only checks the freshness existence predicate. SQL-pushed-down
+  `listDocumentsInIndexAtTs(...)` execution and pagination are still future
+  work.
+- Search/vector freshness is still not implemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts --testTimeout=30000
+```
+
 ## Current Decision
 
 Indexes are part of the shard-local authoritative database. A document write

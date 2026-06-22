@@ -1,5 +1,69 @@
 # Postgres Executor
 
+## Real Postgres Indexed Freshness Lane
+
+Previous completed checkpoint: `51911da` Harden indexed freshness range checks.
+
+What changed:
+
+- Added a real `pg`/Drizzle Node Postgres adapter entrypoint at
+  `@flarex/persistence-postgres/postgres`.
+- The adapter reuses the same framework-neutral persistence interface as the
+  PGlite local lane, including migrations, invoke sessions, OCC commit,
+  index history, freshness, outbox, live-query subscriptions, and durable
+  delivery rows.
+- Added isolated migration metadata options so real Postgres tests and hosted
+  smoke checks can use temporary schemas without colliding with a database's
+  existing Drizzle migration history.
+- Added an optional real Postgres test lane gated by
+  `FLAREX_POSTGRES_DATABASE_URL`. The test creates temporary schemas, runs
+  migrations, commits an indexed mutation, checks
+  `hasIndexEntryAfterTs(...)`, and verifies the planner can use
+  `indexes_by_index_id_key_prefix_ts`.
+
+Why it changed:
+
+PGlite proves the local semantics quickly, but the hosted executor will run on
+real Postgres. Index freshness and OCC checks are latency-sensitive and
+planner-sensitive, so the persistence package needs a real database lane before
+more sync behavior depends on those predicates.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - read-set index intervals are checked against writes for the same index.
+- `crates/database/src/query/index_range.rs`
+  - indexed query execution records the consumed interval.
+- `crates/database/src/committer.rs`
+  - index writes are part of the committed transaction state.
+
+Flarex differences:
+
+- Convex keeps the read-set and write-log machinery inside its Rust backend.
+  Flarex persists the same semantic boundary in Postgres and validates it
+  through storage predicates.
+- Convex does not need a separate optional Node Postgres adapter package
+  entrypoint. Flarex does because local PGlite, hosted Nitro/Vercel, and tests
+  need to compose the same executor core with different storage clients.
+
+Known limitations:
+
+- The optional test only runs when `FLAREX_POSTGRES_DATABASE_URL` is provided.
+  This environment currently verifies compile/skip behavior plus PGlite
+  semantics.
+- `listDocumentsInIndexAtTs(...)` still does snapshot visibility grouping in
+  TypeScript. The production query executor path still needs SQL-pushed-down
+  index pagination.
+- The adapter currently exposes `pg` only for Node-style trusted executors, not
+  Cloudflare Workers.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts --testTimeout=30000
+```
+
 ## DeliveryDO Claim/Ack Consumer
 
 Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack
