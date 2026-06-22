@@ -33,6 +33,8 @@ import type {
   ListLiveQuerySubscriptionsInput,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
+  ListStuckLiveQueryDeliveriesInput,
+  ListStuckLiveQueryDeliveriesResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   ListOutboxEventsInput,
@@ -65,6 +67,8 @@ export type {
   ListUndeliveredOutboxEventsInput,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
+  ListStuckLiveQueryDeliveriesInput,
+  ListStuckLiveQueryDeliveriesResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   MarkOutboxEventsDeliveredInput,
@@ -146,6 +150,9 @@ export interface FlarexExecutor {
   listPendingLiveQueryDeliveryDeployments(
     input: ListPendingLiveQueryDeliveryDeploymentsInput,
   ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
+  listStuckLiveQueryDeliveries(
+    input: ListStuckLiveQueryDeliveriesInput,
+  ): Promise<ListStuckLiveQueryDeliveriesResult>;
   recordLiveQueryDeliveryFailure(
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
@@ -291,6 +298,9 @@ export interface FlarexExecutorPersistence {
   listPendingLiveQueryDeliveryDeployments(
     input: ListPendingLiveQueryDeliveryDeploymentsInput,
   ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult>;
+  listStuckLiveQueryDeliveries(
+    input: ListStuckLiveQueryDeliveriesInput,
+  ): Promise<ListStuckLiveQueryDeliveriesResult>;
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;

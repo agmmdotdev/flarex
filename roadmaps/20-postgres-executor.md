@@ -249,6 +249,59 @@ corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
 corepack pnpm --filter @flarex/persistence-postgres db:check
 ```
 
+## Stuck Live-Query Delivery Listing
+
+Previous completed checkpoint: `b35e2ca` Record live query delivery failures.
+
+What changed:
+
+- Added `listStuckLiveQueryDeliveries(...)` to the Postgres persistence
+  package.
+- The query returns retryable delivery rows that have recorded a failure
+  attempt older than a caller-provided `olderThan` timestamp.
+- Pagination is deterministic by `last_attempted_at`, `deployment_id`, and
+  `delivery_id`.
+- Optional filters:
+  - `deploymentId`
+  - `minAttempts`
+  - cursor
+  - limit
+
+Selection rule:
+
+```text
+delivered_at is null
+and dead_lettered_at is null
+and last_attempted_at <= olderThan
+and attempt_count >= minAttempts
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - backend sync workers own query transition processing and retry visibility
+    internally.
+
+Flarex difference:
+
+- Flarex exposes this as executor maintenance state because delivery crosses
+  the Postgres executor and Cloudflare Durable Object boundary.
+- This is read-only. It does not ack, retry, or dead-letter rows.
+
+Known limitations:
+
+- This is only candidate listing; automatic dead-letter policy remains future
+  work.
+- No deployment-level aggregation is included beyond the existing pending
+  deployment scan.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+```
+
 ## Live-Query Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

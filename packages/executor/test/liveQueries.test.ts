@@ -1094,6 +1094,72 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("lists stuck live query delivery candidates", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_stuck_delivery",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:changed"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_stuck_delivery",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:changed",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      resultJson: "old",
+    });
+    await executor.rerunStaleLiveQuerySubscriptions({
+      deploymentId: "deployment_stuck_delivery",
+      freshnessStore,
+      runQuery: async () => ({
+        value: "new",
+        beginTs: 25,
+        readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      }),
+    });
+    const page = await executor.listUndeliveredLiveQueryDeliveries({
+      deploymentId: "deployment_stuck_delivery",
+      limit: 10,
+    });
+    const deliveryId = page.deliveries[0]!.deliveryId;
+    await executor.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_stuck_delivery",
+      deliveryIds: [deliveryId],
+      stage: "fanout",
+      error: "connection failed",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+
+    await expect(
+      executor.listStuckLiveQueryDeliveries({
+        deploymentId: "deployment_stuck_delivery",
+        olderThan: new Date("2026-06-20T00:05:00.000Z"),
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId,
+          attemptCount: 1,
+          lastErrorStage: "fanout",
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("rejects invalid live query delivery failure reports", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });
@@ -1107,6 +1173,19 @@ describe("executor live query subscriptions", () => {
         failedAt: new Date("2026-06-20T00:02:00.000Z"),
       }),
     ).rejects.toThrow("stage must be fanout or ack.");
+  });
+
+  it("rejects invalid stuck live query delivery limits", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.listStuckLiveQueryDeliveries({
+        olderThan: new Date("2026-06-20T00:05:00.000Z"),
+        minAttempts: 0,
+        limit: 10,
+      }),
+    ).rejects.toThrow("minAttempts must be a positive integer.");
   });
 
   it("rejects invalid stale live query rerun limits", async () => {

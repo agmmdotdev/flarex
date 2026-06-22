@@ -1225,6 +1225,51 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "records DeliveryDO fanout failures"
 ```
 
+## Stuck Delivery Candidate Endpoint
+
+Previous completed checkpoint: `b35e2ca` Record live query delivery failures.
+
+What changed:
+
+- Added an executor HTTP maintenance endpoint for stuck live-query delivery
+  candidates:
+  `/maintenance/live-queries/stuck-deliveries`.
+- The endpoint is read-only and returns rows that still need delivery but have
+  an old recorded failure attempt.
+- This is the safe precursor to any future Cloudflare scheduler/dead-letter
+  policy.
+
+Cloudflare implication:
+
+```text
+DeliveryDO records failures
+  -> executor stores attempt metadata
+  -> maintenance endpoint lists stuck candidates
+  -> future policy can decide reconnect/dead-letter behavior
+```
+
+Convex reference:
+
+- `crates/sync/src/worker.rs`
+  - sync retry and transition work remains backend-internal in Convex.
+
+Flarex difference:
+
+- Flarex exposes the candidate listing at the executor HTTP boundary because
+  the Cloudflare runtime cannot query Postgres internals directly.
+
+Known limitations:
+
+- No Cloudflare consumer calls this endpoint yet.
+- No automatic dead-letter/reconnect policy exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+```
+
 ## DeliveryDO Alarm Continuation For Pending Rows
 
 Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query

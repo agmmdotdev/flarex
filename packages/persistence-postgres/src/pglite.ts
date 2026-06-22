@@ -75,6 +75,7 @@ import {
 import {
   insertLiveQueryDelivery as insertLiveQueryDeliveryWithDb,
   listPendingLiveQueryDeliveryDeployments as listPendingLiveQueryDeliveryDeploymentsWithDb,
+  listStuckLiveQueryDeliveries as listStuckLiveQueryDeliveriesWithDb,
   listUndeliveredLiveQueryDeliveries as listUndeliveredLiveQueryDeliveriesWithDb,
   markLiveQueryDeliveriesDelivered as markLiveQueryDeliveriesDeliveredWithDb,
   recordLiveQueryDeliveryFailure as recordLiveQueryDeliveryFailureWithDb,
@@ -228,6 +229,8 @@ export async function createPGlitePersistence(
       listUndeliveredLiveQueryDeliveriesWithDb(drizzleDb, input),
     listPendingLiveQueryDeliveryDeployments: (input) =>
       listPendingLiveQueryDeliveryDeploymentsWithDb(drizzleDb, input),
+    listStuckLiveQueryDeliveries: (input) =>
+      listStuckLiveQueryDeliveriesWithDb(drizzleDb, input),
     markLiveQueryDeliveriesDelivered: (input) =>
       markLiveQueryDeliveriesDeliveredWithDb(drizzleDb, input),
     recordLiveQueryDeliveryFailure: (input) =>

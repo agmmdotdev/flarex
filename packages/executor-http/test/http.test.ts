@@ -1418,6 +1418,96 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps stuck live query delivery requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listStuckLiveQueryDeliveries(input) {
+          calls.push(input);
+          return {
+            deliveries: [
+              {
+                deploymentId: "deployment_stuck",
+                deliveryId: "delivery_stuck",
+                connectionId: "connection_stuck",
+                queryId: 1,
+                payloadJson: { resultJson: "fresh" },
+                deliveredAt: null,
+                attemptCount: 2,
+                lastAttemptedAt: new Date("2026-06-21T00:00:00.000Z"),
+                lastErrorStage: "fanout",
+                lastError: "ConnectionDO failed",
+                deadLetteredAt: null,
+                deadLetterReason: null,
+                createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              },
+            ],
+            nextCursor: {
+              lastAttemptedAt: new Date("2026-06-21T00:00:00.000Z"),
+              deploymentId: "deployment_stuck",
+              deliveryId: "delivery_stuck",
+            },
+            hasMore: true,
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/stuck-deliveries", {
+        deploymentId: "deployment_stuck",
+        olderThan: "2026-06-21T00:05:00.000Z",
+        minAttempts: 2,
+        limit: 1,
+        cursor: {
+          lastAttemptedAt: "2026-06-20T00:00:00.000Z",
+          deploymentId: "deployment_before",
+          deliveryId: "delivery_before",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_stuck",
+        olderThan: new Date("2026-06-21T00:05:00.000Z"),
+        minAttempts: 2,
+        limit: 1,
+        cursor: {
+          lastAttemptedAt: new Date("2026-06-20T00:00:00.000Z"),
+          deploymentId: "deployment_before",
+          deliveryId: "delivery_before",
+        },
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deliveries: [
+        {
+          deploymentId: "deployment_stuck",
+          deliveryId: "delivery_stuck",
+          connectionId: "connection_stuck",
+          queryId: 1,
+          payloadJson: { resultJson: "fresh" },
+          deliveredAt: null,
+          attemptCount: 2,
+          lastAttemptedAt: "2026-06-21T00:00:00.000Z",
+          lastErrorStage: "fanout",
+          lastError: "ConnectionDO failed",
+          deadLetteredAt: null,
+          deadLetterReason: null,
+          createdAt: "2026-06-21T00:00:00.000Z",
+        },
+      ],
+      nextCursor: {
+        lastAttemptedAt: "2026-06-21T00:00:00.000Z",
+        deploymentId: "deployment_stuck",
+        deliveryId: "delivery_stuck",
+      },
+      hasMore: true,
+    });
+  });
+
   it("validates live query delivery claim and ack requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -1485,6 +1575,32 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
       message: "stage must be fanout or ack.",
+    });
+  });
+
+  it("validates stuck live query delivery requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listStuckLiveQueryDeliveries() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/stuck-deliveries", {
+        olderThan: "not-a-date",
+        limit: 10,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "olderThan must be an ISO timestamp string.",
     });
   });
 
@@ -2012,6 +2128,9 @@ function fakeExecutor(
     },
     async listPendingLiveQueryDeliveryDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
+    },
+    async listStuckLiveQueryDeliveries() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
     },
     async recordLiveQueryDeliveryFailure() {
       return { failed: 0 };

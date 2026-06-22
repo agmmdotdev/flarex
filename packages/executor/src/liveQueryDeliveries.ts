@@ -12,6 +12,8 @@ import type {
   MarkLiveQueryDeliveriesDeliveredResult,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
+  ListStuckLiveQueryDeliveriesInput,
+  ListStuckLiveQueryDeliveriesResult,
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
   RunLiveQueryDeliveryBatchInput,
@@ -42,6 +44,28 @@ export async function listPendingLiveQueryDeliveryDeployments(
   const limit = liveQueryDeliveryLimit(input.limit);
   return await persistence.listPendingLiveQueryDeliveryDeployments({
     limit,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
+export async function listStuckLiveQueryDeliveries(
+  persistence: FlarexExecutorPersistence,
+  input: ListStuckLiveQueryDeliveriesInput,
+): Promise<ListStuckLiveQueryDeliveriesResult> {
+  const limit = liveQueryDeliveryLimit(input.limit);
+  const minAttempts = input.minAttempts ?? 1;
+  if (!Number.isInteger(minAttempts) || minAttempts <= 0) {
+    throw new LiveQueryDeliveryPolicyError(
+      "minAttempts must be a positive integer.",
+    );
+  }
+  return await persistence.listStuckLiveQueryDeliveries({
+    olderThan: input.olderThan,
+    minAttempts,
+    limit,
+    ...(input.deploymentId === undefined
+      ? {}
+      : { deploymentId: input.deploymentId }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
   });
 }

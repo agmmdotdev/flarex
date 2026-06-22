@@ -244,6 +244,51 @@ corepack pnpm --filter @flarex/executor-http test
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "records DeliveryDO fanout failures"
 ```
 
+## Stuck Delivery Maintenance Read Path
+
+Previous completed checkpoint: `b35e2ca` Record live query delivery failures.
+
+What changed:
+
+- Added a read-only maintenance path for stuck live-query delivery candidates.
+- The endpoint surfaces rows that are still pending, have not been
+  dead-lettered, and have an old enough `last_attempted_at`.
+- This gives operators and future scheduler code a safe way to inspect stuck
+  live updates before any automatic dead-letter behavior exists.
+
+Sync invariant:
+
+```text
+listing a stuck delivery must not change delivery state
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps sync retry processing internal to the backend.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - clients consume query-result replacement transitions, so retry visibility
+    can remain backend-owned.
+
+Flarex differences:
+
+- Flarex needs an explicit maintenance read API because failure state is
+  stored in the Postgres executor while delivery execution happens in
+  Cloudflare.
+- The API is framework-neutral and not part of app developer APIs.
+
+Known limitations:
+
+- No dead-letter mutation exists yet.
+- No dashboard/metrics view consumes this endpoint yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http test
+```
+
 ## Rerun-To-DeliveryDO Wake Contract
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

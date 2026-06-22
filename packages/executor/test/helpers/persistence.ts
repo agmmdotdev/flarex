@@ -35,6 +35,8 @@ import {
   type ListLiveQuerySubscriptionsInput,
   type ListPendingLiveQueryDeliveryDeploymentsInput,
   type ListPendingLiveQueryDeliveryDeploymentsResult,
+  type ListStuckLiveQueryDeliveriesInput,
+  type ListStuckLiveQueryDeliveriesResult,
   type ListUndeliveredLiveQueryDeliveriesInput,
   type ListUndeliveredLiveQueryDeliveriesResult,
   type ListOutboxEventsInput,
@@ -989,6 +991,53 @@ export function memoryPersistence(
             ? {
                 oldestCreatedAt: last.oldestCreatedAt,
                 deploymentId: last.deploymentId,
+              }
+            : null,
+      };
+    },
+    async listStuckLiveQueryDeliveries(
+      input: ListStuckLiveQueryDeliveriesInput,
+    ): Promise<ListStuckLiveQueryDeliveriesResult> {
+      const minAttempts = input.minAttempts ?? 1;
+      const sorted = liveQueryDeliveries
+        .filter(
+          (delivery) =>
+            delivery.deliveredAt === null &&
+            delivery.deadLetteredAt === null &&
+            delivery.lastAttemptedAt !== null &&
+            delivery.lastAttemptedAt <= input.olderThan &&
+            delivery.attemptCount >= minAttempts &&
+            (input.deploymentId === undefined ||
+              delivery.deploymentId === input.deploymentId) &&
+            (input.cursor === undefined ||
+              delivery.lastAttemptedAt > input.cursor.lastAttemptedAt ||
+              (delivery.lastAttemptedAt.getTime() ===
+                input.cursor.lastAttemptedAt.getTime() &&
+                delivery.deploymentId > input.cursor.deploymentId) ||
+              (delivery.lastAttemptedAt.getTime() ===
+                input.cursor.lastAttemptedAt.getTime() &&
+                delivery.deploymentId === input.cursor.deploymentId &&
+                delivery.deliveryId > input.cursor.deliveryId)),
+        )
+        .sort(
+          (left, right) =>
+            left.lastAttemptedAt!.getTime() - right.lastAttemptedAt!.getTime() ||
+            left.deploymentId.localeCompare(right.deploymentId) ||
+            left.deliveryId.localeCompare(right.deliveryId),
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const deliveries = rows.slice(0, input.limit);
+      const hasMore = rows.length > input.limit;
+      const last = deliveries.at(-1);
+      return {
+        deliveries,
+        hasMore,
+        nextCursor:
+          hasMore && last !== undefined && last.lastAttemptedAt !== null
+            ? {
+                lastAttemptedAt: last.lastAttemptedAt,
+                deploymentId: last.deploymentId,
+                deliveryId: last.deliveryId,
               }
             : null,
       };

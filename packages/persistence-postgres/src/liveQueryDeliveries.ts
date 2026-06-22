@@ -1,4 +1,18 @@
-import { and, asc, count, eq, gt, inArray, isNull, min, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  min,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { liveQueryDeliveries } from "./schema";
@@ -48,6 +62,26 @@ export interface ListPendingLiveQueryDeliveryDeploymentsInput {
 export interface ListPendingLiveQueryDeliveryDeploymentsResult {
   deployments: PendingLiveQueryDeliveryDeployment[];
   nextCursor: PendingLiveQueryDeliveryDeploymentCursor | null;
+  hasMore: boolean;
+}
+
+export interface StuckLiveQueryDeliveryCursor {
+  lastAttemptedAt: Date;
+  deploymentId: string;
+  deliveryId: string;
+}
+
+export interface ListStuckLiveQueryDeliveriesInput {
+  deploymentId?: string;
+  olderThan: Date;
+  minAttempts?: number;
+  cursor?: StuckLiveQueryDeliveryCursor;
+  limit: number;
+}
+
+export interface ListStuckLiveQueryDeliveriesResult {
+  deliveries: LiveQueryDeliveryRecord[];
+  nextCursor: StuckLiveQueryDeliveryCursor | null;
   hasMore: boolean;
 }
 
@@ -274,6 +308,68 @@ export async function recordLiveQueryDeliveryFailure(
 
   return {
     failed: rows.length,
+  };
+}
+
+export async function listStuckLiveQueryDeliveries(
+  db: FlarexMetadataDatabase,
+  input: ListStuckLiveQueryDeliveriesInput,
+): Promise<ListStuckLiveQueryDeliveriesResult> {
+  const minAttempts = input.minAttempts ?? 1;
+  const cursorFilter =
+    input.cursor === undefined
+      ? undefined
+      : or(
+          gt(liveQueryDeliveries.lastAttemptedAt, input.cursor.lastAttemptedAt),
+          and(
+            eq(liveQueryDeliveries.lastAttemptedAt, input.cursor.lastAttemptedAt),
+            gt(liveQueryDeliveries.deploymentId, input.cursor.deploymentId),
+          ),
+          and(
+            eq(liveQueryDeliveries.lastAttemptedAt, input.cursor.lastAttemptedAt),
+            eq(liveQueryDeliveries.deploymentId, input.cursor.deploymentId),
+            gt(liveQueryDeliveries.deliveryId, input.cursor.deliveryId),
+          ),
+        );
+  const deploymentFilter =
+    input.deploymentId === undefined
+      ? undefined
+      : eq(liveQueryDeliveries.deploymentId, input.deploymentId);
+  const rows = await db
+    .select()
+    .from(liveQueryDeliveries)
+    .where(
+      and(
+        isNull(liveQueryDeliveries.deliveredAt),
+        isNull(liveQueryDeliveries.deadLetteredAt),
+        isNotNull(liveQueryDeliveries.lastAttemptedAt),
+        lte(liveQueryDeliveries.lastAttemptedAt, input.olderThan),
+        gte(liveQueryDeliveries.attemptCount, minAttempts),
+        deploymentFilter,
+        cursorFilter,
+      ),
+    )
+    .orderBy(
+      asc(liveQueryDeliveries.lastAttemptedAt),
+      asc(liveQueryDeliveries.deploymentId),
+      asc(liveQueryDeliveries.deliveryId),
+    )
+    .limit(input.limit + 1);
+
+  const hasMore = rows.length > input.limit;
+  const deliveries = rows.slice(0, input.limit);
+  const last = deliveries.at(-1);
+  return {
+    deliveries,
+    nextCursor:
+      hasMore && last !== undefined && last.lastAttemptedAt !== null
+        ? {
+            lastAttemptedAt: last.lastAttemptedAt,
+            deploymentId: last.deploymentId,
+            deliveryId: last.deliveryId,
+          }
+        : null,
+    hasMore,
   };
 }
 

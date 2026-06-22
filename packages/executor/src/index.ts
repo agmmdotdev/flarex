@@ -15,6 +15,7 @@ import {
   ackLiveQueryDeliveries,
   claimLiveQueryDeliveryBatch,
   listPendingLiveQueryDeliveryDeployments,
+  listStuckLiveQueryDeliveries,
   listUndeliveredLiveQueryDeliveries,
   markLiveQueryDeliveriesDelivered,
   recordLiveQueryDeliveryFailure,
@@ -137,6 +138,8 @@ export type {
   ListUndeliveredOutboxEventsInput,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
+  ListStuckLiveQueryDeliveriesInput,
+  ListStuckLiveQueryDeliveriesResult,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   ListMaintenanceDeploymentsInput,
@@ -227,6 +230,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       runLiveQueryDeliveryBatch(persistence, clock, input),
     listPendingLiveQueryDeliveryDeployments: (input) =>
       listPendingLiveQueryDeliveryDeployments(persistence, input),
+    listStuckLiveQueryDeliveries: (input) =>
+      listStuckLiveQueryDeliveries(persistence, input),
     recordLiveQueryDeliveryFailure: (input) =>
       recordLiveQueryDeliveryFailure(persistence, input),
     recordLiveQuerySubscription: (input) =>

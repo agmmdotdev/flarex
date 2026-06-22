@@ -260,6 +260,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async listPendingLiveQueryDeliveryDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
     },
+    async listStuckLiveQueryDeliveries() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
+    },
     async markLiveQueryDeliveriesDelivered() {
       return { delivered: 0 };
     },
@@ -352,6 +355,11 @@ export function fakeExecutor(
     async listPendingLiveQueryDeliveryDeployments() {
       throw new Error(
         "listPendingLiveQueryDeliveryDeployments is not implemented by test fake",
+      );
+    },
+    async listStuckLiveQueryDeliveries() {
+      throw new Error(
+        "listStuckLiveQueryDeliveries is not implemented by test fake",
       );
     },
     async recordLiveQueryDeliveryFailure() {

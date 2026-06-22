@@ -2729,6 +2729,97 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("lists stuck live query delivery candidates", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_stuck_a",
+      deliveryId: "delivery_a",
+      connectionId: "connection_a",
+      queryId: 1,
+      payloadJson: { resultJson: "a" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_stuck_b",
+      deliveryId: "delivery_b",
+      connectionId: "connection_b",
+      queryId: 1,
+      payloadJson: { resultJson: "b" },
+      createdAt: new Date("2026-06-20T00:00:01.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_fresh_failure",
+      deliveryId: "delivery_fresh",
+      connectionId: "connection_fresh",
+      queryId: 1,
+      payloadJson: { resultJson: "fresh" },
+      createdAt: new Date("2026-06-20T00:00:02.000Z"),
+    });
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_stuck_b",
+      deliveryIds: ["delivery_b"],
+      stage: "fanout",
+      error: "old b",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_stuck_a",
+      deliveryIds: ["delivery_a"],
+      stage: "ack",
+      error: "old a",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_fresh_failure",
+      deliveryIds: ["delivery_fresh"],
+      stage: "fanout",
+      error: "fresh",
+      failedAt: new Date("2026-06-20T00:10:00.000Z"),
+    });
+
+    const first = await persistence.listStuckLiveQueryDeliveries({
+      olderThan: new Date("2026-06-20T00:05:00.000Z"),
+      limit: 1,
+    });
+    expect(first).toMatchObject({
+      deliveries: [
+        {
+          deploymentId: "deployment_stuck_a",
+          deliveryId: "delivery_a",
+          attemptCount: 1,
+          lastErrorStage: "ack",
+        },
+      ],
+      hasMore: true,
+      nextCursor: {
+        lastAttemptedAt: new Date("2026-06-20T00:01:00.000Z"),
+        deploymentId: "deployment_stuck_a",
+        deliveryId: "delivery_a",
+      },
+    });
+
+    await expect(
+      persistence.listStuckLiveQueryDeliveries({
+        olderThan: new Date("2026-06-20T00:05:00.000Z"),
+        cursor: first.nextCursor!,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deploymentId: "deployment_stuck_b",
+          deliveryId: "delivery_b",
+          attemptCount: 1,
+          lastErrorStage: "fanout",
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("commits staged invoke session deletes after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

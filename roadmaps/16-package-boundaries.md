@@ -537,6 +537,35 @@ corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter flarex-backend typecheck
 ```
 
+## Stuck Delivery Read Boundary
+
+Previous completed checkpoint: `b35e2ca` Record live query delivery failures.
+
+Boundary decision:
+
+- `@flarex/persistence-postgres` owns the query over delivery failure columns.
+- `@flarex/executor` owns validation/defaulting for `limit` and `minAttempts`.
+- `@flarex/executor-http` exposes
+  `/maintenance/live-queries/stuck-deliveries`.
+- Cloudflare runtime does not own this state; it may call the endpoint later
+  for operator tooling or dead-letter policy, but persistence stays executor
+  owned.
+
+Convex difference:
+
+- Convex has no equivalent public split because sync workers and durable
+  backend state are colocated. Flarex exposes the boundary to preserve the same
+  durable-before-deliver principle across runtimes.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Executor HTTP Wake Notifier Boundary
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
