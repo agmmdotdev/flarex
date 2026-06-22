@@ -1177,6 +1177,79 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Stale Rerun Fanout Consumer
+
+Previous completed checkpoint: `0139e0d` Wire live query dead-letter
+reconnects.
+
+What changed:
+
+- Cloudflare `SchedulerDO` can now call executor
+  `/maintenance/live-queries/rerun`.
+- When the executor reports changed stale subscriptions, `SchedulerDO` wakes
+  the deployment's `DeliveryDO`.
+- `DeliveryDO` uses the existing claim/fanout/ack loop, so changed rerun
+  results move through durable delivery rows before reaching WebSocket clients.
+- A backend sync test proves the maintenance route produces a `ConnectionDO`
+  `Transition` for an active subscribed query.
+
+Freshness impact:
+
+```txt
+freshness mirror marks subscription stale
+  -> executor reruns stale subscription
+  -> executor records changed result as durable live-query delivery
+  -> SchedulerDO wakes DeliveryDO
+  -> DeliveryDO claims and fans out rows
+  -> ConnectionDO sends QueryUpdated Transition
+```
+
+This checkpoint closes the previous "changed result fanout is missing" gap for
+the manual maintenance path.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - server-side sync schedules query updates and emits transitions.
+- `crates/sync/src/state.rs`
+  - state tracks invalidated queries, subscriptions, and result hashes.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client sync applies transitions to active query observers.
+- `npm-packages/convex/src/browser/sync/remote_query_set.ts`
+  - `QueryUpdated` writes the remote query result map.
+
+Flarex differences:
+
+- Convex does not need a separate freshness-cache scheduler route because stale
+  reruns happen inside its backend sync worker. Flarex uses an explicit
+  executor route and Cloudflare DO drain because storage authority and
+  WebSocket fanout are split.
+- The Cloudflare consumer does not trust cache revalidation; it trusts executor
+  rerun output and durable delivery rows.
+
+Known limitations:
+
+- Automatic cron/alarm scheduling is still not implemented for rerun
+  continuation.
+- The first consumer handles one bounded call and returns `hasMoreStale`;
+  platform automation must call it again later.
+- Real Dynamic Worker-hosted query execution is still outside this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reruns stale live query subscriptions"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

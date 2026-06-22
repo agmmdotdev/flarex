@@ -505,6 +505,67 @@ corepack pnpm build
 git diff --check
 ```
 
+## Stale Rerun Fanout Boundary
+
+Previous completed checkpoint: `0139e0d` Wire live query dead-letter
+reconnects.
+
+What changed:
+
+- `@flarex/executor` remains the owner of stale subscription rerun and durable
+  live-query delivery-row creation.
+- `packages/flarex-backend` now owns the Cloudflare consumer:
+  `SchedulerDO` calls executor `/maintenance/live-queries/rerun` and wakes the
+  deployment `DeliveryDO` only when changed subscriptions are reported.
+- The Worker route
+  `POST /scheduler/live-query-subscriptions/rerun` is a Cloudflare backend
+  maintenance route, not a new executor-core API.
+
+Why it changed:
+
+- This preserves the platform split: trusted Postgres/executor logic decides
+  what changed and persists delivery rows; Cloudflare DOs handle connection
+  fanout and WebSocket state.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps sync-session update scheduling and transition production
+    inside one backend worker.
+- `crates/sync/src/state.rs`
+  - query-set state owns active query subscriptions and result hashes.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client-side sync consumes transitions and updates local query observers.
+
+Flarex differences:
+
+- Convex does not expose an executor/backend fanout boundary. Flarex must,
+  because the executor can run on Nitro/Vercel while WebSockets and `DeliveryDO`
+  live in Cloudflare.
+- The Cloudflare backend does not inspect or construct changed query payloads;
+  it drains durable delivery rows through the existing delivery claim/ack API.
+
+Known limitations:
+
+- Other adapters need their own equivalent rerun consumer if they do not use
+  Cloudflare Durable Objects.
+- Automatic scheduler continuation for `hasMoreStale` remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reruns stale live query subscriptions"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Dead-Letter Reconnect Boundary
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

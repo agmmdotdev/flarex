@@ -33,6 +33,35 @@ type ReconcileResult = {
   hasMore: boolean;
 };
 
+type RerunLiveQuerySubscriptionsRequest = {
+  deploymentId?: string;
+  projectId?: string;
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+};
+
+type ExecutorLiveQueryRerunResult = {
+  changed: unknown[];
+  unchanged: unknown[];
+  unsupported: unknown[];
+  hasMoreStale: boolean;
+};
+
+type RerunResult = {
+  deploymentId: string;
+  changed: number;
+  unchanged: number;
+  unsupported: number;
+  hasMoreStale: boolean;
+  delivery: {
+    woken: boolean;
+    status: number | null;
+    result: unknown;
+    error: string | null;
+  };
+};
+
 type DeadLetterLiveQueryDeliveriesRequest = {
   deploymentId?: string;
   olderThan?: string;
@@ -94,6 +123,16 @@ export class SchedulerDO extends DurableObject<Env> {
         ),
       );
     }
+    if (
+      url.pathname === "/rerun/live-query-subscriptions" &&
+      request.method === "POST"
+    ) {
+      return json(
+        await this.rerunLiveQuerySubscriptions(
+          await readJson<unknown>(request),
+        ),
+      );
+    }
     return json({ service: "flarex-scheduler", status: "ok" });
   }
 
@@ -147,6 +186,96 @@ export class SchedulerDO extends DurableObject<Env> {
       woken,
       failed,
       hasMore: pending.hasMore,
+    };
+  }
+
+  private async rerunLiveQuerySubscriptions(body: unknown): Promise<RerunResult> {
+    const request = rerunRequestFromBody(body);
+    const rerun = await this.rerunStaleLiveQuerySubscriptions({
+      deploymentId: request.deploymentId,
+      ...(request.projectId === undefined ? {} : { projectId: request.projectId }),
+      ...(request.limit === undefined ? {} : { limit: request.limit }),
+    });
+
+    if (rerun.changed.length === 0) {
+      return {
+        deploymentId: request.deploymentId,
+        changed: 0,
+        unchanged: rerun.unchanged.length,
+        unsupported: rerun.unsupported.length,
+        hasMoreStale: rerun.hasMoreStale,
+        delivery: {
+          woken: false,
+          status: null,
+          result: null,
+          error: null,
+        },
+      };
+    }
+
+    const wake = await this.wakeDelivery({
+      deploymentId: request.deploymentId,
+      limit: request.deliveryLimit ?? request.limit ?? DEFAULT_DELIVERY_LIMIT,
+      ...(request.maxBatches === undefined ? {} : { maxBatches: request.maxBatches }),
+    });
+
+    return {
+      deploymentId: request.deploymentId,
+      changed: rerun.changed.length,
+      unchanged: rerun.unchanged.length,
+      unsupported: rerun.unsupported.length,
+      hasMoreStale: rerun.hasMoreStale,
+      delivery: wake,
+    };
+  }
+
+  private async rerunStaleLiveQuerySubscriptions(
+    body: Record<string, unknown>,
+  ): Promise<ExecutorLiveQueryRerunResult> {
+    const response = await this.executorFetch(
+      "/maintenance/live-queries/rerun",
+      body,
+    );
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Live query rerun failed with status ${response.status}.`,
+      );
+    }
+    return executorLiveQueryRerunResultFromUnknown(
+      await response.json().catch(() => null),
+    );
+  }
+
+  private async wakeDelivery(input: {
+    deploymentId: string;
+    limit: number;
+    maxBatches?: number;
+  }): Promise<RerunResult["delivery"]> {
+    const response = await this.env.DELIVERIES
+      .getByName(deliveryObjectName(input.deploymentId))
+      .fetch("https://flarex.internal/wake", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: input.deploymentId,
+          limit: input.limit,
+          ...(input.maxBatches === undefined ? {} : { maxBatches: input.maxBatches }),
+        }),
+      });
+    if (!response.ok) {
+      return {
+        woken: false,
+        status: response.status,
+        result: null,
+        error: await response.text(),
+      };
+    }
+    return {
+      woken: true,
+      status: response.status,
+      result: await response.json().catch(() => null),
+      error: null,
     };
   }
 
@@ -333,6 +462,70 @@ function pendingDeploymentsResultFromUnknown(
     ),
     nextCursor: pendingCursorFromUnknown(record.nextCursor),
     hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
+  };
+}
+
+function rerunRequestFromBody(value: unknown): {
+  deploymentId: string;
+  projectId?: string;
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query rerun request body must be an object.");
+  }
+  const body = value as RerunLiveQuerySubscriptionsRequest;
+  return {
+    deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId"),
+    ...(body.projectId === undefined
+      ? {}
+      : { projectId: nonEmptyStringFromRequest(body.projectId, "projectId") }),
+    ...(body.limit === undefined
+      ? {}
+      : { limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit") }),
+    ...(body.deliveryLimit === undefined
+      ? {}
+      : {
+          deliveryLimit: optionalPositiveInteger(
+            body.deliveryLimit,
+            DEFAULT_DELIVERY_LIMIT,
+            "deliveryLimit",
+          ),
+        }),
+    ...(body.maxBatches === undefined
+      ? {}
+      : {
+          maxBatches: optionalPositiveInteger(
+            body.maxBatches,
+            DEFAULT_MAX_BATCHES,
+            "maxBatches",
+          ),
+        }),
+  };
+}
+
+function executorLiveQueryRerunResultFromUnknown(
+  value: unknown,
+): ExecutorLiveQueryRerunResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, "Live query rerun response must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.changed)) {
+    throw new HttpError(502, "Live query rerun response.changed must be an array.");
+  }
+  if (!Array.isArray(record.unchanged)) {
+    throw new HttpError(502, "Live query rerun response.unchanged must be an array.");
+  }
+  if (!Array.isArray(record.unsupported)) {
+    throw new HttpError(502, "Live query rerun response.unsupported must be an array.");
+  }
+  return {
+    changed: record.changed,
+    unchanged: record.unchanged,
+    unsupported: record.unsupported,
+    hasMoreStale: booleanFromUnknown(record.hasMoreStale, "hasMoreStale"),
   };
 }
 

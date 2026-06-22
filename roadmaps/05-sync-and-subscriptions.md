@@ -192,6 +192,77 @@ Verification:
 git diff --check
 ```
 
+## Stale Rerun To WebSocket Fanout
+
+Previous completed checkpoint: `0139e0d` Wire live query dead-letter
+reconnects.
+
+What changed:
+
+- `SchedulerDO` now exposes internal
+  `POST /rerun/live-query-subscriptions`.
+- The public Worker exposes authenticated
+  `POST /scheduler/live-query-subscriptions/rerun`.
+- The scheduler calls the executor
+  `/maintenance/live-queries/rerun` route and validates the rerun result shape.
+- When the executor reports changed subscriptions, the scheduler wakes the
+  deployment's `DeliveryDO`, which claims durable live-query delivery rows,
+  fans them out to `ConnectionDO`, and acks them through the executor.
+- Added a Miniflare sync test proving this path sends a `QueryUpdated`
+  `Transition` over an active `/sync` WebSocket.
+
+Why it changed:
+
+- The executor already records changed stale-rerun results as durable
+  `live_query_deliveries` rows. The missing sync boundary was the Cloudflare
+  consumer that turns a successful rerun into `DeliveryDO` drain and
+  `ConnectionDO` fanout.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - `ModifyQuerySet` and invalidated query work schedule query updates that
+    become `Transition` messages.
+- `crates/sync/src/state.rs`
+  - active query state tracks subscriptions, invalidation futures, result
+    hashes, and state modifications.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - the browser sync client applies `Transition` messages and notifies query
+    listeners.
+- `npm-packages/convex/src/browser/sync/remote_query_set.ts`
+  - remote query results are updated from `QueryUpdated` modifications.
+
+Flarex differences:
+
+- Convex performs stale query rerun and transition production inside its sync
+  worker. Flarex splits the path: executor rerun records durable delivery rows,
+  then Cloudflare `DeliveryDO` drains those rows into `ConnectionDO`.
+- The route remains manual/authenticated for this checkpoint; automatic cron or
+  alarm scheduling is still out of scope.
+
+Known limitations:
+
+- `hasMoreStale` is reported but no automatic continuation is scheduled yet.
+- The test uses a fake executor service binding to prove the Cloudflare fanout
+  path. Executor core tests already cover durable delivery-row creation during
+  changed stale reruns.
+- Range/index freshness remains unsupported for real stale detection.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reruns stale live query subscriptions"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

@@ -124,6 +124,20 @@ async function route(request: Request, env: Env): Promise<Response> {
       });
   }
 
+  if (
+    url.pathname === "/scheduler/live-query-subscriptions/rerun" &&
+    request.method === "POST"
+  ) {
+    authorizeLiveQueryDeliveryRequest(request, env);
+    return env.SCHEDULERS
+      .getByName(schedulerObjectName("live-query-deliveries"))
+      .fetch("https://flarex.internal/rerun/live-query-subscriptions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await readJson(request)),
+      });
+  }
+
   if (parts[0] === "deployments") {
     const deploymentId = required(parts[1], "deployment id");
     if (parts[2] === "push") {
