@@ -941,6 +941,55 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Materialized Artifact OCC Retry
+
+Current checkpoint: pending commit for artifact/executor retry.
+
+What changed:
+
+- The materialized execution artifact now owns retry at the real transport
+  boundary for Postgres mutation invocations.
+- `/invoke/finish` responses from the trusted executor keep status and error
+  code metadata inside the artifact runtime, so retryable OCC conflicts can be
+  distinguished from user errors, validation failures, and non-retryable
+  executor failures.
+- On retry, the artifact starts a new backend invoke session and reruns the
+  user handler. It does not replay a pre-collected operation list.
+- The local materializer exposes an `invokeMaxAttempts` test/dev binding that
+  maps to `FLAREX_INVOKE_MAX_ATTEMPTS`; exhausted OCC retries throw
+  `InvokeRetryExhaustedError`.
+
+Why this matters:
+
+Flarex user code can interleave reads, writes, branching, and return
+validation just like Convex-style mutations. The only safe retry unit is the
+whole handler attempt with a fresh transaction session.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend execution owns the attempt lifecycle around user code.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user code receives a scoped storage capability rather than a direct DB
+    connection.
+- `crates/database/src/committer.rs`
+  - commit-time OCC decides whether an attempt can publish writes.
+
+Cloudflare difference:
+
+Convex keeps the isolate and committer in the backend process. Flarex's
+artifact runs in Miniflare/Dynamic Worker form and reaches the trusted
+executor over internal fetches, so retry must preserve HTTP error metadata and
+rerun the artifact handler.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/execution-artifact-postgres.integration.test.ts
+corepack pnpm --filter flarex-dev typecheck
+```
+
 ## Postgres Transport Materialized Execution In Local Dev
 
 Previous completed checkpoint: `09eb59c` feat: enhance live query subscription

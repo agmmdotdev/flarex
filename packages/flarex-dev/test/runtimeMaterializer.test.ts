@@ -579,6 +579,148 @@ describe("runtime materializer", () => {
       },
     ]);
   });
+
+  it("retries Postgres materialized mutation sessions on OCC finish conflicts", async () => {
+    const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
+    const sessions = ["session-retry-1", "session-retry-2"];
+    let finishCount = 0;
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-retry",
+      executorToken: "executor-secret",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
+        if (url.pathname === "/invoke/start") {
+          const sessionId = sessions.shift();
+          if (sessionId === undefined) {
+            return Response.json({ error: "unexpected extra start" }, { status: 500 });
+          }
+          return Response.json({
+            sessionId,
+            function: { path: "messages:retryCreate", kind: "mutation" },
+            beginTs: sessionId === "session-retry-1" ? 10 : 12,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "1:lesson" },
+            executionModule: "_flarex/execution.js",
+          });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          const sessionId = (body as { sessionId?: unknown }).sessionId;
+          return Response.json({
+            value: sessionId === "session-retry-1" ? "2:first" : "2:second",
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          finishCount += 1;
+          if (finishCount === 1) {
+            return Response.json(
+              {
+                error: "InvokeSessionOccConflictError",
+                message: "Document changed after session begin timestamp.",
+              },
+              { status: 409 },
+            );
+          }
+          return Response.json({
+            value: (body as { value: unknown }).value,
+            committedTs: 13,
+          });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = retryMutationPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: { id: "2:second" },
+        committedTs: 13,
+      });
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls.map(call => call.path)).toEqual([
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+      "/invoke/abort",
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+    ]);
+    expect(
+      calls
+        .filter(call => call.path === "/invoke/syscall")
+        .map(call => (call.body as { sessionId?: unknown }).sessionId),
+    ).toEqual(["session-retry-1", "session-retry-2"]);
+  });
+
+  it("reports exhausted Postgres materialized mutation OCC retries", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-retry-exhausted",
+      executorToken: "executor-secret",
+      invokeMaxAttempts: 1,
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-retry-exhausted",
+            function: { path: "messages:retryCreate", kind: "mutation" },
+            beginTs: 10,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "1:lesson" },
+            executionModule: "_flarex/execution.js",
+          });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({ value: "2:first" });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json(
+            {
+              error: "InvokeSessionOccConflictError",
+              message: "Document changed after session begin timestamp.",
+            },
+            { status: 409 },
+          );
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = retryMutationPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).rejects.toThrow(
+        "Flarex invoke retry exhausted after 1 attempts: Document changed after session begin timestamp.",
+      );
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls.map(call => call.path)).toEqual([
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+      "/invoke/abort",
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -709,6 +851,50 @@ function failingMutationPayload(): MaterializedExecutionArtifactPayload {
     request: {
       path: "messages:fail",
       args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "mutation",
+    },
+  };
+}
+
+function retryMutationPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "d".repeat(64),
+        source: `export default {
+  messages: {
+    retryCreate: {
+      isMutation: true,
+      _handler: async ({ db }, args) => {
+        const id = await db.insert("messages", {
+          lessonId: args.lessonId,
+          text: args.text,
+        });
+        return { id };
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-retry",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-retry",
+      sourcePackageHash: "d".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:retryCreate",
+      args: { lessonId: "1:lesson", text: "hello" },
       partitionKey: "1:lesson",
       kind: "mutation",
     },

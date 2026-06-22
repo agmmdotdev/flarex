@@ -169,6 +169,64 @@ Verification:
 git diff --check
 ```
 
+## Dynamic Worker Transport Retry
+
+Current checkpoint: pending commit for materialized artifact retry.
+
+What changed:
+
+- Added bounded OCC retry semantics to the Dynamic Worker/materialized artifact
+  invoke path.
+- The artifact now reruns the user handler after a retryable Postgres mutation
+  `/invoke/finish` conflict by starting a fresh invoke session and replaying
+  the handler's normal `ctx.db.*` syscalls.
+- Retry applies only to Postgres mutation transport. Queries and legacy
+  transport still run once.
+- The default retry budget matches the executor core default: 8 attempts.
+  Runtime deployments can override this with `FLAREX_INVOKE_MAX_ATTEMPTS`.
+- Exhausted retry budget raises `InvokeRetryExhaustedError` instead of
+  surfacing the last raw OCC conflict directly.
+
+Execution shape:
+
+```txt
+artifact invoke
+  -> /invoke/start
+  -> user handler uses ctx.db syscalls
+  -> /invoke/finish
+  -> retryable OCC conflict
+  -> /invoke/abort best effort
+  -> restart from /invoke/start
+  -> after final attempt, throw InvokeRetryExhaustedError
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - commit validates read dependencies before writes become visible.
+- `crates/database/src/transaction.rs`
+  - transaction state accumulates reads and pending writes for one attempt.
+- `crates/isolate/src/environment/udf/syscall.rs`
+  - user functions interact with storage through syscalls, not direct DB
+    handles.
+
+Flarex differences:
+
+- Convex runs isolate syscalls and commit close to the Rust backend transaction
+  machinery. Flarex runs user code in a Cloudflare-style artifact and retries
+  by rerunning the handler across the artifact/executor HTTP boundary.
+- Long-running user code still increases conflict probability. Retry improves
+  the common short-conflict case but does not make arbitrary slow mutations
+  conflict-free.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/execution-artifact-postgres.integration.test.ts
+corepack pnpm --filter flarex-dev typecheck
+```
+
 ## Full-Document Replace In Invoke OCC
 
 Previous completed checkpoint: `f59e6e9` Rename invoke write staging API.

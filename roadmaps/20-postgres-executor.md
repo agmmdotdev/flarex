@@ -389,6 +389,49 @@ Verification:
 git diff --check
 ```
 
+## Invoke Finish OCC Retry Boundary
+
+Current checkpoint: pending commit for artifact transport retry.
+
+What changed:
+
+- The Postgres executor `/invoke/finish` route is now consumed by a
+  metadata-preserving artifact client, so retryable OCC failures remain visible
+  as structured backend request errors inside the Dynamic Worker runtime.
+- The executor still owns the authoritative commit decision. The artifact only
+  decides whether to rerun the handler after the executor rejects a mutation
+  attempt as retryable.
+
+Boundary rule:
+
+```txt
+trusted executor:
+  validate begin_ts read set
+  commit or reject
+
+execution artifact:
+  rerun whole mutation handler only when executor returns retryable OCC
+```
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - OCC rejection is part of commit, not user-code execution.
+- `crates/application/src/application_function_runner/mod.rs`
+  - application execution coordinates attempts around backend-owned commit.
+
+Flarex difference:
+
+The retry loop crosses an internal HTTP/service-binding boundary because user
+code is in the Dynamic Worker artifact and transaction state is in the
+trusted Postgres executor.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/execution-artifact-postgres.integration.test.ts
+```
+
 ## Postgres Index Freshness Boundary Update
 
 Previous completed checkpoint: `ccc5dea` Harden executor sync integration.

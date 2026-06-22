@@ -163,7 +163,10 @@ describe("Nitro invoke integration", () => {
         isDone: true,
         continueCursor: expect.any(String),
       },
-      readSet: { indexes: [{ indexId: 1, ...indexBounds }] },
+      readSet: {
+        documents: [{ tableId: 2, id: "2:message", observedTs: 1781913600001 }],
+        indexes: [{ indexId: 1, ...indexBounds }],
+      },
     });
     const finishIndexQuery = await postJson(handler, "/invoke/finish", {
       deploymentId: "deployment_integration",
@@ -174,7 +177,10 @@ describe("Nitro invoke integration", () => {
     expect(finishIndexQuery.status).toBe(200);
     await expect(finishIndexQuery.json()).resolves.toEqual({
       value: { ok: true },
-      readSet: { indexes: [{ indexId: 1, ...indexBounds }] },
+      readSet: {
+        documents: [{ tableId: 2, id: "2:message", observedTs: 1781913600001 }],
+        indexes: [{ indexId: 1, ...indexBounds }],
+      },
     });
 
     nextSessionId = "session_patch";

@@ -15,6 +15,7 @@ export type LocalMiniflareExecutionArtifactMaterializerOptions = {
   executorTransport?: "legacy" | "postgres";
   projectId?: string;
   executorToken?: string;
+  invokeMaxAttempts?: number;
   internalToken?: string;
   compatibilityDate?: string;
 };
@@ -50,6 +51,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
   private readonly executorTransport: "legacy" | "postgres" | undefined;
   private readonly projectId: string | undefined;
   private readonly executorToken: string | undefined;
+  private readonly invokeMaxAttempts: number | undefined;
   private readonly internalToken: string | undefined;
   private readonly compatibilityDate: string;
 
@@ -58,6 +60,7 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
     this.executorTransport = options.executorTransport;
     this.projectId = options.projectId;
     this.executorToken = options.executorToken;
+    this.invokeMaxAttempts = options.invokeMaxAttempts;
     this.internalToken = options.internalToken;
     this.compatibilityDate = options.compatibilityDate ?? "2026-06-14";
   }
@@ -90,6 +93,9 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
           : { FLAREX_EXECUTOR_TRANSPORT: this.executorTransport }),
         ...(this.projectId === undefined ? {} : { FLAREX_PROJECT_ID: this.projectId }),
         ...(this.executorToken === undefined ? {} : { FLAREX_EXECUTOR_TOKEN: this.executorToken }),
+        ...(this.invokeMaxAttempts === undefined
+          ? {}
+          : { FLAREX_INVOKE_MAX_ATTEMPTS: String(this.invokeMaxAttempts) }),
         ...(this.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: this.internalToken }),
       },
       serviceBindings: {
@@ -225,49 +231,60 @@ async function invokeWithBackend(body, env, request) {
   const transport = executorTransport(request, env);
   const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
+  const maxAttempts = invokeMaxAttempts(transport, kind, env);
 
-  const start = await startExecution(env.FLAREX_BACKEND, {
-    transport,
-    deploymentId,
-    ...(projectId === undefined ? {} : { projectId }),
-    ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-    path: body.path,
-    args: body.args ?? null,
-    kind,
-    ...(partitionKey === undefined ? {} : { partitionKey }),
-    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-  });
-  const startedKind = executionKind(start);
-  try {
-    const handler = handlerFor(fn);
-    const db = databaseForSession(
-      env.FLAREX_BACKEND,
-      deploymentId,
-      start.sessionId,
-      startedKind,
-      transport,
-      projectId,
-      env.FLAREX_EXECUTOR_TOKEN,
-    );
-    const value = normalizeReturnValue(await handler({ db }, body.args ?? null));
-    return await finishExecution(env.FLAREX_BACKEND, {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const start = await startExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
       ...(projectId === undefined ? {} : { projectId }),
       ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-      sessionId: start.sessionId,
-      value,
+      path: body.path,
+      args: body.args ?? null,
+      kind,
+      ...(partitionKey === undefined ? {} : { partitionKey }),
+      ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     });
-  } catch (error) {
-    await abortExecution(env.FLAREX_BACKEND, {
-      transport,
-      deploymentId,
-      ...(projectId === undefined ? {} : { projectId }),
-      ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-      sessionId: start.sessionId,
-    });
-    throw error;
+    const startedKind = executionKind(start);
+    try {
+      const handler = handlerFor(fn);
+      const db = databaseForSession(
+        env.FLAREX_BACKEND,
+        deploymentId,
+        start.sessionId,
+        startedKind,
+        transport,
+        projectId,
+        env.FLAREX_EXECUTOR_TOKEN,
+      );
+      const value = normalizeReturnValue(await handler({ db }, body.args ?? null));
+      return await finishExecution(env.FLAREX_BACKEND, {
+        transport,
+        deploymentId,
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
+        sessionId: start.sessionId,
+        value,
+      });
+    } catch (error) {
+      await abortExecution(env.FLAREX_BACKEND, {
+        transport,
+        deploymentId,
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
+        sessionId: start.sessionId,
+      }).catch(() => undefined);
+      if (isRetryableInvokeAttempt(transport, startedKind, error)) {
+        if (attempt < maxAttempts) {
+          continue;
+        }
+        throw new InvokeRetryExhaustedError(maxAttempts, error);
+      }
+      throw error;
+    }
   }
+
+  throw new Error("Flarex invoke retry policy did not run any attempts.");
 }
 
 async function executeQuerySession(body, env, request) {
@@ -340,6 +357,45 @@ function executionKind(start) {
   const kind = start.kind ?? start.function?.kind;
   if (kind === "query" || kind === "mutation") return kind;
   throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const RETRYABLE_INVOKE_ERROR_CODES = new Set([
+  "InvokeSessionOccConflictError",
+  "InvokeSessionTableOccConflictError",
+  "InvokeSessionIndexOccConflictError",
+  "40001",
+]);
+
+function invokeMaxAttempts(transport, kind, env) {
+  if (transport !== "postgres" || kind !== "mutation") return 1;
+  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
+    return DEFAULT_INVOKE_MAX_ATTEMPTS;
+  }
+  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
+  }
+  return value;
+}
+
+function isRetryableInvokeAttempt(transport, kind, error) {
+  return (
+    transport === "postgres" &&
+    kind === "mutation" &&
+    isRetryableInvokeError(error)
+  );
+}
+
+function isRetryableInvokeError(error) {
+  if (error instanceof BackendRequestError) {
+    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
+  }
+  if (!isRecord(error)) return false;
+  return (
+    (typeof error.name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.name)) ||
+    (typeof error.code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.code))
+  );
 }
 
 async function finishExecution(backend, input) {
@@ -493,6 +549,23 @@ function normalizeReturnValue(value) {
   return value === undefined ? null : value;
 }
 
+class BackendRequestError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.name = "BackendRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+class InvokeRetryExhaustedError extends Error {
+  constructor(attempts, cause) {
+    super(\`Flarex invoke retry exhausted after \${attempts} attempts: \${errorMessage(cause)}\`);
+    this.name = "InvokeRetryExhaustedError";
+    this.attempts = attempts;
+  }
+}
+
 async function postBackend(backend, path, body, headers = {}) {
   const response = await backend.fetch(\`https://flarex-backend.internal\${path}\`, {
     method: "POST",
@@ -501,13 +574,28 @@ async function postBackend(backend, path, body, headers = {}) {
   });
   const value = await response.json().catch(() => null);
   if (!response.ok) {
+    const code = backendErrorCode(value);
     const message =
-      typeof value === "object" && value !== null && "error" in value
-        ? String(value.error)
-        : \`Backend request failed with status \${response.status}\`;
-    throw new Error(message);
+      backendErrorMessage(value) ??
+      code ??
+      \`Backend request failed with status \${response.status}\`;
+    throw new BackendRequestError(response.status, code, message);
   }
   return value;
+}
+
+function backendErrorCode(value) {
+  if (isRecord(value) && typeof value.error === "string") {
+    return value.error;
+  }
+  return undefined;
+}
+
+function backendErrorMessage(value) {
+  if (isRecord(value) && typeof value.message === "string") {
+    return value.message;
+  }
+  return undefined;
 }
 
 function isRecord(value) {

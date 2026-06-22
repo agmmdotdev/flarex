@@ -18,17 +18,21 @@ describe("execution artifact to Postgres executor integration", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
 
-    const sessionIds = ["session_create", "session_list", "session_fail"];
+    let generatedId = 0;
     let nowMs = 1781913600000;
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
-      ids: { nextId: () => sessionIds.shift() ?? `session_extra_${sessionIds.length}` },
+      ids: { nextId: () => `id_${++generatedId}` },
       persistence,
     });
     const handler = createFlarexNitroHandler({
       executor,
       capabilityToken: "executor-secret",
     });
+    let conflictTeamId: string | undefined;
+    let injectedConflict = false;
+    const sessionPaths = new Map<string, string>();
+    const sessionsByPath = new Map<string, string[]>();
     const sourcePackage = executionSourcePackage();
     const registered = await executor.registerDeploymentPackage({
       deploymentId: "deployment_artifact_postgres",
@@ -47,7 +51,69 @@ describe("execution artifact to Postgres executor integration", () => {
       executorTransport: "postgres",
       projectId: "project_artifact_postgres",
       executorToken: "executor-secret",
-      backend: request => handler({ request }),
+      backend: async (request) => {
+        const url = new URL(request.url);
+        if (url.pathname === "/invoke/start") {
+          const body = await request.clone().json().catch(() => null);
+          const path = typeof body === "object" && body !== null && "path" in body
+            ? body.path
+            : undefined;
+          const response = await handler({ request });
+          const responseBody = await response.clone().json().catch(() => null);
+          const sessionId =
+            typeof responseBody === "object" && responseBody !== null && "sessionId" in responseBody
+              ? responseBody.sessionId
+              : undefined;
+          if (typeof path === "string" && typeof sessionId === "string") {
+            sessionPaths.set(sessionId, path);
+            sessionsByPath.set(path, [...(sessionsByPath.get(path) ?? []), sessionId]);
+          }
+          return response;
+        }
+        if (url.pathname === "/invoke/finish") {
+          const body = await request.clone().json().catch(() => null);
+          const sessionId = typeof body === "object" && body !== null && "sessionId" in body
+            ? body.sessionId
+            : undefined;
+          if (
+            typeof sessionId === "string" &&
+            sessionPaths.get(sessionId) === "teams:bumpWithRead" &&
+            conflictTeamId !== undefined &&
+            !injectedConflict
+          ) {
+            injectedConflict = true;
+            nowMs = 1781913600005;
+            const concurrent = await executor.beginInvokeSession({
+              deploymentId: "deployment_artifact_postgres",
+              projectId: "project_artifact_postgres",
+              path: "teams:concurrentSet",
+              kind: "mutation",
+              args: { teamId: conflictTeamId },
+              partitionKey: conflictTeamId,
+            });
+            await executor.invokeSyscall({
+              deploymentId: "deployment_artifact_postgres",
+              projectId: "project_artifact_postgres",
+              sessionId: concurrent.sessionId,
+              syscall: { op: "get", id: conflictTeamId },
+            });
+            await executor.invokeSyscall({
+              deploymentId: "deployment_artifact_postgres",
+              projectId: "project_artifact_postgres",
+              sessionId: concurrent.sessionId,
+              syscall: { op: "patch", id: conflictTeamId, value: { count: 100 } },
+            });
+            await executor.finishInvokeSession({
+              deploymentId: "deployment_artifact_postgres",
+              projectId: "project_artifact_postgres",
+              sessionId: concurrent.sessionId,
+              value: { ok: true },
+            });
+            nowMs = 1781913600007;
+          }
+        }
+        return await handler({ request });
+      },
     });
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
     const payloadBase = {
@@ -124,7 +190,7 @@ describe("execution artifact to Postgres executor integration", () => {
       await expect(
         persistence.getInvokeSessionMetadata(
           "deployment_artifact_postgres",
-          "session_fail",
+          sessionsByPath.get("messages:failAfterInsert")?.[0] ?? "",
         ),
       ).resolves.toMatchObject({ state: "aborted" });
       await expect(
@@ -139,6 +205,65 @@ describe("execution artifact to Postgres executor integration", () => {
           value: { teamId: "1:team", text: "hello", count: 1 },
         }),
       ]);
+
+      nowMs = 1781913600003;
+      const teamCreated = await artifact.invoke({
+        ...payloadBase,
+        request: {
+          path: "teams:create",
+          kind: "mutation",
+          args: { name: "Ada" },
+        },
+      });
+      expect(teamCreated).toMatchObject({
+        value: { id: expect.stringMatching(/^1:/) },
+      });
+      conflictTeamId = teamCreated.value.id;
+
+      nowMs = 1781913600004;
+      const bumped = await artifact.invoke({
+        ...payloadBase,
+        request: {
+          path: "teams:bumpWithRead",
+          kind: "mutation",
+          args: { teamId: conflictTeamId },
+          partitionKey: conflictTeamId,
+        },
+      });
+      expect(bumped).toMatchObject({
+        value: { count: 101 },
+        writes: [
+          expect.objectContaining({
+            tableId: 1,
+            id: conflictTeamId,
+            value: { name: "Ada", count: 101 },
+          }),
+        ],
+      });
+      await expect(
+        persistence.getInvokeSessionMetadata(
+          "deployment_artifact_postgres",
+          sessionsByPath.get("teams:bumpWithRead")?.[0] ?? "",
+        ),
+      ).resolves.toMatchObject({ state: "aborted" });
+      await expect(
+        persistence.getInvokeSessionMetadata(
+          "deployment_artifact_postgres",
+          sessionsByPath.get("teams:bumpWithRead")?.[1] ?? "",
+        ),
+      ).resolves.toMatchObject({ state: "finished" });
+      await expect(
+        persistence.listDocumentsInTableAtTs(
+          "deployment_artifact_postgres",
+          1,
+          1781913609999,
+        ),
+      ).resolves.toContainEqual(
+        expect.objectContaining({
+          id: conflictTeamId,
+          value: { name: "Ada", count: 101 },
+        }),
+      );
     } finally {
       await artifact.dispose?.();
     }
@@ -188,6 +313,33 @@ function executionSourcePackage(): SourcePackageWithSource {
       },
     },
   },
+  teams: {
+    create: {
+      isMutation: true,
+      _handler: async ({ db }, args) => {
+        const id = await db.insert("teams", {
+          name: args.name,
+          count: 0,
+        });
+        return { id };
+      },
+    },
+    bumpWithRead: {
+      isMutation: true,
+      _handler: async ({ db }, args) => {
+        const team = await db.get(args.teamId);
+        const count = (team?.count ?? 0) + 1;
+        await db.patch(args.teamId, { count });
+        return { count };
+      },
+    },
+    concurrentSet: {
+      isMutation: true,
+      _handler: async () => {
+        throw new Error("concurrentSet is executed by trusted executor syscalls");
+      },
+    },
+  },
 };`,
       },
     ],
@@ -205,6 +357,13 @@ function executionAnalysisJson(): Record<string, unknown> {
           tableId: 1,
           name: "teams",
           placement: { kind: "partitionBy", field: "_id" },
+          validator: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+              count: { fieldType: { type: "number" }, optional: false },
+            },
+          },
         },
         {
           tableId: 2,
@@ -259,6 +418,37 @@ function executionAnalysisJson(): Record<string, unknown> {
         },
         {
           path: "messages:failAfterInsert",
+          kind: "mutation",
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
+        {
+          path: "teams:create",
+          kind: "mutation",
+          partition: {
+            type: "partitionCreateRoot",
+            table: "teams",
+            partitionField: "_id",
+          },
+        },
+        {
+          path: "teams:bumpWithRead",
+          kind: "mutation",
+          partition: {
+            type: "partition",
+            table: "teams",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamId",
+          },
+        },
+        {
+          path: "teams:concurrentSet",
           kind: "mutation",
           partition: {
             type: "partition",

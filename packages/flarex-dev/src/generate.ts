@@ -415,6 +415,7 @@ export interface Env {
   FLAREX_PROJECT_ID?: string;
   FLAREX_EXECUTOR_TRANSPORT?: string;
   FLAREX_EXECUTOR_TOKEN?: string;
+  FLAREX_INVOKE_MAX_ATTEMPTS?: string;
   FLAREX_INTERNAL_TOKEN?: string;
 }
 
@@ -472,6 +473,36 @@ type ExecutionStartResponse = {
   function?: { kind: "query" | "mutation" };
 };
 
+const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const RETRYABLE_INVOKE_ERROR_CODES = new Set([
+  "InvokeSessionOccConflictError",
+  "InvokeSessionTableOccConflictError",
+  "InvokeSessionIndexOccConflictError",
+  "40001",
+]);
+
+class BackendRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  constructor(status: number, code: string | undefined, message: string) {
+    super(message);
+    this.name = "BackendRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+class InvokeRetryExhaustedError extends Error {
+  readonly attempts: number;
+
+  constructor(attempts: number, cause: unknown) {
+    super("Flarex invoke retry exhausted after " + attempts + " attempts: " + invokeErrorMessage(cause));
+    this.name = "InvokeRetryExhaustedError";
+    this.attempts = attempts;
+  }
+}
+
 async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): Promise<unknown> {
   const fn = functions[body.path];
   if (!fn) throw new Error(\`Unknown Flarex function: \${body.path}\`);
@@ -488,49 +519,60 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
   const transport = executorTransport(request, env);
   const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
+  const maxAttempts = invokeMaxAttempts(transport, metadata.kind, env);
 
-  const start = await startExecution(env.FLAREX_BACKEND, {
-    transport,
-    deploymentId,
-    ...(projectId === undefined ? {} : { projectId }),
-    ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-    path: body.path,
-    args: body.args,
-    kind: metadata.kind,
-    ...(partitionKey === undefined ? {} : { partitionKey }),
-    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-  });
-  const startedKind = executionKind(start);
-  try {
-    const db = databaseForSession(
-      env.FLAREX_BACKEND,
-      deploymentId,
-      start.sessionId,
-      startedKind,
-      transport,
-      projectId,
-      env.FLAREX_EXECUTOR_TOKEN,
-    );
-    const value = normalizeReturnValue(await fn._handler({ db } as never, body.args as never));
-    validateFunctionReturn(metadata.returns, value);
-    return await finishExecution(env.FLAREX_BACKEND, {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const start = await startExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
       ...(projectId === undefined ? {} : { projectId }),
       ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-      sessionId: start.sessionId,
-      value,
+      path: body.path,
+      args: body.args,
+      kind: metadata.kind,
+      ...(partitionKey === undefined ? {} : { partitionKey }),
+      ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     });
-  } catch (error) {
-    await abortExecution(env.FLAREX_BACKEND, {
-      transport,
-      deploymentId,
-      ...(projectId === undefined ? {} : { projectId }),
-      ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
-      sessionId: start.sessionId,
-    });
-    throw error;
+    const startedKind = executionKind(start);
+    try {
+      const db = databaseForSession(
+        env.FLAREX_BACKEND,
+        deploymentId,
+        start.sessionId,
+        startedKind,
+        transport,
+        projectId,
+        env.FLAREX_EXECUTOR_TOKEN,
+      );
+      const value = normalizeReturnValue(await fn._handler({ db } as never, body.args as never));
+      validateFunctionReturn(metadata.returns, value);
+      return await finishExecution(env.FLAREX_BACKEND, {
+        transport,
+        deploymentId,
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
+        sessionId: start.sessionId,
+        value,
+      });
+    } catch (error) {
+      await abortExecution(env.FLAREX_BACKEND, {
+        transport,
+        deploymentId,
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
+        sessionId: start.sessionId,
+      }).catch(() => undefined);
+      if (isRetryableInvokeAttempt(transport, startedKind, error)) {
+        if (attempt < maxAttempts) {
+          continue;
+        }
+        throw new InvokeRetryExhaustedError(maxAttempts, error);
+      }
+      throw error;
+    }
   }
+
+  throw new Error("Flarex invoke retry policy did not run any attempts.");
 }
 
 function executorTransport(request: Request, env: Env): ExecutorTransport {
@@ -596,6 +638,47 @@ function executionKind(start: ExecutionStartResponse): "query" | "mutation" {
   const kind = start.kind ?? start.function?.kind;
   if (kind === "query" || kind === "mutation") return kind;
   throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+function invokeMaxAttempts(
+  transport: ExecutorTransport,
+  kind: "query" | "mutation",
+  env: Env,
+): number {
+  if (transport !== "postgres" || kind !== "mutation") return 1;
+  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
+    return DEFAULT_INVOKE_MAX_ATTEMPTS;
+  }
+  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
+  }
+  return value;
+}
+
+function isRetryableInvokeAttempt(
+  transport: ExecutorTransport,
+  kind: "query" | "mutation",
+  error: unknown,
+): boolean {
+  return (
+    transport === "postgres" &&
+    kind === "mutation" &&
+    isRetryableInvokeError(error)
+  );
+}
+
+function isRetryableInvokeError(error: unknown): boolean {
+  if (error instanceof BackendRequestError) {
+    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
+  }
+  if (!isRecord(error)) return false;
+  const name = error.name;
+  const code = error.code;
+  return (
+    (typeof name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(name)) ||
+    (typeof code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(code))
+  );
 }
 
 async function finishExecution(
@@ -724,13 +807,36 @@ async function postBackend<T>(
   });
   const value = await response.json().catch(() => null);
   if (!response.ok) {
+    const code = backendErrorCode(value);
     const message =
-      typeof value === "object" && value !== null && "error" in value
-        ? String((value as { error: unknown }).error)
-        : \`Backend request failed with status \${response.status}\`;
-    throw new Error(message);
+      backendErrorMessage(value) ??
+      code ??
+      \`Backend request failed with status \${response.status}\`;
+    throw new BackendRequestError(response.status, code, message);
   }
   return value as T;
+}
+
+function backendErrorCode(value: unknown): string | undefined {
+  if (isRecord(value) && typeof value.error === "string") {
+    return value.error;
+  }
+  return undefined;
+}
+
+function backendErrorMessage(value: unknown): string | undefined {
+  if (isRecord(value) && typeof value.message === "string") {
+    return value.message;
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invokeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function authorizeInternalRequest(request: Request, env: Env): Response | null {
