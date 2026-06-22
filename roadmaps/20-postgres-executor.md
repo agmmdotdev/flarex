@@ -6580,3 +6580,87 @@ Verification:
 ```sh
 git diff --check
 ```
+
+## Mutation-Owned Live-Query Trigger Plan
+
+Previous completed checkpoint: `48d7261` Add live query trigger route.
+
+What changed:
+
+- Recorded that the trusted Postgres executor, not Cloudflare routing, must own
+  the production trigger for live-query invalidation.
+- Defined the next executor slice as post-commit stale subscription marking
+  plus trigger notification.
+- Kept the executor framework-neutral: trigger notification must be injected
+  by host/adapters, not hard-coded to Nitro, Vercel, or Cloudflare.
+
+Executor ownership rule:
+
+```txt
+mutation finish succeeds
+  -> OCC validates read set
+  -> writes and outbox/freshness metadata commit
+  -> executor marks matching live_query_subscriptions stale
+  -> executor invokes injected live-query trigger notifier
+```
+
+The executor must not notify before commit. Failed OCC validation, failed
+schema validation, aborted sessions, and thrown mutation errors must not create
+client-visible live-query transitions.
+
+Route ownership from executor point of view:
+
+| Boundary | Executor role |
+| --- | --- |
+| `/invoke/finish` | Own successful mutation commit, OCC validation, write publication, and post-commit hooks |
+| `live_query_subscriptions` | Own durable stale-state updates because the executor owns committed writes and freshness metadata |
+| `/scheduler/live-query-subscriptions/trigger` | Call through an injected notifier after stale rows exist |
+| `/maintenance/live-queries/rerun` | Serve `SchedulerDO` bounded rerun requests |
+| `live_query_deliveries` | Own durable delivery rows produced by changed reruns |
+| `/deployments/:deploymentId/sync/wake-delivery` | Notify Cloudflare only after durable delivery rows exist |
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit validates reads before writes become visible and appends write-log
+    data for subscriptions.
+- `crates/sync/src/worker.rs`
+  - sync work is scheduled from backend-owned invalidation state.
+- `crates/sync/src/state.rs`
+  - active query state suppresses unchanged rerun results through hashes.
+
+Flarex differences:
+
+- Convex can schedule invalidated query work inside the same backend process.
+  Flarex must split this into a durable Postgres commit, executor-owned stale
+  subscription state, and an injected Cloudflare trigger notifier.
+- The executor core should expose hooks/interfaces, while
+  `@flarex/executor-http`, `@flarex/executor-nitro`, or deployable hosts decide
+  how to call Cloudflare.
+
+Known limitations:
+
+- Current mutation finish does not yet drive stale subscription marking.
+- Current trigger route can be called manually, but no post-commit owner calls
+  it automatically.
+- Range/index read invalidation is not precise enough yet for all Convex query
+  shapes.
+
+First implementation plan:
+
+1. Add failing executor tests around successful mutation commit and failed
+   mutation/OCC paths.
+2. Implement stale subscription marking from committed write metadata using
+   existing live-query registry/freshness primitives.
+3. Add a framework-neutral post-commit hook interface, for example
+   `notifyLiveQueryInvalidated({ deploymentId, projectId })`.
+4. Wire HTTP/Nitro host config to call the Cloudflare trigger route, but keep
+   executor core independent from HTTP.
+5. Add an integration test through real adapter routes after core behavior is
+   proven.
+
+Verification:
+
+```sh
+git diff --check
+```

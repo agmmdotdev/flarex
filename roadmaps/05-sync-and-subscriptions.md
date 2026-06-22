@@ -389,6 +389,107 @@ corepack pnpm build
 git diff --check
 ```
 
+## Live-Query Route Ownership Matrix
+
+Previous completed checkpoint: `48d7261` Add live query trigger route.
+
+What changed:
+
+- Recorded the ownership rules for the current sync/live-query routes.
+- Separated implemented route mechanics from not-yet-wired production trigger
+  owners.
+- Chose mutation-owned invalidation as the next sync implementation slice.
+
+Route ownership:
+
+| Route or DO endpoint | Owner | Trigger timing | Status |
+| --- | --- | --- | --- |
+| `GET /deployments/:deploymentId/sync` | Flarex client SDK | Client starts, reconnects, or refreshes auth/session state | Partly implemented through `ConnectionDO` WebSocket path |
+| `ConnectionDO` query registration | `ConnectionDO` | Client adds/removes a live query over `/sync` | Partly implemented; durable registry integration is still incomplete |
+| `POST /invoke` and `POST /deployments/:deploymentId/invoke` | Generated client/server API or runtime bridge | Explicit query/mutation invocation | Implemented for current executor path |
+| mutation commit invalidation | Trusted executor | Only after a mutation commits successfully | Missing production owner logic |
+| `POST /scheduler/live-query-subscriptions/trigger` | Trusted executor commit/freshness producer | After commit marks one deployment's subscriptions stale | Route implemented; automatic caller missing |
+| `POST /scheduler/live-query-subscriptions/rerun` | Operator/test/maintenance tooling | Manual bounded stale-subscription rerun | Implemented as maintenance route |
+| `SchedulerDO /rerun/live-query-subscriptions` | Backend Worker only | Internal forwarding from trigger/rerun route | Implemented |
+| executor `/maintenance/live-queries/rerun` | `SchedulerDO` | Scheduler processes one bounded stale-subscription page | Implemented |
+| `POST /deployments/:deploymentId/sync/wake-delivery` | Executor rerun or delivery notifier | After durable delivery rows exist | Implemented; notification hook exists but is not yet commit-owned |
+| `DeliveryDO /wake` | Backend Worker only | Internal forwarding from wake route | Implemented |
+| `DeliveryDO /continue` and `DeliveryDO.alarm()` | `DeliveryDO` | Previous drain had more work or a retryable failure | Implemented |
+| `ConnectionDO /deliver/live-query` | `DeliveryDO` or direct backend delivery helper | After delivery rows are claimed and materialized payloads are ready | Implemented |
+| `POST /scheduler/live-query-deliveries/reconcile` | Cloudflare scheduled handler or operator | Lost wake recovery for pending delivery rows | Implemented as fallback |
+| `POST /scheduler/live-query-deliveries/dead-letter` | Scheduled/operator maintenance | Stuck delivery rows exceed policy | Implemented as maintenance |
+
+Target production hot path:
+
+```txt
+successful mutation commit
+  -> executor records committed write/outbox metadata
+  -> executor marks matching live_query_subscriptions stale
+  -> executor notifies Cloudflare trigger route
+  -> SchedulerDO reruns stale subscriptions
+  -> executor writes durable live_query_deliveries rows
+  -> SchedulerDO/notification wakes DeliveryDO
+  -> DeliveryDO claims, fans out, and acks
+  -> ConnectionDO emits Transition(QueryUpdated)
+```
+
+Why it changed:
+
+The previous checkpoints proved the lower sync pipeline, but the system is not
+live until mutation commit owns the invalidation trigger. Tests and manual
+routes can prove fanout mechanics, but production correctness requires a
+single owner that runs only after a successful commit.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns query invalidation, rerun pressure, and transition
+    production.
+- `crates/sync/src/state.rs`
+  - active query state stores subscriptions, invalidation futures, result
+    hashes, and transition dedupe.
+- `crates/database/src/committer.rs`
+  - commits validate reads before publishing writes and append write-log data
+    for subscriptions.
+
+Flarex differences:
+
+- Convex keeps invalidation scheduling internal to the backend database/sync
+  worker. Flarex must expose internal service boundaries because the trusted
+  Postgres executor, Cloudflare scheduler, delivery worker, and WebSocket
+  owner can be separate deployments.
+- Flarex route ownership must be explicit: clients own `/sync`, the executor
+  owns post-commit invalidation, `SchedulerDO` owns bounded reruns,
+  `DeliveryDO` owns fanout drain, and scheduler maintenance owns recovery.
+
+Known limitations:
+
+- Mutation commit does not yet mark durable live-query rows stale.
+- Mutation commit does not yet call
+  `/scheduler/live-query-subscriptions/trigger`.
+- Registry writes from `ConnectionDO` still need hardening before a full
+  WebSocket-to-mutation integration test can be authoritative.
+- Index/range invalidation remains coarse or unsupported.
+
+First implementation plan:
+
+1. Audit the successful mutation finish path and identify the exact committed
+   write/outbox metadata available after OCC validation.
+2. Add executor-core tests that fail until successful mutation commit marks
+   affected live-query subscriptions stale.
+3. Add an injected post-commit trigger notifier to the executor layer, keeping
+   the core framework-neutral and making HTTP/Nitro only adapter wiring.
+4. Wire the notifier to the existing Cloudflare trigger route in the host
+   configuration.
+5. Add an integration test proving mutation commit causes a WebSocket
+   `Transition` without manually calling scheduler routes.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

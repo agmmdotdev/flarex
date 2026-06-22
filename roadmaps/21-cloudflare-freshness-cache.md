@@ -1375,6 +1375,93 @@ corepack pnpm build
 git diff --check
 ```
 
+## Trigger Ownership And Recovery Routes
+
+Previous completed checkpoint: `48d7261` Add live query trigger route.
+
+What changed:
+
+- Recorded which Cloudflare freshness/sync routes are hot-path triggers and
+  which are recovery/maintenance boundaries.
+- Clarified that Cloudflare receives trigger notifications but does not decide
+  whether a mutation committed or which writes are authoritative.
+- Defined mutation-owned invalidation as the next production wiring step.
+
+Cloudflare route roles:
+
+| Route or worker | Hot path or recovery | Owner | When it fires |
+| --- | --- | --- | --- |
+| `/scheduler/live-query-subscriptions/trigger` | Hot path | Trusted executor or freshness producer | After post-commit stale subscription state exists |
+| `/scheduler/live-query-subscriptions/rerun` | Recovery/manual | Operator/test scheduler | Manual bounded rerun with explicit bounds |
+| `SchedulerDO /rerun/live-query-subscriptions` | Internal hot path | Backend Worker | Forwarded from trigger/rerun route |
+| `SchedulerDO /continue-live-query-reruns` and alarm | Hot path continuation | `SchedulerDO` | Previous rerun page reported more stale work or retry is needed |
+| `/deployments/:deploymentId/sync/wake-delivery` | Hot path | Executor delivery notifier | After durable delivery rows exist |
+| `DeliveryDO /wake` | Internal hot path | Backend Worker | Forwarded from wake route |
+| `DeliveryDO /continue` and alarm | Hot path continuation | `DeliveryDO` | Previous delivery drain had more rows or retry is needed |
+| `/scheduler/live-query-deliveries/reconcile` | Recovery | Cloudflare cron/operator | Pending delivery rows exist but wake notification was lost |
+| `/scheduler/live-query-deliveries/dead-letter` | Recovery | Operator/cron policy | Delivery rows are stuck past retry policy |
+| `ConnectionDO /deliver/live-query` | Internal fanout | `DeliveryDO` | Claimed delivery rows need to reach active sockets |
+
+Cloudflare must treat trigger notifications as hints backed by durable executor
+state:
+
+```txt
+trigger can be duplicated
+trigger can be delayed
+trigger can be lost
+durable Postgres subscription/delivery state decides what work exists
+```
+
+Why it changed:
+
+The route layer is now broad enough that unclear ownership would create bugs:
+premature transitions, lost updates, duplicate fanout, or serverless polling.
+The freshness/cache roadmap needs an explicit separation between normal
+post-commit triggers and recovery sweeps.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - the backend sync worker owns invalidation and transition scheduling.
+- `crates/sync/src/state.rs`
+  - sync state tracks invalidated queries and result-hash dedupe.
+- `crates/database/src/committer.rs`
+  - write publication and subscription-visible write-log data happen after
+    commit validation.
+
+Flarex differences:
+
+- Convex has no Cloudflare trigger route because backend sync is integrated.
+  Flarex uses explicit Cloudflare boundaries, but durable state remains in the
+  trusted executor/Postgres path.
+- Cloudflare DOs own scheduling, bounded continuation, and WebSocket proximity;
+  they do not own mutation correctness.
+
+Known limitations:
+
+- The trigger route exists, but no freshness projector or mutation commit path
+  calls it automatically.
+- Cloudflare freshness mirror DOs are still future work; current correctness
+  uses executor/Postgres state.
+- Reconcile and dead-letter are available, but policy cadence and operator
+  controls are still minimal.
+
+First implementation plan:
+
+1. Implement executor-owned stale subscription marking after successful
+   mutation commit.
+2. Inject a Cloudflare trigger notifier from the host into executor commit
+   completion.
+3. Keep `SchedulerDO` and `DeliveryDO` duplicate-safe by relying on durable
+   stale/delivery rows.
+4. Add a no-manual-scheduler integration test for mutation-to-transition.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead
