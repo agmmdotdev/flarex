@@ -622,6 +622,60 @@ corepack pnpm build
 git diff --check
 ```
 
+## Live-Query Trigger Route Boundary
+
+Previous completed checkpoint: `986442c` Continue stale live query reruns.
+
+What changed:
+
+- `packages/flarex-backend` now exposes
+  `POST /scheduler/live-query-subscriptions/trigger`.
+- The route is a Cloudflare backend boundary that forwards to `SchedulerDO`'s
+  existing bounded stale-rerun flow.
+- No executor-core API changed.
+
+Why it changed:
+
+- Future freshness projection or commit outbox workers need a stable runtime
+  boundary to wake live-query reruns without knowing executor internals or
+  `DeliveryDO` mechanics.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - update scheduling is internal to Convex's sync backend.
+- `crates/sync/src/state.rs`
+  - sync state owns query invalidation and subscription refill.
+
+Flarex differences:
+
+- Flarex has an explicit trigger boundary because the producer may live in
+  Cloudflare while stale scan/rerun/delivery-row creation remain executor
+  owned.
+- The trigger route is an alias into the Cloudflare scheduler flow, not a
+  duplicate delivery mechanism.
+
+Known limitations:
+
+- The actual producer hook is still future work.
+- The trigger route currently uses the same live-query delivery capability
+  token as delivery maintenance routes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "triggers stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Dead-Letter Reconnect Boundary
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

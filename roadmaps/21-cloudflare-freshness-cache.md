@@ -1313,6 +1313,68 @@ corepack pnpm build
 git diff --check
 ```
 
+## Freshness Trigger Boundary
+
+Previous completed checkpoint: `986442c` Continue stale live query reruns.
+
+What changed:
+
+- Added Cloudflare Worker route
+  `POST /scheduler/live-query-subscriptions/trigger`.
+- The trigger route accepts the same deployment/project/bounds input as rerun
+  maintenance and wakes the bounded `SchedulerDO` stale-rerun flow.
+- The focused sync test now proves this trigger route reaches durable delivery
+  fanout and produces a WebSocket `Transition`.
+
+Freshness impact:
+
+```txt
+future freshness producer sees deployment may be stale
+  -> POST /scheduler/live-query-subscriptions/trigger
+  -> SchedulerDO bounded rerun
+  -> executor records changed delivery rows
+  -> DeliveryDO drains rows
+  -> ConnectionDO sends Transition
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps invalidation scheduling inside the backend sync worker.
+- `crates/sync/src/state.rs`
+  - query invalidation state is internal to the sync runtime.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - browser clients only see the resulting transition stream.
+
+Flarex differences:
+
+- Flarex exposes a Cloudflare trigger route because freshness projection,
+  executor rerun, and WebSocket fanout are split across runtime boundaries.
+- The route does not compute freshness or inspect cache rows. It only starts
+  the existing bounded stale-rerun flow.
+
+Known limitations:
+
+- No freshness projector calls this trigger automatically yet.
+- The route is still protected by the live-query delivery token, not a separate
+  producer-scoped token.
+- Per-deployment scheduler naming is still a future scaling concern.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "triggers stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

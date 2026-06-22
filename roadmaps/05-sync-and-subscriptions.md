@@ -327,6 +327,68 @@ corepack pnpm build
 git diff --check
 ```
 
+## Live-Query Trigger Boundary
+
+Previous completed checkpoint: `986442c` Continue stale live query reruns.
+
+What changed:
+
+- Added public authenticated Worker route
+  `POST /scheduler/live-query-subscriptions/trigger`.
+- The trigger route forwards to the existing bounded `SchedulerDO`
+  stale-rerun flow instead of creating a second fanout path.
+- Updated the one-page fanout integration test to call the trigger route and
+  prove it produces a `QueryUpdated` `Transition` over an active `/sync`
+  WebSocket.
+
+Why it changed:
+
+- Freshness projection and future commit/outbox producers need a stable
+  Cloudflare boundary to request live-query reruns. Naming the route as a
+  trigger separates producer intent from the existing operator-oriented rerun
+  route while keeping the behavior identical and bounded.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync workers schedule updates after query-set changes or
+    invalidations.
+- `crates/sync/src/state.rs`
+  - sync state owns invalidated query tracking until a rerun refills the
+    subscription.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - clients observe query changes through normal `Transition` messages.
+
+Flarex differences:
+
+- Convex does not expose a trigger route because the backend sync worker owns
+  invalidation scheduling. Flarex exposes this explicit Cloudflare route so a
+  future freshness projector can wake `SchedulerDO` across the executor/backend
+  split.
+
+Known limitations:
+
+- This checkpoint adds the trigger boundary only. It does not yet wire the
+  freshness projector or commit outbox producer to call it automatically.
+- Trigger routing still targets the shared `scheduler:live-query-deliveries`
+  DO; future per-deployment scheduler naming may be needed for high-volume
+  producer fanout.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "triggers stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

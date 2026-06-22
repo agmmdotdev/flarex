@@ -910,7 +910,7 @@ describe("sync protocol", () => {
     ws.close();
   });
 
-  it("reruns stale live query subscriptions and fans out changed results", async () => {
+  it("triggers stale live query reruns and fans out changed results", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
     const deploymentId = "sync-rerun-fanout-deployment";
@@ -1027,7 +1027,7 @@ describe("sync protocol", () => {
 
     const delivered = nextJsonMessage(ws);
     const response = await harness.mf.dispatchFetch(
-      "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+      "http://flarex.test/scheduler/live-query-subscriptions/trigger",
       {
         method: "POST",
         headers: {
