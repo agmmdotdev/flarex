@@ -521,6 +521,7 @@ export class ConnectionDO extends DurableObject<Env> {
     if (query.readSet === undefined || query.resultJson === undefined) return;
     await postExecutor(this.env, "/live-query-subscriptions/record", {
       deploymentId,
+      projectId: requireProjectId(this.env),
       connectionId: connectionName,
       queryId: query.queryId,
       functionPath: query.udfPath,
@@ -539,6 +540,7 @@ export class ConnectionDO extends DurableObject<Env> {
   ): Promise<void> {
     await postExecutor(this.env, "/live-query-subscriptions/remove", {
       deploymentId,
+      projectId: requireProjectId(this.env),
       connectionId: connectionName,
       queryId,
     });
@@ -631,6 +633,13 @@ function requireDeploymentId(value: string | null): string {
 function requireConnectionName(value: string | null): string {
   if (value !== null) return value;
   throw new Error("Sync connection has not been initialized with a connection name.");
+}
+
+function requireProjectId(env: Env): string {
+  if (env.FLAREX_PROJECT_ID !== undefined && env.FLAREX_PROJECT_ID.length > 0) {
+    return env.FLAREX_PROJECT_ID;
+  }
+  throw new Error("FLAREX_PROJECT_ID is required when FLAREX_EXECUTOR is configured.");
 }
 
 function connectionNameFromRequest(request: Request): string {

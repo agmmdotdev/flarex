@@ -1429,6 +1429,8 @@ function parseLiveQuerySubscriptionRecordBody(
   const record = body as Record<string, unknown>;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
   const connectionId = requiredString(record, "connectionId");
   if ("error" in connectionId) return connectionId;
   const queryId = requiredNonNegativeInteger(record, "queryId");
@@ -1441,7 +1443,7 @@ function parseLiveQuerySubscriptionRecordBody(
   if ("error" in partitionKey) return partitionKey;
   const beginTs = requiredNonNegativeInteger(record, "beginTs");
   if ("error" in beginTs) return beginTs;
-  const readSet = requiredJsonObject(record.readSet, "readSet");
+  const readSet = requiredFreshnessReadSet(record.readSet, "readSet");
   if ("error" in readSet) return readSet;
   const resultJson = jsonValue(record.resultJson, "resultJson");
   if ("error" in resultJson) return resultJson;
@@ -1451,6 +1453,7 @@ function parseLiveQuerySubscriptionRecordBody(
   return {
     value: {
       deploymentId: deploymentId.value,
+      projectId: projectId.value,
       connectionId: connectionId.value,
       queryId: queryId.value,
       functionPath: functionPath.value,
@@ -1459,7 +1462,7 @@ function parseLiveQuerySubscriptionRecordBody(
         ? {}
         : { partitionKey: partitionKey.value }),
       beginTs: beginTs.value,
-      readSet: readSet.value as RecordLiveQuerySubscriptionInput["readSet"],
+      readSet: readSet.value,
       resultJson: resultJson.value,
       ...(updatedAt.value === undefined ? {} : { updatedAt: updatedAt.value }),
     },
@@ -1482,6 +1485,8 @@ function parseLiveQuerySubscriptionRemoveBody(
   const record = body as Record<string, unknown>;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
   const connectionId = requiredString(record, "connectionId");
   if ("error" in connectionId) return connectionId;
   const queryId = requiredNonNegativeInteger(record, "queryId");
@@ -1490,6 +1495,7 @@ function parseLiveQuerySubscriptionRemoveBody(
   return {
     value: {
       deploymentId: deploymentId.value,
+      projectId: projectId.value,
       connectionId: connectionId.value,
       queryId: queryId.value,
     },
@@ -2165,6 +2171,168 @@ function requiredJsonObject(
     };
   }
   return { value: parsed.value };
+}
+
+function requiredFreshnessReadSet(
+  value: unknown,
+  field: string,
+):
+  | { value: RecordLiveQuerySubscriptionInput["readSet"] }
+  | { error: { error: "bad_request"; message: string } } {
+  const parsed = requiredJsonObject(value, field);
+  if ("error" in parsed) return parsed;
+  const documents = optionalDocumentReadSet(parsed.value.documents, `${field}.documents`);
+  if ("error" in documents) return documents;
+  const tables = optionalTableReadSet(parsed.value.tables, `${field}.tables`);
+  if ("error" in tables) return tables;
+  const indexes = optionalIndexReadSet(parsed.value.indexes, `${field}.indexes`);
+  if ("error" in indexes) return indexes;
+  return {
+    value: {
+      ...(documents.value === undefined ? {} : { documents: documents.value }),
+      ...(tables.value === undefined ? {} : { tables: tables.value }),
+      ...(indexes.value === undefined ? {} : { indexes: indexes.value }),
+    },
+  };
+}
+
+function optionalDocumentReadSet(
+  value: unknown,
+  field: string,
+):
+  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["documents"]> }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  const documents: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["documents"]> = [];
+  for (const [index, item] of value.entries()) {
+    const record = itemRecord(item, `${field}[${index}]`);
+    if ("error" in record) return record;
+    const tableId = requiredNonNegativeInteger(record.value, "tableId");
+    if ("error" in tableId) return prefixBadRequest(tableId, `${field}[${index}].`);
+    const id = requiredString(record.value, "id");
+    if ("error" in id) return prefixBadRequest(id, `${field}[${index}].`);
+    const observedTs = optionalObservedTs(record.value.observedTs, `${field}[${index}].observedTs`);
+    if ("error" in observedTs) return observedTs;
+    documents.push({
+      tableId: tableId.value,
+      id: id.value,
+      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
+    });
+  }
+  return { value: documents };
+}
+
+function optionalTableReadSet(
+  value: unknown,
+  field: string,
+):
+  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["tables"]> }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  const tables: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["tables"]> = [];
+  for (const [index, item] of value.entries()) {
+    const record = itemRecord(item, `${field}[${index}]`);
+    if ("error" in record) return record;
+    const tableId = requiredNonNegativeInteger(record.value, "tableId");
+    if ("error" in tableId) return prefixBadRequest(tableId, `${field}[${index}].`);
+    const observedTs = optionalNonNegativeInteger(
+      record.value.observedTs,
+      `${field}[${index}].observedTs`,
+    );
+    if ("error" in observedTs) return observedTs;
+    tables.push({
+      tableId: tableId.value,
+      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
+    });
+  }
+  return { value: tables };
+}
+
+function optionalIndexReadSet(
+  value: unknown,
+  field: string,
+):
+  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["indexes"]> }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  const indexes: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["indexes"]> = [];
+  for (const [index, item] of value.entries()) {
+    const record = itemRecord(item, `${field}[${index}]`);
+    if ("error" in record) return record;
+    const indexId = requiredNonNegativeInteger(record.value, "indexId");
+    if ("error" in indexId) return prefixBadRequest(indexId, `${field}[${index}].`);
+    const observedTs = optionalNonNegativeInteger(
+      record.value.observedTs,
+      `${field}[${index}].observedTs`,
+    );
+    if ("error" in observedTs) return observedTs;
+    const lower = optionalString(record.value.lower, `${field}[${index}].lower`);
+    if ("error" in lower) return lower;
+    const upper = optionalString(record.value.upper, `${field}[${index}].upper`);
+    if ("error" in upper) return upper;
+    indexes.push({
+      indexId: indexId.value,
+      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
+      ...(lower.value === undefined ? {} : { lower: lower.value }),
+      ...(upper.value === undefined ? {} : { upper: upper.value }),
+    });
+  }
+  return { value: indexes };
+}
+
+function itemRecord(
+  value: unknown,
+  field: string,
+):
+  | { value: Record<string, unknown> }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return { value: value as Record<string, unknown> };
+  }
+  return badRequest(`${field} must be an object.`);
+}
+
+function optionalObservedTs(
+  value: unknown,
+  field: string,
+):
+  | { value?: number | null }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (value === null) return { value: null };
+  return optionalNonNegativeInteger(value, field);
+}
+
+function optionalNonNegativeInteger(
+  value: unknown,
+  field: string,
+):
+  | { value?: number }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 0
+  ) {
+    return badRequest(`${field} must be a non-negative integer.`);
+  }
+  return { value };
+}
+
+function badRequest(message: string): { error: { error: "bad_request"; message: string } } {
+  return { error: { error: "bad_request", message } };
+}
+
+function prefixBadRequest(
+  result: { error: { error: "bad_request"; message: string } },
+  prefix: string,
+): { error: { error: "bad_request"; message: string } } {
+  return badRequest(`${prefix}${result.error.message}`);
 }
 
 function isJson(value: unknown): value is Json {

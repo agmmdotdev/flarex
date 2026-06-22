@@ -256,6 +256,7 @@ describe("sync protocol", () => {
         authorization: "Bearer executor-secret",
         body: {
           deploymentId: "sync-executor-subscription-deployment",
+          projectId: "project_sync",
           connectionId:
             "connection:sync-executor-subscription-deployment:executor-sub-session",
           queryId: 17,
@@ -272,6 +273,7 @@ describe("sync protocol", () => {
         authorization: "Bearer executor-secret",
         body: {
           deploymentId: "sync-executor-subscription-deployment",
+          projectId: "project_sync",
           connectionId:
             "connection:sync-executor-subscription-deployment:executor-sub-session",
           queryId: 17,
@@ -1644,6 +1646,7 @@ describe("sync protocol", () => {
         authorization: "Bearer executor-secret",
         body: {
           deploymentId,
+          projectId: "project_sync",
           connectionId,
           queryId: 23,
         },
@@ -2142,6 +2145,7 @@ async function createSyncHarness(
   return createBackendHarness({
     bindings: {
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret",
+      FLAREX_PROJECT_ID: "project_sync",
       ...options.bindings,
     },
     r2Buckets: ["ARTIFACTS"],

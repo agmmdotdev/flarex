@@ -223,6 +223,7 @@ describe("createLocalExecutorHttpRuntime", () => {
 
     const initial = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment-pglite-live",
+      projectId: "project-pglite-live",
       connectionId: "connection-pglite",
       queryId: 1,
       functionPath: "messages:get",
@@ -381,6 +382,7 @@ describe("createLocalExecutorHttpRuntime", () => {
       });
       await runtime.executor.recordLiveQuerySubscription({
         deploymentId: "deployment-pglite-trigger",
+        projectId: "project-pglite-trigger",
         connectionId: "connection-pglite-trigger",
         queryId: 1,
         functionPath: "messages:get",

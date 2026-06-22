@@ -205,6 +205,67 @@ Verification:
 git diff --check
 ```
 
+## Executor Subscription Registry HTTP Boundary
+
+Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
+handling and executor integration.
+
+What changed:
+
+- Recorded the executor HTTP endpoints added in `09eb59c`:
+  `/live-query-subscriptions/record` and
+  `/live-query-subscriptions/remove`.
+- These endpoints map directly to `FlarexExecutor.recordLiveQuerySubscription`
+  and `FlarexExecutor.removeLiveQuerySubscription`.
+- The record endpoint accepts the query function path, args JSON, partition
+  key, begin timestamp, read set, and result JSON produced by the query
+  execution boundary.
+- The remove endpoint deletes the durable subscription by deployment,
+  connection, and query id.
+- Record/remove inputs carry `projectId`; executor core validates deployment
+  ownership before subscription rows are inserted or deleted.
+- The HTTP boundary validates supported freshness read-set shapes before
+  calling executor core, so malformed internal requests return `400`.
+- HTTP tests now validate auth, request parsing, method handling, and executor
+  delegation for these subscription routes.
+
+Why it changed:
+
+The executor owns committed write freshness and stale subscription scans. It
+therefore also needs the durable active-subscription registry populated by
+WebSocket connections, without importing Cloudflare backend code or PGlite into
+`ConnectionDO`.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit state drives query invalidation after OCC success.
+- `crates/sync/src/worker.rs`
+  - sync worker processes active subscriptions from backend-owned state.
+- `crates/sync/src/state.rs`
+  - query result hashes are part of unchanged-result suppression.
+
+Flarex differences:
+
+- Convex does not expose an HTTP subscription registry route because its sync
+  and database runtimes are colocated. Flarex exposes this as a trusted
+  internal executor boundary for Cloudflare ConnectionDOs and other hosts.
+- The route is framework-neutral in `@flarex/executor-http`; Nitro/Vercel and
+  local dev can reuse it without owning persistence logic.
+
+Known limitations:
+
+- The route shape is internal and not yet wrapped by the Nitro adapter.
+- Index/range freshness still needs precise Postgres metadata before all query
+  shapes can safely use this registry for live updates.
+
+Verification:
+
+```sh
+pnpm --filter @flarex/executor-http test
+pnpm --filter flarex-backend test -- sync.test.ts
+```
+
 ## Post-Commit Live-Query Invalidation Hook
 
 Previous completed checkpoint: `5437ca8` Document live query route ownership.

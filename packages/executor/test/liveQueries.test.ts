@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import type { DocumentRevisionRecord } from "@flarex/persistence-postgres";
 import {
-  createFlarexExecutor,
+  createFlarexExecutor as createBaseFlarexExecutor,
   DeploymentProjectMismatchError,
   fingerprintJson,
   LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
+  type RecordLiveQuerySubscriptionInput,
+  type RemoveLiveQuerySubscriptionInput,
 } from "../src";
 import {
   deploymentMetadata,
@@ -18,7 +20,7 @@ import {
 describe("executor live query subscriptions", () => {
   it("records a live query subscription with timestamped read set and result hash", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await expect(
       executor.recordLiveQuerySubscription({
@@ -74,7 +76,7 @@ describe("executor live query subscriptions", () => {
 
   it("preserves richer read-set timestamps while recording", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_rich_readset",
@@ -106,7 +108,7 @@ describe("executor live query subscriptions", () => {
 
   it("replaces and removes recorded live query subscriptions", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_replace_live_query",
@@ -169,7 +171,7 @@ describe("executor live query subscriptions", () => {
 
   it("classifies live query subscriptions by freshness", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -285,7 +287,7 @@ describe("executor live query subscriptions", () => {
 
   it("reruns a live query subscription and reports changed results", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const initial = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_rerun_changed",
       connectionId: "connection_a",
@@ -413,7 +415,7 @@ describe("executor live query subscriptions", () => {
 
   it("claims and acks live query deliveries without owning fanout", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({
+    const executor = createLiveQueryExecutor({
       persistence,
       clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
     });
@@ -474,7 +476,7 @@ describe("executor live query subscriptions", () => {
 
   it("lists deployments with pending live query delivery rows", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const first = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_pending_a",
       connectionId: "connection_a",
@@ -549,7 +551,7 @@ describe("executor live query subscriptions", () => {
   });
 
   it("validates live query delivery claim limits", async () => {
-    const executor = createFlarexExecutor({ persistence: memoryPersistence() });
+    const executor = createLiveQueryExecutor({ persistence: memoryPersistence() });
 
     await expect(
       executor.claimLiveQueryDeliveryBatch({
@@ -566,7 +568,7 @@ describe("executor live query subscriptions", () => {
 
   it("reruns a live query subscription and refreshes unchanged results", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const initial = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_rerun_unchanged",
       connectionId: "connection_a",
@@ -640,7 +642,7 @@ describe("executor live query subscriptions", () => {
       ],
     );
     let nextSession = 0;
-    const executor = createFlarexExecutor({
+    const executor = createLiveQueryExecutor({
       clock: { now: () => new Date(20) },
       ids: { nextId: () => `session_live_query_${++nextSession}` },
       persistence,
@@ -690,7 +692,7 @@ describe("executor live query subscriptions", () => {
   });
 
   it("rejects invoke-backed live query reruns without partition keys", async () => {
-    const executor = createFlarexExecutor({ persistence: memoryPersistence() });
+    const executor = createLiveQueryExecutor({ persistence: memoryPersistence() });
     const recorded = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_missing_partition",
       connectionId: "connection_a",
@@ -719,9 +721,10 @@ describe("executor live query subscriptions", () => {
         activeSchemaVersion: 1,
       }),
     ]);
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const recorded = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_project_mismatch",
+      projectId: "project_actual",
       connectionId: "connection_a",
       queryId: 1,
       functionPath: "messages:list",
@@ -743,7 +746,7 @@ describe("executor live query subscriptions", () => {
 
   it("reruns stale live query subscriptions in limited batches", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -908,7 +911,7 @@ describe("executor live query subscriptions", () => {
 
   it("reruns stale live query subscriptions and reports unchanged rows", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -963,7 +966,7 @@ describe("executor live query subscriptions", () => {
 
   it("keeps durable live query deliveries when immediate delivery fails", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -1026,7 +1029,7 @@ describe("executor live query subscriptions", () => {
 
   it("records live query delivery failure attempts while keeping rows pending", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -1096,7 +1099,7 @@ describe("executor live query subscriptions", () => {
 
   it("lists stuck live query delivery candidates", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await freshnessStore.applyCommitFreshness({
@@ -1162,7 +1165,7 @@ describe("executor live query subscriptions", () => {
 
   it("dead-letters stuck live query deliveries and returns reconnect targets", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({
+    const executor = createLiveQueryExecutor({
       persistence,
       clock: { now: () => new Date("2026-06-20T00:10:00.000Z") },
     });
@@ -1244,7 +1247,7 @@ describe("executor live query subscriptions", () => {
 
   it("rejects invalid live query delivery failure reports", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await expect(
       executor.recordLiveQueryDeliveryFailure({
@@ -1259,7 +1262,7 @@ describe("executor live query subscriptions", () => {
 
   it("rejects invalid live query delivery dead-letter requests", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await expect(
       executor.deadLetterStuckLiveQueryDeliveries({
@@ -1272,7 +1275,7 @@ describe("executor live query subscriptions", () => {
 
   it("rejects invalid stuck live query delivery limits", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
 
     await expect(
       executor.listStuckLiveQueryDeliveries({
@@ -1285,7 +1288,7 @@ describe("executor live query subscriptions", () => {
 
   it("rejects invalid stale live query rerun limits", async () => {
     const persistence = memoryPersistence();
-    const executor = createFlarexExecutor({ persistence });
+    const executor = createLiveQueryExecutor({ persistence });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await expect(
@@ -1348,5 +1351,30 @@ function documentRevision(
     deleted: false,
     prevTs: null,
     ...overrides,
+  };
+}
+
+function createLiveQueryExecutor(
+  config: Parameters<typeof createBaseFlarexExecutor>[0],
+) {
+  const executor = createBaseFlarexExecutor(config);
+  return {
+    ...executor,
+    recordLiveQuerySubscription: (
+      input: Omit<RecordLiveQuerySubscriptionInput, "projectId"> &
+        Partial<Pick<RecordLiveQuerySubscriptionInput, "projectId">>,
+    ) =>
+      executor.recordLiveQuerySubscription({
+        projectId: "project_live_query",
+        ...input,
+      }),
+    removeLiveQuerySubscription: (
+      input: Omit<RemoveLiveQuerySubscriptionInput, "projectId"> &
+        Partial<Pick<RemoveLiveQuerySubscriptionInput, "projectId">>,
+    ) =>
+      executor.removeLiveQuerySubscription({
+        projectId: "project_live_query",
+        ...input,
+      }),
   };
 }

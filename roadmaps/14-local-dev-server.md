@@ -1107,3 +1107,61 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
 ```
+
+## Local Dev Postgres Executor Sync Path
+
+Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
+handling and executor integration.
+
+What changed:
+
+- Recorded the new opt-in `createFlarexDevRuntime({ executorTransport:
+  "postgres" })` path introduced in `09eb59c`.
+- Local dev can now compose three runtimes: backend Miniflare, generated app
+  Miniflare, and a PGlite-backed executor HTTP runtime.
+- Reload registers and activates the pushed source package in the local
+  executor so materialized Dynamic Worker code can run against
+  `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
+- The example app now has a simple `lessons:allProgress` table-scan query used
+  by the local dev integration test.
+- The dev test opens `/__flarex_dev/sync`, subscribes to a generated query,
+  sends a generated mutation, and observes both the mutation response and the
+  live-query transition without manually calling scheduler routes.
+
+Why it changed:
+
+The prior helper proved executor HTTP trigger wiring in isolation, but local
+dev still needed the actual app/backend/executor composition that developers
+will use. This moves the dev server closer to Convex's single local backend
+mental model while preserving Flarex's split runtime.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev routes client calls through backend-owned dev services.
+- `crates/local_backend/src/lib.rs`
+  - local backend execution uses the same semantic boundary as hosted
+    execution.
+- `crates/sync/src/worker.rs`
+  - live query updates are backend-driven, not client-polled.
+
+Flarex differences:
+
+- Convex local dev runs in one integrated Rust backend. Flarex local dev
+  composes Miniflare Workers/DOs with a local PGlite executor HTTP runtime.
+- Developers still do not write Worker code or Wrangler config; this is an
+  internal dev-runtime composition owned by Flarex tooling.
+
+Known limitations:
+
+- The opt-in local Postgres path is tested through table-read freshness only.
+  Index/range freshness remains a separate executor/freshness task.
+- The test asserts Convex-style ordering: the mutation response arrives before
+  the later live-query transition.
+
+Verification:
+
+```sh
+pnpm --filter flarex-dev typecheck
+pnpm --filter flarex-dev test -- dev.test.ts
+```

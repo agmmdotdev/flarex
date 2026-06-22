@@ -941,6 +941,61 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
 ```
 
+## Postgres Transport Materialized Execution In Local Dev
+
+Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
+handling and executor integration.
+
+What changed:
+
+- Recorded the `09eb59c` materialized execution changes that let local Dynamic
+  Worker artifacts use the Postgres executor transport.
+- Generated workers and materialized runtime workers normalize `undefined`
+  handler returns to JSON `null` before `/invoke/finish`, matching mutation
+  handlers that intentionally return nothing.
+- Local dev now registers the pushed source package in the PGlite executor so
+  scheduler reruns can materialize and execute the same source package through
+  the executor session API.
+- The local `/__flarex_dev/sync` test proves generated user code executes
+  through the Postgres executor boundary and produces a live query update.
+
+Why it changed:
+
+Dynamic Worker execution must not receive a raw database handle. User code
+should run against a scoped syscall client, and the trusted executor should own
+session state, OCC, validation, persistence, freshness, and commit hooks.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - function execution is mediated by backend runner infrastructure.
+- `crates/isolate/src/lib.rs`
+  - user code runs in an isolated execution boundary.
+- `crates/database/src/committer.rs`
+  - the database commit path owns validation and publication.
+
+Flarex differences:
+
+- Convex colocates isolate execution and database commit work in the backend.
+  Flarex local dev materializes user modules in Miniflare and sends syscalls to
+  a PGlite-backed executor HTTP runtime.
+- `undefined` returns must cross an HTTP JSON boundary, so Flarex normalizes
+  them to `null` before finish.
+
+Known limitations:
+
+- This is still local/test Dynamic Worker materialization, not hosted
+  Cloudflare Dynamic Worker deployment.
+- Query rerun freshness currently proves table reads; index/range read
+  precision remains future work.
+
+Verification:
+
+```sh
+pnpm --filter flarex-dev typecheck
+pnpm --filter flarex-dev test -- dev.test.ts
+```
+
 ## Runtime `ctx.db.replace` Syscall
 
 Previous completed checkpoint: `0e3b118` Add invoke replace syscall.

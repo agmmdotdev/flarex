@@ -464,7 +464,12 @@ async function runLiveQueryInvalidationHook(
         tableIds: Array.from(new Set(input.writes.map(write => write.tableId))),
       });
     }
-    await config.notifyTrigger?.(input);
+    const notify = config.notifyTrigger?.(input);
+    if (notify !== undefined) {
+      void Promise.resolve(notify).catch(error => {
+        void config.onError?.({ ...input, error });
+      });
+    }
   } catch (error) {
     await config.onError?.({ ...input, error });
   }

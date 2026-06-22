@@ -12,6 +12,7 @@ import {
   DeploymentProjectMismatchError,
   LiveQuerySubscriptionRerunError,
 } from "./errors";
+import { ensureDeployment } from "./deployments";
 import { runInvokeWithRetries } from "./retry";
 import type {
   Clock,
@@ -36,6 +37,7 @@ export async function recordLiveQuerySubscription(
   persistence: FlarexExecutorPersistence,
   input: RecordLiveQuerySubscriptionInput,
 ): Promise<RecordLiveQuerySubscriptionResult> {
+  await assertLiveQueryDeploymentProject(persistence, input);
   const readSet = readSetToFreshnessReadSet(input.readSet, input.beginTs);
   const resultHash = fingerprintJson(input.resultJson);
   const subscription = await persistence.upsertLiveQuerySubscription({
@@ -62,7 +64,15 @@ export async function removeLiveQuerySubscription(
   persistence: FlarexExecutorPersistence,
   input: RemoveLiveQuerySubscriptionInput,
 ): Promise<DeleteLiveQuerySubscriptionResult> {
+  await assertLiveQueryDeploymentProject(persistence, input);
   return await persistence.deleteLiveQuerySubscription(input);
+}
+
+async function assertLiveQueryDeploymentProject(
+  persistence: FlarexExecutorPersistence,
+  input: { deploymentId: string; projectId: string },
+): Promise<void> {
+  await ensureDeployment(persistence, input);
 }
 
 export async function findStaleLiveQuerySubscriptions(

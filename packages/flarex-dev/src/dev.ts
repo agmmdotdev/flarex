@@ -416,6 +416,7 @@ async function createBackendMiniflare(
         ? {}
         : {
             FLAREX_EXECUTOR_TOKEN: executorToken,
+            FLAREX_PROJECT_ID: projectId,
             FLAREX_LIVE_QUERY_DELIVERY_TOKEN: liveQueryDeliveryToken,
           }),
     },

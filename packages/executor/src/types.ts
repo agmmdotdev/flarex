@@ -415,6 +415,7 @@ export interface DeadLetterStuckLiveQueryDeliveriesResult {
 
 export interface RecordLiveQuerySubscriptionInput {
   deploymentId: string;
+  projectId: string;
   connectionId: string;
   queryId: number;
   functionPath: string;
@@ -431,7 +432,9 @@ export interface RecordLiveQuerySubscriptionResult {
   resultHash: string;
 }
 
-export type RemoveLiveQuerySubscriptionInput = LiveQuerySubscriptionKey;
+export type RemoveLiveQuerySubscriptionInput = LiveQuerySubscriptionKey & {
+  projectId: string;
+};
 
 export interface FindStaleLiveQuerySubscriptionsInput {
   deploymentId: string;

@@ -718,6 +718,7 @@ describe("executor invoke sessions", () => {
 
     await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_session",
+      projectId: "project_session",
       connectionId: "connection:deployment_session:session_1",
       queryId: 1,
       functionPath: "teams:list",

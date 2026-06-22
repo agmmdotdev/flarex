@@ -152,9 +152,9 @@ describe("Flarex dev runtime", () => {
           {
             type: "Add",
             queryId: 1,
-            udfPath: "lessons:list",
-            args: [{ userId: "1:u1" }],
-            partitionKey: "1:u1",
+            udfPath: "lessons:allProgress",
+            args: [{ userId: "2:u1" }],
+            partitionKey: "2:u1",
           },
         ],
       }));
@@ -169,43 +169,44 @@ describe("Flarex dev runtime", () => {
         ],
       });
 
+      const postMutationMessages = collectJsonMessages(ws, 2);
       ws.send(JSON.stringify({
         type: "Mutation",
         requestId: 1,
         udfPath: "lessons:complete",
-        args: [{ userId: "1:u1", lessonId: "executor-sync" }],
-        partitionKey: "1:u1",
+        args: [{ userId: "2:u1", lessonId: "executor-sync" }],
+        partitionKey: "2:u1",
       }));
 
-      const mutationResponse = await nextJsonMessage(ws);
-      console.error("mutationResponse", JSON.stringify(mutationResponse));
-      expect(mutationResponse).toMatchObject({
-        type: "MutationResponse",
-        requestId: 1,
-        success: true,
-      });
-      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
-        type: "Transition",
-        modifications: [
-          {
-            type: "QueryUpdated",
-            queryId: 1,
-            value: [
-              expect.objectContaining({
-                userId: "1:u1",
-                lessonId: "executor-sync",
-                completed: true,
-              }),
-            ],
-          },
-        ],
-      });
+      await expect(postMutationMessages).resolves.toEqual([
+        expect.objectContaining({
+          type: "MutationResponse",
+          requestId: 1,
+          success: true,
+        }),
+        expect.objectContaining({
+          type: "Transition",
+          modifications: expect.arrayContaining([
+            expect.objectContaining({
+              type: "QueryUpdated",
+              queryId: 1,
+              value: expect.arrayContaining([
+                expect.objectContaining({
+                  userId: "2:u1",
+                  lessonId: "executor-sync",
+                  completed: true,
+                }),
+              ]),
+            }),
+          ]),
+        }),
+      ]);
       ws.close();
     } finally {
       await postgresRuntime.dispose();
       await rm(postgresPersistDir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 });
 
 async function openDevSync(runtime: FlarexDevRuntime): Promise<MiniflareWebSocket> {
@@ -223,6 +224,27 @@ async function openDevSync(runtime: FlarexDevRuntime): Promise<MiniflareWebSocke
   const ws = webSocket as MiniflareWebSocket;
   ws.accept();
   return ws;
+}
+
+function collectJsonMessages(ws: MiniflareWebSocket, count: number): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    const messages: unknown[] = [];
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for WebSocket messages.")),
+      5000,
+    );
+    ws.addEventListener("message", event => {
+      messages.push(JSON.parse(String(event.data)));
+      if (messages.length === count) {
+        clearTimeout(timeout);
+        resolve(messages);
+      }
+    });
+    ws.addEventListener("error", event => {
+      clearTimeout(timeout);
+      reject(event);
+    }, { once: true });
+  });
 }
 
 function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {

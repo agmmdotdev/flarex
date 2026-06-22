@@ -192,6 +192,73 @@ Verification:
 git diff --check
 ```
 
+## Executor-Owned WebSocket Subscription Registry
+
+Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
+handling and executor integration.
+
+What changed:
+
+- Recorded the executor-backed `/sync` subscription boundary introduced in
+  `09eb59c`.
+- `ConnectionDO` now records active WebSocket queries with the configured
+  executor through `/live-query-subscriptions/record` and removes them through
+  `/live-query-subscriptions/remove`.
+- In executor-backed mode, successful mutations no longer run the old immediate
+  PartitionDO rerun path; committed writes flow through freshness invalidation,
+  scheduler rerun, durable delivery rows, and ConnectionDO fanout.
+- Existing delivery/reconcile/dead-letter sync tests now account for the
+  subscription registry call that happens during query setup.
+- The local dev integration test now uses a supported table-scan query so the
+  full durable fanout path can be proven before index freshness is hardened.
+- Subscription registry writes now carry `projectId` and validate deployment
+  ownership through the executor before mutating durable subscription rows.
+- Mutation commit applies freshness before returning, but external trigger
+  delivery is decoupled so a WebSocket mutation response is sent before the
+  later live-query transition.
+
+Why it changed:
+
+The Postgres executor is the forward authoritative sync path. WebSocket
+subscriptions must be discoverable by the executor's stale-subscription scan;
+keeping them only in PartitionDO state would leave the durable scheduler path
+unable to find real client subscriptions.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - backend-owned sync workers rerun invalidated queries from authoritative
+    subscription state.
+- `crates/sync/src/state.rs`
+  - query result hashes suppress unchanged transitions.
+- `crates/database/src/committer.rs`
+  - write publication and sync invalidation are downstream of a successful
+    commit.
+
+Flarex differences:
+
+- Convex keeps subscription and invalidation work inside the Rust backend.
+  Flarex splits it across `ConnectionDO`, executor HTTP maintenance routes,
+  `SchedulerDO`, `DeliveryDO`, and durable Postgres/PGlite rows.
+- Convex has an integrated scheduler; Flarex's external trigger notification
+  is intentionally asynchronous after durable freshness is applied so mutation
+  responses keep Convex-style ordering ahead of subscription transitions.
+
+Known limitations:
+
+- Index/range freshness remains unsupported for the full durable fanout test;
+  the integration uses a table read until index freshness semantics are
+  completed.
+- Subscription record/remove are currently HTTP executor endpoints. The hosted
+  production adapter still needs the same routes wired through Nitro/Vercel.
+
+Verification:
+
+```sh
+pnpm --filter flarex-backend test -- sync.test.ts
+pnpm --filter flarex-dev test -- dev.test.ts
+```
+
 ## Stale Rerun To WebSocket Fanout
 
 Previous completed checkpoint: `0139e0d` Wire live query dead-letter

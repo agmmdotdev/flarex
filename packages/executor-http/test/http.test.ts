@@ -1109,7 +1109,7 @@ describe("createFlarexHttpApp", () => {
               argsJson: input.argsJson,
               partitionKey: input.partitionKey ?? null,
               beginTs: input.beginTs,
-              readSetJson: input.readSet,
+              readSetJson: input.readSet as unknown as Record<string, unknown>,
               resultJson: input.resultJson,
             }),
             resultHash: "\"fresh\"",
@@ -1124,6 +1124,7 @@ describe("createFlarexHttpApp", () => {
         "https://executor.test/live-query-subscriptions/record",
         {
           deploymentId: "deployment_active",
+          projectId: "project_active",
           connectionId: "connection_a",
           queryId: 7,
           functionPath: "messages:list",
@@ -1141,6 +1142,7 @@ describe("createFlarexHttpApp", () => {
     expect(calls).toEqual([
       {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         connectionId: "connection_a",
         queryId: 7,
         functionPath: "messages:list",
@@ -1167,7 +1169,7 @@ describe("createFlarexHttpApp", () => {
       executor: fakeExecutor({
         async removeLiveQuerySubscription(input) {
           calls.push(input);
-          return { deleted: true };
+          return { deleted: 1 };
         },
       }),
     });
@@ -1175,6 +1177,7 @@ describe("createFlarexHttpApp", () => {
     const response = await app.handle(
       jsonRequest("https://executor.test/live-query-subscriptions/remove", {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         connectionId: "connection_a",
         queryId: 7,
       }),
@@ -1184,11 +1187,12 @@ describe("createFlarexHttpApp", () => {
     expect(calls).toEqual([
       {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         connectionId: "connection_a",
         queryId: 7,
       },
     ]);
-    await expect(response.json()).resolves.toEqual({ deleted: true });
+    await expect(response.json()).resolves.toEqual({ deleted: 1 });
   });
 
   it("validates live query subscription record requests before calling the executor", async () => {
@@ -1205,6 +1209,7 @@ describe("createFlarexHttpApp", () => {
     const response = await app.handle(
       jsonRequest("https://executor.test/live-query-subscriptions/record", {
         deploymentId: "deployment_active",
+        projectId: "project_active",
         connectionId: "connection_a",
         queryId: -1,
         functionPath: "messages:list",
@@ -1220,6 +1225,39 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
       message: "queryId must be a non-negative integer.",
+    });
+  });
+
+  it("validates live query subscription read-set shape before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQuerySubscription() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-subscriptions/record", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 12,
+        readSet: { documents: "bad" },
+        resultJson: null,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "readSet.documents must be an array.",
     });
   });
 
