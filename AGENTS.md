@@ -4,6 +4,8 @@ These are operating rules for future agents working in this workspace. Feature
 design records, implementation notes, Convex references, and Cloudflare
 differences belong in `roadmaps/`, not in this file.
 
+After completing a meaningful implementation step or before preparing a commit, spawn both project custom reviewer subagents: typescript-diff-reviewer and code-quality-diff-reviewer. They must review only the current uncommitted diff and return read-only findings to the main thread. The main thread owns any follow-up edits: triage their recommendations, apply the useful type/reuse/refactor fixes, then rerun the relevant validation before committing.
+
 ## Core Rule
 
 Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
