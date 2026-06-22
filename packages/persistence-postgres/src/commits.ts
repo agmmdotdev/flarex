@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { commits, documents } from "./schema";
+import { commits, documents, leases } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { PersistenceJson } from "./documents";
 import {
@@ -511,6 +511,18 @@ async function nextCommitTs(
   deploymentId: string,
   minimumTs: number,
 ): Promise<number> {
+  await db
+    .insert(leases)
+    .values({ deploymentId, ts: 0 })
+    .onConflictDoNothing({ target: leases.deploymentId });
+
+  const leaseRows = await db
+    .select({ ts: leases.ts })
+    .from(leases)
+    .where(eq(leases.deploymentId, deploymentId))
+    .for("update")
+    .limit(1);
+  const leaseTs = leaseRows[0]?.ts ?? 0;
   const rows = await db
     .select({ ts: commits.ts })
     .from(commits)
@@ -523,6 +535,16 @@ async function nextCommitTs(
     .where(and(eq(documents.deploymentId, deploymentId)))
     .orderBy(desc(documents.ts))
     .limit(1);
-  const latestTs = Math.max(rows[0]?.ts ?? 0, documentRows[0]?.ts ?? 0);
-  return Math.max(latestTs, minimumTs) + 1;
+  const latestTs = Math.max(
+    leaseTs,
+    rows[0]?.ts ?? 0,
+    documentRows[0]?.ts ?? 0,
+    minimumTs,
+  );
+  const nextTs = latestTs + 1;
+  await db
+    .update(leases)
+    .set({ ts: nextTs })
+    .where(eq(leases.deploymentId, deploymentId));
+  return nextTs;
 }

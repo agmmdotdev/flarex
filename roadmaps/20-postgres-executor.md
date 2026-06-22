@@ -1,5 +1,64 @@
 # Postgres Executor
 
+## Real Postgres OCC Concurrency Lane
+
+Previous completed checkpoint: `e7c3065` Add real Postgres indexed freshness
+lane.
+
+What changed:
+
+- Added `test/postgresConcurrency.test.ts`, an optional real Postgres
+  correctness lane gated by `FLAREX_POSTGRES_DATABASE_URL`.
+- Added `test/postgresHelpers.ts` so real Postgres tests share temporary schema
+  setup, isolated Drizzle migration metadata, migration, and cleanup.
+- Updated `test:postgres` to run both real Postgres indexed freshness and OCC
+  concurrency files.
+- The commit path now uses the existing `leases` table as a deployment-scoped
+  row lock for commit timestamp allocation.
+
+Why it changed:
+
+The trusted executor is intended to run on real Postgres in Nitro/Vercel or a
+similar Node host. The previous PGlite lane proved commit semantics locally,
+but production correctness depends on real Postgres transaction behavior under
+overlapping commits.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - serialized commit validation, timestamp assignment, and publish.
+- `crates/database/src/write_log.rs`
+  - pending writes protect against conflicts with in-flight commits.
+- `crates/database/src/reads.rs`
+  - read-set dependencies determine OCC conflicts.
+
+Flarex differences:
+
+- Convex runs a backend committer that serializes and tracks pending writes in
+  memory. Flarex uses a short Postgres transaction plus a row-level lock on
+  `leases(deployment_id)` to serialize the critical section.
+- The optional test lane is external-service gated. Default local validation
+  still uses PGlite and skip checks so contributors do not need Postgres for
+  every edit.
+
+Known limitations:
+
+- Real Postgres retry coordination through `@flarex/executor.runInvokeWithRetries`
+  remains a follow-up. This checkpoint proves the lower persistence commit
+  boundary.
+- Commit serialization is deployment-wide. It is correct but may become a
+  throughput bottleneck for very high write deployments; later work can split
+  allocator lanes after semantics are stable.
+- The row-lock path does not yet expose contention metrics.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts test/postgresConcurrency.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+```
+
 ## Real Postgres Indexed Freshness Lane
 
 Previous completed checkpoint: `51911da` Harden indexed freshness range checks.

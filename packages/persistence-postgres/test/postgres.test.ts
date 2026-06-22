@@ -1,4 +1,3 @@
-import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,35 +5,15 @@ import {
   indexBoundsForExpressions,
 } from "../src";
 import {
-  createPostgresPersistence,
-  type PostgresFlarexPersistence,
-} from "../src/postgres";
+  postgresUrl,
+  withTemporaryPostgresPersistence,
+} from "./postgresHelpers";
 
-const postgresUrl = normalizePostgresUrl(
-  process.env.FLAREX_POSTGRES_DATABASE_URL,
-);
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("createPostgresPersistence", () => {
   it("uses the indexed freshness btree path on real Postgres", async () => {
-    const connectionString = requiredPostgresUrl();
-    const schemaName = temporaryIdentifier("flarex_test");
-    const migrationsSchema = temporaryIdentifier("flarex_migrations");
-    const adminPool = new Pool({ connectionString });
-    let persistence: PostgresFlarexPersistence | undefined;
-
-    try {
-      await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
-      await adminPool.query(`create schema ${quoteIdentifier(migrationsSchema)}`);
-      persistence = await createPostgresPersistence({
-        connectionString,
-        migrationsSchema,
-        poolConfig: {
-          options: `-c search_path=${schemaName}`,
-        },
-      });
-      await persistence.migrate();
-
+    await withTemporaryPostgresPersistence(async (persistence) => {
       const bounds = indexBoundsForExpressions(["text"], [
         { op: "eq", field: "text", value: "hello" },
       ]);
@@ -82,18 +61,7 @@ describePostgres("createPostgresPersistence", () => {
       expect(planContainsText(plan, "indexes_by_index_id_key_prefix_ts")).toBe(
         true,
       );
-    } finally {
-      if (persistence !== undefined) {
-        await persistence.close();
-      }
-      await adminPool.query(
-        `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
-      );
-      await adminPool.query(
-        `drop schema if exists ${quoteIdentifier(migrationsSchema)} cascade`,
-      );
-      await adminPool.end();
-    }
+    });
   });
 });
 
@@ -195,27 +163,6 @@ async function insertIndexedPackageAndSession(
     schemaVersion: 1,
     executionModule: "_flarex/execution.js",
   });
-}
-
-function requiredPostgresUrl(): string {
-  if (postgresUrl === null) {
-    throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
-  }
-  return postgresUrl;
-}
-
-function normalizePostgresUrl(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
-}
-
-function temporaryIdentifier(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function planContainsText(plan: unknown, text: string): boolean {

@@ -1,5 +1,78 @@
 # OCC And Transactions
 
+## Real Postgres Commit Serialization
+
+Previous completed checkpoint: `e7c3065` Add real Postgres indexed freshness
+lane.
+
+What changed:
+
+- Changed Postgres commit timestamp allocation to lock the deployment's
+  `leases` row with `for update` inside the short commit transaction.
+- The allocator now advances from the maximum of:
+  - the locked lease timestamp,
+  - latest committed row,
+  - latest document revision, and
+  - the caller's `minimumTs`.
+- Added optional real Postgres OCC concurrency tests gated by
+  `FLAREX_POSTGRES_DATABASE_URL`:
+  - concurrent commits against the same observed document produce exactly one
+    committed write and one `InvokeSessionOccConflictError`;
+  - concurrent non-conflicting commits both succeed with unique commit
+    timestamps.
+- Extracted shared real Postgres test harness code for temporary schemas,
+  isolated migration metadata, migration, and cleanup.
+
+Why it changed:
+
+Convex's committer is single-threaded for commit validation and timestamp
+assignment, and it checks pending writes before publishing. Flarex's Postgres
+executor does not have that process-local committer, so the storage layer needs
+a per-deployment row lock to serialize the critical timestamp/validation/write
+section without holding a database transaction open during user code execution.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - `validate_commit`, `next_commit_ts`, and pending write append happen inside
+    the committer's serialized path.
+- `crates/database/src/write_log.rs`
+  - `PendingWrites` catches conflicts with commits that started but have not
+    finished publishing yet.
+- `crates/database/src/reads.rs`
+  - read sets detect stale document/index/table dependencies against writes
+    after the transaction begin timestamp.
+
+Flarex differences:
+
+- Flarex serializes the final Postgres commit section with a deployment-scoped
+  row lock in `leases`; Convex serializes in the backend committer and pending
+  write log.
+- Flarex still does not hold Postgres locks while Cloudflare Dynamic Worker
+  user code runs. User code accumulates durable invoke-session reads/writes,
+  then the trusted executor performs a short locked commit.
+- Pending-write false conflicts are not modeled yet. The row lock makes
+  commits wait for the current commit transaction instead of detecting a
+  conflict against in-flight pending writes before persistence finishes.
+
+Known limitations:
+
+- The real Postgres tests are skipped unless `FLAREX_POSTGRES_DATABASE_URL` is
+  set.
+- Retry behavior is already covered in executor unit tests, but it is not yet
+  proven end-to-end against real Postgres executor sessions.
+- This is per-deployment serialization. Future high-throughput work may need a
+  more granular allocator or explicit partition/shard commit lanes, but the
+  current design favors correctness first.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts test/postgresConcurrency.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+```
+
 ## Postgres Authority Pivot
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package
