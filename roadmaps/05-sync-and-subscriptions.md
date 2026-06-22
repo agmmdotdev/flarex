@@ -192,6 +192,49 @@ Verification:
 git diff --check
 ```
 
+## Postgres Invoke Trigger Bridge
+
+Previous completed checkpoint: `b5b82f4` Add artifact OCC retry boundary.
+
+What changed:
+
+- The trusted Postgres invoke integration now proves a real `/invoke/finish`
+  mutation commit updates the freshness mirror and calls the injected live-query
+  trigger hook.
+- `@flarex/executor-nitro` now re-exports
+  `createFlarexBackendLiveQueryTriggerNotifier`, giving hosted Nitro/Vercel
+  executors a public helper for waking the Cloudflare scheduler trigger route.
+- Detailed route and executor notes for this slice are recorded in
+  [20-postgres-executor.md](20-postgres-executor.md) and
+  [05-sync-protocol-implementation.md](05-sync-protocol-implementation.md).
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend invalidation wakes query rerun work.
+- `crates/sync/src/state.rs`
+  - active query state is refreshed and changed results are delivered.
+- `crates/database/src/committer.rs`
+  - commit is the publication boundary for subscription-visible writes.
+
+Flarex difference:
+
+- Convex schedules invalidation inside one backend runtime. Flarex keeps the
+  executor framework-neutral and relies on a host-injected trigger notifier to
+  cross from Postgres commit to Cloudflare scheduler work.
+
+Known limitations:
+
+- Trigger notification is best effort and host-injected.
+- Follow-up coverage should assert every successful mutation commit shape
+  triggers invalidation, not only the insert path covered in the integration.
+
+Verification:
+
+- `corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts`
+- `corepack pnpm --filter @flarex/executor-nitro test`
+- `corepack pnpm --filter @flarex/executor-nitro typecheck`
+
 ## Indexed Freshness Query Hardening
 
 Previous completed checkpoint: `120dcaa` Implement indexed live query freshness.

@@ -13,7 +13,10 @@ import {
 } from "@flarex/executor";
 
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
-import { createFlarexNitroHandler } from "../src/index";
+import {
+  createFlarexBackendLiveQueryTriggerNotifier,
+  createFlarexNitroHandler,
+} from "../src/index";
 import {
   expectPrepareError,
   fakeExecutor,
@@ -301,6 +304,54 @@ describe("createFlarexNitroHandler", () => {
       nextCursor: null,
       hasMore: false,
     });
+  });
+
+  it("exports the backend live query trigger notifier for Nitro hosts", async () => {
+    const requests: Array<{
+      url: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const notifyTrigger = createFlarexBackendLiveQueryTriggerNotifier({
+      backendUrl: "https://backend.test/base",
+      capabilityToken: "delivery-token",
+      limit: 4,
+      deliveryLimit: 8,
+      maxBatches: 2,
+      fetch: async (request, init) => {
+        const url = request instanceof Request ? request.url : String(request);
+        const headers = new Headers(init?.headers);
+        requests.push({
+          url,
+          authorization: headers.get("authorization"),
+          body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+        });
+        return Response.json({ ok: true });
+      },
+    });
+
+    await notifyTrigger({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      functionPath: "messages:send",
+      committedTs: 101,
+      writes: [],
+    });
+
+    expect(requests).toEqual([
+      {
+        url: "https://backend.test/base/scheduler/live-query-subscriptions/trigger",
+        authorization: "Bearer delivery-token",
+        body: {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          limit: 4,
+          deliveryLimit: 8,
+          maxBatches: 2,
+        },
+      },
+    ]);
   });
 
   it("maps live query delivery claim and ack through the Nitro handler", async () => {

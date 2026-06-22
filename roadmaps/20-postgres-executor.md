@@ -389,6 +389,71 @@ Verification:
 git diff --check
 ```
 
+## Invoke Finish Live-Query Trigger Integration
+
+Previous completed checkpoint: `b5b82f4` Add artifact OCC retry boundary.
+
+What changed:
+
+- Added integration coverage proving real Nitro `/invoke/finish` calls through
+  the trusted Postgres executor update the freshness mirror and invoke the
+  configured live-query trigger hook after a successful mutation commit.
+- Added the missing integration alias for `@flarex/freshness` so integration
+  tests can use the same freshness mirror implementation as executor core.
+- Re-exported `createFlarexBackendLiveQueryTriggerNotifier` and its public
+  types from `@flarex/executor-nitro`, so Nitro/Vercel hosts can wire the
+  framework-neutral executor hook without importing HTTP adapter internals.
+- Added Nitro adapter coverage for that trigger notifier export and its
+  backend route payload.
+
+Current ownership flow:
+
+```txt
+/invoke/finish
+  -> trusted executor validates OCC
+  -> Postgres commit publishes writes
+  -> executor updates configured freshness mirror
+  -> executor calls injected trigger notifier
+  -> hosted trigger route schedules live-query reruns
+```
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit is the publication boundary for write-log/invalidation state.
+- `crates/sync/src/worker.rs`
+  - backend-owned invalidation wakes sync work after committed writes.
+- `crates/sync/src/state.rs`
+  - active query state is refreshed from backend invalidation state.
+
+Flarex differences:
+
+- Convex keeps invalidation scheduling inside the backend runtime. Flarex keeps
+  executor core framework-neutral and requires hosts to inject a trigger
+  notifier, typically created with
+  `createFlarexBackendLiveQueryTriggerNotifier`.
+- Freshness is still mirror-backed. The subscription row itself is not mutated
+  to a durable `stale` state; stale classification is computed from recorded
+  read sets and mirror versions when rerun maintenance scans.
+
+Known limitations:
+
+- Trigger notification is best effort. If the backend trigger route is
+  unavailable, the commit still succeeds and the configured `onError` receives
+  the failure.
+- Range/index invalidation precision is still conservative and should be
+  tightened separately.
+- Hosted platform wiring still needs a concrete Nitro/Vercel executor app that
+  supplies the trigger notifier config from deployment environment.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts
+corepack pnpm --filter @flarex/executor-nitro test
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Invoke Finish OCC Retry Boundary
 
 Current checkpoint: pending commit for artifact transport retry.

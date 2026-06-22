@@ -13,8 +13,11 @@ export interface FlarexNitroAdapterConfig extends FlarexHttpAppConfig {}
 export { createFlarexHttpApp, createFlarexHttpHandler };
 export {
   createFlarexBackendLiveQueryDelivery,
+  createFlarexBackendLiveQueryTriggerNotifier,
   createFlarexBackendLiveQueryWakeNotifier,
   type FlarexBackendLiveQueryDeliveryConfig,
+  type FlarexBackendLiveQueryTriggerConfig,
+  type FlarexBackendLiveQueryTriggerInput,
   type FlarexBackendLiveQueryWakeConfig,
   type FlarexBackendLiveQueryWakeInput,
 } from "@flarex/executor-http";

@@ -22,6 +22,10 @@ export default defineConfig({
         replacement: resolve(root, "packages/executor-nitro/src/index.ts"),
       },
       {
+        find: /^@flarex\/freshness$/,
+        replacement: resolve(root, "packages/freshness/src/index.ts"),
+      },
+      {
         find: /^@flarex\/persistence-postgres\/pglite$/,
         replacement: resolve(root, "packages/persistence-postgres/src/pglite.ts"),
       },

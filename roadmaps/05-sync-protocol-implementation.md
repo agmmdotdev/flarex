@@ -787,3 +787,47 @@ Verification:
 - `corepack pnpm --filter flarex-backend typecheck`
 - `corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --maxWorkers=1`
 - `corepack pnpm --filter flarex-backend build`
+
+### Postgres Invoke Trigger Bridge
+
+Previous completed checkpoint: `b5b82f4` Add artifact OCC retry boundary.
+
+Changed:
+
+- Recorded and tested the backend-side bridge from trusted Postgres mutation
+  commits to live-query trigger scheduling.
+- The real Nitro invoke integration now records a live-query subscription,
+  commits a mutation through `/invoke/finish`, verifies freshness mirror stale
+  classification, and verifies the injected trigger hook receives the committed
+  write summary.
+- Nitro now re-exports the backend trigger notifier helper used by hosted
+  executor apps to wake Cloudflare scheduler routes.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  schedules query refresh from backend-owned mutation invalidation.
+- `crates/sync/src/state.rs`
+  compares active query state and only pushes changed results.
+- `crates/database/src/committer.rs`
+  commit is the boundary where writes become visible to subscriptions.
+
+Flarex differences:
+
+- Convex's sync worker is in the backend process. Flarex splits commit,
+  freshness mirror update, trigger notification, rerun maintenance, and
+  ConnectionDO delivery across executor and Cloudflare-hosted components.
+- This checkpoint does not change browser sync messages; it proves the
+  Postgres executor can wake the downstream sync pipeline after a real commit.
+
+Known limitations:
+
+- Trigger delivery remains best-effort and host-injected.
+- The hosted platform still needs concrete environment wiring for the Nitro
+  executor app to call the Cloudflare scheduler trigger URL.
+
+Verification:
+
+- `corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts`
+- `corepack pnpm --filter @flarex/executor-nitro test`
+- `corepack pnpm --filter @flarex/executor-nitro typecheck`

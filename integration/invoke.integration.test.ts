@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { createFlarexExecutor } from "@flarex/executor";
+import type { LiveQueryInvalidationTriggerInput } from "@flarex/executor";
 import { createFlarexNitroHandler } from "@flarex/executor-nitro";
+import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import { indexBoundsForExpressions } from "@flarex/persistence-postgres";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -10,12 +12,20 @@ describe("Nitro invoke integration", () => {
   it("runs insert, patch, delete mutation syscalls through Nitro and PGlite", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+    const triggerCalls: LiveQueryInvalidationTriggerInput[] = [];
     let nextSessionId = "session_integration";
     let nowMs = 1781913600000;
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
       ids: { nextId: () => nextSessionId },
       persistence,
+      liveQueryInvalidation: {
+        freshnessStore,
+        notifyTrigger: input => {
+          triggerCalls.push(input);
+        },
+      },
     });
     const handler = createFlarexNitroHandler({ executor });
 
@@ -30,6 +40,18 @@ describe("Nitro invoke integration", () => {
       projectId: "project_integration",
       packageId: registered.package.packageId,
       schemaVersion: 1,
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_integration",
+      projectId: "project_integration",
+      connectionId: "connection:deployment_integration:session_1",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "1:team" },
+      partitionKey: "1:team",
+      beginTs: 1781913600000,
+      readSet: { tables: [{ tableId: 2, observedTs: 1781913600000 }] },
+      resultJson: [],
     });
 
     const start = await postJson(handler, "/invoke/start", {
@@ -89,6 +111,51 @@ describe("Nitro invoke integration", () => {
       value: { text: "hello", count: 1 },
       deleted: false,
     });
+    await expect(
+      executor.findStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_integration",
+        freshnessStore,
+      }),
+    ).resolves.toMatchObject({
+      stale: [
+        {
+          subscription: {
+            deploymentId: "deployment_integration",
+            connectionId: "connection:deployment_integration:session_1",
+            queryId: 1,
+          },
+          freshness: {
+            status: "stale",
+            stale: [
+              {
+                kind: "table",
+                id: "2",
+                observedTs: 1781913600000,
+                version: 1781913600001,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(triggerCalls).toEqual([
+      {
+        deploymentId: "deployment_integration",
+        projectId: "project_integration",
+        sessionId: "session_integration",
+        functionPath: "messages:mutate",
+        committedTs: 1781913600001,
+        writes: [
+          {
+            tableId: 2,
+            id: "2:message",
+            prevTs: null,
+            ts: 1781913600001,
+            value: { text: "hello", count: 1 },
+          },
+        ],
+      },
+    ]);
 
     nextSessionId = "session_query";
     nowMs = 1781913600001;
