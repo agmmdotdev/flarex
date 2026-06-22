@@ -511,7 +511,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
       projectId,
       env.FLAREX_EXECUTOR_TOKEN,
     );
-    const value = await fn._handler({ db } as never, body.args as never);
+    const value = normalizeReturnValue(await fn._handler({ db } as never, body.args as never));
     validateFunctionReturn(metadata.returns, value);
     return await finishExecution(env.FLAREX_BACKEND, {
       transport,
@@ -705,6 +705,10 @@ function databaseForSession(
 
 function executorHeaders(executorToken: string | undefined): Record<string, string> {
   return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
+}
+
+function normalizeReturnValue(value: unknown): unknown {
+  return value === undefined ? null : value;
 }
 
 async function postBackend<T>(

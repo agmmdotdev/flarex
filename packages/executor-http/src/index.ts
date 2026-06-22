@@ -53,6 +53,8 @@ import {
   type MarkLiveQueryDeliveriesDeadLetteredInput,
   type PrepareInvokeInput,
   type RecordLiveQueryDeliveryFailureInput,
+  type RecordLiveQuerySubscriptionInput,
+  type RemoveLiveQuerySubscriptionInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
   type RunLiveQueryDeliveryBatchInput,
@@ -97,6 +99,8 @@ export interface FlarexHttpAppConfig {
   maintenanceInvokeSessionsPath?: string;
   maintenanceLiveQueryRerunPath?: string;
   maintenanceLiveQueryDeliveryPath?: string;
+  liveQuerySubscriptionRecordPath?: string;
+  liveQuerySubscriptionRemovePath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
   maintenanceLiveQueryFailurePath?: string;
@@ -139,6 +143,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const maintenanceLiveQueryDeliveryPath = normalizePath(
     config.maintenanceLiveQueryDeliveryPath ??
       "/maintenance/live-queries/deliver",
+  );
+  const liveQuerySubscriptionRecordPath = normalizePath(
+    config.liveQuerySubscriptionRecordPath ??
+      "/live-query-subscriptions/record",
+  );
+  const liveQuerySubscriptionRemovePath = normalizePath(
+    config.liveQuerySubscriptionRemovePath ??
+      "/live-query-subscriptions/remove",
   );
   const maintenanceLiveQueryClaimPath = normalizePath(
     config.maintenanceLiveQueryClaimPath ??
@@ -209,6 +221,12 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         capabilityToken,
         config.liveQueryDelivery,
       ),
+    )
+    .post(liveQuerySubscriptionRecordPath, ({ request, set }) =>
+      handleLiveQuerySubscriptionRecord(executor, request, set, capabilityToken),
+    )
+    .post(liveQuerySubscriptionRemovePath, ({ request, set }) =>
+      handleLiveQuerySubscriptionRemove(executor, request, set, capabilityToken),
     )
     .post(maintenanceLiveQueryClaimPath, ({ request, set }) =>
       handleLiveQueryClaimMaintenance(executor, request, set, capabilityToken),
@@ -317,6 +335,20 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryDeliveryPath} only supports POST`,
+      };
+    })
+    .all(liveQuerySubscriptionRecordPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${liveQuerySubscriptionRecordPath} only supports POST`,
+      };
+    })
+    .all(liveQuerySubscriptionRemovePath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${liveQuerySubscriptionRemovePath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryClaimPath, ({ set }) => {
@@ -744,6 +776,76 @@ async function handleLiveQueryDeliveryMaintenance(
       ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
       deliver: config.deliver,
     });
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQuerySubscriptionRecord(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQuerySubscriptionRecordBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.recordLiveQuerySubscription(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQuerySubscriptionRemove(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQuerySubscriptionRemoveBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.removeLiveQuerySubscription(input.value);
   } catch (error) {
     const response = executorErrorBody(error);
     set.status = response.status;
@@ -1311,6 +1413,89 @@ function parseLiveQueryDeliveryMaintenanceBody(
   };
 }
 
+function parseLiveQuerySubscriptionRecordBody(
+  body: unknown,
+):
+  | { value: RecordLiveQuerySubscriptionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const connectionId = requiredString(record, "connectionId");
+  if ("error" in connectionId) return connectionId;
+  const queryId = requiredNonNegativeInteger(record, "queryId");
+  if ("error" in queryId) return queryId;
+  const functionPath = requiredString(record, "functionPath");
+  if ("error" in functionPath) return functionPath;
+  const argsJson = jsonValue(record.argsJson, "argsJson");
+  if ("error" in argsJson) return argsJson;
+  const partitionKey = optionalNullableString(record.partitionKey, "partitionKey");
+  if ("error" in partitionKey) return partitionKey;
+  const beginTs = requiredNonNegativeInteger(record, "beginTs");
+  if ("error" in beginTs) return beginTs;
+  const readSet = requiredJsonObject(record.readSet, "readSet");
+  if ("error" in readSet) return readSet;
+  const resultJson = jsonValue(record.resultJson, "resultJson");
+  if ("error" in resultJson) return resultJson;
+  const updatedAt = optionalDate(record.updatedAt, "updatedAt");
+  if ("error" in updatedAt) return updatedAt;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      connectionId: connectionId.value,
+      queryId: queryId.value,
+      functionPath: functionPath.value,
+      argsJson: argsJson.value,
+      ...(partitionKey.value === undefined
+        ? {}
+        : { partitionKey: partitionKey.value }),
+      beginTs: beginTs.value,
+      readSet: readSet.value as RecordLiveQuerySubscriptionInput["readSet"],
+      resultJson: resultJson.value,
+      ...(updatedAt.value === undefined ? {} : { updatedAt: updatedAt.value }),
+    },
+  };
+}
+
+function parseLiveQuerySubscriptionRemoveBody(
+  body: unknown,
+):
+  | { value: RemoveLiveQuerySubscriptionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const connectionId = requiredString(record, "connectionId");
+  if ("error" in connectionId) return connectionId;
+  const queryId = requiredNonNegativeInteger(record, "queryId");
+  if ("error" in queryId) return queryId;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      connectionId: connectionId.value,
+      queryId: queryId.value,
+    },
+  };
+}
+
 function parseLiveQueryClaimMaintenanceBody(
   body: unknown,
 ):
@@ -1720,6 +1905,23 @@ function optionalString(
   };
 }
 
+function optionalNullableString(
+  value: unknown,
+  field: string,
+):
+  | { value?: string | null }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (value === null) return { value: null };
+  if (typeof value === "string" && value.length > 0) return { value };
+  return {
+    error: {
+      error: "bad_request",
+      message: `${field} must be a non-empty string or null.`,
+    },
+  };
+}
+
 function requiredDate(
   record: Record<string, unknown>,
   field: string,
@@ -1896,6 +2098,27 @@ function requiredPositiveInteger(
   return { value };
 }
 
+function requiredNonNegativeInteger(
+  record: Record<string, unknown>,
+  field: string,
+): { value: number } | { error: { error: "bad_request"; message: string } } {
+  const value = record[field];
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 0
+  ) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be a non-negative integer.`,
+      },
+    };
+  }
+  return { value };
+}
+
 function optionalPositiveInteger(
   record: Record<string, unknown>,
   field: string,
@@ -1919,6 +2142,29 @@ function jsonValue(
     };
   }
   return { value };
+}
+
+function requiredJsonObject(
+  value: unknown,
+  field: string,
+):
+  | { value: Record<string, Json> }
+  | { error: { error: "bad_request"; message: string } } {
+  const parsed = jsonValue(value, field);
+  if ("error" in parsed) return parsed;
+  if (
+    parsed.value === null ||
+    typeof parsed.value !== "object" ||
+    Array.isArray(parsed.value)
+  ) {
+    return {
+      error: {
+        error: "bad_request",
+        message: `${field} must be a JSON object.`,
+      },
+    };
+  }
+  return { value: parsed.value };
 }
 
 function isJson(value: unknown): value is Json {

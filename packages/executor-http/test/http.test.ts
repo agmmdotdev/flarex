@@ -1094,6 +1094,151 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps live query subscription record requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQuerySubscription(input) {
+          calls.push(input);
+          return {
+            subscription: liveQuerySubscription({
+              deploymentId: input.deploymentId,
+              connectionId: input.connectionId,
+              queryId: input.queryId,
+              functionPath: input.functionPath,
+              argsJson: input.argsJson,
+              partitionKey: input.partitionKey ?? null,
+              beginTs: input.beginTs,
+              readSetJson: input.readSet,
+              resultJson: input.resultJson,
+            }),
+            resultHash: "\"fresh\"",
+          };
+        },
+      }),
+      capabilityToken: "executor-secret",
+    });
+
+    const response = await app.handle(
+      jsonRequest(
+        "https://executor.test/live-query-subscriptions/record",
+        {
+          deploymentId: "deployment_active",
+          connectionId: "connection_a",
+          queryId: 7,
+          functionPath: "messages:list",
+          argsJson: { teamId: "team_a" },
+          partitionKey: "team_a",
+          beginTs: 12,
+          readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
+          resultJson: ["fresh"],
+        },
+        { authorization: "Bearer executor-secret" },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 7,
+        functionPath: "messages:list",
+        argsJson: { teamId: "team_a" },
+        partitionKey: "team_a",
+        beginTs: 12,
+        readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
+        resultJson: ["fresh"],
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      subscription: {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 7,
+      },
+      resultHash: "\"fresh\"",
+    });
+  });
+
+  it("maps live query subscription remove requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async removeLiveQuerySubscription(input) {
+          calls.push(input);
+          return { deleted: true };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-subscriptions/remove", {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 7,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: 7,
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({ deleted: true });
+  });
+
+  it("validates live query subscription record requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQuerySubscription() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-subscriptions/record", {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        queryId: -1,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 12,
+        readSet: {},
+        resultJson: null,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "queryId must be a non-negative integer.",
+    });
+  });
+
+  it("rejects non-POST live query subscription record requests", async () => {
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor(),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/live-query-subscriptions/record"),
+    );
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: "/live-query-subscriptions/record only supports POST",
+    });
+  });
+
   it("maps live query delivery maintenance requests to the executor core", async () => {
     const delivered: unknown[] = [];
     const deliveryHandler: RunLiveQueryDeliveryBatchInput["deliver"] = async (

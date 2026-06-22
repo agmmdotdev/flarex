@@ -163,6 +163,124 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("records WebSocket query subscriptions through the configured executor", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...(body as Record<string, unknown>),
+                  resultHash: "{\"user\":\"Ada\"}",
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: "{\"user\":\"Ada\"}",
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove") {
+              return Response.json({ deleted: true });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-executor-subscription-deployment");
+
+    const ws = await openSync(
+      harness,
+      "sync-executor-subscription-deployment",
+      "executor-sub-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 17,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 17,
+          value: { user: "Ada" },
+        },
+      ],
+    });
+
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 1,
+      newVersion: 2,
+      modifications: [{ type: "Remove", queryId: 17 }],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryRemoved", queryId: 17 }],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/live-query-subscriptions/record",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-executor-subscription-deployment",
+          connectionId:
+            "connection:sync-executor-subscription-deployment:executor-sub-session",
+          queryId: 17,
+          functionPath: "users:get",
+          argsJson: { id: "1:ada" },
+          partitionKey: "user:ada",
+          beginTs: 3,
+          readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
+          resultJson: { user: "Ada" },
+        },
+      },
+      {
+        path: "/live-query-subscriptions/remove",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-executor-subscription-deployment",
+          connectionId:
+            "connection:sync-executor-subscription-deployment:executor-sub-session",
+          queryId: 17,
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
@@ -423,6 +541,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const delivered = nextJsonMessage(ws);
     const response = await harness.mf.dispatchFetch(
@@ -665,6 +784,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const delivered = collectJsonMessages(ws, 2);
     const response = await harness.mf.dispatchFetch(
@@ -856,6 +976,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const delivered = nextJsonMessage(ws);
     const response = await harness.mf.dispatchFetch(
@@ -1024,6 +1145,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const delivered = nextJsonMessage(ws);
     const response = await harness.mf.dispatchFetch(
@@ -1247,6 +1369,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const delivered = collectJsonMessages(ws, 2);
     const response = await harness.mf.dispatchFetch(
@@ -1401,6 +1524,17 @@ describe("sync protocol", () => {
               authorization: request.headers.get("authorization"),
               body,
             });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...(body as Record<string, unknown>),
+                  resultHash: "{\"user\":\"Ada\"}",
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: "{\"user\":\"Ada\"}",
+              });
+            }
             if (url.pathname === "/maintenance/live-queries/dead-letter-stuck") {
               return Response.json({
                 scanned: [
@@ -1427,6 +1561,9 @@ describe("sync protocol", () => {
                 hasMore: false,
               });
             }
+            if (url.pathname === "/live-query-subscriptions/remove") {
+              return Response.json({ deleted: true });
+            }
             return Response.json({ error: "not found" }, { status: 404 });
           },
         },
@@ -1451,6 +1588,7 @@ describe("sync protocol", () => {
       ],
     }));
     await nextJsonMessage(ws);
+    executorRequests.length = 0;
 
     const closed = nextClose(ws);
     const response = await harness.mf.dispatchFetch(
@@ -1499,6 +1637,15 @@ describe("sync protocol", () => {
           limit: 10,
           reason: "test stuck delivery",
           deadLetteredAt: "2026-06-22T00:01:00.000Z",
+        },
+      },
+      {
+        path: "/live-query-subscriptions/remove",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          connectionId,
+          queryId: 23,
         },
       },
     ]);

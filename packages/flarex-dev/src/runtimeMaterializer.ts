@@ -249,7 +249,7 @@ async function invokeWithBackend(body, env, request) {
       projectId,
       env.FLAREX_EXECUTOR_TOKEN,
     );
-    const value = await handler({ db }, body.args ?? null);
+    const value = normalizeReturnValue(await handler({ db }, body.args ?? null));
     return await finishExecution(env.FLAREX_BACKEND, {
       transport,
       deploymentId,
@@ -487,6 +487,10 @@ function rangeBuilder(expressions = []) {
 
 function executorHeaders(executorToken) {
   return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
+}
+
+function normalizeReturnValue(value) {
+  return value === undefined ? null : value;
 }
 
 async function postBackend(backend, path, body, headers = {}) {

@@ -4,11 +4,16 @@ import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import type { R2BucketLike } from "flarex-backend/artifact-store";
+import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import {
   createLocalAnalyzerService,
   LocalBackendPushCoordinator,
   type DevPushStatus,
 } from "./backendPush.ts";
+import {
+  createLocalPGliteExecutorHttpRuntime,
+  type LocalPGliteExecutorHttpRuntime,
+} from "./executorHttpRuntime.ts";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
@@ -16,9 +21,14 @@ import {
   type FlarexGenerateOptions,
 } from "./generate.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
+import type { SourcePackage } from "./sourcePackage.ts";
 
 export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   deploymentId?: string;
+  executorTransport?: "legacy" | "postgres";
+  projectId?: string;
+  executorToken?: string;
+  liveQueryDeliveryToken?: string;
   persistDir?: string | false;
 };
 
@@ -40,7 +50,20 @@ type ResponseLike = {
 
 type BackendRuntime = {
   backend: Miniflare;
+  executorRuntime?: LocalPGliteExecutorHttpRuntime;
+  projectId?: string;
+  executorToken?: string;
+  liveQueryDeliveryToken?: string;
   disposeArtifactRuntime: () => Promise<void>;
+};
+
+type BackendMiniflareOptions = {
+  executorTransport: "legacy" | "postgres";
+  deploymentId: string;
+  projectId?: string;
+  executorToken?: string;
+  liveQueryDeliveryToken?: string;
+  executorPersist: string | false;
 };
 
 export async function createFlarexDevRuntime(
@@ -51,16 +74,28 @@ export async function createFlarexDevRuntime(
     options.persistDir === false ? false : resolve(options.root, options.persistDir ?? ".flarex/dev");
   const backendPersist = persistDir === false ? false : join(persistDir, "backend");
   const appPersist = persistDir === false ? false : join(persistDir, "app");
+  const executorPersist = persistDir === false ? false : join(persistDir, "executor");
   if (backendPersist !== false) await mkdir(backendPersist, { recursive: true });
   if (appPersist !== false) await mkdir(appPersist, { recursive: true });
+  if (executorPersist !== false) await mkdir(executorPersist, { recursive: true });
 
-  const backendRuntime = await createBackendMiniflare(backendPersist);
+  const backendRuntime = await createBackendMiniflare(backendPersist, {
+    executorTransport: options.executorTransport ?? "legacy",
+    deploymentId,
+    ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
+    ...(options.executorToken === undefined ? {} : { executorToken: options.executorToken }),
+    ...(options.liveQueryDeliveryToken === undefined
+      ? {}
+      : { liveQueryDeliveryToken: options.liveQueryDeliveryToken }),
+    executorPersist,
+  });
   const backend = backendRuntime.backend;
   const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
   async function createApp(): Promise<Miniflare> {
+    const postgresExecutor = backendRuntime.executorRuntime;
     return new Miniflare({
       modules: [
         {
@@ -70,9 +105,21 @@ export async function createFlarexDevRuntime(
         },
       ],
       compatibilityDate,
-      bindings: { FLAREX_DEPLOYMENT_ID: deploymentId },
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: deploymentId,
+        ...(postgresExecutor === undefined
+          ? {}
+          : {
+              FLAREX_EXECUTOR_TRANSPORT: "postgres",
+              FLAREX_PROJECT_ID: backendRuntime.projectId,
+              FLAREX_EXECUTOR_TOKEN: backendRuntime.executorToken,
+            }),
+      },
       serviceBindings: {
-        FLAREX_BACKEND: async (request: Request) => dispatchMiniflare(backend, request),
+        FLAREX_BACKEND: async (request: Request) =>
+          postgresExecutor === undefined
+            ? dispatchMiniflare(backend, request)
+            : postgresExecutor.fetch(request),
       },
       durableObjectsPersist: appPersist,
       durableObjects: {
@@ -95,6 +142,14 @@ export async function createFlarexDevRuntime(
     }
     lastPush = started;
     await finalCodegen(context, started.codegenAnalysis);
+    if (backendRuntime.executorRuntime !== undefined) {
+      await activateExecutorPackage(
+        backendRuntime,
+        deploymentId,
+        sourcePackage,
+        started.analysis,
+      );
+    }
     const nextApp = await createApp();
     try {
       const finished = await pushCoordinator.finish(started.pushId);
@@ -194,6 +249,7 @@ export async function createFlarexDevRuntime(
     dispose: async () => {
       await reloadChain.catch(() => undefined);
       await app?.dispose();
+      await backendRuntime.executorRuntime?.dispose();
       await backendRuntime.disposeArtifactRuntime();
       await backend.dispose();
       if (options.persistDir === undefined && persistDir !== false) {
@@ -213,6 +269,42 @@ async function devInvokeBody(request: Request): Promise<Record<string, unknown>>
     ...(body.kind === undefined ? {} : { kind: requiredString(body.kind, "function kind") }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   };
+}
+
+async function activateExecutorPackage(
+  backendRuntime: BackendRuntime,
+  deploymentId: string,
+  sourcePackage: SourcePackage,
+  analysis: DevPushStatus["analysis"],
+): Promise<void> {
+  const executor = backendRuntime.executorRuntime?.executor;
+  const projectId = backendRuntime.projectId;
+  if (executor === undefined || projectId === undefined) return;
+  const registered = await executor.registerDeploymentPackage({
+    deploymentId,
+    projectId,
+    sourcePackage,
+    ...(analysis === undefined ? {} : { analysisJson: analysis }),
+  });
+  await executor.activateDeploymentPackage({
+    deploymentId,
+    projectId,
+    packageId: registered.package.packageId,
+    schemaVersion: schemaVersionFromAnalysis(analysis),
+  });
+}
+
+function schemaVersionFromAnalysis(analysis: DevPushStatus["analysis"]): number {
+  const schema = analysis?.schema;
+  if (
+    typeof schema === "object" &&
+    schema !== null &&
+    !Array.isArray(schema) &&
+    typeof (schema as { version?: unknown }).version === "number"
+  ) {
+    return (schema as { version: number }).version;
+  }
+  return 1;
 }
 
 function optionalPartitionKey(
@@ -248,17 +340,49 @@ async function dispatchMiniflare(target: Miniflare, request: Request): Promise<R
   );
 }
 
-async function createBackendMiniflare(persistDir: string | false): Promise<BackendRuntime> {
+async function createBackendMiniflare(
+  persistDir: string | false,
+  options: BackendMiniflareOptions,
+): Promise<BackendRuntime> {
   const { createExecutionArtifactRuntimeService } =
     await import("flarex-backend/artifact-runtime");
   const { R2BackendExecutionArtifactStore } =
     await import("flarex-backend/artifact-store");
   let backend!: Miniflare;
+  let executorRuntime: LocalPGliteExecutorHttpRuntime | undefined;
+  const projectId = options.projectId ?? `local:${options.deploymentId}`;
+  const executorToken = options.executorToken ?? "local-dev-executor";
+  const liveQueryDeliveryToken =
+    options.liveQueryDeliveryToken ?? "local-dev-live-query-delivery";
+  if (options.executorTransport === "postgres") {
+    executorRuntime = await createLocalPGliteExecutorHttpRuntime({
+      projectId,
+      capabilityToken: executorToken,
+      backendUrl: "http://flarex.backend",
+      triggerCapabilityToken: liveQueryDeliveryToken,
+      triggerFetch: (input, init) => dispatchMiniflare(backend, new Request(input, init)),
+      persistence: await createPGlitePersistence({
+        ...(options.executorPersist === false
+          ? {}
+          : { dataDir: options.executorPersist }),
+      }),
+    });
+  }
   const artifactRuntimeToken = "local-dev-artifact-runtime";
   const artifactInternalToken = "local-dev-artifact-internal";
   const materializer = new LocalMiniflareExecutionArtifactMaterializer({
     internalToken: artifactInternalToken,
-    backend: request => dispatchMiniflare(backend, request),
+    ...(executorRuntime === undefined
+      ? {}
+      : {
+          executorTransport: "postgres" as const,
+          projectId,
+          executorToken,
+        }),
+    backend: request =>
+      executorRuntime === undefined
+        ? dispatchMiniflare(backend, request)
+        : executorRuntime.fetch(request),
   });
   const artifactRuntime = createExecutionArtifactRuntimeService({
     capabilityToken: artifactRuntimeToken,
@@ -288,6 +412,12 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Backe
     bindings: {
       FLAREX_ARTIFACT_RUNTIME_TOKEN: artifactRuntimeToken,
       FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
+      ...(executorRuntime === undefined
+        ? {}
+        : {
+            FLAREX_EXECUTOR_TOKEN: executorToken,
+            FLAREX_LIVE_QUERY_DELIVERY_TOKEN: liveQueryDeliveryToken,
+          }),
     },
     r2Buckets: ["ARTIFACTS"],
     ...(persistDir === false ? {} : { r2Persist: persistDir }),
@@ -304,10 +434,21 @@ async function createBackendMiniflare(persistDir: string | false): Promise<Backe
     serviceBindings: {
       FLAREX_ANALYZER: createLocalAnalyzerService(),
       FLAREX_ARTIFACT_RUNTIME: artifactRuntime,
+      ...(executorRuntime === undefined
+        ? {}
+        : { FLAREX_EXECUTOR: async (request: Request) => executorRuntime!.fetch(request) }),
     },
   });
   return {
     backend,
+    ...(executorRuntime === undefined
+      ? {}
+      : {
+          executorRuntime,
+          projectId,
+          executorToken,
+          liveQueryDeliveryToken,
+        }),
     disposeArtifactRuntime: () => artifactRuntime.dispose(),
   };
 }

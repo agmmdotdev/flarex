@@ -39,6 +39,8 @@ type ActiveQuery = {
   partitionKey: string;
   journal: string | null;
   readSet?: ReadSet;
+  readTs?: number;
+  resultJson?: Json;
   resultHash?: string;
   rerunInFlight?: boolean;
   rerunQueued?: boolean;
@@ -201,6 +203,7 @@ export class ConnectionDO extends DurableObject<Env> {
         ...(response.committedTs === undefined ? {} : { ts: response.committedTs }),
         logLines: [],
       });
+      if (this.env.FLAREX_EXECUTOR !== undefined) return;
       const partitionKey = await committedPartitionKeyForMutation(
         this.env,
         deploymentId,
@@ -270,6 +273,8 @@ export class ConnectionDO extends DurableObject<Env> {
         args: argsObjectForInvoke(query.args),
       });
       if (response.readSet !== undefined) query.readSet = response.readSet;
+      if (response.readTs !== undefined) query.readTs = response.readTs;
+      query.resultJson = response.value;
       const resultHash = fingerprintJson(response.value);
       const isUnchanged = query.resultHash === resultHash;
       query.resultHash = resultHash;
@@ -433,6 +438,10 @@ export class ConnectionDO extends DurableObject<Env> {
     if (query.readSet === undefined) return;
     const deploymentId = requireDeploymentId(this.state.deploymentId);
     const connectionName = requireConnectionName(this.state.connectionName);
+    if (this.env.FLAREX_EXECUTOR !== undefined) {
+      await this.registerQueryWithExecutor(query, deploymentId, connectionName);
+      return;
+    }
     const partition = this.env.PARTITIONS.getByName(
       partitionObjectName(deploymentId, query.partitionKey),
     );
@@ -451,6 +460,14 @@ export class ConnectionDO extends DurableObject<Env> {
     const query = this.state.queries.get(queryId);
     if (query === undefined) return;
     this.state.queries.delete(queryId);
+    if (this.env.FLAREX_EXECUTOR !== undefined && this.state.deploymentId !== null && this.state.connectionName !== null) {
+      await this.removeQueryFromExecutor(
+        this.state.deploymentId,
+        this.state.connectionName,
+        queryId,
+      );
+      return;
+    }
     if (query.partitionKey.length === 0 || this.state.deploymentId === null || this.state.connectionName === null) {
       return;
     }
@@ -469,6 +486,16 @@ export class ConnectionDO extends DurableObject<Env> {
 
   private async unregisterConnection(): Promise<void> {
     if (this.state.deploymentId === null || this.state.connectionName === null) return;
+    if (this.env.FLAREX_EXECUTOR !== undefined) {
+      await Promise.all(Array.from(this.state.queries.keys(), queryId =>
+        this.removeQueryFromExecutor(
+          this.state.deploymentId!,
+          this.state.connectionName!,
+          queryId,
+        ),
+      ));
+      return;
+    }
     const touchedPartitions = new Set(
       Array.from(this.state.queries.values())
         .map(query => query.partitionKey)
@@ -484,6 +511,37 @@ export class ConnectionDO extends DurableObject<Env> {
         body: JSON.stringify({ connectionName: this.state.connectionName }),
       });
     }));
+  }
+
+  private async registerQueryWithExecutor(
+    query: ActiveQuery,
+    deploymentId: string,
+    connectionName: string,
+  ): Promise<void> {
+    if (query.readSet === undefined || query.resultJson === undefined) return;
+    await postExecutor(this.env, "/live-query-subscriptions/record", {
+      deploymentId,
+      connectionId: connectionName,
+      queryId: query.queryId,
+      functionPath: query.udfPath,
+      argsJson: argsObjectForInvoke(query.args),
+      partitionKey: query.partitionKey.length === 0 ? null : query.partitionKey,
+      beginTs: query.readTs ?? 0,
+      readSet: query.readSet,
+      resultJson: query.resultJson,
+    });
+  }
+
+  private async removeQueryFromExecutor(
+    deploymentId: string,
+    connectionName: string,
+    queryId: QueryId,
+  ): Promise<void> {
+    await postExecutor(this.env, "/live-query-subscriptions/remove", {
+      deploymentId,
+      connectionId: connectionName,
+      queryId,
+    });
   }
 }
 
@@ -603,6 +661,31 @@ function argsObjectForInvoke(args: Json[]): Json {
   if (args.length === 0) return null;
   if (args.length === 1) return args[0];
   return args;
+}
+
+async function postExecutor(
+  env: Env,
+  pathname: string,
+  body: unknown,
+): Promise<void> {
+  const executor = env.FLAREX_EXECUTOR;
+  if (executor === undefined) {
+    throw new Error("Postgres executor service binding is not configured.");
+  }
+  const headers = new Headers({ "content-type": "application/json" });
+  if (env.FLAREX_EXECUTOR_TOKEN !== undefined) {
+    headers.set("authorization", `Bearer ${env.FLAREX_EXECUTOR_TOKEN}`);
+  }
+  const response = await executor.fetch(`https://flarex.executor${pathname}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Executor ${pathname} failed with ${response.status}: ${await response.text()}`,
+    );
+  }
 }
 
 function send(ws: WebSocket, message: ServerMessage): void {

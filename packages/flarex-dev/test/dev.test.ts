@@ -5,6 +5,22 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFlarexDevRuntime, type FlarexDevRuntime } from "../src/dev";
 
+type MiniflareWebSocket = {
+  accept(): void;
+  send(message: string): void;
+  close(): void;
+  addEventListener(
+    type: "message",
+    listener: (event: { data: unknown }) => void,
+    options?: { once?: boolean },
+  ): void;
+  addEventListener(
+    type: "error",
+    listener: (event: unknown) => void,
+    options?: { once?: boolean },
+  ): void;
+};
+
 let runtime: FlarexDevRuntime;
 let persistDir: string;
 
@@ -113,4 +129,115 @@ describe("Flarex dev runtime", () => {
       ],
     });
   });
+
+  it("executes /sync mutations through the local Postgres executor transport", async () => {
+    const postgresPersistDir = await mkdtemp(join(tmpdir(), "flarex-dev-postgres-"));
+    const postgresRuntime = await createFlarexDevRuntime({
+      root: resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/example"),
+      deploymentId: "dev-runtime-postgres-sync",
+      executorTransport: "postgres",
+      projectId: "project_dev_runtime_postgres_sync",
+      executorToken: "executor-secret",
+      liveQueryDeliveryToken: "delivery-secret",
+      persistDir: postgresPersistDir,
+    });
+
+    try {
+      const ws = await openDevSync(postgresRuntime);
+      ws.send(JSON.stringify({
+        type: "ModifyQuerySet",
+        baseVersion: 0,
+        newVersion: 1,
+        modifications: [
+          {
+            type: "Add",
+            queryId: 1,
+            udfPath: "lessons:list",
+            args: [{ userId: "1:u1" }],
+            partitionKey: "1:u1",
+          },
+        ],
+      }));
+      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 1,
+            value: [],
+          },
+        ],
+      });
+
+      ws.send(JSON.stringify({
+        type: "Mutation",
+        requestId: 1,
+        udfPath: "lessons:complete",
+        args: [{ userId: "1:u1", lessonId: "executor-sync" }],
+        partitionKey: "1:u1",
+      }));
+
+      const mutationResponse = await nextJsonMessage(ws);
+      console.error("mutationResponse", JSON.stringify(mutationResponse));
+      expect(mutationResponse).toMatchObject({
+        type: "MutationResponse",
+        requestId: 1,
+        success: true,
+      });
+      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 1,
+            value: [
+              expect.objectContaining({
+                userId: "1:u1",
+                lessonId: "executor-sync",
+                completed: true,
+              }),
+            ],
+          },
+        ],
+      });
+      ws.close();
+    } finally {
+      await postgresRuntime.dispose();
+      await rm(postgresPersistDir, { recursive: true, force: true });
+    }
+  });
 });
+
+async function openDevSync(runtime: FlarexDevRuntime): Promise<MiniflareWebSocket> {
+  const response = await runtime.fetch(
+    new Request("http://localhost/__flarex_dev/sync", {
+      headers: {
+        Upgrade: "websocket",
+        "x-flarex-session": "postgres-sync-session",
+      },
+    }),
+  );
+  expect(response.status).toBe(101);
+  const webSocket = (response as Response & { webSocket?: unknown }).webSocket;
+  expect(webSocket).toBeDefined();
+  const ws = webSocket as MiniflareWebSocket;
+  ws.accept();
+  return ws;
+}
+
+function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for WebSocket message.")),
+      5000,
+    );
+    ws.addEventListener("message", event => {
+      clearTimeout(timeout);
+      resolve(JSON.parse(String(event.data)));
+    }, { once: true });
+    ws.addEventListener("error", event => {
+      clearTimeout(timeout);
+      reject(event);
+    }, { once: true });
+  });
+}
