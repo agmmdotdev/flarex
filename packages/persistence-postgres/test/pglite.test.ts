@@ -2820,6 +2820,65 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("marks live query deliveries dead-lettered", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_dead_letter",
+      deliveryId: "delivery_dead",
+      connectionId: "connection_dead",
+      queryId: 1,
+      payloadJson: { resultJson: "dead" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_dead_letter",
+      deliveryIds: ["delivery_dead"],
+      stage: "fanout",
+      error: "stuck",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+
+    await expect(
+      persistence.markLiveQueryDeliveriesDeadLettered({
+        deploymentId: "deployment_dead_letter",
+        deliveryIds: ["delivery_dead"],
+        reason: "connection permanently stale",
+        deadLetteredAt: new Date("2026-06-20T00:05:00.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      deadLettered: 1,
+      deliveries: [
+        {
+          deliveryId: "delivery_dead",
+          deadLetteredAt: new Date("2026-06-20T00:05:00.000Z"),
+          deadLetterReason: "connection permanently stale",
+        },
+      ],
+    });
+
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_dead_letter",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+    await expect(
+      persistence.listStuckLiveQueryDeliveries({
+        deploymentId: "deployment_dead_letter",
+        olderThan: new Date("2026-06-20T00:10:00.000Z"),
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+  });
+
   it("commits staged invoke session deletes after read validation", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

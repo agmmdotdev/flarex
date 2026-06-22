@@ -95,6 +95,18 @@ export interface MarkLiveQueryDeliveriesDeliveredResult {
   delivered: number;
 }
 
+export interface MarkLiveQueryDeliveriesDeadLetteredInput {
+  deploymentId: string;
+  deliveryIds: string[];
+  deadLetteredAt: Date;
+  reason: string;
+}
+
+export interface MarkLiveQueryDeliveriesDeadLetteredResult {
+  deadLettered: number;
+  deliveries: LiveQueryDeliveryRecord[];
+}
+
 export type LiveQueryDeliveryFailureStage = "fanout" | "ack";
 
 export interface RecordLiveQueryDeliveryFailureInput {
@@ -216,6 +228,36 @@ export async function markLiveQueryDeliveriesDelivered(
 
   return {
     delivered: rows.length,
+  };
+}
+
+export async function markLiveQueryDeliveriesDeadLettered(
+  db: FlarexMetadataDatabase,
+  input: MarkLiveQueryDeliveriesDeadLetteredInput,
+): Promise<MarkLiveQueryDeliveriesDeadLetteredResult> {
+  if (input.deliveryIds.length === 0) {
+    return { deadLettered: 0, deliveries: [] };
+  }
+
+  const rows = await db
+    .update(liveQueryDeliveries)
+    .set({
+      deadLetteredAt: input.deadLetteredAt,
+      deadLetterReason: input.reason,
+    })
+    .where(
+      and(
+        eq(liveQueryDeliveries.deploymentId, input.deploymentId),
+        isNull(liveQueryDeliveries.deliveredAt),
+        isNull(liveQueryDeliveries.deadLetteredAt),
+        inArray(liveQueryDeliveries.deliveryId, input.deliveryIds),
+      ),
+    )
+    .returning();
+
+  return {
+    deadLettered: rows.length,
+    deliveries: rows,
   };
 }
 

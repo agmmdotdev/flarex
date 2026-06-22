@@ -566,6 +566,43 @@ corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter @flarex/executor-nitro typecheck
 ```
 
+## Dead-Letter Policy Boundary
+
+Previous completed checkpoint: `14925e0` List stuck live query deliveries.
+
+Boundary decision:
+
+- `@flarex/persistence-postgres` owns the row mutation that marks live-query
+  deliveries dead-lettered.
+- `@flarex/executor` owns the policy that consumes stuck candidates and
+  decides which rows to dead-letter.
+- `@flarex/executor-http` exposes maintenance routes for hosted executor
+  deployments.
+- `packages/flarex-backend` remains unchanged in this checkpoint; a future
+  Cloudflare scheduler/connection consumer can use the returned
+  `reconnectConnectionIds`.
+
+Convex files inspected:
+
+- `crates/sync/src/worker.rs`
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+
+Flarex difference:
+
+- Convex's sync worker and client websocket manager own retry/reconnect
+  behavior without a split maintenance API.
+- Flarex must make the executor/Cloudflare boundary explicit because the
+  scheduler may run in Cloudflare while the delivery rows live in Postgres.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+```
+
 ## Executor HTTP Wake Notifier Boundary
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.

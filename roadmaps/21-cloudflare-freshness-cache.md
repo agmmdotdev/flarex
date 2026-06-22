@@ -1270,6 +1270,54 @@ corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter @flarex/executor-http test
 ```
 
+## Dead-Letter Policy Precursor
+
+Previous completed checkpoint: `14925e0` List stuck live query deliveries.
+
+What changed:
+
+- Added executor HTTP routes for explicit dead-lettering:
+  - `/maintenance/live-queries/dead-letter`
+  - `/maintenance/live-queries/dead-letter-stuck`
+- The stuck policy returns `reconnectConnectionIds`, giving a future
+  Cloudflare consumer the exact connection names that should be forced to
+  reconnect/resubscribe after their pending delivery rows are abandoned.
+- No Cloudflare `DeliveryDO` or `SchedulerDO` behavior changes in this
+  checkpoint.
+
+Future Cloudflare flow:
+
+```text
+SchedulerDO lists stuck candidates
+  -> executor dead-letters selected rows
+  -> executor returns reconnectConnectionIds
+  -> ConnectionDO forces reconnect/resubscribe
+```
+
+Convex files inspected:
+
+- `crates/sync/src/worker.rs`
+  - backend sync worker owns retries and transitions internally.
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+  - reconnect behavior is client sync-runtime behavior.
+
+Flarex difference:
+
+- Flarex must bridge a Postgres executor maintenance decision into Cloudflare
+  connection handling. Returning connection IDs keeps that boundary explicit.
+
+Known limitations:
+
+- `ConnectionDO` does not yet expose a force-reconnect endpoint.
+- `SchedulerDO` does not yet call the dead-letter policy endpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+```
+
 ## DeliveryDO Alarm Continuation For Pending Rows
 
 Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query

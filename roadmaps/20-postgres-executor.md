@@ -302,6 +302,48 @@ corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
 ```
 
+## Live-Query Delivery Dead-Letter Primitive
+
+Previous completed checkpoint: `14925e0` List stuck live query deliveries.
+
+What changed:
+
+- Added `markLiveQueryDeliveriesDeadLettered(...)` to the Postgres
+  persistence package.
+- The operation updates only retryable rows:
+  `delivered_at is null` and `dead_lettered_at is null`.
+- It records `dead_lettered_at` and `dead_letter_reason`, returns the affected
+  delivery rows, and leaves already delivered/dead-lettered rows unchanged.
+- Dead-lettered rows disappear from undelivered and stuck-delivery scans.
+
+Convex files inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own retry/query transition processing inside the
+    backend.
+- `crates/sync/src/state.rs`
+  - query subscription state is owned by the sync worker state machine.
+
+Flarex difference:
+
+- Convex does not need a Postgres-visible dead-letter row for live-query
+  delivery because the sync worker and websocket delivery boundary are
+  colocated.
+- Flarex stores the dead-letter marker in the trusted executor because delivery
+  state crosses from Postgres to Cloudflare Durable Objects.
+
+Known limitations:
+
+- This primitive does not itself close or reconnect Cloudflare connections.
+- Retention/deletion of dead-lettered rows is not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+```
+
 ## Live-Query Delivery Callback Bridge
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

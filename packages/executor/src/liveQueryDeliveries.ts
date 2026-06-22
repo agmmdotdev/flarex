@@ -5,9 +5,13 @@ import type {
   ClaimLiveQueryDeliveryBatchInput,
   ClaimLiveQueryDeliveryBatchResult,
   Clock,
+  DeadLetterStuckLiveQueryDeliveriesInput,
+  DeadLetterStuckLiveQueryDeliveriesResult,
   FlarexExecutorPersistence,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
+  MarkLiveQueryDeliveriesDeadLetteredInput,
+  MarkLiveQueryDeliveriesDeadLetteredResult,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
   ListPendingLiveQueryDeliveryDeploymentsInput,
@@ -22,6 +26,7 @@ import type {
 
 const DEFAULT_LIVE_QUERY_DELIVERY_LIMIT = 100;
 const MAX_DELIVERY_FAILURE_ERROR_LENGTH = 4000;
+const MAX_DELIVERY_DEAD_LETTER_REASON_LENGTH = 4000;
 
 export async function listUndeliveredLiveQueryDeliveries(
   persistence: FlarexExecutorPersistence,
@@ -35,6 +40,17 @@ export async function markLiveQueryDeliveriesDelivered(
   input: MarkLiveQueryDeliveriesDeliveredInput,
 ): Promise<MarkLiveQueryDeliveriesDeliveredResult> {
   return await persistence.markLiveQueryDeliveriesDelivered(input);
+}
+
+export async function markLiveQueryDeliveriesDeadLettered(
+  persistence: FlarexExecutorPersistence,
+  input: MarkLiveQueryDeliveriesDeadLetteredInput,
+): Promise<MarkLiveQueryDeliveriesDeadLetteredResult> {
+  validateDeliveryIds(input.deliveryIds);
+  return await persistence.markLiveQueryDeliveriesDeadLettered({
+    ...input,
+    reason: deliveryDeadLetterReason(input.reason),
+  });
 }
 
 export async function listPendingLiveQueryDeliveryDeployments(
@@ -70,6 +86,55 @@ export async function listStuckLiveQueryDeliveries(
   });
 }
 
+export async function deadLetterStuckLiveQueryDeliveries(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: DeadLetterStuckLiveQueryDeliveriesInput,
+): Promise<DeadLetterStuckLiveQueryDeliveriesResult> {
+  const reason = deliveryDeadLetterReason(input.reason);
+  const page = await listStuckLiveQueryDeliveries(persistence, {
+    olderThan: input.olderThan,
+    ...(input.deploymentId === undefined
+      ? {}
+      : { deploymentId: input.deploymentId }),
+    ...(input.minAttempts === undefined
+      ? {}
+      : { minAttempts: input.minAttempts }),
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    limit: input.limit ?? DEFAULT_LIVE_QUERY_DELIVERY_LIMIT,
+  });
+  if (page.deliveries.length === 0) {
+    return {
+      scanned: [],
+      deadLettered: [],
+      reconnectConnectionIds: [],
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
+  }
+
+  const deadLettered: Array<DeadLetterStuckLiveQueryDeliveriesResult["deadLettered"][number]> = [];
+  const byDeployment = deliveriesByDeployment(page.deliveries);
+  const deadLetteredAt = input.deadLetteredAt ?? clock.now();
+  for (const [deploymentId, deliveries] of byDeployment) {
+    const result = await persistence.markLiveQueryDeliveriesDeadLettered({
+      deploymentId,
+      deliveryIds: deliveries.map(delivery => delivery.deliveryId),
+      deadLetteredAt,
+      reason,
+    });
+    deadLettered.push(...result.deliveries);
+  }
+
+  return {
+    scanned: page.deliveries,
+    deadLettered,
+    reconnectConnectionIds: uniqueSortedConnectionIds(deadLettered),
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+  };
+}
+
 export async function recordLiveQueryDeliveryFailure(
   persistence: FlarexExecutorPersistence,
   input: RecordLiveQueryDeliveryFailureInput,
@@ -77,15 +142,7 @@ export async function recordLiveQueryDeliveryFailure(
   if (input.stage !== "fanout" && input.stage !== "ack") {
     throw new LiveQueryDeliveryPolicyError("stage must be fanout or ack.");
   }
-  if (
-    input.deliveryIds.some(
-      (deliveryId) => typeof deliveryId !== "string" || deliveryId.length === 0,
-    )
-  ) {
-    throw new LiveQueryDeliveryPolicyError(
-      "deliveryIds must contain only non-empty strings.",
-    );
-  }
+  validateDeliveryIds(input.deliveryIds);
   return await persistence.recordLiveQueryDeliveryFailure({
     ...input,
     error: truncateDeliveryFailureError(input.error),
@@ -149,6 +206,48 @@ export async function runLiveQueryDeliveryBatch(
 function truncateDeliveryFailureError(error: string): string {
   if (error.length <= MAX_DELIVERY_FAILURE_ERROR_LENGTH) return error;
   return error.slice(0, MAX_DELIVERY_FAILURE_ERROR_LENGTH);
+}
+
+function deliveryDeadLetterReason(reason: string): string {
+  if (reason.length === 0) {
+    throw new LiveQueryDeliveryPolicyError("reason must be a non-empty string.");
+  }
+  if (reason.length <= MAX_DELIVERY_DEAD_LETTER_REASON_LENGTH) return reason;
+  return reason.slice(0, MAX_DELIVERY_DEAD_LETTER_REASON_LENGTH);
+}
+
+function validateDeliveryIds(deliveryIds: string[]): void {
+  if (
+    deliveryIds.some(
+      (deliveryId) => typeof deliveryId !== "string" || deliveryId.length === 0,
+    )
+  ) {
+    throw new LiveQueryDeliveryPolicyError(
+      "deliveryIds must contain only non-empty strings.",
+    );
+  }
+}
+
+function deliveriesByDeployment<T extends { deploymentId: string }>(
+  deliveries: T[],
+): Map<string, T[]> {
+  const byDeployment = new Map<string, T[]>();
+  for (const delivery of deliveries) {
+    const existing = byDeployment.get(delivery.deploymentId);
+    if (existing === undefined) {
+      byDeployment.set(delivery.deploymentId, [delivery]);
+    } else {
+      existing.push(delivery);
+    }
+  }
+  return byDeployment;
+}
+
+function uniqueSortedConnectionIds(
+  deliveries: Array<{ connectionId: string }>,
+): string[] {
+  return Array.from(new Set(deliveries.map(delivery => delivery.connectionId)))
+    .sort();
 }
 
 function liveQueryDeliveryLimit(limit: number | undefined): number {

@@ -1508,6 +1508,136 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps live query dead-letter requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async markLiveQueryDeliveriesDeadLettered(input) {
+          calls.push(input);
+          return {
+            deadLettered: input.deliveryIds.length,
+            deliveries: [
+              {
+                deploymentId: input.deploymentId,
+                deliveryId: input.deliveryIds[0]!,
+                connectionId: "connection_dead",
+                queryId: 1,
+                payloadJson: { resultJson: "dead" },
+                deliveredAt: null,
+                attemptCount: 3,
+                lastAttemptedAt: new Date("2026-06-21T00:00:00.000Z"),
+                lastErrorStage: "fanout",
+                lastError: "ConnectionDO failed",
+                deadLetteredAt: input.deadLetteredAt,
+                deadLetterReason: input.reason,
+                createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              },
+            ],
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/dead-letter", {
+        deploymentId: "deployment_dead",
+        deliveryIds: ["delivery_dead"],
+        reason: "force reconnect",
+        deadLetteredAt: "2026-06-21T00:10:00.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_dead",
+        deliveryIds: ["delivery_dead"],
+        reason: "force reconnect",
+        deadLetteredAt: new Date("2026-06-21T00:10:00.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      deadLettered: 1,
+      deliveries: [
+        {
+          deploymentId: "deployment_dead",
+          deliveryId: "delivery_dead",
+          connectionId: "connection_dead",
+          deadLetteredAt: "2026-06-21T00:10:00.000Z",
+          deadLetterReason: "force reconnect",
+        },
+      ],
+    });
+  });
+
+  it("maps stuck live query dead-letter policy requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async deadLetterStuckLiveQueryDeliveries(input) {
+          calls.push(input);
+          return {
+            scanned: [],
+            deadLettered: [
+              {
+                deploymentId: "deployment_stuck",
+                deliveryId: "delivery_stuck",
+                connectionId: "connection_stuck",
+                queryId: 1,
+                payloadJson: { resultJson: "fresh" },
+                deliveredAt: null,
+                attemptCount: 3,
+                lastAttemptedAt: new Date("2026-06-21T00:00:00.000Z"),
+                lastErrorStage: "fanout",
+                lastError: "ConnectionDO failed",
+                deadLetteredAt: new Date("2026-06-21T00:10:00.000Z"),
+                deadLetterReason: "force reconnect",
+                createdAt: new Date("2026-06-21T00:00:00.000Z"),
+              },
+            ],
+            reconnectConnectionIds: ["connection_stuck"],
+            nextCursor: null,
+            hasMore: false,
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/dead-letter-stuck", {
+        deploymentId: "deployment_stuck",
+        olderThan: "2026-06-21T00:05:00.000Z",
+        minAttempts: 3,
+        limit: 10,
+        reason: "force reconnect",
+        deadLetteredAt: "2026-06-21T00:10:00.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_stuck",
+        olderThan: new Date("2026-06-21T00:05:00.000Z"),
+        minAttempts: 3,
+        limit: 10,
+        reason: "force reconnect",
+        deadLetteredAt: new Date("2026-06-21T00:10:00.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      deadLettered: [
+        {
+          deliveryId: "delivery_stuck",
+          deadLetteredAt: "2026-06-21T00:10:00.000Z",
+          deadLetterReason: "force reconnect",
+        },
+      ],
+      reconnectConnectionIds: ["connection_stuck"],
+      hasMore: false,
+    });
+  });
+
   it("validates live query delivery claim and ack requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -1601,6 +1731,49 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
       message: "olderThan must be an ISO timestamp string.",
+    });
+  });
+
+  it("validates live query dead-letter requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async markLiveQueryDeliveriesDeadLettered() {
+          called = true;
+          throw new Error("should not be called");
+        },
+        async deadLetterStuckLiveQueryDeliveries() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const explicit = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/dead-letter", {
+        deploymentId: "deployment_dead",
+        deliveryIds: [""],
+        reason: "force reconnect",
+        deadLetteredAt: "2026-06-21T00:10:00.000Z",
+      }),
+    );
+    const policy = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/dead-letter-stuck", {
+        olderThan: "2026-06-21T00:05:00.000Z",
+        reason: "",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(explicit.status).toBe(400);
+    await expect(explicit.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "deliveryIds must be an array of non-empty strings.",
+    });
+    expect(policy.status).toBe(400);
+    await expect(policy.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "reason must be a non-empty string.",
     });
   });
 
@@ -2131,6 +2304,18 @@ function fakeExecutor(
     },
     async listStuckLiveQueryDeliveries() {
       return { deliveries: [], nextCursor: null, hasMore: false };
+    },
+    async markLiveQueryDeliveriesDeadLettered() {
+      return { deadLettered: 0, deliveries: [] };
+    },
+    async deadLetterStuckLiveQueryDeliveries() {
+      return {
+        scanned: [],
+        deadLettered: [],
+        reconnectConnectionIds: [],
+        nextCursor: null,
+        hasMore: false,
+      };
     },
     async recordLiveQueryDeliveryFailure() {
       return { failed: 0 };

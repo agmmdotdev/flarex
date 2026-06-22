@@ -1160,6 +1160,88 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("dead-letters stuck live query deliveries and returns reconnect targets", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({
+      persistence,
+      clock: { now: () => new Date("2026-06-20T00:10:00.000Z") },
+    });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_dead_letter_policy",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:changed"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_dead_letter_policy",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:changed",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      resultJson: "old",
+    });
+    await executor.rerunStaleLiveQuerySubscriptions({
+      deploymentId: "deployment_dead_letter_policy",
+      freshnessStore,
+      runQuery: async () => ({
+        value: "new",
+        beginTs: 25,
+        readSet: { documents: [{ tableId: 1, id: "1:changed" }] },
+      }),
+    });
+    const page = await executor.listUndeliveredLiveQueryDeliveries({
+      deploymentId: "deployment_dead_letter_policy",
+      limit: 10,
+    });
+    const deliveryId = page.deliveries[0]!.deliveryId;
+    await executor.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_dead_letter_policy",
+      deliveryIds: [deliveryId],
+      stage: "fanout",
+      error: "connection failed",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+
+    await expect(
+      executor.deadLetterStuckLiveQueryDeliveries({
+        deploymentId: "deployment_dead_letter_policy",
+        olderThan: new Date("2026-06-20T00:05:00.000Z"),
+        reason: "force reconnect after repeated delivery failure",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      scanned: [{ deliveryId }],
+      deadLettered: [
+        {
+          deliveryId,
+          deadLetteredAt: new Date("2026-06-20T00:10:00.000Z"),
+          deadLetterReason: "force reconnect after repeated delivery failure",
+        },
+      ],
+      reconnectConnectionIds: ["connection_b"],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_dead_letter_policy",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+  });
+
   it("rejects invalid live query delivery failure reports", async () => {
     const persistence = memoryPersistence();
     const executor = createFlarexExecutor({ persistence });
@@ -1173,6 +1255,19 @@ describe("executor live query subscriptions", () => {
         failedAt: new Date("2026-06-20T00:02:00.000Z"),
       }),
     ).rejects.toThrow("stage must be fanout or ack.");
+  });
+
+  it("rejects invalid live query delivery dead-letter requests", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.deadLetterStuckLiveQueryDeliveries({
+        olderThan: new Date("2026-06-20T00:05:00.000Z"),
+        reason: "",
+        limit: 10,
+      }),
+    ).rejects.toThrow("reason must be a non-empty string.");
   });
 
   it("rejects invalid stuck live query delivery limits", async () => {

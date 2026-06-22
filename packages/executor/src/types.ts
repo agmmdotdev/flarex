@@ -44,6 +44,8 @@ import type {
   LiveQueryDeliveryRecord,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
+  MarkLiveQueryDeliveriesDeadLetteredInput,
+  MarkLiveQueryDeliveriesDeadLetteredResult,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
   MarkOutboxEventsDeliveredInput,
@@ -73,6 +75,8 @@ export type {
   ListUndeliveredLiveQueryDeliveriesResult,
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
+  MarkLiveQueryDeliveriesDeadLetteredInput,
+  MarkLiveQueryDeliveriesDeadLetteredResult,
   MarkLiveQueryDeliveriesDeliveredInput,
   MarkLiveQueryDeliveriesDeliveredResult,
   RecordLiveQueryDeliveryFailureInput,
@@ -153,6 +157,12 @@ export interface FlarexExecutor {
   listStuckLiveQueryDeliveries(
     input: ListStuckLiveQueryDeliveriesInput,
   ): Promise<ListStuckLiveQueryDeliveriesResult>;
+  markLiveQueryDeliveriesDeadLettered(
+    input: MarkLiveQueryDeliveriesDeadLetteredInput,
+  ): Promise<MarkLiveQueryDeliveriesDeadLetteredResult>;
+  deadLetterStuckLiveQueryDeliveries(
+    input: DeadLetterStuckLiveQueryDeliveriesInput,
+  ): Promise<DeadLetterStuckLiveQueryDeliveriesResult>;
   recordLiveQueryDeliveryFailure(
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
@@ -304,6 +314,9 @@ export interface FlarexExecutorPersistence {
   markLiveQueryDeliveriesDelivered(
     input: MarkLiveQueryDeliveriesDeliveredInput,
   ): Promise<MarkLiveQueryDeliveriesDeliveredResult>;
+  markLiveQueryDeliveriesDeadLettered(
+    input: MarkLiveQueryDeliveriesDeadLetteredInput,
+  ): Promise<MarkLiveQueryDeliveriesDeadLetteredResult>;
   recordLiveQueryDeliveryFailure(
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
@@ -359,6 +372,24 @@ export interface AckLiveQueryDeliveriesInput {
 
 export interface AckLiveQueryDeliveriesResult {
   delivered: number;
+}
+
+export interface DeadLetterStuckLiveQueryDeliveriesInput {
+  deploymentId?: string;
+  olderThan: Date;
+  minAttempts?: number;
+  cursor?: ListStuckLiveQueryDeliveriesInput["cursor"];
+  limit?: number;
+  reason: string;
+  deadLetteredAt?: Date;
+}
+
+export interface DeadLetterStuckLiveQueryDeliveriesResult {
+  scanned: LiveQueryDeliveryRecord[];
+  deadLettered: LiveQueryDeliveryRecord[];
+  reconnectConnectionIds: string[];
+  nextCursor: ListStuckLiveQueryDeliveriesResult["nextCursor"];
+  hasMore: boolean;
 }
 
 export interface RecordLiveQuerySubscriptionInput {

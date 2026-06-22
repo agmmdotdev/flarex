@@ -45,6 +45,8 @@ import {
   type LiveQueryDeliveryRecord,
   type LiveQuerySubscriptionKey,
   type LiveQuerySubscriptionRecord,
+  type MarkLiveQueryDeliveriesDeadLetteredInput,
+  type MarkLiveQueryDeliveriesDeadLetteredResult,
   type MarkLiveQueryDeliveriesDeliveredInput,
   type MarkLiveQueryDeliveriesDeliveredResult,
   type MarkOutboxEventsDeliveredInput,
@@ -1063,6 +1065,33 @@ export function memoryPersistence(
         }
       }
       return { delivered };
+    },
+    async markLiveQueryDeliveriesDeadLettered(
+      input: MarkLiveQueryDeliveriesDeadLetteredInput,
+    ): Promise<MarkLiveQueryDeliveriesDeadLetteredResult> {
+      const deliveryIds = new Set(input.deliveryIds);
+      const deliveries: LiveQueryDeliveryRecord[] = [];
+      for (let index = 0; index < liveQueryDeliveries.length; index += 1) {
+        const delivery = liveQueryDeliveries[index]!;
+        if (
+          delivery.deploymentId === input.deploymentId &&
+          delivery.deliveredAt === null &&
+          delivery.deadLetteredAt === null &&
+          deliveryIds.has(delivery.deliveryId)
+        ) {
+          const deadLettered = {
+            ...delivery,
+            deadLetteredAt: input.deadLetteredAt,
+            deadLetterReason: input.reason,
+          };
+          liveQueryDeliveries[index] = deadLettered;
+          deliveries.push(deadLettered);
+        }
+      }
+      return {
+        deadLettered: deliveries.length,
+        deliveries,
+      };
     },
     async recordLiveQueryDeliveryFailure(
       input: RecordLiveQueryDeliveryFailureInput,

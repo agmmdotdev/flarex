@@ -41,6 +41,7 @@ import {
   type AckLiveQueryDeliveriesInput,
   type BeginInvokeSessionInput,
   type ClaimLiveQueryDeliveryBatchInput,
+  type DeadLetterStuckLiveQueryDeliveriesInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
   type InvokableFunctionKind,
@@ -49,6 +50,7 @@ import {
   type Json,
   type ListPendingLiveQueryDeliveryDeploymentsInput,
   type ListStuckLiveQueryDeliveriesInput,
+  type MarkLiveQueryDeliveriesDeadLetteredInput,
   type PrepareInvokeInput,
   type RecordLiveQueryDeliveryFailureInput,
   type RunInvokeSessionMaintenanceInput,
@@ -95,6 +97,8 @@ export interface FlarexHttpAppConfig {
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
   maintenanceLiveQueryFailurePath?: string;
+  maintenanceLiveQueryDeadLetterPath?: string;
+  maintenanceLiveQueryDeadLetterStuckPath?: string;
   maintenanceLiveQueryPendingDeploymentsPath?: string;
   maintenanceLiveQueryStuckDeliveriesPath?: string;
   liveQueryRerun?: FlarexLiveQueryRerunConfig;
@@ -143,6 +147,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const maintenanceLiveQueryFailurePath = normalizePath(
     config.maintenanceLiveQueryFailurePath ??
       "/maintenance/live-queries/failure",
+  );
+  const maintenanceLiveQueryDeadLetterPath = normalizePath(
+    config.maintenanceLiveQueryDeadLetterPath ??
+      "/maintenance/live-queries/dead-letter",
+  );
+  const maintenanceLiveQueryDeadLetterStuckPath = normalizePath(
+    config.maintenanceLiveQueryDeadLetterStuckPath ??
+      "/maintenance/live-queries/dead-letter-stuck",
   );
   const maintenanceLiveQueryPendingDeploymentsPath = normalizePath(
     config.maintenanceLiveQueryPendingDeploymentsPath ??
@@ -203,6 +215,22 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(maintenanceLiveQueryFailurePath, ({ request, set }) =>
       handleLiveQueryFailureMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
+    )
+    .post(maintenanceLiveQueryDeadLetterPath, ({ request, set }) =>
+      handleLiveQueryDeadLetterMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
+    )
+    .post(maintenanceLiveQueryDeadLetterStuckPath, ({ request, set }) =>
+      handleLiveQueryDeadLetterStuckMaintenance(
         executor,
         request,
         set,
@@ -307,6 +335,20 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryFailurePath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryDeadLetterPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryDeadLetterPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryDeadLetterStuckPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryDeadLetterStuckPath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryPendingDeploymentsPath, ({ set }) => {
@@ -811,6 +853,76 @@ async function handleLiveQueryFailureMaintenance(
   }
 }
 
+async function handleLiveQueryDeadLetterMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryDeadLetterMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.markLiveQueryDeliveriesDeadLettered(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQueryDeadLetterStuckMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryDeadLetterStuckMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.deadLetterStuckLiveQueryDeliveries(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 async function handleLiveQueryPendingDeploymentsMaintenance(
   executor: FlarexExecutor,
   request: Request,
@@ -1288,6 +1400,87 @@ function parseLiveQueryFailureMaintenanceBody(
       stage: stage.value,
       error: error.value,
       failedAt: failedAt.value,
+    },
+  };
+}
+
+function parseLiveQueryDeadLetterMaintenanceBody(
+  body: unknown,
+):
+  | { value: MarkLiveQueryDeliveriesDeadLetteredInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
+  if ("error" in deliveryIds) return deliveryIds;
+  const reason = requiredString(record, "reason");
+  if ("error" in reason) return reason;
+  const deadLetteredAt = requiredDate(record, "deadLetteredAt");
+  if ("error" in deadLetteredAt) return deadLetteredAt;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      deliveryIds: deliveryIds.value,
+      reason: reason.value,
+      deadLetteredAt: deadLetteredAt.value,
+    },
+  };
+}
+
+function parseLiveQueryDeadLetterStuckMaintenanceBody(
+  body: unknown,
+):
+  | { value: DeadLetterStuckLiveQueryDeliveriesInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = optionalString(record.deploymentId, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const olderThan = requiredDate(record, "olderThan");
+  if ("error" in olderThan) return olderThan;
+  const minAttempts = optionalPositiveInteger(record, "minAttempts");
+  if ("error" in minAttempts) return minAttempts;
+  const limit = optionalPositiveInteger(record, "limit");
+  if ("error" in limit) return limit;
+  const reason = requiredString(record, "reason");
+  if ("error" in reason) return reason;
+  const deadLetteredAt = optionalDate(record.deadLetteredAt, "deadLetteredAt");
+  if ("error" in deadLetteredAt) return deadLetteredAt;
+  const cursor = optionalStuckLiveQueryDeliveryCursor(record.cursor);
+  if ("error" in cursor) return cursor;
+
+  return {
+    value: {
+      olderThan: olderThan.value,
+      reason: reason.value,
+      ...(deploymentId.value === undefined
+        ? {}
+        : { deploymentId: deploymentId.value }),
+      ...(minAttempts.value === undefined
+        ? {}
+        : { minAttempts: minAttempts.value }),
+      ...(limit.value === undefined ? {} : { limit: limit.value }),
+      ...(deadLetteredAt.value === undefined
+        ? {}
+        : { deadLetteredAt: deadLetteredAt.value }),
+      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
     },
   };
 }

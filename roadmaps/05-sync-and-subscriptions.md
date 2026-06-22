@@ -289,6 +289,63 @@ corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
 corepack pnpm --filter @flarex/executor-http test
 ```
 
+## Dead-Letter And Reconnect Candidate Policy
+
+Previous completed checkpoint: `14925e0` List stuck live query deliveries.
+
+What changed:
+
+- Added executor policy `deadLetterStuckLiveQueryDeliveries(...)`.
+- The policy consumes `listStuckLiveQueryDeliveries(...)`, marks the selected
+  retryable rows dead-lettered, and returns affected `reconnectConnectionIds`.
+- Added explicit dead-letter primitive
+  `markLiveQueryDeliveriesDeadLettered(...)` for operator/admin use.
+- Added HTTP maintenance routes:
+  - `/maintenance/live-queries/dead-letter`
+  - `/maintenance/live-queries/dead-letter-stuck`
+
+Correctness rule:
+
+```text
+dead-lettering is explicit policy, not failed delivery ack
+```
+
+The policy only runs after rows are already observable as stuck candidates.
+Dead-lettering stops retrying those specific delivery rows and returns the
+connections that must be reconnected or resubscribed by a future Cloudflare
+consumer.
+
+Convex files inspected:
+
+- `crates/sync/src/worker.rs`
+  - sync worker retries and transition production are backend-owned.
+- `crates/sync/src/state.rs`
+  - query subscriptions are part of the sync state machine.
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+  - browser reconnect behavior is owned by the sync client websocket manager.
+
+Flarex differences:
+
+- Convex can rely on client websocket reconnect semantics and backend sync
+  ownership without exposing a dead-letter maintenance API.
+- Flarex exposes executor maintenance APIs because durable delivery state is in
+  Postgres while connection fanout is in Cloudflare Durable Objects.
+
+Known limitations:
+
+- The Cloudflare consumer that sends a reconnect/fatal message to
+  `ConnectionDO` is not implemented in this checkpoint.
+- This does not delete dead-lettered rows or publish metrics yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+```
+
 ## Rerun-To-DeliveryDO Wake Contract
 
 Previous completed checkpoint: `bd74849` Add DeliveryDO live query fanout.
