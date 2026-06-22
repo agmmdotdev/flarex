@@ -33,9 +33,43 @@ type ReconcileResult = {
   hasMore: boolean;
 };
 
+type DeadLetterLiveQueryDeliveriesRequest = {
+  deploymentId?: string;
+  olderThan?: string;
+  stuckAfterMs?: number;
+  minAttempts?: number;
+  cursor?: unknown;
+  limit?: number;
+  reason?: string;
+  deadLetteredAt?: string;
+  maxBatches?: number;
+};
+
+type ExecutorDeadLetterStuckResult = {
+  scanned: unknown[];
+  deadLettered: unknown[];
+  reconnectConnectionIds: string[];
+  nextCursor: unknown;
+  hasMore: boolean;
+};
+
+type DeadLetterResult = {
+  batches: number;
+  scanned: number;
+  deadLettered: number;
+  reconnectTargets: number;
+  reconnected: number;
+  failed: Array<{ connectionId: string; status: number; error: string }>;
+  nextCursor: unknown;
+  hasMore: boolean;
+};
+
 const DEFAULT_PENDING_DEPLOYMENT_LIMIT = 25;
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
+const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
+const DEFAULT_MIN_ATTEMPTS = 3;
+const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
 
 export class SchedulerDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -47,6 +81,16 @@ export class SchedulerDO extends DurableObject<Env> {
       return json(
         await this.reconcileLiveQueryDeliveries(
           await readJson<ReconcileLiveQueryDeliveriesRequest>(request),
+        ),
+      );
+    }
+    if (
+      url.pathname === "/dead-letter/live-query-deliveries" &&
+      request.method === "POST"
+    ) {
+      return json(
+        await this.deadLetterLiveQueryDeliveries(
+          await readJson<unknown>(request),
         ),
       );
     }
@@ -103,6 +147,118 @@ export class SchedulerDO extends DurableObject<Env> {
       woken,
       failed,
       hasMore: pending.hasMore,
+    };
+  }
+
+  private async deadLetterLiveQueryDeliveries(
+    body: unknown,
+  ): Promise<DeadLetterResult> {
+    const request = deadLetterRequestFromBody(body);
+    const failed: DeadLetterResult["failed"] = [];
+    const reconnectedConnectionIds = new Set<string>();
+    let reconnectTargets = 0;
+    let scanned = 0;
+    let deadLettered = 0;
+    let cursor = request.cursor;
+    let nextCursor: unknown = null;
+    let hasMore = false;
+    let batches = 0;
+
+    for (let batchIndex = 0; batchIndex < request.maxBatches; batchIndex += 1) {
+      const page = await this.deadLetterStuckLiveQueryDeliveries({
+        ...(request.deploymentId === undefined
+          ? {}
+          : { deploymentId: request.deploymentId }),
+        olderThan: request.olderThan,
+        minAttempts: request.minAttempts,
+        ...(cursor === undefined || cursor === null ? {} : { cursor }),
+        limit: request.limit,
+        reason: request.reason,
+        deadLetteredAt: request.deadLetteredAt,
+      });
+      batches += 1;
+      scanned += page.scanned.length;
+      deadLettered += page.deadLettered.length;
+      reconnectTargets += page.reconnectConnectionIds.length;
+
+      for (const connectionId of page.reconnectConnectionIds) {
+        if (reconnectedConnectionIds.has(connectionId)) continue;
+        const result = await this.forceReconnect(connectionId, request.reason);
+        if (result.ok) {
+          reconnectedConnectionIds.add(connectionId);
+          continue;
+        }
+        failed.push({
+          connectionId,
+          status: result.status,
+          error: result.error,
+        });
+      }
+
+      nextCursor = page.nextCursor;
+      hasMore = page.hasMore;
+      if (!page.hasMore) break;
+      cursor = page.nextCursor;
+    }
+
+    return {
+      batches,
+      scanned,
+      deadLettered,
+      reconnectTargets,
+      reconnected: reconnectedConnectionIds.size,
+      failed,
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  private async deadLetterStuckLiveQueryDeliveries(
+    body: Record<string, unknown>,
+  ): Promise<ExecutorDeadLetterStuckResult> {
+    const response = await this.executorFetch(
+      "/maintenance/live-queries/dead-letter-stuck",
+      body,
+    );
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Live query dead-letter scan failed with status ${response.status}.`,
+      );
+    }
+    return executorDeadLetterResultFromUnknown(
+      await response.json().catch(() => null),
+    );
+  }
+
+  private async forceReconnect(
+    connectionId: string,
+    reason: string,
+  ): Promise<{ ok: boolean; status: number; error: string; closed: number }> {
+    validateConnectionId(connectionId);
+    const response = await this.env.CONNECTIONS
+      .getByName(connectionId)
+      .fetch("https://flarex.internal/force-reconnect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: await response.text(),
+        closed: 0,
+      };
+    }
+    const result = forceReconnectResultFromUnknown(
+      await response.json().catch(() => null),
+    );
+    return {
+      ok: true,
+      status: response.status,
+      error: "",
+      closed: result.closed,
     };
   }
 
@@ -222,4 +378,113 @@ function nonNegativeIntegerFromUnknown(value: unknown, field: string): number {
 function booleanFromUnknown(value: unknown, field: string): boolean {
   if (typeof value === "boolean") return value;
   throw new HttpError(502, `${field} must be a boolean.`);
+}
+
+function deadLetterRequestFromBody(
+  value: unknown,
+): Required<Omit<DeadLetterLiveQueryDeliveriesRequest, "deploymentId" | "cursor">> & {
+  deploymentId?: string;
+  cursor?: unknown;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Dead-letter request body must be an object.");
+  }
+  const body = value as DeadLetterLiveQueryDeliveriesRequest;
+  const olderThan = olderThanFromBody(body);
+  return {
+    ...(body.deploymentId === undefined
+      ? {}
+      : { deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId") }),
+    olderThan,
+    stuckAfterMs: body.stuckAfterMs ?? DEFAULT_STUCK_AFTER_MS,
+    minAttempts: optionalPositiveInteger(
+      body.minAttempts,
+      DEFAULT_MIN_ATTEMPTS,
+      "minAttempts",
+    ),
+    ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
+    limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit"),
+    reason: body.reason === undefined
+      ? DEFAULT_DEAD_LETTER_REASON
+      : nonEmptyStringFromRequest(body.reason, "reason"),
+    deadLetteredAt: body.deadLetteredAt === undefined
+      ? new Date().toISOString()
+      : dateStringFromRequest(body.deadLetteredAt, "deadLetteredAt"),
+    maxBatches: optionalPositiveInteger(
+      body.maxBatches,
+      DEFAULT_MAX_BATCHES,
+      "maxBatches",
+    ),
+  };
+}
+
+function olderThanFromBody(body: DeadLetterLiveQueryDeliveriesRequest): string {
+  if (body.olderThan !== undefined) {
+    return dateStringFromRequest(body.olderThan, "olderThan");
+  }
+  const stuckAfterMs = optionalPositiveInteger(
+    body.stuckAfterMs,
+    DEFAULT_STUCK_AFTER_MS,
+    "stuckAfterMs",
+  );
+  return new Date(Date.now() - stuckAfterMs).toISOString();
+}
+
+function dateStringFromRequest(value: unknown, field: string): string {
+  const text = nonEmptyStringFromRequest(value, field);
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  throw new HttpError(400, `${field} must be an ISO date string.`);
+}
+
+function nonEmptyStringFromRequest(value: unknown, field: string): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new HttpError(400, `${field} must be a non-empty string.`);
+}
+
+function executorDeadLetterResultFromUnknown(
+  value: unknown,
+): ExecutorDeadLetterStuckResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, "Dead-letter response must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.scanned)) {
+    throw new HttpError(502, "Dead-letter response.scanned must be an array.");
+  }
+  if (!Array.isArray(record.deadLettered)) {
+    throw new HttpError(502, "Dead-letter response.deadLettered must be an array.");
+  }
+  if (!Array.isArray(record.reconnectConnectionIds)) {
+    throw new HttpError(
+      502,
+      "Dead-letter response.reconnectConnectionIds must be an array.",
+    );
+  }
+  return {
+    scanned: record.scanned,
+    deadLettered: record.deadLettered,
+    reconnectConnectionIds: record.reconnectConnectionIds.map((connectionId, index) =>
+      stringFromUnknown(connectionId, `reconnectConnectionIds[${index}]`),
+    ),
+    nextCursor: record.nextCursor ?? null,
+    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
+  };
+}
+
+function forceReconnectResultFromUnknown(value: unknown): { closed: number } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, "ConnectionDO force-reconnect response must be an object.");
+  }
+  return {
+    closed: nonNegativeIntegerFromUnknown(
+      (value as Record<string, unknown>).closed,
+      "forceReconnect.closed",
+    ),
+  };
+}
+
+function validateConnectionId(connectionId: string): void {
+  if (connectionId.startsWith("connection:")) return;
+  throw new HttpError(502, `Invalid live query connection id ${connectionId}.`);
 }

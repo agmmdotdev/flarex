@@ -31,6 +31,11 @@ type MiniflareWebSocket = {
     listener: (event: unknown) => void,
     options?: { once?: boolean },
   ): void;
+  addEventListener(
+    type: "close",
+    listener: (event: { code?: number; reason?: string }) => void,
+    options?: { once?: boolean },
+  ): void;
 };
 
 describe("sync protocol", () => {
@@ -905,6 +910,132 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("dead-letters stuck live query deliveries and reconnects affected connections", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-dead-letter-deployment";
+    const connectionId = `connection:${deploymentId}:dead-letter-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/dead-letter-stuck") {
+              return Response.json({
+                scanned: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_dead_letter_1",
+                    connectionId,
+                    queryId: 23,
+                    attempts: 3,
+                  },
+                ],
+                deadLettered: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_dead_letter_1",
+                    connectionId,
+                    queryId: 23,
+                    attempts: 3,
+                    deadLetteredAt: "2026-06-22T00:00:00.000Z",
+                  },
+                ],
+                reconnectConnectionIds: [connectionId],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "dead-letter-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 23,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const closed = nextClose(ws);
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/dead-letter",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          deploymentId,
+          olderThan: "2026-06-22T00:00:00.000Z",
+          deadLetteredAt: "2026-06-22T00:01:00.000Z",
+          minAttempts: 3,
+          limit: 10,
+          maxBatches: 2,
+          reason: "test stuck delivery",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      batches: 1,
+      scanned: 1,
+      deadLettered: 1,
+      reconnectTargets: 1,
+      reconnected: 1,
+      failed: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+    await expect(closed).resolves.toMatchObject({
+      code: 1012,
+      reason: "flarex reconnect",
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/dead-letter-stuck",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          olderThan: "2026-06-22T00:00:00.000Z",
+          minAttempts: 3,
+          limit: 10,
+          reason: "test stuck delivery",
+          deadLetteredAt: "2026-06-22T00:01:00.000Z",
+        },
+      },
+    ]);
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
@@ -1472,6 +1603,20 @@ function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
     ws.addEventListener("message", event => {
       clearTimeout(timeout);
       resolve(JSON.parse(String(event.data)));
+    }, { once: true });
+    ws.addEventListener("error", event => {
+      clearTimeout(timeout);
+      reject(event);
+    }, { once: true });
+  });
+}
+
+function nextClose(ws: MiniflareWebSocket): Promise<{ code?: number; reason?: string }> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket close.")), 5000);
+    ws.addEventListener("close", event => {
+      clearTimeout(timeout);
+      resolve(event);
     }, { once: true });
     ws.addEventListener("error", event => {
       clearTimeout(timeout);

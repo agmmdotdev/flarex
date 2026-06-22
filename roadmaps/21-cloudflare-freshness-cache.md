@@ -1177,6 +1177,80 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Stuck Delivery Reconnect Consumer
+
+Previous completed checkpoint: `038649e` Add live query delivery dead
+lettering.
+
+What changed:
+
+- The Cloudflare scheduler can now call the executor
+  `/maintenance/live-queries/dead-letter-stuck` policy route.
+- For each returned `reconnectConnectionIds` entry, the scheduler calls the
+  named `ConnectionDO` and asks it to force a reconnect.
+- `ConnectionDO` unregisters active partition subscriptions before closing its
+  WebSockets, so a reconnected client must resubscribe through the normal
+  `ModifyQuerySet` path.
+- The scheduler result reports scanned rows, dead-lettered rows, reconnect
+  targets, successful reconnect calls, failed reconnect calls, `nextCursor`, and
+  `hasMore`.
+
+Cache and freshness impact:
+
+```txt
+executor finds stuck delivery rows
+  -> executor dead-letters the rows
+  -> executor returns affected connection ids
+  -> SchedulerDO calls each ConnectionDO
+  -> ConnectionDO closes the socket
+  -> client reconnects and reissues active query set
+```
+
+This does not make a stale cached result fresh by itself. It removes trust in
+the old sync session and forces the client back through normal subscription
+setup, where future query rerun/freshness logic can produce an authoritative
+result.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+  - socket closure is a recoverable reconnect path.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - reconnect rebuilds remote query state and resends query-set modifications.
+- `crates/sync/src/worker.rs`
+  - sync workers own active query-set transitions.
+
+Flarex differences:
+
+- Convex live-query freshness does not depend on a Cloudflare delivery outbox.
+  Flarex must bridge executor-owned stuck-row policy back to Cloudflare-owned
+  WebSocket sessions.
+- Flarex uses deterministic connection DO names as reconnect targets.
+
+Known limitations:
+
+- This checkpoint exposes the manual maintenance route. A recurring cron/alarm
+  that continues draining when `hasMore` is true remains future work.
+- The route does not rerun queries directly; it reconnects clients so they
+  resubscribe through the normal sync protocol.
+- ConnectionDO force reconnect is per active DO instance. If the DO is inactive,
+  the call is a no-op that still proves no active socket was available to close.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "dead-letters stuck live query deliveries"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## DeliveryDO Failure Reporting
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

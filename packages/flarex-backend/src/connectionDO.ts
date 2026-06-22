@@ -73,6 +73,9 @@ export class ConnectionDO extends DurableObject<Env> {
     if (url.pathname === "/deliver/live-query" && request.method === "POST") {
       return this.deliverLiveQueryChanges(await request.json());
     }
+    if (url.pathname === "/force-reconnect" && request.method === "POST") {
+      return this.forceReconnect();
+    }
     if (request.headers.get("Upgrade") !== "websocket") {
       return json({ service: "flarex-connection", status: "ok" });
     }
@@ -99,6 +102,20 @@ export class ConnectionDO extends DurableObject<Env> {
   async webSocketClose(): Promise<void> {
     await this.unregisterConnection();
     this.state.queries.clear();
+  }
+
+  private async forceReconnect(): Promise<Response> {
+    const sockets = this.ctx.getWebSockets();
+    const activeQueries = this.state.queries.size;
+    await this.unregisterConnection();
+    this.state.queries.clear();
+    for (const ws of sockets) {
+      ws.close(1012, "flarex reconnect");
+    }
+    return json({
+      closed: sockets.length,
+      activeQueries,
+    });
   }
 
   private async handleClientMessage(ws: WebSocket, message: ClientMessage): Promise<void> {

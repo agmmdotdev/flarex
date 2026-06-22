@@ -385,6 +385,82 @@ corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
 
+## Dead-Lettered Delivery Reconnect Consumer
+
+Previous completed checkpoint: `038649e` Add live query delivery dead
+lettering.
+
+What changed:
+
+- `ConnectionDO` now exposes an internal `POST /force-reconnect` endpoint.
+- The endpoint unregisters active subscription state, clears tracked queries,
+  and closes all active WebSockets with close code `1012`.
+- `SchedulerDO` now consumes the executor
+  `/maintenance/live-queries/dead-letter-stuck` response and calls the named
+  `ConnectionDO` instances returned in `reconnectConnectionIds`.
+- The public worker exposes authenticated
+  `POST /scheduler/live-query-deliveries/dead-letter` for operator or future
+  scheduler use.
+- A Miniflare sync test opens a real WebSocket, dead-letters one stuck delivery
+  through the scheduler route, and verifies that the affected connection is
+  closed for client resubscription.
+
+Why it changed:
+
+- Dead-lettering a stuck outbox row protects durable delivery state, but the
+  client also needs to resubscribe so it is not left trusting a possibly stale
+  result. The reconnect consumer is the first Cloudflare-side boundary that
+  turns executor policy into sync-session recovery.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+  - normal socket closure enters the reconnect path.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - on reconnect, the client resets remote query state and reissues its query
+    set.
+- `npm-packages/convex/src/browser/sync/remote_query_set.ts`
+  - remote query state is connection-local and advances through `Transition`
+    versions.
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own query-set messages and mutation/query execution for
+    a live session.
+
+Flarex differences:
+
+- Convex does not need a dead-letter reconnect route because its sync worker
+  and backend delivery path run inside the same backend architecture. Flarex has
+  a durable executor outbox plus Cloudflare `ConnectionDO`, so the executor
+  returns reconnect targets and the scheduler performs the DO calls.
+- Flarex deliberately closes the socket instead of sending `FatalError`.
+  Convex clients treat `FatalError` as terminal, while ordinary closure lets
+  the client reconnect and resubmit active queries.
+
+Known limitations:
+
+- The route is manual/authenticated for this checkpoint. Automatic cron/alarm
+  wiring for recurring stuck-delivery cleanup is still a follow-up.
+- `hasMore` and `nextCursor` are returned after bounded batch processing, but
+  follow-up draining is not yet scheduled automatically.
+- Reconnecting an inactive `ConnectionDO` is considered a successful no-op; it
+  proves the stale session is no longer active, not that a browser received a
+  close event.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "dead-letters stuck live query deliveries"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## DeliveryDO Alarm Continuation
 
 Previous completed checkpoint: `9c160d8` Notify DeliveryDO after live query

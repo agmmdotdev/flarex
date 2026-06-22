@@ -505,6 +505,67 @@ corepack pnpm build
 git diff --check
 ```
 
+## Dead-Letter Reconnect Boundary
+
+Previous completed checkpoint: `038649e` Add live query delivery dead
+lettering.
+
+What changed:
+
+- The executor remains responsible for the durable stuck-delivery policy:
+  selecting stuck rows, marking them dead-lettered, and returning
+  `reconnectConnectionIds`.
+- `packages/flarex-backend` now owns the Cloudflare-specific consumer:
+  `SchedulerDO` calls the executor maintenance endpoint and then calls
+  `ConnectionDO /force-reconnect` for each returned connection name.
+- The worker route
+  `POST /scheduler/live-query-deliveries/dead-letter` is an authenticated
+  Cloudflare backend route, not a new executor-core API.
+
+Why it changed:
+
+- Reconnect fanout is runtime-specific. Keeping it in `flarex-backend` preserves
+  the framework-neutral executor boundary while still letting the Cloudflare
+  runtime recover stuck sync sessions.
+
+Convex references:
+
+- `npm-packages/convex/src/browser/sync/web_socket_manager.ts`
+  - reconnect is driven by WebSocket lifecycle state.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - reconnect reissues active query and request state.
+- `crates/sync/src/worker.rs`
+  - server-side sync session ownership is a backend runtime concern.
+
+Flarex differences:
+
+- Convex has one integrated backend sync runtime. Flarex splits policy
+  (`@flarex/executor`) from Cloudflare connection fanout
+  (`packages/flarex-backend`).
+- The executor does not import Durable Object types or know how to reach a
+  `ConnectionDO`.
+
+Known limitations:
+
+- Other hosting adapters still need their own consumer if they support live
+  sync without Cloudflare Durable Objects.
+- Automatic stuck-delivery scheduling is intentionally not in executor core.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "dead-letters stuck live query deliveries"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Delivery Failure Boundary
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
