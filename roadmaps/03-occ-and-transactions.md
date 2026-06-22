@@ -1,5 +1,66 @@
 # OCC And Transactions
 
+## Real Postgres Retry Coordination
+
+Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.
+
+What changed:
+
+- Added optional real Postgres executor retry tests gated by
+  `FLAREX_POSTGRES_DATABASE_URL`.
+- The tests drive `@flarex/executor.runInvokeWithRetries(...)` through the real
+  `@flarex/persistence-postgres/postgres` adapter:
+  - first attempt reads a document and stages a patch,
+  - a concurrent mutation commits before finish,
+  - finish detects the OCC conflict,
+  - the executor aborts the failed attempt,
+  - the second attempt reruns against the fresh snapshot and commits.
+- Added retry exhaustion coverage where every attempt conflicts and both
+  attempts end as aborted sessions.
+- Added an executor-local temporary Postgres harness with isolated schemas and
+  best-effort cleanup.
+
+Why it changed:
+
+The previous checkpoint proved the lower persistence commit boundary on real
+Postgres. User-facing mutation behavior, however, goes through the executor's
+retry coordinator. This closes the next gap between durable OCC conflicts and
+Convex-style automatic mutation retry behavior.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+  - `execute_with_occ_retries` reruns retryable transactions.
+- `crates/database/src/committer.rs`
+  - stale reads are detected at commit validation.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend-owned execution coordinates user function attempts and commit.
+
+Flarex differences:
+
+- Convex retries inside its integrated Rust backend. Flarex retries by opening
+  a fresh durable invoke session for each attempt while user code runs across
+  the Cloudflare/trusted-executor boundary.
+- Failed attempts are explicitly aborted through invoke-session metadata.
+  Convex does not expose that as a separate HTTP-style session state.
+
+Known limitations:
+
+- The real Postgres retry tests are skipped unless
+  `FLAREX_POSTGRES_DATABASE_URL` is set.
+- This still exercises executor core directly. The Dynamic Worker HTTP/syscall
+  bridge needs a later hosted integration test to prove the same behavior over
+  the internal network boundary.
+- Retried mutation bodies must be deterministic and side-effect free, matching
+  Convex's mutation expectations. Side effects still belong in actions.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test:postgres -- --testTimeout=30000
+```
+
 ## Real Postgres Commit Serialization
 
 Previous completed checkpoint: `e7c3065` Add real Postgres indexed freshness

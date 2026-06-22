@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
-import { createFlarexDevRuntime, type FlarexDevRuntime } from "./dev.ts";
+import type { FlarexDevRuntime } from "./dev.ts";
 import { generateFlarex, type FlarexGenerateOptions } from "./generate.ts";
 
 export type FlarexPluginOptions = Omit<FlarexGenerateOptions, "root"> & {
@@ -28,6 +28,7 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
     async configureServer(server) {
       await generateFlarex({ ...options, root });
       if (options.dev !== false) {
+        const { createFlarexDevRuntime } = await import("./dev.ts");
         const devOptions = typeof options.dev === "object" ? options.dev : {};
         devRuntime = await createFlarexDevRuntime({
           root,

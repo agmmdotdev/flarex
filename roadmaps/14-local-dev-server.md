@@ -1,5 +1,53 @@
 # Local Dev Server
 
+## Vite Config Load Boundary
+
+Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.
+
+What changed:
+
+- Changed the Vite plugin so `createFlarexDevRuntime(...)` is imported lazily
+  inside `configureServer(...)` instead of at plugin module load.
+- This keeps `vite.config.ts` loading from eagerly importing local dev
+  executor dependencies such as PGlite/Postgres when the app is doing a
+  production worker build.
+
+Why it changed:
+
+The executor retry checkpoint added broader validation with `corepack pnpm
+build`. That surfaced a local-dev plugin boundary issue: the example app build
+only needs generation and worker bundling, but Vite config loading pulled in
+the Node-local executor runtime and hit package-source ESM resolution for
+`@flarex/persistence-postgres/pglite`.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev-only orchestration stays in the dev command path.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generation can run without starting the local backend runtime.
+
+Flarex differences:
+
+- Flarex currently exposes dev orchestration as a Vite plugin, so the module
+  loaded by `vite.config.ts` must be careful about runtime-only imports.
+- Convex has a CLI process boundary; Flarex's Vite plugin needs lazy imports to
+  recreate that separation.
+
+Known limitations:
+
+- This does not change the local dev runtime itself. It only prevents
+  production build config loading from pulling the local executor path.
+- A later package boundary pass should make the local dev runtime split more
+  explicit so config-time codegen and server-time orchestration are separate
+  modules.
+
+Verification:
+
+```sh
+corepack pnpm build
+```
+
 ## Current Implementation
 
 Added the first Convex-shaped local dev runtime behind the Vite plugin.

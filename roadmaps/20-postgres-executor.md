@@ -1,5 +1,66 @@
 # Postgres Executor
 
+## Real Postgres Executor Retry Lane
+
+Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.
+
+What changed:
+
+- Added `packages/executor/test/postgresRetry.test.ts`, an optional real
+  Postgres test lane for `runInvokeWithRetries(...)`.
+- Added `packages/executor/test/postgresHelpers.ts` so executor-level real
+  Postgres tests can create temporary app/migration schemas, run migrations,
+  and clean up independently.
+- Added `@flarex/executor` script:
+
+```sh
+corepack pnpm --filter @flarex/executor test:postgres
+```
+
+- Added dev-only `pg` and `@types/pg` dependencies to the executor package for
+  this optional test harness.
+
+Why it changed:
+
+The Postgres persistence package now serializes commit timestamps and exposes
+real Postgres correctness lanes, but the hosted user-code path depends on the
+executor retry coordinator. This test proves the executor can translate a real
+Postgres OCC failure into a fresh mutation attempt and can abort exhausted
+attempts.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+  - transaction execution can retry after OCC conflicts.
+- `crates/database/src/committer.rs`
+  - commit validation is the source of stale-read conflicts.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend function execution owns attempt lifecycle.
+
+Flarex differences:
+
+- Flarex retry attempts are durable invoke sessions. A failed attempt is
+  marked aborted before the next attempt starts.
+- The optional lane runs executor core directly against Node Postgres. It does
+  not yet include the Dynamic Worker HTTP syscall transport.
+
+Known limitations:
+
+- The lane skips unless `FLAREX_POSTGRES_DATABASE_URL` is set.
+- Real Postgres executor retry is proven only for document-read conflicts in
+  this checkpoint. Table/index retry over the same adapter can be added after
+  SQL-pushed index execution is hardened.
+- The executor-local helper duplicates the temp-schema harness shape from the
+  persistence package because test utilities are not currently exported as a
+  shared package.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test:postgres -- --testTimeout=30000
+```
+
 ## Real Postgres OCC Concurrency Lane
 
 Previous completed checkpoint: `e7c3065` Add real Postgres indexed freshness

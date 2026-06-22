@@ -89,6 +89,12 @@ importers:
         specifier: workspace:*
         version: link:../flarex
     devDependencies:
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       vite:
         specifier: 'catalog:'
         version: 7.3.5(@types/node@24.13.2)(tsx@4.22.4)
