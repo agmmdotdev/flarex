@@ -1049,3 +1049,61 @@ corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
 corepack pnpm --filter flarex-dev build
 ```
+## Local PGlite Executor Runtime Trigger Wiring
+
+Previous completed checkpoint: `730d284` Trigger live query invalidation after
+commit.
+
+What changed:
+
+- Added `createLocalPGliteExecutorHttpRuntime(...)` in `flarex-dev`.
+- The helper creates/migrates PGlite persistence, creates a durable
+  Postgres/PGlite freshness mirror, constructs `createFlarexExecutor(...)` with
+  `liveQueryInvalidation`, and injects the Cloudflare trigger notifier.
+- Exported the helper from `flarex-dev`.
+- Added a local runtime test that drives real executor HTTP routes:
+  `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
+- The test proves a mutation commit updates freshness and posts
+  `/scheduler/live-query-subscriptions/trigger` without manually calling the
+  scheduler route.
+- Moved `@flarex/freshness` and `@flarex/persistence-postgres` from
+  `flarex-dev` dev dependencies to runtime dependencies because this helper is
+  exported from `src`.
+
+Why it changed:
+
+The previous checkpoint added the post-commit hook but left host construction
+manual. Local dev and tests need a reusable factory that wires the same pieces
+the hosted executor will use: durable persistence, freshness store, and the
+Cloudflare trigger notifier.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit publication is the only correct point to trigger invalidation.
+- `crates/sync/src/worker.rs`
+  - sync scheduling follows backend invalidation work.
+- `crates/sync/src/state.rs`
+  - clients see transitions after backend rerun/dedupe, not after raw writes.
+
+Flarex differences:
+
+- Convex dev runs against an integrated backend. Flarex local dev composes a
+  PGlite-backed trusted executor with a Cloudflare-style backend trigger route.
+- The helper is local/dev-oriented. Real hosted Nitro/Vercel deployment still
+  needs production persistence and real backend URL configuration.
+
+Known limitations:
+
+- This helper proves trigger notification through executor HTTP finish, but it
+  does not yet run a full app WebSocket mutation through Dynamic Worker user
+  code into this hosted executor path.
+- Trigger notification is still best-effort after commit; durable retry remains
+  future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+```

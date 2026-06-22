@@ -550,6 +550,55 @@ corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
 corepack pnpm --filter @flarex/executor-http typecheck
 ```
 
+## Local PGlite Executor Host Composition
+
+Previous completed checkpoint: `730d284` Trigger live query invalidation after
+commit.
+
+What changed:
+
+- Added `createLocalPGliteExecutorHttpRuntime(...)` in `flarex-dev`.
+- Kept `@flarex/executor` framework-neutral.
+- Kept HTTP trigger construction in `@flarex/executor-http`.
+- Made `flarex-dev` the local composition layer that imports PGlite,
+  freshness, executor, and executor HTTP helpers.
+
+Why it changed:
+
+The platform needs one place that assembles the real local/test host without
+turning executor core into a Cloudflare or Nitro package. `flarex-dev` is the
+right layer for local composition because it already owns local runtime
+orchestration and test/dev helpers.
+
+Convex references:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - Convex local dev owns orchestration around the backend, not the database
+    core itself.
+- `crates/database/src/committer.rs`
+  - commit remains backend-owned.
+- `crates/sync/src/worker.rs`
+  - sync scheduling remains backend-owned.
+
+Flarex differences:
+
+- Convex does not split a local PGlite executor from a Cloudflare scheduler.
+  Flarex local composition must wire those boundaries explicitly.
+
+Known limitations:
+
+- Production Nitro/Vercel host construction still needs its own equivalent
+  factory/config using real Postgres.
+- Durable retry for failed post-commit trigger notification remains future
+  work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+```
+
 ## Stale Rerun Fanout Boundary
 
 Previous completed checkpoint: `0139e0d` Wire live query dead-letter

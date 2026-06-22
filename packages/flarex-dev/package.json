@@ -14,13 +14,11 @@
   "dependencies": {
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
+    "@flarex/freshness": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:"
-  },
-  "devDependencies": {
-    "@flarex/freshness": "workspace:*",
-    "@flarex/persistence-postgres": "workspace:*"
   },
   "peerDependencies": {
     "vite": "^7.0.0"

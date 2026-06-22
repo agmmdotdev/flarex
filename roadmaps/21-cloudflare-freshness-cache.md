@@ -1528,6 +1528,58 @@ corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor-http typecheck
 ```
 
+## Local Durable Freshness Trigger Wiring
+
+Previous completed checkpoint: `730d284` Trigger live query invalidation after
+commit.
+
+What changed:
+
+- Local PGlite executor runtime now uses `PostgresFreshnessMirrorStore` backed
+  by the same persistence object as the executor.
+- Mutation finish through real executor HTTP routes updates durable freshness
+  and posts the Cloudflare scheduler trigger route through the injected
+  notifier.
+- Test coverage proves a missing-document live-query read becomes stale after
+  the mutation inserts that document.
+
+Freshness impact:
+
+```txt
+PGlite mutation commit
+  -> durable document/table freshness rows
+  -> Cloudflare trigger notification
+  -> later SchedulerDO rerun can classify stale subscriptions
+```
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit write metadata is the freshness source.
+- `crates/sync/src/worker.rs`
+  - scheduler work follows invalidation.
+- `crates/sync/src/state.rs`
+  - transition emission remains downstream of rerun.
+
+Flarex differences:
+
+- Convex does not expose a PGlite freshness mirror or Cloudflare trigger URL.
+  Flarex uses them to preserve the same semantic order across separate
+  runtimes.
+
+Known limitations:
+
+- Cloudflare `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are still future
+  cache layers.
+- Durable retry of failed trigger notification is not implemented.
+- Index/range freshness remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

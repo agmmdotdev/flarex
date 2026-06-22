@@ -556,6 +556,51 @@ corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor-http typecheck
 ```
 
+## Local Mutation Trigger Wiring
+
+Previous completed checkpoint: `730d284` Trigger live query invalidation after
+commit.
+
+What changed:
+
+- Added local PGlite host wiring so executor HTTP mutation finish now calls the
+  Cloudflare live-query trigger notifier automatically.
+- Added a test that no longer manually calls scheduler routes; it finishes a
+  mutation over executor HTTP and observes the trigger request produced by the
+  host wiring.
+
+Why it changed:
+
+The route and executor hook existed separately. Sync only becomes event-driven
+when a real host connects successful mutation commit to the scheduler trigger.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - invalidation work is backend-scheduled.
+- `crates/sync/src/state.rs`
+  - active query transitions happen after rerun.
+- `crates/database/src/committer.rs`
+  - commit publication precedes sync invalidation.
+
+Flarex differences:
+
+- Convex does not need an HTTP trigger request. Flarex local host now makes the
+  request because executor and Cloudflare scheduler are split.
+
+Known limitations:
+
+- The local test stops at trigger notification. Existing backend tests still
+  prove trigger-to-WebSocket fanout separately.
+- A full browser/app WebSocket mutation through Dynamic Worker user code into
+  the Postgres executor remains the next integration gap.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

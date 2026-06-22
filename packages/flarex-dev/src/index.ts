@@ -1,9 +1,14 @@
 export { createFlarexDevRuntime } from "./dev.ts";
 export type { FlarexDevRuntime, FlarexDevRuntimeOptions } from "./dev.ts";
-export { createLocalExecutorHttpRuntime } from "./executorHttpRuntime.ts";
+export {
+  createLocalExecutorHttpRuntime,
+  createLocalPGliteExecutorHttpRuntime,
+} from "./executorHttpRuntime.ts";
 export type {
   LocalExecutorHttpRuntime,
   LocalExecutorHttpRuntimeOptions,
+  LocalPGliteExecutorHttpRuntime,
+  LocalPGliteExecutorHttpRuntimeOptions,
 } from "./executorHttpRuntime.ts";
 export {
   bundleFlarexSourcePackage,

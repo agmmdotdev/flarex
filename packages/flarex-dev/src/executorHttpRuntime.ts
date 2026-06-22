@@ -1,12 +1,23 @@
 import {
+  createFlarexBackendLiveQueryTriggerNotifier,
   createFlarexHttpHandler,
   type FlarexHttpAppConfig,
 } from "@flarex/executor-http";
 import type {
   FlarexExecutor,
+  FlarexExecutorConfig,
   Json,
   RerunStaleLiveQuerySubscriptionsInput,
 } from "@flarex/executor";
+import { createFlarexExecutor } from "@flarex/executor";
+import {
+  createPostgresFreshnessMirrorStore,
+  type PostgresFreshnessMirrorStore,
+} from "@flarex/freshness";
+import {
+  createPGlitePersistence,
+  type PGliteFlarexPersistence,
+} from "@flarex/persistence-postgres/pglite";
 import {
   CachedExecutionArtifactMaterializer,
   type ExecutionArtifactMaterializer,
@@ -31,6 +42,29 @@ export type LocalExecutorHttpRuntime = {
   fetch(request: Request): Promise<Response>;
   dispose(): Promise<void>;
   cacheSize(): number;
+};
+
+export type LocalPGliteExecutorHttpRuntimeOptions =
+  Omit<LocalExecutorHttpRuntimeOptions, "executor" | "freshnessStore"> & {
+    backendUrl: string | URL;
+    persistence?: PGliteFlarexPersistence;
+    migrate?: boolean;
+    clock?: FlarexExecutorConfig["clock"];
+    ids?: FlarexExecutorConfig["ids"];
+    triggerCapabilityToken?: string;
+    triggerFetch?: typeof fetch;
+    triggerLimit?: number;
+    triggerDeliveryLimit?: number;
+    triggerMaxBatches?: number;
+    onTriggerError?: NonNullable<
+      NonNullable<FlarexExecutorConfig["liveQueryInvalidation"]>["onError"]
+    >;
+  };
+
+export type LocalPGliteExecutorHttpRuntime = LocalExecutorHttpRuntime & {
+  executor: FlarexExecutor;
+  persistence: PGliteFlarexPersistence;
+  freshnessStore: PostgresFreshnessMirrorStore;
 };
 
 export function createLocalExecutorHttpRuntime(
@@ -79,6 +113,64 @@ export function createLocalExecutorHttpRuntime(
     fetch: request => handler(request),
     dispose: () => materializer.clear(),
     cacheSize: () => materializer.size(),
+  };
+}
+
+export async function createLocalPGliteExecutorHttpRuntime(
+  options: LocalPGliteExecutorHttpRuntimeOptions,
+): Promise<LocalPGliteExecutorHttpRuntime> {
+  const {
+    backendUrl,
+    persistence: providedPersistence,
+    migrate,
+    clock,
+    ids,
+    triggerCapabilityToken,
+    triggerFetch,
+    triggerLimit,
+    triggerDeliveryLimit,
+    triggerMaxBatches,
+    onTriggerError,
+    ...runtimeOptions
+  } = options;
+  const persistence = providedPersistence ?? await createPGlitePersistence();
+  if (migrate !== false) {
+    await persistence.migrate();
+  }
+  const freshnessStore = createPostgresFreshnessMirrorStore(persistence);
+  const executor = createFlarexExecutor({
+    persistence,
+    ...(clock === undefined ? {} : { clock }),
+    ...(ids === undefined ? {} : { ids }),
+    liveQueryInvalidation: {
+      freshnessStore,
+      notifyTrigger: createFlarexBackendLiveQueryTriggerNotifier({
+        backendUrl,
+        ...(triggerCapabilityToken === undefined
+          ? {}
+          : { capabilityToken: triggerCapabilityToken }),
+        ...(triggerFetch === undefined ? {} : { fetch: triggerFetch }),
+        ...(triggerLimit === undefined ? {} : { limit: triggerLimit }),
+        ...(triggerDeliveryLimit === undefined
+          ? {}
+          : { deliveryLimit: triggerDeliveryLimit }),
+        ...(triggerMaxBatches === undefined
+          ? {}
+          : { maxBatches: triggerMaxBatches }),
+      }),
+      ...(onTriggerError === undefined ? {} : { onError: onTriggerError }),
+    },
+  });
+  const runtime = createLocalExecutorHttpRuntime({
+    ...runtimeOptions,
+    executor,
+    freshnessStore,
+  });
+  return {
+    ...runtime,
+    executor,
+    persistence,
+    freshnessStore,
   };
 }
 

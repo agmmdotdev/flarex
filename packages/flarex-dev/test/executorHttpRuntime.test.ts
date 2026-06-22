@@ -20,7 +20,10 @@ import { createFlarexExecutor } from "@flarex/executor";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import type { PushSourcePackage } from "flarex-backend/types";
 
-import { createLocalExecutorHttpRuntime } from "../src/executorHttpRuntime";
+import {
+  createLocalExecutorHttpRuntime,
+  createLocalPGliteExecutorHttpRuntime,
+} from "../src/executorHttpRuntime";
 
 describe("createLocalExecutorHttpRuntime", () => {
   it("wires live-query rerun maintenance to materialized query execution", async () => {
@@ -325,6 +328,164 @@ describe("createLocalExecutorHttpRuntime", () => {
         resultJson: { _id: "1:message", text: "fresh" },
       }),
     ]);
+  });
+
+  it("wires PGlite mutation commits to the Cloudflare live-query trigger notifier", async () => {
+    let now = 100;
+    let nextSession = 0;
+    const triggerRequests: Array<{
+      url: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const runtime = await createLocalPGliteExecutorHttpRuntime({
+      projectId: "project-pglite-trigger",
+      capabilityToken: "executor-secret",
+      backendUrl: "https://backend.test/base",
+      triggerCapabilityToken: "delivery-secret",
+      triggerLimit: 5,
+      triggerDeliveryLimit: 10,
+      triggerMaxBatches: 2,
+      clock: { now: () => new Date(++now) },
+      ids: { nextId: () => `session_trigger_${++nextSession}` },
+      triggerFetch: async (input, init) => {
+        const request = new Request(input, init);
+        triggerRequests.push({
+          url: request.url,
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return Response.json({
+          deploymentId: "deployment-pglite-trigger",
+          changed: 0,
+          unchanged: 0,
+          unsupported: 0,
+          hasMoreStale: false,
+        });
+      },
+    });
+
+    try {
+      const sourcePackage = getMessageSourcePackage();
+      const registered = await runtime.executor.registerDeploymentPackage({
+        deploymentId: "deployment-pglite-trigger",
+        projectId: "project-pglite-trigger",
+        sourcePackage,
+        analysisJson: getMessageAnalysisJson(),
+      });
+      await runtime.executor.activateDeploymentPackage({
+        deploymentId: "deployment-pglite-trigger",
+        projectId: "project-pglite-trigger",
+        packageId: registered.package.packageId,
+        schemaVersion: 1,
+      });
+      await runtime.executor.recordLiveQuerySubscription({
+        deploymentId: "deployment-pglite-trigger",
+        connectionId: "connection-pglite-trigger",
+        queryId: 1,
+        functionPath: "messages:get",
+        argsJson: { messageId: "1:message" },
+        partitionKey: "1:message",
+        beginTs: 100,
+        readSet: {
+          documents: [{ tableId: 1, id: "1:message", observedTs: null }],
+        },
+        resultJson: null,
+      });
+
+      const start = await runtime.fetch(jsonRequest(
+        "https://executor.test/invoke/start",
+        {
+          deploymentId: "deployment-pglite-trigger",
+          projectId: "project-pglite-trigger",
+          path: "messages:seed",
+          kind: "mutation",
+          args: { messageId: "1:message", text: "fresh" },
+          partitionKey: "1:message",
+        },
+        "executor-secret",
+      ));
+      expect(start.status).toBe(200);
+      const started = await start.json() as { sessionId: string };
+
+      const syscall = await runtime.fetch(jsonRequest(
+        "https://executor.test/invoke/syscall",
+        {
+          deploymentId: "deployment-pglite-trigger",
+          projectId: "project-pglite-trigger",
+          sessionId: started.sessionId,
+          op: "insert",
+          table: "messages",
+          id: "1:message",
+          value: { text: "fresh" },
+        },
+        "executor-secret",
+      ));
+      expect(syscall.status).toBe(200);
+
+      const finish = await runtime.fetch(jsonRequest(
+        "https://executor.test/invoke/finish",
+        {
+          deploymentId: "deployment-pglite-trigger",
+          projectId: "project-pglite-trigger",
+          sessionId: started.sessionId,
+          value: "1:message",
+        },
+        "executor-secret",
+      ));
+
+      expect(finish.status).toBe(200);
+      await expect(finish.json()).resolves.toMatchObject({
+        value: "1:message",
+        committedTs: 102,
+        writes: [
+          {
+            tableId: 1,
+            id: "1:message",
+            prevTs: null,
+            ts: 102,
+            value: { text: "fresh" },
+          },
+        ],
+      });
+      await expect(
+        runtime.freshnessStore.getDocumentVersion(
+          "deployment-pglite-trigger",
+          "1:message",
+        ),
+      ).resolves.toMatchObject({ version: 102 });
+      await expect(
+        runtime.executor.findStaleLiveQuerySubscriptions({
+          deploymentId: "deployment-pglite-trigger",
+          freshnessStore: runtime.freshnessStore,
+        }),
+      ).resolves.toMatchObject({
+        stale: [
+          {
+            subscription: {
+              deploymentId: "deployment-pglite-trigger",
+              connectionId: "connection-pglite-trigger",
+              queryId: 1,
+            },
+          },
+        ],
+      });
+      expect(triggerRequests).toEqual([
+        {
+          url: "https://backend.test/base/scheduler/live-query-subscriptions/trigger",
+          authorization: "Bearer delivery-secret",
+          body: {
+            deploymentId: "deployment-pglite-trigger",
+            projectId: "project-pglite-trigger",
+            limit: 5,
+            deliveryLimit: 10,
+            maxBatches: 2,
+          },
+        },
+      ]);
+    } finally {
+      await runtime.dispose();
+    }
   });
 });
 

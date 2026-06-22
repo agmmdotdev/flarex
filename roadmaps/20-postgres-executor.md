@@ -264,6 +264,58 @@ corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts te
 corepack pnpm --filter @flarex/executor typecheck
 ```
 
+## Local Host Wires Post-Commit Trigger
+
+Previous completed checkpoint: `730d284` Trigger live query invalidation after
+commit.
+
+What changed:
+
+- Added a local PGlite host factory that constructs `createFlarexExecutor(...)`
+  with:
+  - PGlite persistence,
+  - `createPostgresFreshnessMirrorStore(...)`, and
+  - `createFlarexBackendLiveQueryTriggerNotifier(...)`.
+- Added coverage that drives the executor through HTTP `/invoke/start`,
+  `/invoke/syscall`, and `/invoke/finish`, proving the trigger notifier fires
+  from the successful commit path.
+
+Why it changed:
+
+The previous executor hook was callable but not wired by a host. This checkpoint
+turns the hook into a real local executor runtime behavior without manually
+calling scheduler routes.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - publish after commit validation.
+- `crates/sync/src/worker.rs`
+  - trigger query work from backend invalidation.
+- `crates/sync/src/state.rs`
+  - client-visible transitions come after rerun and dedupe.
+
+Flarex differences:
+
+- Convex local backend is integrated. Flarex local host composes PGlite,
+  freshness, executor HTTP, and Cloudflare trigger notification explicitly.
+
+Known limitations:
+
+- The host factory is local/PGlite-specific. Production real Postgres and Nitro
+  environment config still need a deployment-facing constructor.
+- This test proves trigger notification, not full WebSocket delivery. The
+  existing backend sync tests still cover trigger-to-WebSocket fanout.
+- Failed trigger notifications are still best-effort and require a durable
+  retry design.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+```
+
 ## Live-Query Delivery Failure Metadata
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
