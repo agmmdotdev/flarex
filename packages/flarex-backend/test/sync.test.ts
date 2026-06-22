@@ -1117,6 +1117,267 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("continues stale live query reruns from pending alarm state", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    let rerunCount = 0;
+    let claimCount = 0;
+    const deploymentId = "sync-rerun-continuation-deployment";
+    const connectionId = `connection:${deploymentId}:rerun-continuation-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/rerun") {
+              rerunCount += 1;
+              const resultJson = rerunCount === 1
+                ? { user: "Grace" }
+                : { user: "Hopper" };
+              const previousResultHash = rerunCount === 1
+                ? '{"user":"Ada"}'
+                : '{"user":"Grace"}';
+              return Response.json({
+                scanned: {
+                  fresh: [],
+                  stale: [{ subscription: { deploymentId, connectionId, queryId: 32 } }],
+                  unsupported: [],
+                },
+                changed: [
+                  {
+                    subscription: { deploymentId, connectionId, queryId: 32 },
+                    previousResultHash,
+                    resultHash: JSON.stringify(resultJson),
+                    changed: true,
+                    delivery: {
+                      deploymentId,
+                      deliveryId: `delivery_rerun_continue_${rerunCount}`,
+                      connectionId,
+                      queryId: 32,
+                    },
+                  },
+                ],
+                unchanged: [],
+                changes: [
+                  {
+                    deploymentId,
+                    connectionId,
+                    queryId: 32,
+                    functionPath: "users:get",
+                    argsJson: { id: "1:ada" },
+                    resultJson,
+                    previousResultHash,
+                    resultHash: JSON.stringify(resultJson),
+                  },
+                ],
+                unsupported: [],
+                hasMoreStale: rerunCount === 1,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              claimCount += 1;
+              const resultJson = claimCount === 1
+                ? { user: "Grace" }
+                : { user: "Hopper" };
+              const previousResultHash = claimCount === 1
+                ? '{"user":"Ada"}'
+                : '{"user":"Grace"}';
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: `delivery_rerun_continue_${claimCount}`,
+                    connectionId,
+                    queryId: 32,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId,
+                      queryId: 32,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson,
+                      previousResultHash,
+                      resultHash: JSON.stringify(resultJson),
+                    },
+                    deliveredAt: null,
+                    createdAt: `2026-06-22T00:00:0${claimCount}.000Z`,
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "rerun-continuation-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 32,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const delivered = collectJsonMessages(ws, 2);
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          deploymentId,
+          projectId: "project_rerun_continuation",
+          limit: 1,
+          deliveryLimit: 1,
+          maxBatches: 1,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deploymentId,
+      changed: 1,
+      hasMoreStale: true,
+      delivery: {
+        woken: true,
+        result: {
+          delivered: 1,
+          hasMore: false,
+        },
+      },
+    });
+
+    const env = await harness.mf.getBindings<Env>();
+    const scheduler = env.SCHEDULERS.getByName("scheduler:live-query-deliveries");
+    const continued = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-reruns",
+      { method: "POST" },
+    );
+
+    expect(continued.status).toBe(200);
+    await expect(continued.json()).resolves.toMatchObject({
+      deploymentId,
+      changed: 1,
+      hasMoreStale: false,
+      delivery: {
+        woken: true,
+        result: {
+          delivered: 1,
+          hasMore: false,
+        },
+      },
+    });
+    await expect(delivered).resolves.toMatchObject([
+      {
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 32,
+            value: { user: "Grace" },
+          },
+        ],
+      },
+      {
+        type: "Transition",
+        modifications: [
+          {
+            type: "QueryUpdated",
+            queryId: 32,
+            value: { user: "Hopper" },
+          },
+        ],
+      },
+    ]);
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/rerun",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_rerun_continuation",
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_rerun_continue_1"],
+        },
+      },
+      {
+        path: "/maintenance/live-queries/rerun",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_rerun_continuation",
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_rerun_continue_2"],
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("dead-letters stuck live query deliveries and reconnects affected connections", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

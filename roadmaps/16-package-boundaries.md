@@ -566,6 +566,62 @@ corepack pnpm build
 git diff --check
 ```
 
+## Scheduler Rerun Continuation Boundary
+
+Previous completed checkpoint: `0386055` Fan out stale live query reruns.
+
+What changed:
+
+- `packages/flarex-backend` now persists pending stale-rerun continuation state
+  inside `SchedulerDO` storage.
+- Continuation remains Cloudflare-specific and does not add new executor-core
+  APIs.
+- Executor remains responsible for stale scan, rerun execution, durable
+  delivery-row creation, and the existing claim/ack API.
+
+Why it changed:
+
+- The scheduler needs to continue bounded work when the executor reports
+  `hasMoreStale`, but that continuation is runtime orchestration, not
+  persistence or transaction semantics.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - sync worker owns update scheduling and retry inside Convex's backend
+    runtime.
+- `crates/sync/src/state.rs`
+  - sync state tracks invalidated queries and subscription refills.
+
+Flarex differences:
+
+- Flarex persists continuation in `SchedulerDO` because execution may be split
+  across Cloudflare and Nitro/Vercel. Convex does not expose this boundary.
+- The internal `/continue-live-query-reruns` route is a Cloudflare testing and
+  alarm hook, not a public executor route.
+
+Known limitations:
+
+- The current scheduler instance stores a single pending rerun job. If future
+  trigger routing uses one scheduler DO for many deployments, this must become
+  a queue or deterministic per-deployment scheduler naming.
+- Retry observability is still only implicit in Durable Object alarm state.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Dead-Letter Reconnect Boundary
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

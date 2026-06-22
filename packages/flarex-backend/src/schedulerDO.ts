@@ -41,6 +41,15 @@ type RerunLiveQuerySubscriptionsRequest = {
   maxBatches?: number;
 };
 
+type PendingLiveQueryRerun = {
+  deploymentId: string;
+  projectId?: string;
+  limit: number;
+  deliveryLimit: number;
+  maxBatches: number;
+  retryAttempt: number;
+};
+
 type ExecutorLiveQueryRerunResult = {
   changed: unknown[];
   unchanged: unknown[];
@@ -99,8 +108,14 @@ const DEFAULT_MAX_BATCHES = 3;
 const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
 const DEFAULT_MIN_ATTEMPTS = 3;
 const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
+const PENDING_RERUN_KEY = "pendingLiveQueryRerun";
+const CONTINUE_RERUN_ALARM_DELAY_MS = 100;
+const RERUN_RETRY_ALARM_BASE_DELAY_MS = 250;
+const RERUN_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 
 export class SchedulerDO extends DurableObject<Env> {
+  private rerunInFlight: Promise<RerunResult> | undefined;
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (
@@ -133,7 +148,21 @@ export class SchedulerDO extends DurableObject<Env> {
         ),
       );
     }
+    if (
+      url.pathname === "/continue-live-query-reruns" &&
+      request.method === "POST"
+    ) {
+      return json(await this.continuePendingLiveQueryRerun());
+    }
     return json({ service: "flarex-scheduler", status: "ok" });
+  }
+
+  async alarm(): Promise<void> {
+    try {
+      await this.continuePendingLiveQueryRerun();
+    } catch {
+      // Retry state is persisted by continuePendingLiveQueryRerun().
+    }
   }
 
   private async reconcileLiveQueryDeliveries(
@@ -191,15 +220,47 @@ export class SchedulerDO extends DurableObject<Env> {
 
   private async rerunLiveQuerySubscriptions(body: unknown): Promise<RerunResult> {
     const request = rerunRequestFromBody(body);
+    return this.runAndPersistLiveQueryRerun(pendingRerunFromRequest(request));
+  }
+
+  private async continuePendingLiveQueryRerun(): Promise<RerunResult | { skipped: true }> {
+    const pending = await this.ctx.storage.get<PendingLiveQueryRerun>(
+      PENDING_RERUN_KEY,
+    );
+    if (pending === undefined) return { skipped: true };
+    return this.runAndPersistLiveQueryRerun(pending);
+  }
+
+  private async runAndPersistLiveQueryRerun(
+    pending: PendingLiveQueryRerun,
+  ): Promise<RerunResult> {
+    if (this.rerunInFlight !== undefined) return this.rerunInFlight;
+    const rerun = this.runLiveQueryRerun(pending)
+      .then(async result => {
+        await this.persistRerunContinuation(pending, result);
+        return result;
+      })
+      .catch(async error => {
+        await this.scheduleRerunRetry(pending);
+        throw error;
+      })
+      .finally(() => {
+        this.rerunInFlight = undefined;
+      });
+    this.rerunInFlight = rerun;
+    return rerun;
+  }
+
+  private async runLiveQueryRerun(pending: PendingLiveQueryRerun): Promise<RerunResult> {
     const rerun = await this.rerunStaleLiveQuerySubscriptions({
-      deploymentId: request.deploymentId,
-      ...(request.projectId === undefined ? {} : { projectId: request.projectId }),
-      ...(request.limit === undefined ? {} : { limit: request.limit }),
+      deploymentId: pending.deploymentId,
+      ...(pending.projectId === undefined ? {} : { projectId: pending.projectId }),
+      limit: pending.limit,
     });
 
     if (rerun.changed.length === 0) {
       return {
-        deploymentId: request.deploymentId,
+        deploymentId: pending.deploymentId,
         changed: 0,
         unchanged: rerun.unchanged.length,
         unsupported: rerun.unsupported.length,
@@ -214,19 +275,46 @@ export class SchedulerDO extends DurableObject<Env> {
     }
 
     const wake = await this.wakeDelivery({
-      deploymentId: request.deploymentId,
-      limit: request.deliveryLimit ?? request.limit ?? DEFAULT_DELIVERY_LIMIT,
-      ...(request.maxBatches === undefined ? {} : { maxBatches: request.maxBatches }),
+      deploymentId: pending.deploymentId,
+      limit: pending.deliveryLimit,
+      maxBatches: pending.maxBatches,
     });
 
     return {
-      deploymentId: request.deploymentId,
+      deploymentId: pending.deploymentId,
       changed: rerun.changed.length,
       unchanged: rerun.unchanged.length,
       unsupported: rerun.unsupported.length,
       hasMoreStale: rerun.hasMoreStale,
       delivery: wake,
     };
+  }
+
+  private async persistRerunContinuation(
+    pending: PendingLiveQueryRerun,
+    result: RerunResult,
+  ): Promise<void> {
+    if (!result.hasMoreStale) {
+      await this.ctx.storage.delete(PENDING_RERUN_KEY);
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.put(PENDING_RERUN_KEY, {
+      ...pending,
+      retryAttempt: 0,
+    });
+    await this.ctx.storage.setAlarm(Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS);
+  }
+
+  private async scheduleRerunRetry(pending: PendingLiveQueryRerun): Promise<void> {
+    const retryAttempt = pending.retryAttempt + 1;
+    await this.ctx.storage.put(PENDING_RERUN_KEY, {
+      ...pending,
+      retryAttempt,
+    });
+    await this.ctx.storage.setAlarm(
+      Date.now() + rerunRetryDelayMs(retryAttempt),
+    );
   }
 
   private async rerunStaleLiveQuerySubscriptions(
@@ -503,6 +591,30 @@ function rerunRequestFromBody(value: unknown): {
           ),
         }),
   };
+}
+
+function pendingRerunFromRequest(request: {
+  deploymentId: string;
+  projectId?: string;
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+}): PendingLiveQueryRerun {
+  return {
+    deploymentId: request.deploymentId,
+    ...(request.projectId === undefined ? {} : { projectId: request.projectId }),
+    limit: request.limit ?? DEFAULT_DELIVERY_LIMIT,
+    deliveryLimit: request.deliveryLimit ?? request.limit ?? DEFAULT_DELIVERY_LIMIT,
+    maxBatches: request.maxBatches ?? DEFAULT_MAX_BATCHES,
+    retryAttempt: 0,
+  };
+}
+
+function rerunRetryDelayMs(retryAttempt: number): number {
+  return Math.min(
+    RERUN_RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
+    RERUN_RETRY_ALARM_MAX_DELAY_MS,
+  );
 }
 
 function executorLiveQueryRerunResultFromUnknown(

@@ -1250,6 +1250,69 @@ corepack pnpm build
 git diff --check
 ```
 
+## Bounded Stale Rerun Continuation
+
+Previous completed checkpoint: `0386055` Fan out stale live query reruns.
+
+What changed:
+
+- `SchedulerDO` now persists pending rerun state when
+  `/maintenance/live-queries/rerun` reports `hasMoreStale`.
+- The pending state keeps deployment, project, rerun limit, delivery limit,
+  max delivery batches, and retry attempt.
+- An alarm and internal continuation route resume the same bounded rerun flow.
+- The continuation test proves two bounded stale rerun passes can produce two
+  separate WebSocket `Transition` updates without a long-running Worker loop.
+
+Freshness impact:
+
+```txt
+stale rerun page reports hasMoreStale
+  -> SchedulerDO stores pending rerun
+  -> SchedulerDO alarm or internal continue resumes rerun
+  -> executor persists changed rows
+  -> DeliveryDO drains rows
+  -> ConnectionDO sends Transition
+```
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex schedules query updates after invalidation and query-set changes.
+- `crates/sync/src/state.rs`
+  - state tracks invalidated queries until rerun/refill completes.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - clients receive the resulting transitions through the same sync channel.
+
+Flarex differences:
+
+- Convex's sync worker can keep backend scheduling state in process. Flarex
+  must store bounded continuation in Durable Object storage because the
+  Cloudflare runtime should not rely on unbounded loops.
+- The continuation is still manual/alarm-local. It is not yet triggered by
+  freshness projection or commit outbox processing.
+
+Known limitations:
+
+- No commit/freshness trigger automatically wakes this scheduler yet.
+- Only one pending stale-rerun continuation is stored per scheduler DO.
+- No metrics or operator view exposes retry attempts yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

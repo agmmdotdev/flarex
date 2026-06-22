@@ -263,6 +263,70 @@ corepack pnpm build
 git diff --check
 ```
 
+## Bounded Stale Rerun Continuation
+
+Previous completed checkpoint: `0386055` Fan out stale live query reruns.
+
+What changed:
+
+- `SchedulerDO` now persists a bounded pending stale-rerun job when executor
+  rerun maintenance returns `hasMoreStale: true`.
+- `SchedulerDO` schedules an alarm for continuation and exposes internal
+  `POST /continue-live-query-reruns` for deterministic tests.
+- `SchedulerDO.alarm()` resumes the same pending rerun and uses backoff retry
+  state if the executor or delivery wake path fails.
+- Added a sync integration test proving a first rerun with `hasMoreStale`
+  persists continuation, and a later continue call reruns with the same bounds
+  and delivers the next `QueryUpdated` transition.
+
+Why it changed:
+
+- The manual rerun route was correct for one bounded page. Large deployments
+  need the scheduler to preserve progress pressure without running an
+  unbounded loop in one Worker request.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex schedules query updates when the query set changes or active
+    subscriptions invalidate.
+- `crates/sync/src/state.rs`
+  - active query state tracks invalidations and refills subscriptions after
+    query reruns.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - clients consume `Transition` messages and keep observing query changes.
+
+Flarex differences:
+
+- Convex does this inside a long-lived backend sync worker. Flarex must persist
+  bounded continuation state in `SchedulerDO` because the Cloudflare runtime
+  cannot rely on an unbounded server loop.
+- The continuation repeats the same executor `/maintenance/live-queries/rerun`
+  call and then wakes `DeliveryDO`; it does not inspect query payloads itself.
+
+Known limitations:
+
+- No global cron or commit-triggered wake path exists yet.
+- The scheduler persists one pending stale-rerun job per scheduler DO. Future
+  trigger fanout may need per-deployment scheduler names or a queue if multiple
+  deployments share a scheduler instance.
+- Range/index freshness remains unsupported for real stale detection.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues stale live query reruns"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
