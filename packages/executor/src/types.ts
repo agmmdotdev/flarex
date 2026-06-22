@@ -843,6 +843,7 @@ export interface InvokeReadSet {
   documents?: Array<{
     tableId: number;
     id: string;
+    observedTs?: number | null;
   }>;
   tables?: Array<{
     tableId: number;

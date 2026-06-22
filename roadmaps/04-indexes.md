@@ -300,3 +300,66 @@ corepack pnpm typecheck
 corepack pnpm test
 corepack pnpm build
 ```
+
+## Postgres Index Freshness Update
+
+Previous completed checkpoint: `ccc5dea` Harden executor sync integration.
+
+What changed:
+
+- Added a Postgres persistence helper that checks whether any durable index
+  entry changed after a subscription's observed timestamp.
+- Reused the existing ordered index key range bounds instead of introducing a
+  parallel freshness key codec.
+- Indexed query syscalls now also record returned documents with exact
+  `observedTs` values so non-index-field updates to returned rows invalidate
+  live queries and mutation read sets.
+- Added durable PGlite coverage proving an indexed read set becomes stale only
+  when a changed index entry falls inside the subscribed range.
+
+Why it changed:
+
+The local `/sync` executor integration was previously forced through a
+table-scan query because index/range freshness was still unsupported. Real
+Convex-style apps use `.withIndex(...)` for ordinary list queries, so the
+Postgres executor must classify those subscriptions precisely.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - `ReadSet` tracks indexed intervals and checks whether committed index
+    writes overlap those intervals.
+- `crates/database/src/query/index_range.rs`
+  - range query execution records the consumed index interval into the
+    transaction read set.
+
+Flarex differences:
+
+- Convex keeps subscription invalidation inside the integrated backend read-set
+  and write-log machinery. Flarex's Postgres path persists index history and
+  asks that history whether an index range changed after the subscription's
+  observed timestamp.
+- Flarex explicitly combines an index range dependency for membership changes
+  with document dependencies for returned-row content changes.
+- Memory-only freshness stores still report index reads as unsupported because
+  they do not hold durable index-write history.
+
+Known limitations:
+
+- The Postgres helper currently scans candidate index rows in process after a
+  timestamp/index filter. It is correct for PGlite and early Postgres work, but
+  production needs a tighter SQL range predicate over encoded key bytes.
+- Search/vector freshness is still not implemented.
+- Paginated query subscriptions conservatively depend on the requested range,
+  not a narrower page-specific invalidation model.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
+```

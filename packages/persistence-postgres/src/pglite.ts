@@ -29,6 +29,7 @@ import {
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
 } from "./documents";
 import {
+  hasIndexEntryAfterTs as hasIndexEntryAfterTsWithDb,
   listDocumentsInIndexAtTs as listDocumentsInIndexAtTsWithDb,
 } from "./indexEntries";
 import {
@@ -169,6 +170,8 @@ export async function createPGlitePersistence(
       ),
     listDocumentsInIndexAtTs: (input) =>
       listDocumentsInIndexAtTsWithDb(drizzleDb, input),
+    hasIndexEntryAfterTs: (input) =>
+      hasIndexEntryAfterTsWithDb(drizzleDb, input),
     insertInvokeSessionDocumentRead: (input) =>
       insertInvokeSessionDocumentReadWithDb(drizzleDb, input),
     listInvokeSessionDocumentReads: (deploymentId, sessionId) =>

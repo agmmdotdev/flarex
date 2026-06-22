@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { OutboxEventRecord } from "@flarex/persistence-postgres";
 import {
+  indexBoundsForExpressions,
+  insertIndexEntriesForDocumentWrites,
+} from "@flarex/persistence-postgres";
+import {
   applyOutboxEventsToFreshnessMirror,
   checkReadSetFreshness,
   createFreshnessDeliveryHandler,
@@ -470,7 +474,7 @@ describe("freshness outbox projector", () => {
     });
   });
 
-  it("reports index read sets as unsupported", async () => {
+  it("reports index read sets as unsupported without durable index history", async () => {
     const store = createMemoryFreshnessMirrorStore();
 
     await expect(
@@ -488,9 +492,124 @@ describe("freshness outbox projector", () => {
         {
           kind: "index",
           indexId: 1,
-          reason: "index/range freshness is not implemented yet",
+          reason: "index/range freshness requires durable index history",
         },
       ],
+    });
+  });
+
+  it("checks durable Postgres index read-set freshness", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const store = createPostgresFreshnessMirrorStore(persistence);
+    const bounds = indexBoundsForExpressions(["userId"], [
+      { op: "eq", field: "userId", value: "2:u1" },
+    ]);
+
+    await insertIndexEntriesForDocumentWrites(persistence.drizzle, {
+      deploymentId: "deployment_durable_index_readset",
+      indexes: [
+        {
+          indexId: 1,
+          tableId: 1,
+          name: "by_user",
+          fields: ["userId"],
+          state: "enabled",
+        },
+      ],
+      writes: [
+        {
+          tableId: 1,
+          id: "1:progress",
+          ts: 20,
+          previousValue: null,
+          value: {
+            userId: "2:u1",
+            lessonId: "lesson-1",
+            completed: true,
+          },
+          deleted: false,
+        },
+      ],
+    });
+
+    await expect(
+      checkReadSetFreshness({
+        store,
+        deploymentId: "deployment_durable_index_readset",
+        readSet: {
+          indexes: [{ indexId: 1, observedTs: 10, ...bounds }],
+        },
+      }),
+    ).resolves.toEqual({
+      status: "stale",
+      stale: [
+        {
+          kind: "index",
+          indexId: 1,
+          observedTs: 10,
+          ...bounds,
+        },
+      ],
+      unsupported: [],
+    });
+
+    await expect(
+      checkReadSetFreshness({
+        store,
+        deploymentId: "deployment_durable_index_readset",
+        readSet: {
+          indexes: [{ indexId: 1, observedTs: 20, ...bounds }],
+        },
+      }),
+    ).resolves.toEqual({
+      status: "fresh",
+      stale: [],
+      unsupported: [],
+    });
+  });
+
+  it("checks returned documents alongside durable index ranges", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const store = createPostgresFreshnessMirrorStore(persistence);
+    const bounds = indexBoundsForExpressions(["userId"], [
+      { op: "eq", field: "userId", value: "2:u1" },
+    ]);
+
+    await applyOutboxEventsToFreshnessMirror({
+      store,
+      events: [
+        commitOutboxEvent({
+          deploymentId: "deployment_index_document_readset",
+          ts: 20,
+          commitTs: 20,
+          tableIds: [1],
+          documentIds: ["1:progress"],
+        }),
+      ],
+    });
+
+    await expect(
+      checkReadSetFreshness({
+        store,
+        deploymentId: "deployment_index_document_readset",
+        readSet: {
+          documents: [{ tableId: 1, id: "1:progress", observedTs: 10 }],
+          indexes: [{ indexId: 1, observedTs: 10, ...bounds }],
+        },
+      }),
+    ).resolves.toEqual({
+      status: "stale",
+      stale: [
+        {
+          kind: "document",
+          id: "1:progress",
+          observedTs: 10,
+          version: 20,
+        },
+      ],
+      unsupported: [],
     });
   });
 

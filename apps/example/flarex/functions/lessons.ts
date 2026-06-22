@@ -12,15 +12,6 @@ export const list = query({
   },
 });
 
-export const allProgress = query({
-  partition: model.users,
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    const progress = await ctx.db.query("lessonProgress").collect();
-    return progress.filter(row => row.userId === args.userId);
-  },
-});
-
 export const complete = mutation({
   partition: model.users,
   args: {

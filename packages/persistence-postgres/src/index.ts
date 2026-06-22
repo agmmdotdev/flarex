@@ -52,6 +52,7 @@ import type {
   OutboxEventRecord,
 } from "./outbox";
 import type {
+  HasIndexEntryAfterTsInput,
   IndexedDocumentPage,
   ListDocumentsInIndexAtTsInput,
 } from "./indexEntries";
@@ -161,6 +162,7 @@ export interface FlarexPersistence extends FlarexSqlClient {
   listDocumentsInIndexAtTs(
     input: ListDocumentsInIndexAtTsInput,
   ): Promise<IndexedDocumentPage>;
+  hasIndexEntryAfterTs(input: HasIndexEntryAfterTsInput): Promise<boolean>;
   insertInvokeSessionDocumentRead(
     input: InsertInvokeSessionDocumentReadInput,
   ): Promise<InvokeSessionDocumentReadRecord>;

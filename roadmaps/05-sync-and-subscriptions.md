@@ -192,6 +192,69 @@ Verification:
 git diff --check
 ```
 
+## Indexed Live Query Freshness Update
+
+Previous completed checkpoint: `ccc5dea` Harden executor sync integration.
+
+What changed:
+
+- `@flarex/freshness` now classifies Postgres-backed index read sets by asking
+  durable index history whether the subscribed range changed after the observed
+  timestamp.
+- Indexed query syscalls now record returned documents with exact observed
+  revisions, so a patch to returned content also marks the subscription stale
+  even when the indexed key does not change.
+- Index read sets are no longer automatically placed in the unsupported bucket
+  when the store has durable index history.
+- The unsupported bucket remains explicit for stores that cannot prove index
+  freshness.
+
+Why it changed:
+
+The sync path was already recording indexed query reads, but stale-subscription
+classification could not act on them. That meant ordinary Convex-style
+`withIndex` live queries could subscribe but would not rerun from real
+freshness checks. This update makes indexed list queries participate in the
+same stale/rerun path as document and table reads.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - index interval read sets are used both for transaction conflicts and
+    subscription invalidation.
+- `crates/sync/src/state.rs`
+  - sync state reruns invalidated subscriptions and suppresses unchanged
+    results by hashing query output.
+
+Flarex differences:
+
+- Convex subscriptions wait on backend-owned invalidation futures. Flarex's
+  current Postgres executor scans persisted subscription rows and classifies
+  them through a freshness store.
+- Convex's read-set model naturally includes both interval dependencies and
+  document observations. Flarex mirrors that by storing the index interval plus
+  returned document reads in the invoke session.
+- Flarex's durable delivery rows and ConnectionDO fanout remain separate from
+  the freshness classification step.
+
+Known limitations:
+
+- Memory freshness still treats index reads as unsupported.
+- Search/vector query freshness is still unsupported.
+- The current check detects stale subscriptions; it does not yet maintain a
+  Cloudflare-side query cache for serving updated indexed results without an
+  executor rerun.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
+```
+
 ## Executor-Owned WebSocket Subscription Registry
 
 Previous completed checkpoint: `09eb59c` feat: enhance live query subscription

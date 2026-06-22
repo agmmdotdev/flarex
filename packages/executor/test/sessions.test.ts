@@ -593,8 +593,8 @@ describe("executor invoke sessions", () => {
       value: [{ _id: "1:message", text: "old" }],
       readSet: {
         documents: [
-          { tableId: 1, id: "1:message" },
-          { tableId: 2, id: "2:lesson" },
+          { tableId: 1, id: "1:message", observedTs: 10 },
+          { tableId: 2, id: "2:lesson", observedTs: null },
         ],
       },
     });
@@ -2486,6 +2486,11 @@ describe("executor invoke sessions", () => {
         continueCursor: expect.any(String),
       },
       readSet: {
+        documents: [
+          { tableId: 1, id: "1:b", observedTs: 10 },
+          { tableId: 1, id: "1:c", observedTs: null },
+          { tableId: 1, id: "1:e", observedTs: 10 },
+        ],
         indexes: [
           {
             indexId: 1,

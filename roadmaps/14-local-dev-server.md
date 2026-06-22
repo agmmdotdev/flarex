@@ -1122,8 +1122,6 @@ What changed:
 - Reload registers and activates the pushed source package in the local
   executor so materialized Dynamic Worker code can run against
   `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
-- The example app now has a simple `lessons:allProgress` table-scan query used
-  by the local dev integration test.
 - The dev test opens `/__flarex_dev/sync`, subscribes to a generated query,
   sends a generated mutation, and observes both the mutation response and the
   live-query transition without manually calling scheduler routes.
@@ -1154,8 +1152,9 @@ Flarex differences:
 
 Known limitations:
 
-- The opt-in local Postgres path is tested through table-read freshness only.
-  Index/range freshness remains a separate executor/freshness task.
+- At this checkpoint the opt-in local Postgres path was tested through
+  table-read freshness only. Index/range freshness was still a separate
+  executor/freshness task.
 - The test asserts Convex-style ordering: the mutation response arrives before
   the later live-query transition.
 
@@ -1164,4 +1163,52 @@ Verification:
 ```sh
 pnpm --filter flarex-dev typecheck
 pnpm --filter flarex-dev test -- dev.test.ts
+```
+
+## Local Dev Indexed Sync Update
+
+Previous completed checkpoint: `ccc5dea` Harden executor sync integration.
+
+What changed:
+
+- Removed the temporary `lessons:allProgress` table-scan helper from the
+  example app.
+- Updated the local Postgres `/__flarex_dev/sync` integration to subscribe to
+  the real generated `lessons:list` query, which uses
+  `.withIndex("by_user", ...)`.
+- Kept the same end-to-end proof: WebSocket subscribe, mutation through local
+  Postgres executor transport, mutation response, and live-query transition.
+
+Why it changed:
+
+The table-scan helper was only a workaround while index/range freshness was
+unsupported. Local dev should prove the normal Convex-style app path developers
+will write, not a special test-only query.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - query subscriptions rerun after invalidation and dedupe unchanged results.
+- `crates/database/src/query/index_range.rs`
+  - indexed query execution records index intervals as read dependencies.
+
+Flarex differences:
+
+- Convex local dev runs through one integrated backend process. Flarex local
+  dev composes the app worker, backend worker, and PGlite-backed executor HTTP
+  runtime.
+- The app developer still writes only `flarex/` modules; the generated
+  Miniflare and executor composition remains tooling-owned.
+
+Known limitations:
+
+- The local sync test proves one indexed equality range. Compound ranges,
+  pagination invalidation, and search/vector queries need separate coverage.
+- Delivery still uses the current local trigger/fanout path, not a production
+  queue or hosted DeliveryDO deployment.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=30000
 ```

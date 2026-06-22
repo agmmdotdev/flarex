@@ -276,7 +276,7 @@ describe("executor live query subscriptions", () => {
               {
                 kind: "index",
                 indexId: 1,
-                reason: "index/range freshness is not implemented yet",
+                reason: "index/range freshness requires durable index history",
               },
             ],
           },
@@ -681,7 +681,9 @@ describe("executor live query subscriptions", () => {
     ).resolves.toEqual({
       value: { _id: "1:message", text: "hello" },
       beginTs: 20,
-      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message", observedTs: 10 }],
+      },
     });
     await expect(
       persistence.getInvokeSessionMetadata(

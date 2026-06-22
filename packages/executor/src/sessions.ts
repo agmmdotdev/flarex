@@ -173,6 +173,15 @@ export async function invokeSyscall(
         request.order,
         request.limit,
       );
+      for (const document of result.documents) {
+        await persistence.insertInvokeSessionDocumentRead({
+          deploymentId: input.deploymentId,
+          sessionId: input.sessionId,
+          tableId: index.tableId,
+          documentId: document.id,
+          observedTs: document.observedTs,
+        });
+      }
       await persistence.insertInvokeSessionIndexRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
@@ -190,6 +199,15 @@ export async function invokeSyscall(
           continueCursor: result.continueCursor,
         },
         readSet: {
+          ...(result.documents.length === 0
+            ? {}
+            : {
+                documents: result.documents.map((document) => ({
+                  tableId: index.tableId,
+                  id: document.id,
+                  observedTs: document.observedTs,
+                })),
+              }),
           indexes: [
             {
               indexId: index.indexId,
@@ -562,7 +580,11 @@ async function requireActiveSession(
 }
 
 function readSetFromReads(
-  documentReads: Array<{ tableId: number; documentId: string }>,
+  documentReads: Array<{
+    tableId: number;
+    documentId: string;
+    observedTs: number | null;
+  }>,
   tableReads: Array<{ tableId: number }>,
   indexReads: Array<{ indexId: number; lowerKey: string; upperKey: string }>,
 ): InvokeReadSet {
@@ -571,6 +593,7 @@ function readSetFromReads(
     readSet.documents = documentReads.map((read) => ({
       tableId: read.tableId,
       id: read.documentId,
+      observedTs: read.observedTs,
     }));
   }
   if (tableReads.length > 0) {
@@ -706,7 +729,12 @@ async function indexDocumentsAtTransactionView(
   order: "asc" | "desc" | undefined,
   limit: number | undefined,
 ): Promise<{
-  documents: Array<{ key: string; id: string; value: PersistenceJson }>;
+  documents: Array<{
+    key: string;
+    id: string;
+    value: PersistenceJson;
+    observedTs: number | null;
+  }>;
   isDone: boolean;
   continueCursor: string;
 }> {
@@ -718,13 +746,14 @@ async function indexDocumentsAtTransactionView(
   });
   const visible = new Map<
     string,
-    { key: string; id: string; value: PersistenceJson }
+    { key: string; id: string; value: PersistenceJson; observedTs: number | null }
   >();
   for (const { key, document } of base.documents) {
     visible.set(document.id, {
       key,
       id: document.id,
       value: document.value,
+      observedTs: document.ts,
     });
   }
 
@@ -763,7 +792,10 @@ async function indexDocumentsAtTransactionView(
 async function applyStagedWriteToIndexView(
   persistence: FlarexExecutorPersistence,
   session: InvokeSessionMetadataRecord,
-  visible: Map<string, { key: string; id: string; value: PersistenceJson }>,
+  visible: Map<
+    string,
+    { key: string; id: string; value: PersistenceJson; observedTs: number | null }
+  >,
   index: SchemaIndexMetadata,
   bounds: { lower?: string; upper?: string },
   write: InvokeSessionDocumentWriteRecord,
@@ -790,7 +822,22 @@ async function applyStagedWriteToIndexView(
     key,
     id: write.documentId,
     value,
+    observedTs: await observedTsForStagedWrite(persistence, session, write),
   });
+}
+
+async function observedTsForStagedWrite(
+  persistence: FlarexExecutorPersistence,
+  session: InvokeSessionMetadataRecord,
+  write: InvokeSessionDocumentWriteRecord,
+): Promise<number | null> {
+  if (write.op === "insert") return null;
+  const base = await persistence.getDocumentRevisionAtTs(
+    session.deploymentId,
+    write.documentId,
+    session.beginTs,
+  );
+  return base?.ts ?? null;
 }
 
 async function patchedIndexDocumentValue(

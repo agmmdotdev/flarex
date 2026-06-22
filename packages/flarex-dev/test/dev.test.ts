@@ -152,7 +152,7 @@ describe("Flarex dev runtime", () => {
           {
             type: "Add",
             queryId: 1,
-            udfPath: "lessons:allProgress",
+            udfPath: "lessons:list",
             args: [{ userId: "2:u1" }],
             partitionKey: "2:u1",
           },

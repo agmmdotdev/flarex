@@ -42,6 +42,14 @@ export interface ListDocumentsInIndexAtTsInput {
   order?: "asc" | "desc";
 }
 
+export interface HasIndexEntryAfterTsInput {
+  deploymentId: string;
+  indexId: number;
+  afterTs: number;
+  lower?: string;
+  upper?: string;
+}
+
 export interface IndexedDocumentPage {
   documents: Array<{
     key: string;
@@ -194,6 +202,25 @@ export async function hasIndexEntryBetweenTs(
         eq(indexes.indexId, encodeString(String(input.indexId))),
         gt(indexes.ts, input.afterTs),
         lt(indexes.ts, input.beforeTs),
+      ),
+    );
+  return rows.some((row) =>
+    keyInRange(toHex(Array.from(row.keyPrefix)), input.lower, input.upper),
+  );
+}
+
+export async function hasIndexEntryAfterTs(
+  db: FlarexMetadataDatabase,
+  input: HasIndexEntryAfterTsInput,
+): Promise<boolean> {
+  const rows = await db
+    .select({ keyPrefix: indexes.keyPrefix })
+    .from(indexes)
+    .where(
+      and(
+        eq(indexes.deploymentId, input.deploymentId),
+        eq(indexes.indexId, encodeString(String(input.indexId))),
+        gt(indexes.ts, input.afterTs),
       ),
     );
   return rows.some((row) =>

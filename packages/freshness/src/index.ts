@@ -2,6 +2,7 @@ import type {
   ApplyFreshnessCommitResult as DurableApplyFreshnessCommitResult,
   DocumentFreshnessVersionRecord,
   FreshnessProcessedEventRecord,
+  HasIndexEntryAfterTsInput,
   OutboxEventRecord,
   TableFreshnessVersionRecord,
 } from "@flarex/persistence-postgres";
@@ -52,6 +53,9 @@ export interface FreshnessMirrorStore {
     deploymentId: string,
     tableId: number,
   ): TableFreshnessVersion | null | Promise<TableFreshnessVersion | null>;
+  hasIndexEntryAfterTs?(
+    input: HasIndexEntryAfterTsInput,
+  ): boolean | Promise<boolean>;
 }
 
 export interface DurableFreshnessMirrorPersistence {
@@ -69,6 +73,7 @@ export interface DurableFreshnessMirrorPersistence {
     deploymentId: string,
     tableId: number,
   ): Promise<TableFreshnessVersionRecord | null>;
+  hasIndexEntryAfterTs(input: HasIndexEntryAfterTsInput): Promise<boolean>;
 }
 
 export interface ApplyOutboxEventsToFreshnessMirrorInput {
@@ -125,12 +130,26 @@ export interface FreshnessSourceReadSet {
 
 export type ReadSetFreshnessStatus = "fresh" | "stale" | "unsupported";
 
-export interface ReadSetFreshnessStaleDependency {
-  kind: "document" | "table";
-  id: string;
-  observedTs: number | null;
-  version: number;
-}
+export type ReadSetFreshnessStaleDependency =
+  | {
+      kind: "document";
+      id: string;
+      observedTs: number | null;
+      version: number;
+    }
+  | {
+      kind: "table";
+      id: string;
+      observedTs: number;
+      version: number;
+    }
+  | {
+      kind: "index";
+      indexId: number;
+      observedTs: number;
+      lower?: string;
+      upper?: string;
+    };
 
 export interface ReadSetFreshnessUnsupportedDependency {
   kind: "index";
@@ -320,6 +339,12 @@ export class PostgresFreshnessMirrorStore implements FreshnessMirrorStore {
   ): Promise<TableFreshnessVersion | null> {
     return await this.persistence.getTableFreshnessVersion(deploymentId, tableId);
   }
+
+  async hasIndexEntryAfterTs(
+    input: HasIndexEntryAfterTsInput,
+  ): Promise<boolean> {
+    return await this.persistence.hasIndexEntryAfterTs(input);
+  }
 }
 
 export function createPostgresFreshnessMirrorStore(
@@ -415,11 +440,31 @@ export async function checkReadSetFreshness(
   }
 
   for (const read of input.readSet.indexes ?? []) {
-    unsupported.push({
-      kind: "index",
+    if (input.store.hasIndexEntryAfterTs === undefined) {
+      unsupported.push({
+        kind: "index",
+        indexId: read.indexId,
+        reason: "index/range freshness requires durable index history",
+      });
+      continue;
+    }
+
+    const changed = await input.store.hasIndexEntryAfterTs({
+      deploymentId: input.deploymentId,
       indexId: read.indexId,
-      reason: "index/range freshness is not implemented yet",
+      afterTs: read.observedTs,
+      ...(read.lower === undefined ? {} : { lower: read.lower }),
+      ...(read.upper === undefined ? {} : { upper: read.upper }),
     });
+    if (changed) {
+      stale.push({
+        kind: "index",
+        indexId: read.indexId,
+        observedTs: read.observedTs,
+        ...(read.lower === undefined ? {} : { lower: read.lower }),
+        ...(read.upper === undefined ? {} : { upper: read.upper }),
+      });
+    }
   }
 
   return {

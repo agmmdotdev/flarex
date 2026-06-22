@@ -205,6 +205,66 @@ Verification:
 git diff --check
 ```
 
+## Postgres Index Freshness Boundary Update
+
+Previous completed checkpoint: `ccc5dea` Harden executor sync integration.
+
+What changed:
+
+- Added `hasIndexEntryAfterTs(...)` to the Postgres persistence surface.
+- Wired the PGlite adapter to the same helper so local and test executor runs
+  use the real durable index history.
+- `createPostgresFreshnessMirrorStore(...)` now exposes that helper to
+  `@flarex/freshness`, allowing indexed subscriptions to be classified as
+  stale.
+- Indexed query sessions record returned documents with exact observed
+  revisions so same-index-key content updates are caught by OCC and live-query
+  freshness.
+
+Why it changed:
+
+The trusted Postgres executor is the authoritative OCC and live-query
+freshness boundary. Since the executor already writes ordered index history at
+commit time and validates index reads for mutation OCC, the same persisted
+history should drive live-query staleness instead of adding a separate
+Cloudflare-only freshness table first.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - one read-set model is reused for mutation conflicts and subscriptions.
+- `crates/database/src/committer.rs`
+  - commit computes index writes before publication.
+
+Flarex differences:
+
+- Convex holds the relevant snapshots, subscriptions, and index write maps in
+  backend-managed Rust structures. Flarex stores the authoritative index
+  history in Postgres/PGlite and lets the framework-neutral executor ask
+  storage whether a read range changed.
+- Convex's transaction read set covers both index intervals and read
+  documents. Flarex stores those as separate invoke-session read rows and
+  recombines them for commit validation and subscription freshness.
+- This preserves the current Cloudflare split: user code still calls syscalls,
+  while the trusted executor owns persistence and freshness.
+
+Known limitations:
+
+- The helper is correct but not yet optimized for production SQL query plans.
+- Real Postgres isolation/lock behavior still needs a non-PGlite correctness
+  lane.
+- This does not change cross-shard or workflow mutation semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
+```
+
 ## Executor Subscription Registry HTTP Boundary
 
 Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
