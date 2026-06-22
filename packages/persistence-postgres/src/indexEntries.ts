@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, lte } from "drizzle-orm";
+import { and, eq, gt, gte, lt, lte, type SQL } from "drizzle-orm";
 
 import { indexes } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -196,17 +196,9 @@ export async function hasIndexEntryBetweenTs(
   const rows = await db
     .select({ keyPrefix: indexes.keyPrefix })
     .from(indexes)
-    .where(
-      and(
-        eq(indexes.deploymentId, input.deploymentId),
-        eq(indexes.indexId, encodeString(String(input.indexId))),
-        gt(indexes.ts, input.afterTs),
-        lt(indexes.ts, input.beforeTs),
-      ),
-    );
-  return rows.some((row) =>
-    keyInRange(toHex(Array.from(row.keyPrefix)), input.lower, input.upper),
-  );
+    .where(and(...indexChangedBetweenConditions(input)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function hasIndexEntryAfterTs(
@@ -216,16 +208,47 @@ export async function hasIndexEntryAfterTs(
   const rows = await db
     .select({ keyPrefix: indexes.keyPrefix })
     .from(indexes)
-    .where(
-      and(
-        eq(indexes.deploymentId, input.deploymentId),
-        eq(indexes.indexId, encodeString(String(input.indexId))),
-        gt(indexes.ts, input.afterTs),
-      ),
-    );
-  return rows.some((row) =>
-    keyInRange(toHex(Array.from(row.keyPrefix)), input.lower, input.upper),
-  );
+    .where(and(...indexChangedAfterConditions(input)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+function indexChangedAfterConditions(input: HasIndexEntryAfterTsInput): SQL[] {
+  return indexChangeConditions(input);
+}
+
+function indexChangedBetweenConditions(input: {
+  deploymentId: string;
+  indexId: number;
+  afterTs: number;
+  beforeTs: number;
+  lower?: string;
+  upper?: string;
+}): SQL[] {
+  return indexChangeConditions({
+    ...input,
+    upperTsExclusive: input.beforeTs,
+  });
+}
+
+function indexChangeConditions(input: HasIndexEntryAfterTsInput & {
+  upperTsExclusive?: number;
+}): SQL[] {
+  const conditions: SQL[] = [
+    eq(indexes.deploymentId, input.deploymentId),
+    eq(indexes.indexId, encodeString(String(input.indexId))),
+    gt(indexes.ts, input.afterTs),
+  ];
+  if (input.upperTsExclusive !== undefined) {
+    conditions.push(lt(indexes.ts, input.upperTsExclusive));
+  }
+  if (input.lower !== undefined) {
+    conditions.push(gte(indexes.keyPrefix, hexToBytes(input.lower)));
+  }
+  if (input.upper !== undefined) {
+    conditions.push(lt(indexes.keyPrefix, hexToBytes(input.upper)));
+  }
+  return conditions;
 }
 
 export function indexBoundsForExpressions(

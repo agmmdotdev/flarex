@@ -265,6 +265,55 @@ corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
 ```
 
+## Index Freshness Persistence Hardening
+
+Previous completed checkpoint: `120dcaa` Implement indexed live query freshness.
+
+What changed:
+
+- Added migration `0012_sudden_king_bedlam.sql` for
+  `indexes_by_index_id_key_prefix_ts`.
+- Updated Postgres/PGlite persistence so index freshness/OCC existence checks
+  use deployment, index, encoded key-range, and timestamp predicates in SQL.
+- Added PGlite tests for index membership changes across inserts, deletes, and
+  same-key patches.
+
+Why it changed:
+
+The trusted executor owns the authoritative persistence path. After indexed
+live-query freshness became semantically correct, the next risk was letting
+hot index subscriptions force broad in-process scans. This keeps the
+framework-neutral executor on a storage shape closer to the eventual hosted
+Postgres runtime.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - indexed read sets are checked against index writes by interval overlap.
+- `crates/database/src/query/index_range.rs`
+  - range reads record intervals that later commits can compare against.
+
+Flarex differences:
+
+- Convex can compare intervals against process-local structures. Flarex uses
+  persisted ordered key bytes and timestamp predicates through Drizzle.
+- The migration is Postgres-owned in `@flarex/persistence-postgres`; executor
+  packages consume the persistence interface and do not own SQL migrations.
+
+Known limitations:
+
+- PGlite proves behavior, but real Postgres plan validation remains required.
+- The index read execution path is still not fully SQL-pushed-down for
+  snapshot pagination.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+```
+
 ## Executor Subscription Registry HTTP Boundary
 
 Previous completed checkpoint: `09eb59c` feat: enhance live query subscription

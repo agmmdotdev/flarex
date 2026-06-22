@@ -1476,6 +1476,135 @@ describe("createPGlitePersistence", () => {
     ).resolves.toBeNull();
   });
 
+  it("checks changed index entries with timestamp and key range predicates", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const helloBounds = indexBoundsForExpressions(["text"], [
+      { op: "eq", field: "text", value: "hello" },
+    ]);
+    const otherBounds = indexBoundsForExpressions(["text"], [
+      { op: "eq", field: "text", value: "other" },
+    ]);
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_hello",
+      beginTs: 100,
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_hello",
+      tableId: 1,
+      documentId: "1:hello",
+      op: "insert",
+      valueJson: { text: "hello", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_hello",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:00:00.000Z"),
+      minimumTs: 100,
+    });
+
+    await expect(
+      persistence.hasIndexEntryAfterTs({
+        deploymentId: "deployment_index_freshness",
+        indexId: 1,
+        afterTs: 100,
+        ...helloBounds,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      persistence.hasIndexEntryAfterTs({
+        deploymentId: "deployment_index_freshness",
+        indexId: 1,
+        afterTs: 100,
+        ...otherBounds,
+      }),
+    ).resolves.toBe(false);
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_delete_hello",
+      beginTs: 101,
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_delete_hello",
+      tableId: 1,
+      documentId: "1:hello",
+      op: "delete",
+      valueJson: null,
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_delete_hello",
+      source: "invoke:messages:delete",
+      finishedAt: new Date("2026-06-20T00:01:00.000Z"),
+      minimumTs: 101,
+    });
+
+    await expect(
+      persistence.hasIndexEntryAfterTs({
+        deploymentId: "deployment_index_freshness",
+        indexId: 1,
+        afterTs: 101,
+        ...helloBounds,
+      }),
+    ).resolves.toBe(true);
+
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_patch",
+      beginTs: 102,
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_patch",
+      tableId: 1,
+      documentId: "1:patch",
+      op: "insert",
+      valueJson: { text: "hello", count: 1 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_insert_patch",
+      source: "invoke:messages:send",
+      finishedAt: new Date("2026-06-20T00:02:00.000Z"),
+      minimumTs: 102,
+    });
+    await insertIndexedPackageAndSession(persistence, {
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_patch_same_key",
+      beginTs: 103,
+    });
+    await persistence.stageInvokeSessionDocumentWrite({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_patch_same_key",
+      tableId: 1,
+      documentId: "1:patch",
+      op: "patch",
+      valueJson: { count: 2 },
+    });
+    await persistence.commitInvokeSessionWrites({
+      deploymentId: "deployment_index_freshness",
+      sessionId: "session_patch_same_key",
+      source: "invoke:messages:patch",
+      finishedAt: new Date("2026-06-20T00:03:00.000Z"),
+      minimumTs: 103,
+    });
+
+    await expect(
+      persistence.hasIndexEntryAfterTs({
+        deploymentId: "deployment_index_freshness",
+        indexId: 1,
+        afterTs: 103,
+        ...helloBounds,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("maintains enabled index tombstones and replacement entries for staged patches", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

@@ -192,6 +192,56 @@ Verification:
 git diff --check
 ```
 
+## Indexed Freshness Query Hardening
+
+Previous completed checkpoint: `120dcaa` Implement indexed live query freshness.
+
+What changed:
+
+- Hardened the Postgres indexed freshness check used by live-query
+  subscription classification so key lower/upper bounds are evaluated in SQL.
+- Kept the semantics from the previous checkpoint: index ranges detect
+  membership changes, while returned document reads detect same-key content
+  updates.
+- Added persistence coverage that exercises matching and non-matching index
+  ranges before freshness/subscription code consumes the helper.
+
+Why it changed:
+
+Indexed live queries can become hot fanout paths. A subscription scan that
+loads every post-read write for an index would be too expensive once many
+clients subscribe to common ranges. This narrows the freshness check before
+building more scheduler/delivery behavior on top of it.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - subscription invalidation uses indexed interval overlap rather than broad
+    table invalidation.
+- `crates/sync/src/state.rs`
+  - sync state reruns only invalidated subscriptions and dedupes unchanged
+    results.
+
+Flarex differences:
+
+- Convex subscriptions wait on invalidation futures maintained by the backend.
+  Flarex currently reruns by scanning persisted subscription rows and checking
+  freshness against Postgres/PGlite history.
+- The Cloudflare delivery/fanout layer is still downstream of this freshness
+  decision.
+
+Known limitations:
+
+- Real Postgres query-plan validation is still needed.
+- Query-cache/VersionDO mirrors are not implemented yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
+```
+
 ## Indexed Live Query Freshness Update
 
 Previous completed checkpoint: `ccc5dea` Harden executor sync integration.

@@ -105,6 +105,12 @@ export const indexes = pgTable(
       table.keyPrefix,
       table.keySha256,
     ),
+    index("indexes_by_index_id_key_prefix_ts").on(
+      table.deploymentId,
+      table.indexId,
+      table.keyPrefix,
+      table.ts,
+    ),
   ],
 );
 

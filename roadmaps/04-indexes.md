@@ -363,3 +363,64 @@ corepack pnpm --filter @flarex/freshness test
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
 ```
+
+## Indexed Freshness SQL Predicate Update
+
+Previous completed checkpoint: `120dcaa` Implement indexed live query freshness.
+
+What changed:
+
+- Added a Drizzle schema index and migration for
+  `(deployment_id, index_id, key_prefix, ts)` on the persisted `indexes` table.
+- Changed `hasIndexEntryAfterTs(...)` and the OCC helper
+  `hasIndexEntryBetweenTs(...)` to use SQL `key_prefix` lower/upper predicates
+  with a key-prefix-first btree path instead of loading all post-read index
+  rows and filtering ranges in TypeScript.
+- Added PGlite coverage for matching range changes, non-matching ranges,
+  deletion/tombstone index changes, and same-key patches that should not create
+  index membership changes.
+
+Why it changed:
+
+The previous checkpoint made indexed freshness semantically correct, but its
+storage helper still scanned every write to a hot index after the observed
+timestamp. Live-query fanout needs the range filter pushed into storage before
+more subscription machinery builds on top of it.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+  - `writes_overlap_by_index` narrows conflict checks to writes for the read
+    index and interval.
+- `crates/database/src/query/index_range.rs`
+  - `IndexRange` records the consumed interval through
+    `record_indexed_directly`.
+
+Flarex differences:
+
+- Convex checks interval overlap against backend in-memory/index write maps.
+  Flarex's Postgres path uses persisted encoded `key_prefix` byte ranges and
+  timestamp predicates.
+- Flarex keeps document-content invalidation separate from index-membership
+  invalidation; same-key patches are covered by returned document reads, not by
+  index history rows.
+
+Known limitations:
+
+- Real Postgres query plans still need a production correctness/performance
+  lane beyond PGlite.
+- `listDocumentsInIndexAtTs(...)` still performs snapshot visibility grouping
+  in TypeScript. The freshness/OCC existence checks are now pushed down, but
+  query execution itself remains a prototype implementation.
+- Search/vector freshness is still not implemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:generate
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/freshness test
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts --testTimeout=30000
+```

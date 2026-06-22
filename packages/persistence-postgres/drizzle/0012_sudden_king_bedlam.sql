@@ -1,0 +1,1 @@
+CREATE INDEX "indexes_by_index_id_key_prefix_ts" ON "indexes" USING btree ("deployment_id","index_id","key_prefix","ts");
