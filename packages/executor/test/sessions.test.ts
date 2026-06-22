@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
 import {
   FlarexDocumentIdFormatError,
@@ -163,10 +164,16 @@ describe("executor invoke sessions", () => {
     );
     let nowMs = 15;
     let nextSession = 0;
+    const triggerCalls: unknown[] = [];
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
       ids: { nextId: () => `session_retry_${++nextSession}` },
       persistence,
+      liveQueryInvalidation: {
+        notifyTrigger: input => {
+          triggerCalls.push(input);
+        },
+      },
     });
     const registered = await executor.registerDeploymentPackage({
       deploymentId: "deployment_session",
@@ -250,6 +257,21 @@ describe("executor invoke sessions", () => {
         "session_retry_2",
       ),
     ).resolves.toMatchObject({ state: "finished" });
+    expect(triggerCalls).toEqual([
+      expect.objectContaining({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_retry_2",
+        committedTs: 21,
+        writes: [
+          expect.objectContaining({
+            tableId: 1,
+            id: "1:team",
+            ts: 21,
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("returns a retry-exhausted error after repeated OCC conflicts", async () => {
@@ -675,6 +697,114 @@ describe("executor invoke sessions", () => {
     });
   });
 
+  it("marks live query subscriptions stale and notifies after successful mutation commit", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 100 })],
+    );
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+    const triggerCalls: unknown[] = [];
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      persistence,
+      liveQueryInvalidation: {
+        freshnessStore,
+        notifyTrigger: input => {
+          triggerCalls.push(input);
+        },
+      },
+    });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_session",
+      connectionId: "connection:deployment_session:session_1",
+      queryId: 1,
+      functionPath: "teams:list",
+      argsJson: {},
+      beginTs: 100,
+      readSet: { tables: [{ tableId: 1, observedTs: 100 }] },
+      resultJson: [],
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: "ok",
+      }),
+    ).resolves.toMatchObject({
+      value: "ok",
+      committedTs: 101,
+      writes: [{ tableId: 1, id: "1:team_insert", ts: 101 }],
+    });
+
+    expect(freshnessStore.getDocumentVersion(
+      "deployment_session",
+      "1:team_insert",
+    )).toMatchObject({ version: 101 });
+    expect(freshnessStore.getTableVersion("deployment_session", 1)).toMatchObject({
+      version: 101,
+    });
+    await expect(
+      executor.findStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_session",
+        freshnessStore,
+      }),
+    ).resolves.toMatchObject({
+      stale: [
+        {
+          subscription: {
+            deploymentId: "deployment_session",
+            connectionId: "connection:deployment_session:session_1",
+            queryId: 1,
+          },
+          freshness: {
+            status: "stale",
+            stale: [
+              {
+                kind: "table",
+                id: "1",
+                observedTs: 100,
+                version: 101,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(triggerCalls).toEqual([
+      {
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        functionPath: "messages:list",
+        committedTs: 101,
+        writes: [
+          {
+            tableId: 1,
+            id: "1:team_insert",
+            prevTs: null,
+            ts: 101,
+            value: { name: "Team" },
+          },
+        ],
+      },
+    ]);
+  });
+
   it("rejects mutation finish when an observed document changed", async () => {
     const persistence = memoryPersistence(
       [],
@@ -729,6 +859,121 @@ describe("executor invoke sessions", () => {
       state: "active",
       finishedAt: null,
     });
+  });
+
+  it("does not notify live query invalidation when mutation commit fails OCC", async () => {
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+    const triggerCalls: unknown[] = [];
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:read",
+          documentId: "read",
+          ts: 10,
+          value: { text: "old" },
+        }),
+        documentRevision({
+          id: "1:read",
+          documentId: "read",
+          ts: 20,
+          value: { text: "new" },
+          prevTs: 10,
+        }),
+      ],
+      [documentRead({ documentId: "1:read", observedTs: 10 })],
+    );
+    const executor = createFlarexExecutor({
+      persistence,
+      liveQueryInvalidation: {
+        freshnessStore,
+        notifyTrigger: input => {
+          triggerCalls.push(input);
+        },
+      },
+    });
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: null,
+      }),
+    ).rejects.toThrow(InvokeSessionOccConflictError);
+
+    expect(triggerCalls).toEqual([]);
+    expect(freshnessStore.getDocumentVersion(
+      "deployment_session",
+      "1:team_insert",
+    )).toBeNull();
+    expect(freshnessStore.getTableVersion("deployment_session", 1)).toBeNull();
+  });
+
+  it("reports live query trigger failures without failing committed mutations", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 100 })],
+    );
+    const errors: Array<{ committedTs: number; error: unknown }> = [];
+    const executor = createFlarexExecutor({
+      persistence,
+      liveQueryInvalidation: {
+        notifyTrigger: () => {
+          throw new Error("backend trigger unavailable");
+        },
+        onError: input => {
+          errors.push({ committedTs: input.committedTs, error: input.error });
+        },
+      },
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: "ok",
+      }),
+    ).resolves.toMatchObject({
+      value: "ok",
+      committedTs: 101,
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.committedTs).toBe(101);
+    expect(errors[0]?.error).toBeInstanceOf(Error);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({ state: "finished" });
   });
 
   it("rejects finishing inactive sessions", async () => {

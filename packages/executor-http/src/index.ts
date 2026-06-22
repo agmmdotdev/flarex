@@ -61,8 +61,11 @@ import {
 
 export {
   createFlarexBackendLiveQueryDelivery,
+  createFlarexBackendLiveQueryTriggerNotifier,
   createFlarexBackendLiveQueryWakeNotifier,
   type FlarexBackendLiveQueryDeliveryConfig,
+  type FlarexBackendLiveQueryTriggerConfig,
+  type FlarexBackendLiveQueryTriggerInput,
   type FlarexBackendLiveQueryWakeConfig,
   type FlarexBackendLiveQueryWakeInput,
 } from "./liveQueryDelivery";

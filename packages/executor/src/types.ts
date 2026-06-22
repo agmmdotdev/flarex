@@ -98,6 +98,27 @@ export interface FlarexExecutorConfig {
   clock?: Clock;
   ids?: IdGenerator;
   persistence: FlarexExecutorPersistence;
+  liveQueryInvalidation?: LiveQueryInvalidationConfig;
+}
+
+export interface LiveQueryInvalidationConfig {
+  freshnessStore?: FreshnessMirrorStore;
+  notifyTrigger?(input: LiveQueryInvalidationTriggerInput): Promise<void> | void;
+  onError?(input: LiveQueryInvalidationErrorInput): Promise<void> | void;
+}
+
+export interface LiveQueryInvalidationTriggerInput {
+  deploymentId: string;
+  projectId: string;
+  sessionId: string;
+  functionPath: string;
+  committedTs: number;
+  writes: CommittedDocumentWrite[];
+}
+
+export interface LiveQueryInvalidationErrorInput
+  extends LiveQueryInvalidationTriggerInput {
+  error: unknown;
 }
 
 export interface FlarexExecutor {

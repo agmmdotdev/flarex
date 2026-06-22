@@ -1462,6 +1462,72 @@ Verification:
 git diff --check
 ```
 
+## Executor-Owned Freshness Trigger Hook
+
+Previous completed checkpoint: `5437ca8` Document live query route ownership.
+
+What changed:
+
+- The executor can now apply committed mutation writes to a supplied freshness
+  mirror immediately after commit.
+- The executor can then call an injected Cloudflare trigger notifier, allowing
+  hosts to wake `SchedulerDO` through
+  `POST /scheduler/live-query-subscriptions/trigger`.
+- `@flarex/executor-http` now exposes
+  `createFlarexBackendLiveQueryTriggerNotifier(...)` to build that notifier
+  without coupling executor core to Cloudflare.
+- Tests prove the freshness mirror marks a table read stale after commit and
+  the trigger request carries deployment/project plus bounded rerun controls.
+
+Freshness impact:
+
+```txt
+mutation commit writes documents
+  -> executor applies document/table freshness versions
+  -> executor notifies Cloudflare trigger route
+  -> SchedulerDO scans stale subscriptions against freshness
+  -> changed reruns become delivery rows
+  -> DeliveryDO sends ConnectionDO transitions
+```
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - write-log/subscription-visible metadata is part of successful commit
+    publication.
+- `crates/sync/src/worker.rs`
+  - invalidated queries are backend-scheduled work.
+- `crates/sync/src/state.rs`
+  - unchanged rerun results are suppressed through result hashes.
+
+Flarex differences:
+
+- Convex does not need a trigger notifier because the sync worker is integrated
+  with the backend. Flarex must cross from executor-hosted freshness state to
+  Cloudflare-hosted `SchedulerDO`.
+- The v1 freshness mark is document/table-level. Range/index freshness is still
+  a future cache correctness layer.
+
+Known limitations:
+
+- Trigger notification is best-effort in this checkpoint. If Cloudflare is down
+  after commit, the mutation remains committed and the host receives `onError`;
+  a durable retry path is still needed.
+- This does not build VersionDO, DocCacheDO, or QueryCacheDO. The supplied
+  freshness store can be memory/PGlite/Postgres-backed depending on host setup.
+- Full mutation-to-WebSocket proof awaits the hosted Dynamic Worker executor
+  path. Existing tests cover post-commit trigger ownership and trigger-to-
+  WebSocket fanout separately.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+```
+
 ## Stuck Delivery Reconnect Consumer
 
 Previous completed checkpoint: `038649e` Add live query delivery dead

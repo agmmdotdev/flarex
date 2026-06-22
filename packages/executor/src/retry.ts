@@ -18,6 +18,7 @@ import type {
   Clock,
   FlarexExecutorPersistence,
   IdGenerator,
+  LiveQueryInvalidationConfig,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
 } from "./types";
@@ -28,6 +29,7 @@ export async function runInvokeWithRetries(
   persistence: FlarexExecutorPersistence,
   clock: Clock,
   ids: IdGenerator,
+  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
   input: RunInvokeWithRetriesInput,
 ): Promise<RunInvokeWithRetriesResult> {
   const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
@@ -55,12 +57,17 @@ export async function runInvokeWithRetries(
             syscall,
           }),
       });
-      const finished = await finishInvokeSession(persistence, clock, {
-        deploymentId: input.deploymentId,
-        projectId: input.projectId,
-        sessionId: session.sessionId,
-        value,
-      });
+      const finished = await finishInvokeSession(
+        persistence,
+        clock,
+        liveQueryInvalidation,
+        {
+          deploymentId: input.deploymentId,
+          projectId: input.projectId,
+          sessionId: session.sessionId,
+          value,
+        },
+      );
       return {
         ...finished,
         attempts: attempt,

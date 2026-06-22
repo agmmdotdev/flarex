@@ -1,5 +1,6 @@
 import type {
   LiveQueryDeliveryRecord,
+  LiveQueryInvalidationConfig,
   RunLiveQueryDeliveryBatchInput,
 } from "@flarex/executor";
 
@@ -17,9 +18,26 @@ export interface FlarexBackendLiveQueryWakeConfig {
   maxBatches?: number;
 }
 
+export interface FlarexBackendLiveQueryTriggerConfig {
+  backendUrl: string | URL;
+  capabilityToken?: string;
+  fetch?: typeof fetch;
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+}
+
 export interface FlarexBackendLiveQueryWakeInput {
   deploymentId: string;
   limit?: number;
+  maxBatches?: number;
+}
+
+export interface FlarexBackendLiveQueryTriggerInput {
+  deploymentId: string;
+  projectId: string;
+  limit?: number;
+  deliveryLimit?: number;
   maxBatches?: number;
 }
 
@@ -77,6 +95,34 @@ export function createFlarexBackendLiveQueryWakeNotifier(
   };
 }
 
+export function createFlarexBackendLiveQueryTriggerNotifier(
+  config: FlarexBackendLiveQueryTriggerConfig,
+): NonNullable<LiveQueryInvalidationConfig["notifyTrigger"]> {
+  const fetcher = config.fetch ?? fetch;
+  return async input => {
+    const response = await fetcher(liveQueryTriggerUrl(config.backendUrl), {
+      method: "POST",
+      headers: liveQueryDeliveryHeaders(config.capabilityToken),
+      body: JSON.stringify({
+        deploymentId: input.deploymentId,
+        projectId: input.projectId,
+        ...((config.limit) === undefined ? {} : { limit: config.limit }),
+        ...((config.deliveryLimit) === undefined
+          ? {}
+          : { deliveryLimit: config.deliveryLimit }),
+        ...((config.maxBatches) === undefined
+          ? {}
+          : { maxBatches: config.maxBatches }),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Flarex backend live query trigger failed for ${input.deploymentId}: ${response.status} ${await response.text()}`,
+      );
+    }
+  };
+}
+
 function groupDeliveriesByDeployment(
   deliveries: LiveQueryDeliveryRecord[],
 ): Map<string, LiveQueryDeliveryRecord[]> {
@@ -103,6 +149,14 @@ function liveQueryDeliveryUrl(endpoint: string | URL, deploymentId: string): URL
 function liveQueryWakeUrl(endpoint: string | URL, deploymentId: string): URL {
   const url = endpoint instanceof URL ? new URL(endpoint.href) : new URL(endpoint);
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/deployments/${encodeURIComponent(deploymentId)}/sync/wake-delivery`;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+function liveQueryTriggerUrl(endpoint: string | URL): URL {
+  const url = endpoint instanceof URL ? new URL(endpoint.href) : new URL(endpoint);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/scheduler/live-query-subscriptions/trigger`;
   url.search = "";
   url.hash = "";
   return url;

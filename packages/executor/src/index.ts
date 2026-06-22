@@ -191,6 +191,9 @@ export type {
   SchemaTableMetadata,
   TablePlacement,
   LiveQuerySubscriptionFreshnessEntry,
+  LiveQueryInvalidationConfig,
+  LiveQueryInvalidationTriggerInput,
+  LiveQueryInvalidationErrorInput,
 } from "./types";
 export { fingerprintJson } from "./liveQueries";
 
@@ -198,6 +201,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   const clock = config.clock ?? defaultClock;
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
+  const liveQueryInvalidation = config.liveQueryInvalidation;
 
   return {
     activateDeploymentPackage: (input) =>
@@ -209,7 +213,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     beginInvokeSession: (input) =>
       beginInvokeSession(persistence, clock, ids, input),
     finishInvokeSession: (input) =>
-      finishInvokeSession(persistence, clock, input),
+      finishInvokeSession(persistence, clock, liveQueryInvalidation, input),
     abortInvokeSession: (input) =>
       abortInvokeSession(persistence, clock, input),
     abortStaleInvokeSessions: (input) =>
@@ -262,7 +266,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: (input) =>
-      runInvokeWithRetries(persistence, clock, ids, input),
+      runInvokeWithRetries(persistence, clock, ids, liveQueryInvalidation, input),
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

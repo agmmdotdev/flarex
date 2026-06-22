@@ -13,6 +13,8 @@ import type {
   InvokeSyscallInput,
   InvokeSyscallResult,
   InvokeReadSet,
+  LiveQueryInvalidationConfig,
+  LiveQueryInvalidationTriggerInput,
   DeploymentSchemaMetadata,
   SchemaIndexMetadata,
 } from "./types";
@@ -385,6 +387,7 @@ export async function invokeSyscall(
 export async function finishInvokeSession(
   persistence: FlarexExecutorPersistence,
   clock: Clock,
+  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
   input: FinishInvokeSessionInput,
 ): Promise<FinishInvokeSessionResult> {
   const session = await requireActiveSession(persistence, input);
@@ -424,6 +427,14 @@ export async function finishInvokeSession(
       finishedAt: clock.now(),
       minimumTs: session.beginTs,
     });
+    await runLiveQueryInvalidationHook(liveQueryInvalidation, {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      functionPath: session.functionPath,
+      committedTs: commit.committedTs,
+      writes: commit.writes,
+    });
     return {
       value: input.value,
       committedTs: commit.committedTs,
@@ -432,6 +443,31 @@ export async function finishInvokeSession(
   }
 
   throw new InvokeFinishNotImplementedError(session.functionKind);
+}
+
+async function runLiveQueryInvalidationHook(
+  config: LiveQueryInvalidationConfig | undefined,
+  input: LiveQueryInvalidationTriggerInput,
+): Promise<void> {
+  if (config === undefined || input.writes.length === 0) return;
+
+  try {
+    if (config.freshnessStore !== undefined) {
+      await config.freshnessStore.applyCommitFreshness({
+        eventKey: {
+          deploymentId: input.deploymentId,
+          ts: input.committedTs,
+          sequence: 0,
+        },
+        commitTs: input.committedTs,
+        documentIds: Array.from(new Set(input.writes.map(write => write.id))),
+        tableIds: Array.from(new Set(input.writes.map(write => write.tableId))),
+      });
+    }
+    await config.notifyTrigger?.(input);
+  } catch (error) {
+    await config.onError?.({ ...input, error });
+  }
 }
 
 export async function abortInvokeSession(

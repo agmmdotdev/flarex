@@ -205,6 +205,65 @@ Verification:
 git diff --check
 ```
 
+## Post-Commit Live-Query Invalidation Hook
+
+Previous completed checkpoint: `5437ca8` Document live query route ownership.
+
+What changed:
+
+- Added `LiveQueryInvalidationConfig` to `FlarexExecutorConfig`.
+- `finishInvokeSession(...)` now runs the hook only after
+  `commitInvokeSessionWrites(...)` succeeds for mutations with committed
+  writes.
+- When a `freshnessStore` is supplied, the executor applies document/table
+  freshness versions using the commit timestamp and committed write set.
+- When `notifyTrigger` is supplied, the executor calls it with deployment,
+  project, session, function path, commit timestamp, and committed writes.
+- Hook failures are caught and reported through optional `onError` so an
+  already committed mutation is not turned into a false client-visible failure.
+- `runInvokeWithRetries(...)` threads the same hook through the final successful
+  finish path, so aborted OCC attempts do not notify.
+
+Why it changed:
+
+The executor is the only component that knows a mutation actually committed.
+Cloudflare routes can schedule reruns, but they must not decide commit
+success. This checkpoint puts invalidation ownership at the same boundary as
+OCC commit.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit conflict checks happen before writes and write-log metadata publish.
+- `crates/sync/src/worker.rs`
+  - sync scheduling follows backend invalidation, not client requests.
+- `crates/sync/src/state.rs`
+  - rerun results are deduped before transitions are emitted.
+
+Flarex differences:
+
+- Convex's commit and sync worker are in the same backend. Flarex uses an
+  injected hook because the executor must stay framework-neutral and may run
+  under Nitro/Vercel while the scheduler route lives on Cloudflare.
+- Freshness marking is represented as document/table freshness mirror updates,
+  not a `stale` boolean on `live_query_subscriptions`.
+
+Known limitations:
+
+- The hook is best-effort after commit. A future durable post-commit trigger
+  outbox should retry Cloudflare notification failures.
+- The current hook updates document/table freshness only. Index/range
+  freshness still needs a precise representation.
+- The deployable host still needs to pass a real durable freshness store and
+  Cloudflare trigger notifier when constructing the executor.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+```
+
 ## Live-Query Delivery Failure Metadata
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.

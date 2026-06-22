@@ -240,7 +240,7 @@ export async function runLiveQuerySubscriptionWithInvoke(
     );
   }
 
-  const result = await runInvokeWithRetries(persistence, clock, ids, {
+  const result = await runInvokeWithRetries(persistence, clock, ids, undefined, {
     deploymentId: subscription.deploymentId,
     projectId: deployment.projectId,
     path: subscription.functionPath,

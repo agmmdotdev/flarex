@@ -505,6 +505,51 @@ corepack pnpm build
 git diff --check
 ```
 
+## Live-Query Trigger Notifier Boundary
+
+Previous completed checkpoint: `5437ca8` Document live query route ownership.
+
+What changed:
+
+- `@flarex/executor` owns the post-commit live-query invalidation hook shape.
+- `@flarex/executor-http` owns
+  `createFlarexBackendLiveQueryTriggerNotifier(...)`, the HTTP helper that
+  calls Cloudflare's scheduler trigger route.
+- Executor core still does not import Cloudflare backend code, Worker types, or
+  Nitro route code.
+
+Why it changed:
+
+The trusted executor must know when a mutation has committed, but the method
+for waking Cloudflare is host-specific. Keeping the notifier injected preserves
+the package boundary while letting Nitro/Vercel deployments call the
+Cloudflare scheduler.
+
+Convex reference:
+
+- `crates/database/src/committer.rs`
+  - commit publication is backend-owned.
+- `crates/sync/src/worker.rs`
+  - sync scheduling is backend-owned but internal in Convex.
+
+Flarex difference:
+
+- Convex does not need an exported notifier helper. Flarex needs one because
+  executor hosting and WebSocket/scheduler hosting are separate.
+
+Known limitations:
+
+- The deployable host still needs to construct the executor with a durable
+  freshness store and this trigger notifier.
+- Durable retry for failed trigger notification remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
+corepack pnpm --filter @flarex/executor-http typecheck
+```
+
 ## Stale Rerun Fanout Boundary
 
 Previous completed checkpoint: `0139e0d` Wire live query dead-letter

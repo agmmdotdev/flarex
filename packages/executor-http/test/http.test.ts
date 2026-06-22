@@ -35,6 +35,7 @@ import {
 
 import {
   createFlarexBackendLiveQueryDelivery,
+  createFlarexBackendLiveQueryTriggerNotifier,
   createFlarexBackendLiveQueryWakeNotifier,
   createFlarexHttpApp,
 } from "../src";
@@ -1921,6 +1922,69 @@ describe("createFlarexHttpApp", () => {
     ]);
   });
 
+  it("posts live query trigger notifications to the Flarex backend scheduler route", async () => {
+    const requests: Array<{ url: string; headers: Record<string, string | null>; body: unknown }> = [];
+    const notifyTrigger = createFlarexBackendLiveQueryTriggerNotifier({
+      backendUrl: "https://backend.test/base",
+      capabilityToken: "delivery-token",
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push({
+          url: request.url,
+          headers: {
+            authorization: request.headers.get("authorization"),
+            contentType: request.headers.get("content-type"),
+          },
+          body: await request.json(),
+        });
+        return Response.json({
+          deploymentId: "deployment_active",
+          changed: 1,
+          unchanged: 0,
+          unsupported: 0,
+          hasMoreStale: false,
+        });
+      },
+    });
+
+    await notifyTrigger({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      functionPath: "messages:send",
+      committedTs: 101,
+      writes: [
+        {
+          tableId: 1,
+          id: "1:message",
+          prevTs: null,
+          ts: 101,
+          value: { text: "hello" },
+        },
+      ],
+    });
+
+    expect(requests).toEqual([
+      {
+        url: "https://backend.test/base/scheduler/live-query-subscriptions/trigger",
+        headers: {
+          authorization: "Bearer delivery-token",
+          contentType: "application/json",
+        },
+        body: {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          limit: 5,
+          deliveryLimit: 10,
+          maxBatches: 2,
+        },
+      },
+    ]);
+  });
+
   it("fails live query delivery callbacks when the backend rejects fanout", async () => {
     const deliver = createFlarexBackendLiveQueryDelivery({
       backendUrl: "https://backend.test",
@@ -1954,6 +2018,26 @@ describe("createFlarexHttpApp", () => {
       },
     ])).rejects.toThrow(
       'Flarex backend live query delivery failed for deployment_active: 502 {"error":"fanout failed"}',
+    );
+  });
+
+  it("fails live query trigger notifications when the backend rejects scheduling", async () => {
+    const notifyTrigger = createFlarexBackendLiveQueryTriggerNotifier({
+      backendUrl: "https://backend.test",
+      fetch: async () => Response.json({ error: "trigger failed" }, { status: 502 }),
+    });
+
+    await expect(
+      notifyTrigger({
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        functionPath: "messages:send",
+        committedTs: 101,
+        writes: [],
+      }),
+    ).rejects.toThrow(
+      'Flarex backend live query trigger failed for deployment_active: 502 {"error":"trigger failed"}',
     );
   });
 

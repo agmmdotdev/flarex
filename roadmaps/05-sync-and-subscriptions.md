@@ -490,6 +490,72 @@ Verification:
 git diff --check
 ```
 
+## Mutation-Owned Live-Query Invalidation Hook
+
+Previous completed checkpoint: `5437ca8` Document live query route ownership.
+
+What changed:
+
+- Added a framework-neutral executor `liveQueryInvalidation` hook that runs
+  after successful mutation commit.
+- The hook can project committed writes into a supplied freshness mirror and
+  then call an injected trigger notifier.
+- Added `createFlarexBackendLiveQueryTriggerNotifier(...)` in
+  `@flarex/executor-http` for hosts that need to call Cloudflare
+  `POST /scheduler/live-query-subscriptions/trigger`.
+- Added executor tests proving:
+  - successful mutation commit updates freshness and notifies,
+  - retrying after an OCC conflict notifies only for the successful attempt,
+  - OCC failures do not notify or update freshness, and
+  - trigger failures are reported through `onError` without failing an already
+    committed mutation.
+- Added HTTP helper tests proving the trigger notifier posts the expected
+  scheduler route, body, and bearer token.
+
+Why it changed:
+
+The lower sync route chain already existed, but no production owner fired it.
+This checkpoint makes the trusted executor the post-commit owner without
+importing Cloudflare code into executor core.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commits publish writes only after read validation succeeds.
+- `crates/sync/src/worker.rs`
+  - backend sync work is scheduled from backend-owned invalidation state.
+- `crates/sync/src/state.rs`
+  - invalidated queries are rerun before client-visible transitions are sent.
+
+Flarex differences:
+
+- Convex can keep commit, invalidation, rerun, and fanout inside one backend.
+  Flarex splits them: executor commit updates a freshness mirror and calls a
+  host-injected Cloudflare trigger notifier; `SchedulerDO` and `DeliveryDO`
+  finish the route to `ConnectionDO`.
+- The post-commit trigger is best-effort. If notifying Cloudflare fails, the
+  mutation remains committed and `onError` receives the failure. A durable
+  trigger retry/outbox remains future work.
+
+Known limitations:
+
+- The full Dynamic Worker hosted mutation path is not wired in this checkpoint.
+  Current tests prove executor-owned post-commit invalidation and the existing
+  backend trigger-to-WebSocket path separately.
+- `ConnectionDO` still has a legacy same-partition mutation refresh path; the
+  Postgres executor trigger path should replace that when the hosted runtime
+  path is connected.
+- Index/range invalidation remains unsupported or coarse.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+```
+
 ## Live-Query Delivery Failure Observability
 
 Previous completed checkpoint: `d1bc1fe` Add live query delivery reconciler.
