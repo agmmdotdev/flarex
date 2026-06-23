@@ -1374,6 +1374,13 @@ describe("createFlarexHttpApp", () => {
             delivered: 1,
             nextCursor: null,
             hasMore: false,
+            summary: {
+              claimed: 1,
+              delivered: 1,
+              acked: 1,
+              pending: 0,
+              hasMore: false,
+            },
           };
         },
       }),
@@ -1434,6 +1441,13 @@ describe("createFlarexHttpApp", () => {
       delivered: 1,
       nextCursor: null,
       hasMore: false,
+      summary: {
+        claimed: 1,
+        delivered: 1,
+        acked: 1,
+        pending: 0,
+        hasMore: false,
+      },
     });
   });
 
@@ -1832,6 +1846,12 @@ describe("createFlarexHttpApp", () => {
             reconnectConnectionIds: ["connection_stuck"],
             nextCursor: null,
             hasMore: false,
+            summary: {
+              scanned: 0,
+              deadLettered: 1,
+              reconnectTargets: 1,
+              hasMore: false,
+            },
           };
         },
       }),
@@ -1869,6 +1889,12 @@ describe("createFlarexHttpApp", () => {
       ],
       reconnectConnectionIds: ["connection_stuck"],
       hasMore: false,
+      summary: {
+        scanned: 0,
+        deadLettered: 1,
+        reconnectTargets: 1,
+        hasMore: false,
+      },
     });
   });
 
@@ -2620,7 +2646,19 @@ function fakeExecutor(
       return { delivered: 0 };
     },
     async runLiveQueryDeliveryBatch() {
-      return { deliveries: [], delivered: 0, nextCursor: null, hasMore: false };
+      return {
+        deliveries: [],
+        delivered: 0,
+        nextCursor: null,
+        hasMore: false,
+        summary: {
+          claimed: 0,
+          delivered: 0,
+          acked: 0,
+          pending: 0,
+          hasMore: false,
+        },
+      };
     },
     async listPendingLiveQueryDeliveryDeployments() {
       return { deployments: [], nextCursor: null, hasMore: false };
@@ -2638,6 +2676,12 @@ function fakeExecutor(
         reconnectConnectionIds: [],
         nextCursor: null,
         hasMore: false,
+        summary: {
+          scanned: 0,
+          deadLettered: 0,
+          reconnectTargets: 0,
+          hasMore: false,
+        },
       };
     },
     async recordLiveQueryDeliveryFailure() {

@@ -378,6 +378,15 @@ export interface RunLiveQueryDeliveryBatchResult {
   delivered: number;
   nextCursor: LiveQueryDeliveryCursor | null;
   hasMore: boolean;
+  summary: LiveQueryDeliveryBatchSummary;
+}
+
+export interface LiveQueryDeliveryBatchSummary {
+  claimed: number;
+  delivered: number;
+  acked: number;
+  pending: number;
+  hasMore: boolean;
 }
 
 export interface ClaimLiveQueryDeliveryBatchInput {
@@ -420,6 +429,14 @@ export interface DeadLetterStuckLiveQueryDeliveriesResult {
   deadLettered: LiveQueryDeliveryRecord[];
   reconnectConnectionIds: string[];
   nextCursor: ListStuckLiveQueryDeliveriesResult["nextCursor"];
+  hasMore: boolean;
+  summary: LiveQueryDeadLetterSummary;
+}
+
+export interface LiveQueryDeadLetterSummary {
+  scanned: number;
+  deadLettered: number;
+  reconnectTargets: number;
   hasMore: boolean;
 }
 

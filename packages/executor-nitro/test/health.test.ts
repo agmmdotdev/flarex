@@ -271,6 +271,13 @@ describe("createFlarexNitroHandler", () => {
             delivered: 1,
             nextCursor: null,
             hasMore: false,
+            summary: {
+              claimed: 1,
+              delivered: 1,
+              acked: 1,
+              pending: 0,
+              hasMore: false,
+            },
           };
         },
       }),
@@ -306,6 +313,13 @@ describe("createFlarexNitroHandler", () => {
       delivered: 1,
       nextCursor: null,
       hasMore: false,
+      summary: {
+        claimed: 1,
+        delivered: 1,
+        acked: 1,
+        pending: 0,
+        hasMore: false,
+      },
     });
   });
 

@@ -50,9 +50,20 @@ type DeliveryDrainResult = {
   delivered: number;
   skipped: number;
   hasMore: boolean;
+  summary: DeliveryDrainSummary;
 };
 
 type DeliveryFailureStage = "fanout" | "ack";
+
+type DeliveryDrainSummary = {
+  batches: number;
+  claimed: number;
+  acked: number;
+  delivered: number;
+  skipped: number;
+  pendingAck: number;
+  hasMore: boolean;
+};
 
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
@@ -197,6 +208,15 @@ export class DeliveryDO extends DurableObject<Env> {
       delivered,
       skipped,
       hasMore,
+      summary: {
+        batches,
+        claimed,
+        acked,
+        delivered,
+        skipped,
+        pendingAck: Math.max(0, claimed - acked),
+        hasMore,
+      },
     };
   }
 

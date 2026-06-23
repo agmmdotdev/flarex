@@ -393,6 +393,13 @@ describe("executor live query subscriptions", () => {
       deliveries: [{ connectionId: "connection_a", queryId: 1 }],
       delivered: 1,
       hasMore: false,
+      summary: {
+        claimed: 1,
+        delivered: 1,
+        acked: 1,
+        pending: 0,
+        hasMore: false,
+      },
     });
     expect(delivered).toMatchObject([
       {
@@ -1267,6 +1274,12 @@ describe("executor live query subscriptions", () => {
       reconnectConnectionIds: ["connection_b"],
       nextCursor: null,
       hasMore: false,
+      summary: {
+        scanned: 1,
+        deadLettered: 1,
+        reconnectTargets: 1,
+        hasMore: false,
+      },
     });
 
     await expect(

@@ -2365,3 +2365,66 @@ git diff --check
 Local result:
 
 - `test:postgres` skipped because `FLAREX_POSTGRES_DATABASE_URL` was not set.
+
+## Live-Query Delivery Maintenance Summaries
+
+Previous completed checkpoint: `43b1cb6` Test Postgres delivery claim races.
+
+What changed:
+
+- Added a typed `summary` object to executor live-query delivery batch results.
+- Added a typed `summary` object to stuck-delivery dead-letter results.
+- Added a `summary` object to `DeliveryDO` wake/continue drain responses.
+- Existing top-level fields and result arrays remain for compatibility; the new
+  summaries give callers stable counters without recomputing from payloads.
+
+Why this exists:
+
+```txt
+delivery maintenance route
+  -> returns raw rows for debugging
+  -> also returns summary counters for operations
+```
+
+This is the first observability layer for delivery maintenance. It lets the
+executor, Nitro adapter, Cloudflare `DeliveryDO`, scheduler routes, and tests
+observe claimed, delivered, acked, pending-ack, scanned, dead-lettered, and
+reconnect-target counts in one consistent result shape.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps live-query delivery work inside the backend sync worker.
+- `crates/sync/src/state.rs`
+  - sync state drives transitions without exposing a separate maintenance
+    result API.
+
+Flarex differences:
+
+- Convex does not need public maintenance counters for delivery drains because
+  transition scheduling is in-process backend behavior.
+- Flarex splits rerun, durable delivery rows, Cloudflare `DeliveryDO` fanout,
+  and scheduler reconciliation, so each maintenance boundary needs structured
+  counters for debugging and future metrics sinks.
+
+Known limitations:
+
+- These are response counters, not a durable metrics sink.
+- Failure paths still report through existing error responses and failure rows;
+  a later slice should add structured failure summaries for thrown
+  `DeliveryDO` drains and aggregate metrics emission.
+- Expired/reclaimed lease counts are still inferred from claim results and
+  stuck scans; they are not first-class counters yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro exec vitest run test/health.test.ts --testTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+```

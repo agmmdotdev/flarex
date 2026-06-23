@@ -567,6 +567,15 @@ describe("sync protocol", () => {
       delivered: 1,
       skipped: 0,
       hasMore: false,
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 1,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+      },
     });
     await expect(delivered).resolves.toMatchObject({
       type: "Transition",
@@ -816,6 +825,15 @@ describe("sync protocol", () => {
       delivered: 1,
       skipped: 0,
       hasMore: true,
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 1,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: true,
+      },
     });
     const env = await harness.mf.getBindings<Env>();
     const delivery = env.DELIVERIES.getByName(`delivery:${deploymentId}`);
@@ -832,6 +850,15 @@ describe("sync protocol", () => {
       delivered: 1,
       skipped: 0,
       hasMore: false,
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 1,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+      },
     });
     await expect(delivered).resolves.toMatchObject([
       {
@@ -1201,6 +1228,15 @@ describe("sync protocol", () => {
           delivered: 1,
           skipped: 0,
           hasMore: false,
+          summary: {
+            batches: 1,
+            claimed: 1,
+            acked: 1,
+            delivered: 1,
+            skipped: 0,
+            pendingAck: 0,
+            hasMore: false,
+          },
         },
         error: null,
       },

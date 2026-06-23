@@ -111,6 +111,12 @@ export async function deadLetterStuckLiveQueryDeliveries(
       reconnectConnectionIds: [],
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
+      summary: {
+        scanned: 0,
+        deadLettered: 0,
+        reconnectTargets: 0,
+        hasMore: page.hasMore,
+      },
     };
   }
 
@@ -127,12 +133,19 @@ export async function deadLetterStuckLiveQueryDeliveries(
     deadLettered.push(...result.deliveries);
   }
 
+  const reconnectConnectionIds = uniqueSortedConnectionIds(deadLettered);
   return {
     scanned: page.deliveries,
     deadLettered,
-    reconnectConnectionIds: uniqueSortedConnectionIds(deadLettered),
+    reconnectConnectionIds,
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
+    summary: {
+      scanned: page.deliveries.length,
+      deadLettered: deadLettered.length,
+      reconnectTargets: reconnectConnectionIds.length,
+      hasMore: page.hasMore,
+    },
   };
 }
 
@@ -197,6 +210,13 @@ export async function runLiveQueryDeliveryBatch(
       delivered: 0,
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
+      summary: {
+        claimed: 0,
+        delivered: 0,
+        acked: 0,
+        pending: 0,
+        hasMore: page.hasMore,
+      },
     };
   }
 
@@ -213,6 +233,13 @@ export async function runLiveQueryDeliveryBatch(
     delivered: delivered.delivered,
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
+    summary: {
+      claimed: page.deliveries.length,
+      delivered: page.deliveries.length,
+      acked: delivered.delivered,
+      pending: Math.max(0, page.deliveries.length - delivered.delivered),
+      hasMore: page.hasMore,
+    },
   };
 }
 

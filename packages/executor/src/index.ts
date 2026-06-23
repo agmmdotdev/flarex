@@ -158,6 +158,8 @@ export type {
   RecordLiveQueryDeliveryFailureResult,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
+  LiveQueryDeliveryBatchSummary,
+  LiveQueryDeadLetterSummary,
   LiveQueryChange,
   MaintenanceSweepDeploymentResult,
   RunInvokeSessionMaintenanceInput,
