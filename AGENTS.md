@@ -13,45 +13,15 @@ subagents for docs-only commits, planning/roadmap updates, formatting-only
 changes, generated-file refreshes, or minor mechanical edits that do not affect
 behavior.
 
-Reviewer subagents are strictly read-only reviewers, not implementation
-workers. They must not edit files, run `apply_patch`, run formatters that write
-files, stage files, commit, push, create branches, or emit git directives.
-Allowed reviewer actions are read-only inspection commands such as `git diff`,
-`git status`, `rg`, `Get-Content`, and read-only validation commands such as
-typecheck/test/build. Reviewers must return findings only, ordered by severity
-with file/line references. If there are no blocking findings, they must say so
-and list residual risks briefly. They must not include implementation summaries
-that imply they changed code.
+Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
+as the source of truth for reviewer scope, read-only boundaries, TypeScript
+skill usage, validation expectations, and response format.
 
 The main thread owns all writes and all Git operations. The main thread must
 triage reviewer findings, apply useful fixes itself, rerun validation, then
-commit. If a reviewer edits files, stages, commits, pushes, emits git
-directives, or reports that it implemented the work, treat that reviewer result
-as invalid for the review requirement. Immediately inspect `git status` and
-`git log`, close that reviewer, and run a fresh read-only reviewer pass against
-the final uncommitted diff before committing. If the diff changes after
-reviewers are spawned, the previous reviews are stale; rerun both reviewers
-against the final diff unless the only change is docs-only commentary.
-
-The `typescript-diff-reviewer` prompt must use the global TypeScript skill at
-`C:\Users\Admin\.codex\skills\typescript-expert\SKILL.md` instead of any
-project-local skill copy.
-
-Use this prompt contract when spawning reviewers:
-
-```txt
-READ-ONLY REVIEW ONLY. Do not edit files, run apply_patch, run write-formatters,
-stage, commit, push, create branches, or emit git directives.
-
-Review only the current uncommitted diff in:
-C:\Users\Admin\Documents\github\convex-backend\custom\cloudflare-executor
-
-There are/are no untracked files at spawn time: <state this explicitly>.
-
-Return findings only, ordered by severity with file/line references. If there
-are no blocking findings, say so and list residual risks briefly. Do not modify
-files.
-```
+commit. If the diff changes after reviewers are spawned, the previous reviews
+are stale; rerun both reviewers against the final diff unless the only change is
+docs-only commentary.
 ## Core Rule
 
 Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
