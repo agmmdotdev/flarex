@@ -5,12 +5,6 @@ import { deliveryObjectName } from "./routing";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import type { Env } from "./types";
 
-type ReconcileLiveQueryDeliveriesRequest = {
-  limit?: number;
-  deliveryLimit?: number;
-  maxBatches?: number;
-};
-
 type PendingDeploymentCursor = {
   oldestCreatedAt: string;
   deploymentId: string;
@@ -32,7 +26,25 @@ type ReconcileResult = {
   deployments: number;
   woken: number;
   failed: Array<{ deploymentId: string; status: number; error: string }>;
+  nextCursor: PendingDeploymentCursor | null;
   hasMore: boolean;
+};
+
+type PendingLiveQueryDeliveryReconcile = {
+  limit: number;
+  deliveryLimit: number;
+  maxBatches: number;
+  cursor: PendingDeploymentCursor;
+  retryAttempt: number;
+  nextRunAt: string;
+};
+
+type PendingDeliveryReconcileRun = {
+  limit: number;
+  deliveryLimit: number;
+  maxBatches: number;
+  retryAttempt: number;
+  cursor?: PendingDeploymentCursor;
 };
 
 type ExpiredConnectionDeploymentCursor = {
@@ -165,8 +177,12 @@ const DEFAULT_MAX_BATCHES = 3;
 const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
 const DEFAULT_MIN_ATTEMPTS = 3;
 const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
+const PENDING_DELIVERY_RECONCILE_KEY = "pendingLiveQueryDeliveryReconcile";
 const PENDING_RERUN_KEY = "pendingLiveQueryRerun";
 const PENDING_CONNECTION_CLEANUP_KEY = "pendingLiveQueryConnectionCleanup";
+const CONTINUE_DELIVERY_RECONCILE_ALARM_DELAY_MS = 100;
+const DELIVERY_RECONCILE_RETRY_ALARM_BASE_DELAY_MS = 250;
+const DELIVERY_RECONCILE_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 const CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS = 100;
 const CONNECTION_CLEANUP_RETRY_ALARM_BASE_DELAY_MS = 250;
 const CONNECTION_CLEANUP_RETRY_ALARM_MAX_DELAY_MS = 30_000;
@@ -175,6 +191,10 @@ const RERUN_RETRY_ALARM_BASE_DELAY_MS = 250;
 const RERUN_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 
 export class SchedulerDO extends DurableObject<Env> {
+  private readonly deliveryReconcileInFlight = new Map<
+    string,
+    Promise<ReconcileResult>
+  >();
   private rerunInFlight: Promise<RerunResult> | undefined;
   private readonly connectionCleanupInFlight = new Map<
     string,
@@ -193,7 +213,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.reconcileLiveQueryDeliveries(
-            await readJson<ReconcileLiveQueryDeliveriesRequest>(request),
+            await readJson<unknown>(request),
           ),
         );
       }
@@ -238,6 +258,12 @@ export class SchedulerDO extends DurableObject<Env> {
         );
       }
       if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueDeliveries &&
+        request.method === "POST"
+      ) {
+        return json(await this.continuePendingLiveQueryDeliveryReconcile());
+      }
+      if (
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueReruns &&
         request.method === "POST"
       ) {
@@ -258,62 +284,189 @@ export class SchedulerDO extends DurableObject<Env> {
   async alarm(): Promise<void> {
     const now = Date.now();
     await Promise.allSettled([
+      this.continuePendingLiveQueryDeliveryReconcile({ respectNextRunAt: true, now }),
       this.continuePendingLiveQueryRerun({ respectNextRunAt: true, now }),
       this.continuePendingLiveQueryConnectionCleanup({ respectNextRunAt: true, now }),
     ]);
   }
 
   private async reconcileLiveQueryDeliveries(
-    body: ReconcileLiveQueryDeliveriesRequest,
+    body: unknown,
   ): Promise<ReconcileResult> {
-    const limit = optionalPositiveInteger(
-      body.limit,
-      DEFAULT_PENDING_DEPLOYMENT_LIMIT,
-      "limit",
+    const request = reconcileDeliveriesRequestFromBody(body);
+    if (request.cursor === undefined) {
+      const pending = await this.readPendingLiveQueryDeliveryReconcile();
+      if (pending !== undefined) {
+        if (!continuationIsDue(pending, Date.now())) {
+          return pendingDeliveryReconcileResult(pending);
+        }
+        return this.runAndPersistDeliveryReconcile(pending);
+      }
+    }
+    const pending = {
+      limit: request.limit ?? DEFAULT_PENDING_DEPLOYMENT_LIMIT,
+      deliveryLimit: request.deliveryLimit ?? DEFAULT_DELIVERY_LIMIT,
+      maxBatches: request.maxBatches ?? DEFAULT_MAX_BATCHES,
+      retryAttempt: 0,
+      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+    };
+    return this.runAndPersistDeliveryReconcile(pending, {
+      persistContinuation: request.cursor === undefined,
+    });
+  }
+
+  private async continuePendingLiveQueryDeliveryReconcile(): Promise<
+    ReconcileResult | { skipped: true }
+  >;
+  private async continuePendingLiveQueryDeliveryReconcile(options: {
+    respectNextRunAt: true;
+    now: number;
+  }): Promise<ReconcileResult | { skipped: true }>;
+  private async continuePendingLiveQueryDeliveryReconcile(options?: {
+    respectNextRunAt?: boolean;
+    now?: number;
+  }): Promise<ReconcileResult | { skipped: true }> {
+    const pending = await this.readPendingLiveQueryDeliveryReconcile();
+    if (pending === undefined) return { skipped: true };
+    if (
+      options?.respectNextRunAt === true &&
+      !continuationIsDue(pending, options.now ?? Date.now())
+    ) {
+      await this.refreshContinuationAlarm();
+      return { skipped: true };
+    }
+    return this.runAndPersistDeliveryReconcile(pending);
+  }
+
+  private async readPendingLiveQueryDeliveryReconcile(): Promise<
+    PendingLiveQueryDeliveryReconcile | undefined
+  > {
+    const value = await this.ctx.storage.get<unknown>(
+      PENDING_DELIVERY_RECONCILE_KEY,
     );
-    const deliveryLimit = optionalPositiveInteger(
-      body.deliveryLimit,
-      DEFAULT_DELIVERY_LIMIT,
-      "deliveryLimit",
-    );
-    const maxBatches = optionalPositiveInteger(
-      body.maxBatches,
-      DEFAULT_MAX_BATCHES,
-      "maxBatches",
-    );
-    const pending = await this.pendingDeployments(limit);
+    if (value === undefined) return undefined;
+    return pendingDeliveryReconcileFromStorage(value);
+  }
+
+  private async runAndPersistDeliveryReconcile(
+    pending: PendingDeliveryReconcileRun,
+    options: { persistContinuation: boolean } = { persistContinuation: true },
+  ): Promise<ReconcileResult> {
+    const key = deliveryReconcileInFlightKey(pending, options);
+    const existing = this.deliveryReconcileInFlight.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const reconcile = this.runDeliveryReconcile(pending)
+      .then(async result => {
+        if (options.persistContinuation) {
+          await this.persistDeliveryReconcileContinuation(pending, result);
+        }
+        return result;
+      })
+      .catch(async (error: unknown) => {
+        if (options.persistContinuation && pending.cursor !== undefined) {
+          await this.scheduleDeliveryReconcileRetry(pending);
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.deliveryReconcileInFlight.delete(key);
+      });
+    this.deliveryReconcileInFlight.set(key, reconcile);
+    return reconcile;
+  }
+
+  private async runDeliveryReconcile(
+    pending: PendingDeliveryReconcileRun,
+  ): Promise<ReconcileResult> {
+    const deployments = await this.pendingDeployments({
+      limit: pending.limit,
+      ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
+    });
     const failed: ReconcileResult["failed"] = [];
     let woken = 0;
 
-    for (const deployment of pending.deployments) {
-      const response = await this.env.DELIVERIES
-        .getByName(deliveryObjectName(deployment.deploymentId))
-        .fetch("https://flarex.internal/wake", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            deploymentId: deployment.deploymentId,
-            limit: deliveryLimit,
-            maxBatches,
-          }),
+    for (const deployment of deployments.deployments) {
+      try {
+        const delivery = await this.wakeDelivery({
+          deploymentId: deployment.deploymentId,
+          limit: pending.deliveryLimit,
+          maxBatches: pending.maxBatches,
         });
-      if (response.ok) {
-        woken += 1;
-      } else {
+        if (delivery.woken) {
+          woken += 1;
+          continue;
+        }
         failed.push({
           deploymentId: deployment.deploymentId,
-          status: response.status,
-          error: await response.text(),
+          status: delivery.status ?? 500,
+          error: delivery.error ?? "Delivery wake failed without an error body.",
+        });
+      } catch (error) {
+        failed.push({
+          deploymentId: deployment.deploymentId,
+          status: error instanceof HttpError ? error.status : 500,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
 
     return {
-      deployments: pending.deployments.length,
+      deployments: deployments.deployments.length,
       woken,
       failed,
-      hasMore: pending.hasMore,
+      nextCursor: deployments.nextCursor,
+      hasMore: deployments.hasMore,
     };
+  }
+
+  private async persistDeliveryReconcileContinuation(
+    pending: PendingDeliveryReconcileRun,
+    result: ReconcileResult,
+  ): Promise<void> {
+    if (!result.hasMore) {
+      await this.ctx.storage.delete(PENDING_DELIVERY_RECONCILE_KEY);
+      await this.refreshContinuationAlarm();
+      return;
+    }
+    if (result.nextCursor === null) {
+      throw new HttpError(
+        502,
+        "Pending delivery deployment scan returned hasMore without nextCursor.",
+      );
+    }
+    const nextRunAt = new Date(
+      Date.now() + CONTINUE_DELIVERY_RECONCILE_ALARM_DELAY_MS,
+    ).toISOString();
+    await this.ctx.storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
+      limit: pending.limit,
+      deliveryLimit: pending.deliveryLimit,
+      maxBatches: pending.maxBatches,
+      cursor: result.nextCursor,
+      retryAttempt: 0,
+      nextRunAt,
+    } satisfies PendingLiveQueryDeliveryReconcile);
+    await this.refreshContinuationAlarm();
+  }
+
+  private async scheduleDeliveryReconcileRetry(
+    pending: PendingDeliveryReconcileRun,
+  ): Promise<void> {
+    if (pending.cursor === undefined) return;
+    const retryAttempt = pending.retryAttempt + 1;
+    const nextRunAt = new Date(
+      Date.now() + deliveryReconcileRetryDelayMs(retryAttempt),
+    ).toISOString();
+    await this.ctx.storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
+      limit: pending.limit,
+      deliveryLimit: pending.deliveryLimit,
+      maxBatches: pending.maxBatches,
+      cursor: pending.cursor,
+      retryAttempt,
+      nextRunAt,
+    } satisfies PendingLiveQueryDeliveryReconcile);
+    await this.refreshContinuationAlarm();
   }
 
   private async reconcileLiveQueryConnections(
@@ -644,11 +797,17 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async refreshContinuationAlarm(): Promise<void> {
-    const [pendingRerunValue, pendingConnectionCleanupValue] = await Promise.all([
+    const [
+      pendingDeliveryReconcileValue,
+      pendingRerunValue,
+      pendingConnectionCleanupValue,
+    ] = await Promise.all([
+      this.ctx.storage.get<unknown>(PENDING_DELIVERY_RECONCILE_KEY),
       this.ctx.storage.get<unknown>(PENDING_RERUN_KEY),
       this.ctx.storage.get<unknown>(PENDING_CONNECTION_CLEANUP_KEY),
     ]);
     const nextRunAts = [
+      continuationNextRunAt(pendingDeliveryReconcileValue),
       continuationNextRunAt(pendingRerunValue),
       continuationNextRunAt(pendingConnectionCleanupValue),
     ].filter((nextRunAt): nextRunAt is number => nextRunAt !== null);
@@ -874,10 +1033,16 @@ export class SchedulerDO extends DurableObject<Env> {
     };
   }
 
-  private async pendingDeployments(limit: number): Promise<PendingDeploymentsResult> {
+  private async pendingDeployments(input: {
+    limit: number;
+    cursor?: PendingDeploymentCursor;
+  }): Promise<PendingDeploymentsResult> {
     const response = await this.executorFetch(
       "/maintenance/live-queries/pending-deployments",
-      { limit },
+      {
+        limit: input.limit,
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      },
     );
     if (!response.ok) {
       throw new HttpError(
@@ -945,6 +1110,44 @@ function pendingDeploymentsResultFromUnknown(
     ),
     nextCursor: pendingCursorFromUnknown(record.nextCursor),
     hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
+  };
+}
+
+function reconcileDeliveriesRequestFromBody(value: unknown): {
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+  cursor?: PendingDeploymentCursor;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query delivery reconcile request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    ...(body.limit === undefined
+      ? {}
+      : { limit: optionalPositiveInteger(body.limit, DEFAULT_PENDING_DEPLOYMENT_LIMIT, "limit") }),
+    ...(body.deliveryLimit === undefined
+      ? {}
+      : {
+          deliveryLimit: optionalPositiveInteger(
+            body.deliveryLimit,
+            DEFAULT_DELIVERY_LIMIT,
+            "deliveryLimit",
+          ),
+        }),
+    ...(body.maxBatches === undefined
+      ? {}
+      : {
+          maxBatches: optionalPositiveInteger(
+            body.maxBatches,
+            DEFAULT_MAX_BATCHES,
+            "maxBatches",
+          ),
+        }),
+    ...(body.cursor === undefined
+      ? {}
+      : { cursor: pendingCursorFromRequest(body.cursor) }),
   };
 }
 
@@ -1040,11 +1243,30 @@ function rerunRetryDelayMs(retryAttempt: number): number {
   );
 }
 
+function deliveryReconcileRetryDelayMs(retryAttempt: number): number {
+  return Math.min(
+    DELIVERY_RECONCILE_RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
+    DELIVERY_RECONCILE_RETRY_ALARM_MAX_DELAY_MS,
+  );
+}
+
 function connectionCleanupRetryDelayMs(retryAttempt: number): number {
   return Math.min(
     CONNECTION_CLEANUP_RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
     CONNECTION_CLEANUP_RETRY_ALARM_MAX_DELAY_MS,
   );
+}
+
+function pendingDeliveryReconcileResult(
+  pending: PendingLiveQueryDeliveryReconcile,
+): ReconcileResult {
+  return {
+    deployments: 0,
+    woken: 0,
+    failed: [],
+    nextCursor: pending.cursor,
+    hasMore: true,
+  };
 }
 
 function pendingConnectionCleanupResult(
@@ -1086,6 +1308,19 @@ function continuationNextRunAt(value: unknown): number | null {
   return nextRunAt;
 }
 
+function deliveryReconcileInFlightKey(
+  input: PendingDeliveryReconcileRun,
+  options: { persistContinuation: boolean },
+): string {
+  return JSON.stringify({
+    owner: options.persistContinuation ? "durable" : "stateless",
+    limit: input.limit,
+    deliveryLimit: input.deliveryLimit,
+    maxBatches: input.maxBatches,
+    cursor: input.cursor ?? null,
+  });
+}
+
 function connectionCleanupInFlightKey(input: {
   expiredAt: string;
   limit: number;
@@ -1096,6 +1331,32 @@ function connectionCleanupInFlightKey(input: {
     limit: input.limit,
     cursor: input.cursor ?? null,
   });
+}
+
+function pendingDeliveryReconcileFromStorage(
+  value: unknown,
+): PendingLiveQueryDeliveryReconcile {
+  const record = storageRecord(value, "pending live query delivery reconcile");
+  return {
+    limit: positiveIntegerFromStorage(record.limit, "pending delivery reconcile limit"),
+    deliveryLimit: positiveIntegerFromStorage(
+      record.deliveryLimit,
+      "pending delivery reconcile deliveryLimit",
+    ),
+    maxBatches: positiveIntegerFromStorage(
+      record.maxBatches,
+      "pending delivery reconcile maxBatches",
+    ),
+    cursor: pendingCursorFromStorage(record.cursor, "pending delivery reconcile cursor"),
+    retryAttempt: nonNegativeIntegerFromStorage(
+      record.retryAttempt,
+      "pending delivery reconcile retryAttempt",
+    ),
+    nextRunAt:
+      record.nextRunAt === undefined
+        ? new Date(0).toISOString()
+        : dateStringFromStorage(record.nextRunAt, "pending delivery reconcile nextRunAt"),
+  };
 }
 
 function pendingConnectionCleanupFromStorage(
@@ -1142,6 +1403,20 @@ function pendingRerunFromStorage(value: unknown): PendingLiveQueryRerun {
     ...(record.nextRunAt === undefined
       ? {}
       : { nextRunAt: dateStringFromStorage(record.nextRunAt, "pending rerun nextRunAt") }),
+  };
+}
+
+function pendingCursorFromStorage(
+  value: unknown,
+  path: string,
+): PendingDeploymentCursor {
+  const record = storageRecord(value, path);
+  return {
+    oldestCreatedAt: dateStringFromStorage(
+      record.oldestCreatedAt,
+      `${path}.oldestCreatedAt`,
+    ),
+    deploymentId: nonEmptyStringFromStorage(record.deploymentId, `${path}.deploymentId`),
   };
 }
 
@@ -1224,7 +1499,7 @@ function pendingDeploymentFromUnknown(
   const record = value as Record<string, unknown>;
   return {
     deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
-    oldestCreatedAt: stringFromUnknown(record.oldestCreatedAt, `${path}.oldestCreatedAt`),
+    oldestCreatedAt: dateStringFromUnknown(record.oldestCreatedAt, `${path}.oldestCreatedAt`),
     pending: nonNegativeIntegerFromUnknown(record.pending, `${path}.pending`),
   };
 }
@@ -1236,8 +1511,22 @@ function pendingCursorFromUnknown(value: unknown): PendingDeploymentCursor | nul
   }
   const record = value as Record<string, unknown>;
   return {
-    oldestCreatedAt: stringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt"),
+    oldestCreatedAt: dateStringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt"),
     deploymentId: stringFromUnknown(record.deploymentId, "nextCursor.deploymentId"),
+  };
+}
+
+function pendingCursorFromRequest(value: unknown): PendingDeploymentCursor {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "cursor must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    oldestCreatedAt: dateStringFromRequest(
+      record.oldestCreatedAt,
+      "cursor.oldestCreatedAt",
+    ),
+    deploymentId: nonEmptyStringFromRequest(record.deploymentId, "cursor.deploymentId"),
   };
 }
 

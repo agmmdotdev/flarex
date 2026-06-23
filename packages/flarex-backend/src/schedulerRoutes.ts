@@ -12,6 +12,7 @@ export const LIVE_QUERY_SCHEDULER_INTERNAL_PATHS = {
   deadLetterDeliveries: "/dead-letter/live-query-deliveries",
   cleanupConnections: "/cleanup/live-query-connections",
   rerunSubscriptions: "/rerun/live-query-subscriptions",
+  continueDeliveries: "/continue-live-query-deliveries",
   continueReruns: "/continue-live-query-reruns",
   continueConnectionCleanup: "/continue-live-query-connection-cleanup",
 } as const;

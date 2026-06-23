@@ -993,7 +993,7 @@ describe("sync protocol", () => {
     );
 
     expect(continued.status).toBe(200);
-    const continuedBody = await continued.json();
+    const continuedBody: unknown = await continued.json();
     if (isSkippedResponse(continuedBody)) {
       await waitFor(() => executorRequests.length >= 4);
     } else {
@@ -1156,7 +1156,7 @@ describe("sync protocol", () => {
     );
 
     expect(continued.status).toBe(200);
-    const continuedBody = await continued.json();
+    const continuedBody: unknown = await continued.json();
     if (isSkippedResponse(continuedBody)) {
       await waitFor(() => executorRequests.length >= 4);
     } else {
@@ -1984,7 +1984,7 @@ describe("sync protocol", () => {
     });
 
     expect(continued.status).toBe(200);
-    const continuedBody = await continued.json();
+    const continuedBody: unknown = await continued.json();
     if (deliveryDrainSkipped(continuedBody)) {
       await waitFor(() => executorRequests.length >= 4);
     } else {
@@ -2181,6 +2181,7 @@ describe("sync protocol", () => {
       deployments: 1,
       woken: 1,
       failed: [],
+      nextCursor: null,
       hasMore: false,
     });
     await expect(delivered).resolves.toMatchObject({
@@ -2220,6 +2221,678 @@ describe("sync protocol", () => {
       },
     ]);
     ws.close();
+  });
+
+  it("continues pending live query delivery deployment scans from stored cursors", async () => {
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              if (deploymentScanCursorDeploymentId(body) === "deployment_delivery_page_a") {
+                return Response.json({
+                  deployments: [
+                    {
+                      deploymentId: "deployment_delivery_page_b",
+                      oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                      pending: 1,
+                    },
+                  ],
+                  nextCursor: null,
+                  hasMore: false,
+                });
+              }
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_delivery_page_a",
+                    oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                  deploymentId: "deployment_delivery_page_a",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1, deliveryLimit: 7, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      failed: [],
+      nextCursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment_delivery_page_a",
+      },
+      hasMore: true,
+    });
+
+    const env = await harness.mf.getBindings<Env>();
+    const scheduler = env.SCHEDULERS.getByName("scheduler:live-query-deliveries");
+    const continued = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-deliveries",
+      { method: "POST" },
+    );
+
+    expect(continued.status).toBe(200);
+    const continuedBody: unknown = await continued.json();
+    if (isSkippedResponse(continuedBody)) {
+      await waitFor(() => executorRequests.length >= 4);
+    } else {
+      expect(continuedBody).toMatchObject({
+        deployments: 1,
+        woken: 1,
+        failed: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+    }
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        authorization: "Bearer executor-secret",
+        body: { limit: 1 },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment_delivery_page_a",
+          limit: 7,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_page_a:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        authorization: "Bearer executor-secret",
+        body: {
+          limit: 1,
+          cursor: {
+            oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+            deploymentId: "deployment_delivery_page_a",
+          },
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment_delivery_page_b",
+          limit: 7,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_page_b:/),
+        },
+      },
+    ]);
+
+    const cleared = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-deliveries",
+      { method: "POST" },
+    );
+    expect(cleared.status).toBe(200);
+    await expect(cleared.json()).resolves.toEqual({ skipped: true });
+  });
+
+  it("continues pending live query delivery scans from alarms", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              if (deploymentScanCursorDeploymentId(body) === "deployment_delivery_alarm_a") {
+                return Response.json({
+                  deployments: [
+                    {
+                      deploymentId: "deployment_delivery_alarm_b",
+                      oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                      pending: 1,
+                    },
+                  ],
+                  nextCursor: null,
+                  hasMore: false,
+                });
+              }
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_delivery_alarm_a",
+                    oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                  deploymentId: "deployment_delivery_alarm_a",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1, deliveryLimit: 9, maxBatches: 4 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      failed: [],
+      nextCursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment_delivery_alarm_a",
+      },
+      hasMore: true,
+    });
+
+    await waitFor(() => executorRequests.length >= 4);
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        body: { limit: 1 },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        body: {
+          deploymentId: "deployment_delivery_alarm_a",
+          limit: 9,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_alarm_a:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        body: {
+          limit: 1,
+          cursor: {
+            oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+            deploymentId: "deployment_delivery_alarm_a",
+          },
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        body: {
+          deploymentId: "deployment_delivery_alarm_b",
+          limit: 9,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_alarm_b:/),
+        },
+      },
+    ]);
+
+    const env = await harness.mf.getBindings<Env>();
+    const scheduler = env.SCHEDULERS.getByName("scheduler:live-query-deliveries");
+    const cleared = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-deliveries",
+      { method: "POST" },
+    );
+    expect(cleared.status).toBe(200);
+    await expect(cleared.json()).resolves.toEqual({ skipped: true });
+  });
+
+  it("keeps pending delivery deployment cursor when a wake fails", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              if (deploymentScanCursorDeploymentId(body) === "deployment_delivery_failed") {
+                return Response.json({
+                  deployments: [
+                    {
+                      deploymentId: "deployment_delivery_after_failure",
+                      oldestCreatedAt: "2026-06-23T00:00:30.000Z",
+                      pending: 1,
+                    },
+                  ],
+                  nextCursor: null,
+                  hasMore: false,
+                });
+              }
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_delivery_failed",
+                    oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                  deploymentId: "deployment_delivery_failed",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              if (cleanupDeploymentId(body) === "deployment_delivery_failed") {
+                return Response.json({ error: "temporary delivery failure" }, { status: 503 });
+              }
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1, deliveryLimit: 3, maxBatches: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 0,
+      failed: [
+        {
+          deploymentId: "deployment_delivery_failed",
+          status: 500,
+        },
+      ],
+      nextCursor: {
+        oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+        deploymentId: "deployment_delivery_failed",
+      },
+      hasMore: true,
+    });
+
+    const env = await harness.mf.getBindings<Env>();
+    const scheduler = env.SCHEDULERS.getByName("scheduler:live-query-deliveries");
+    const continued = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-deliveries",
+      { method: "POST" },
+    );
+
+    expect(continued.status).toBe(200);
+    const continuedBody: unknown = await continued.json();
+    if (isSkippedResponse(continuedBody)) {
+      await waitFor(() => executorRequests.length >= 4);
+    } else {
+      expect(continuedBody).toMatchObject({
+        deployments: 1,
+        woken: 1,
+        failed: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+    }
+    expect(executorRequests).toEqual([
+      expect.objectContaining({
+        path: "/maintenance/live-queries/pending-deployments",
+        body: { limit: 1 },
+      }),
+      expect.objectContaining({
+        path: "/maintenance/live-queries/claim",
+        body: {
+          deploymentId: "deployment_delivery_failed",
+          limit: 3,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_failed:/),
+        },
+      }),
+      expect.objectContaining({
+        path: "/maintenance/live-queries/pending-deployments",
+        body: {
+          limit: 1,
+          cursor: {
+            oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+            deploymentId: "deployment_delivery_failed",
+          },
+        },
+      }),
+      expect.objectContaining({
+        path: "/maintenance/live-queries/claim",
+        body: {
+          deploymentId: "deployment_delivery_after_failure",
+          limit: 3,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_after_failure:/),
+        },
+      }),
+    ]);
+  });
+
+  it("coalesces concurrent fresh pending delivery reconciles", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    let releaseScan: () => void = () => {
+      throw new Error("Scan gate was not initialized.");
+    };
+    const scanGate = new Promise<void>(resolve => {
+      releaseScan = resolve;
+    });
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              await scanGate;
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_delivery_concurrent",
+                    oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                  deploymentId: "deployment_delivery_concurrent",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const request = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: 1, deliveryLimit: 4, maxBatches: 1 }),
+    };
+    const first = harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      request,
+    );
+    await waitFor(() => executorRequests.length === 1);
+    const second = harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      request,
+    );
+    releaseScan();
+
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      hasMore: true,
+    });
+    await expect(secondResponse.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      hasMore: true,
+    });
+    expect(executorRequests).toEqual([
+      expect.objectContaining({
+        path: "/maintenance/live-queries/pending-deployments",
+        body: { limit: 1 },
+      }),
+      expect.objectContaining({
+        path: "/maintenance/live-queries/claim",
+        body: {
+          deploymentId: "deployment_delivery_concurrent",
+          limit: 4,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:deployment_delivery_concurrent:/),
+        },
+      }),
+    ]);
+  });
+
+  it("does not coalesce concurrent pending delivery reconciles with different parameters", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    let releaseScan: () => void = () => {
+      throw new Error("Scan gate was not initialized.");
+    };
+    const scanGate = new Promise<void>(resolve => {
+      releaseScan = resolve;
+    });
+    let scanCount = 0;
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              scanCount += 1;
+              const deploymentId =
+                scanCount === 1
+                  ? "deployment_delivery_concurrent_params_a"
+                  : "deployment_delivery_concurrent_params_b";
+              await scanGate;
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId,
+                    oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const first = harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1, deliveryLimit: 4, maxBatches: 1 }),
+      },
+    );
+    await waitFor(() => executorRequests.length === 1);
+    const second = harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1, deliveryLimit: 8, maxBatches: 1 }),
+      },
+    );
+    await waitFor(() => executorRequests.length === 2);
+    releaseScan();
+
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      hasMore: false,
+    });
+    await expect(secondResponse.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      hasMore: false,
+    });
+
+    expect(executorRequests.filter(request => request.path === "/maintenance/live-queries/pending-deployments")).toEqual([
+      { path: "/maintenance/live-queries/pending-deployments", body: { limit: 1 } },
+      { path: "/maintenance/live-queries/pending-deployments", body: { limit: 1 } },
+    ]);
+    expect(executorRequests).toContainEqual({
+      path: "/maintenance/live-queries/claim",
+      body: {
+        deploymentId: "deployment_delivery_concurrent_params_a",
+        limit: 4,
+        leaseDurationMs: 30000,
+        claimOwner: expect.stringMatching(/^delivery:deployment_delivery_concurrent_params_a:/),
+      },
+    });
+    expect(executorRequests).toContainEqual({
+      path: "/maintenance/live-queries/claim",
+      body: {
+        deploymentId: "deployment_delivery_concurrent_params_b",
+        limit: 8,
+        leaseDurationMs: 30000,
+        claimOwner: expect.stringMatching(/^delivery:deployment_delivery_concurrent_params_b:/),
+      },
+    });
+  });
+
+  it("keeps explicit cursor delivery reconciles stateless", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_delivery_explicit_cursor",
+                    oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                    pending: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+                  deploymentId: "deployment_delivery_explicit_cursor",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ deliveries: [], nextCursor: null, hasMore: false });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          limit: 1,
+          deliveryLimit: 5,
+          maxBatches: 1,
+          cursor: {
+            oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+            deploymentId: "deployment_delivery_before_explicit",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deployments: 1,
+      woken: 1,
+      nextCursor: {
+        oldestCreatedAt: "2026-06-23T00:00:20.000Z",
+        deploymentId: "deployment_delivery_explicit_cursor",
+      },
+      hasMore: true,
+    });
+    const env = await harness.mf.getBindings<Env>();
+    const scheduler = env.SCHEDULERS.getByName("scheduler:live-query-deliveries");
+    const continued = await scheduler.fetch(
+      "https://flarex.internal/continue-live-query-deliveries",
+      { method: "POST" },
+    );
+    expect(continued.status).toBe(200);
+    await expect(continued.json()).resolves.toEqual({ skipped: true });
   });
 
   it("triggers stale live query reruns and fans out changed results", async () => {

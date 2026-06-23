@@ -702,6 +702,99 @@ corepack pnpm --filter flarex-backend build
 git diff --check
 ```
 
+## Delivery Reconcile Continuation State
+
+Previous completed checkpoint: `1fd4ecc` Persist live query connection cleanup
+continuation.
+
+What changed:
+
+- Added durable SchedulerDO continuation state for pending live-query delivery
+  deployment scans.
+- Added internal continuation route:
+  `POST /continue-live-query-deliveries`.
+- Delivery reconciliation now returns `nextCursor` alongside `hasMore`, matching
+  the executor pending-deployment scan contract.
+- When a no-cursor delivery reconcile scan returns `hasMore: true`, SchedulerDO
+  persists `limit`, `deliveryLimit`, `maxBatches`, `cursor`, `retryAttempt`, and
+  `nextRunAt`, then schedules the shared DO alarm.
+- When continuation reaches `hasMore: false`, SchedulerDO clears the pending
+  delivery reconcile state and refreshes the shared alarm based on remaining
+  owners.
+- Wake failures for individual deployment `DeliveryDO`s are now reported in the
+  per-deployment `failed` array instead of aborting the whole scan, so
+  `nextCursor` is still preserved.
+- Fresh no-cursor delivery reconciles are coalesced by the same keyed parameter
+  bundle used for execution: `limit`, `deliveryLimit`, `maxBatches`, and cursor
+  owner. Identical calls share one in-flight scan, while different delivery
+  parameters run independently.
+- Explicit-cursor delivery reconciles are stateless page scans. They return
+  `nextCursor`, but they do not replace the singleton scheduled continuation.
+- Added Miniflare coverage for:
+  - two-page pending delivery deployment continuation,
+  - alarm-driven continuation from a stored delivery cursor,
+  - cursor preservation when one deployment wake fails,
+  - concurrent fresh delivery reconcile coalescing, and
+  - concurrent fresh delivery reconciles with different parameters,
+  - explicit-cursor stateless delivery reconcile behavior.
+
+Why it changed:
+
+```txt
+Cloudflare scheduled trigger
+  -> SchedulerDO scans deployments with pending delivery rows
+  -> SchedulerDO wakes each deployment DeliveryDO
+  -> scan page hasMore=true
+  -> SchedulerDO stores pending deployment cursor
+  -> DO alarm / internal continuation resumes from the cursor
+  -> final page hasMore=false
+  -> SchedulerDO clears delivery reconcile continuation state
+```
+
+This makes lost wake-notification recovery durable across large pending-delivery
+deployment scans instead of requiring a future cron tick for every page.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex backend workers own sync lifecycle and notification recovery inside
+    the backend runtime.
+- `crates/sync/src/state.rs`
+  - sync state is managed in backend process state rather than through
+    Cloudflare Durable Object alarms.
+
+Flarex differences:
+
+- Flarex keeps delivery rows in the trusted executor/Postgres path and uses
+  Cloudflare `DeliveryDO`s for fanout, so the scheduler must explicitly persist
+  pending-deployment scan progress.
+- The same singleton scheduler DO still uses the historical
+  `scheduler:live-query-deliveries` name for compatibility, but now owns
+  delivery reconcile, connection cleanup, and rerun continuation state.
+- Explicit-cursor reconcile calls are operator/debug-style stateless page
+  scans; scheduled no-cursor reconcile calls own the singleton durable cursor.
+
+Known limitations:
+
+- Durable delivery reconcile continuation is singleton-wide once a cursor is
+  stored. Future platform scheduling may need priority queues or
+  per-project/per-region partitioning.
+- Existing pending delivery reconcile state does not predate this checkpoint,
+  but legacy rerun records without `nextRunAt` still follow the migration
+  limitation documented in the connection cleanup section.
+- Metrics are still response counters and test assertions; no durable metrics
+  sink records continuation attempts or failed wake counts yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "reconciles lost live query wake notifications|continues pending live query delivery deployment scans|continues pending live query delivery scans from alarms|keeps pending delivery deployment cursor|coalesces concurrent fresh pending delivery reconciles|does not coalesce concurrent pending delivery reconciles with different parameters|keeps explicit cursor delivery reconciles stateless" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Executor Live-Query Registry Writer
 
 Previous completed checkpoint: `f32cc4f` Add durable live query registry.
