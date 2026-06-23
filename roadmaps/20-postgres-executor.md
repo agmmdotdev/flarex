@@ -454,6 +454,63 @@ corepack pnpm --filter @flarex/executor-nitro test
 corepack pnpm --filter @flarex/executor-nitro typecheck
 ```
 
+## Invoke Write-Shape Invalidation Hardening
+
+Previous completed checkpoint: `ab62339` Wire invoke commits to live query
+triggers.
+
+What changed:
+
+- Added real Nitro/PGlite invoke integration coverage proving live-query
+  invalidation triggers for committed insert, patch, replace, delete, and
+  multi-write mutation sessions.
+- Added a no-write mutation session assertion proving empty commits do not call
+  the live-query trigger hook.
+- The write-shape integration caught that `/invoke/syscall` accepted `patch`
+  and `delete` but rejected `replace` even though executor core and generated
+  materialized artifacts already support `ctx.db.replace`.
+- Added `replace` parsing to the HTTP invoke syscall route and unit coverage in
+  `@flarex/executor-http`.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+  - staged writes include insert, patch, replace, and delete mutations in one
+    transaction attempt.
+- `crates/database/src/committer.rs`
+  - every committed document version change is published through the commit
+    boundary, regardless of write shape.
+- `crates/sync/src/worker.rs`
+  - sync invalidation is driven by committed writes, not by the specific user
+    operation that produced them.
+
+Flarex differences:
+
+- Convex's syscall parser, transaction state, committer, and sync worker are
+  process-local Rust boundaries. Flarex has to keep the HTTP/Nitro syscall
+  route in sync with executor-core supported operations and generated
+  Dynamic Worker `ctx.db` methods.
+- No-write mutation sessions can still finish, but because they publish no
+  writes they do not update freshness mirrors or wake live-query rerun work.
+
+Known limitations:
+
+- This hardens the trigger boundary, but it does not yet prove the downstream
+  scheduler route reruns and delivers all changed query results end-to-end.
+- Range/index invalidation precision remains conservative.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts --testNamePattern "write shape"
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm test:integration
+corepack pnpm build
+git diff --check
+```
+
 ## Invoke Finish OCC Retry Boundary
 
 Current checkpoint: pending commit for artifact transport retry.

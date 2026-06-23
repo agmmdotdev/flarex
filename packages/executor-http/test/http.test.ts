@@ -398,6 +398,29 @@ describe("createFlarexHttpApp", () => {
       value: { _id: "1:message" },
       readSet: { documents: [{ tableId: 1, id: "1:message" }] },
     });
+
+    const replace = await app.handle(
+      jsonRequest("https://executor.test/invoke/syscall", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        op: "replace",
+        id: "1:message",
+        value: { text: "replaced" },
+      }),
+    );
+
+    expect(replace.status).toBe(200);
+    expect(calls[1]).toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      syscall: {
+        op: "replace",
+        id: "1:message",
+        value: { text: "replaced" },
+      },
+    });
   });
 
   it("validates invoke syscall requests before calling the executor", async () => {
@@ -424,7 +447,7 @@ describe("createFlarexHttpApp", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
-      message: "op must be get, query, insert, patch, or delete.",
+      message: "op must be get, query, insert, patch, replace, or delete.",
     });
   });
 

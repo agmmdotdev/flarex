@@ -294,6 +294,202 @@ describe("Nitro invoke integration", () => {
     });
   });
 
+  it("triggers live query invalidation for every committed mutation write shape", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+    const triggerCalls: LiveQueryInvalidationTriggerInput[] = [];
+    let nextSessionId = "session_seed";
+    let nowMs = 1781913600100;
+    const executor = createFlarexExecutor({
+      clock: { now: () => new Date(nowMs) },
+      ids: { nextId: () => nextSessionId },
+      persistence,
+      liveQueryInvalidation: {
+        freshnessStore,
+        notifyTrigger: input => {
+          triggerCalls.push(input);
+        },
+      },
+    });
+    const handler = createFlarexNitroHandler({ executor });
+
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_write_shapes",
+      projectId: "project_integration",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_write_shapes",
+      projectId: "project_integration",
+      packageId: registered.package.packageId,
+      schemaVersion: 1,
+    });
+
+    const seed = await runMutationSession(handler, "deployment_write_shapes", [
+      {
+        op: "insert",
+        table: "messages",
+        id: "2:message",
+        value: { text: "hello", count: 1 },
+      },
+    ]);
+    expect(seed).toMatchObject({
+      committedTs: 1781913600101,
+      writes: [
+        {
+          tableId: 2,
+          id: "2:message",
+          prevTs: null,
+          ts: 1781913600101,
+          value: { text: "hello", count: 1 },
+        },
+      ],
+    });
+
+    nextSessionId = "session_patch_shape";
+    nowMs = 1781913600101;
+    const patch = await runMutationSession(handler, "deployment_write_shapes", [
+      { op: "patch", id: "2:message", value: { count: 2 } },
+    ]);
+    expect(patch).toMatchObject({
+      committedTs: 1781913600102,
+      writes: [
+        {
+          tableId: 2,
+          id: "2:message",
+          prevTs: 1781913600101,
+          ts: 1781913600102,
+          value: { text: "hello", count: 2 },
+        },
+      ],
+    });
+
+    nextSessionId = "session_replace_shape";
+    nowMs = 1781913600102;
+    const replace = await runMutationSession(handler, "deployment_write_shapes", [
+      {
+        op: "replace",
+        id: "2:message",
+        value: { text: "replaced", count: 3 },
+      },
+    ]);
+    expect(replace).toMatchObject({
+      committedTs: 1781913600103,
+      writes: [
+        {
+          tableId: 2,
+          id: "2:message",
+          prevTs: 1781913600102,
+          ts: 1781913600103,
+          value: { text: "replaced", count: 3 },
+        },
+      ],
+    });
+
+    nextSessionId = "session_multi_shape";
+    nowMs = 1781913600103;
+    const multi = await runMutationSession(handler, "deployment_write_shapes", [
+      {
+        op: "insert",
+        table: "messages",
+        id: "2:second",
+        value: { text: "second", count: 1 },
+      },
+      { op: "patch", id: "2:message", value: { count: 4 } },
+    ]);
+    expect(multi).toMatchObject({
+      committedTs: 1781913600104,
+      writes: expect.arrayContaining([
+        expect.objectContaining({
+          tableId: 2,
+          id: "2:second",
+          prevTs: null,
+          ts: 1781913600104,
+          value: { text: "second", count: 1 },
+        }),
+        expect.objectContaining({
+          tableId: 2,
+          id: "2:message",
+          prevTs: 1781913600103,
+          ts: 1781913600104,
+          value: { text: "replaced", count: 4 },
+        }),
+      ]),
+    });
+
+    nextSessionId = "session_delete_shape";
+    nowMs = 1781913600104;
+    const deleted = await runMutationSession(handler, "deployment_write_shapes", [
+      { op: "delete", id: "2:second" },
+    ]);
+    expect(deleted).toMatchObject({
+      committedTs: 1781913600105,
+      writes: [
+        {
+          tableId: 2,
+          id: "2:second",
+          prevTs: 1781913600104,
+          ts: 1781913600105,
+          value: null,
+        },
+      ],
+    });
+
+    const triggerCountBeforeNoWrite = triggerCalls.length;
+    nextSessionId = "session_no_write_shape";
+    nowMs = 1781913600105;
+    const noWrite = await runMutationSession(handler, "deployment_write_shapes", []);
+    expect(noWrite).toMatchObject({
+      value: null,
+      writes: [],
+    });
+    expect(triggerCalls).toHaveLength(triggerCountBeforeNoWrite);
+
+    expect(triggerCalls.map(call => ({
+      sessionId: call.sessionId,
+      committedTs: call.committedTs,
+      ids: call.writes.map(write => write.id).sort(),
+    }))).toEqual([
+      {
+        sessionId: "session_seed",
+        committedTs: 1781913600101,
+        ids: ["2:message"],
+      },
+      {
+        sessionId: "session_patch_shape",
+        committedTs: 1781913600102,
+        ids: ["2:message"],
+      },
+      {
+        sessionId: "session_replace_shape",
+        committedTs: 1781913600103,
+        ids: ["2:message"],
+      },
+      {
+        sessionId: "session_multi_shape",
+        committedTs: 1781913600104,
+        ids: ["2:message", "2:second"],
+      },
+      {
+        sessionId: "session_delete_shape",
+        committedTs: 1781913600105,
+        ids: ["2:second"],
+      },
+    ]);
+    expect(freshnessStore.getDocumentVersion(
+      "deployment_write_shapes",
+      "2:message",
+    )).toMatchObject({ version: 1781913600104 });
+    expect(freshnessStore.getDocumentVersion(
+      "deployment_write_shapes",
+      "2:second",
+    )).toMatchObject({ version: 1781913600105 });
+    expect(freshnessStore.getTableVersion("deployment_write_shapes", 2))
+      .toMatchObject({ version: 1781913600105 });
+  });
+
   it("rejects invalid inserted documents before commit", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -429,7 +625,7 @@ async function runMutationSession(
   handler: (event: { request: Request }) => Promise<Response>,
   deploymentId: string,
   syscalls: Array<Record<string, unknown>>,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   const start = await postJson(handler, "/invoke/start", {
     deploymentId,
     projectId: "project_integration",
@@ -439,7 +635,8 @@ async function runMutationSession(
     partitionKey: "1:team",
   });
   expect(start.status).toBe(200);
-  const started = (await start.json()) as { sessionId: string };
+  const started = await start.json();
+  expect(isStartedInvokeSession(started)).toBe(true);
   for (const syscall of syscalls) {
     const response = await postJson(handler, "/invoke/syscall", {
       deploymentId,
@@ -447,6 +644,9 @@ async function runMutationSession(
       sessionId: started.sessionId,
       ...syscall,
     });
+    if (response.status !== 200) {
+      throw new Error(`Unexpected syscall status ${response.status}: ${await response.text()}`);
+    }
     expect(response.status).toBe(200);
   }
   const finish = await postJson(handler, "/invoke/finish", {
@@ -456,6 +656,9 @@ async function runMutationSession(
     value: null,
   });
   expect(finish.status).toBe(200);
+  const body = await finish.json();
+  expect(isRecord(body)).toBe(true);
+  return body;
 }
 
 async function postJson(
@@ -470,6 +673,16 @@ async function postJson(
       body: JSON.stringify(body),
     }),
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStartedInvokeSession(
+  value: unknown,
+): value is { sessionId: string } {
+  return isRecord(value) && typeof value.sessionId === "string";
 }
 
 function sourcePackage(): ArtifactSourcePackage {

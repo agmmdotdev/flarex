@@ -1853,6 +1853,13 @@ function parseSyscallRequest(
     if ("error" in value) return value;
     return { value: { op: "patch", id: id.value, value: value.value } };
   }
+  if (record.op === "replace") {
+    const id = requiredString(record, "id");
+    if ("error" in id) return id;
+    const value = jsonValue(record.value, "value");
+    if ("error" in value) return value;
+    return { value: { op: "replace", id: id.value, value: value.value } };
+  }
   if (record.op === "delete") {
     const id = requiredString(record, "id");
     if ("error" in id) return id;
@@ -1861,7 +1868,7 @@ function parseSyscallRequest(
   return {
     error: {
       error: "bad_request",
-      message: "op must be get, query, insert, patch, or delete.",
+      message: "op must be get, query, insert, patch, replace, or delete.",
     },
   };
 }

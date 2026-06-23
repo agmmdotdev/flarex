@@ -235,6 +235,52 @@ Verification:
 - `corepack pnpm --filter @flarex/executor-nitro test`
 - `corepack pnpm --filter @flarex/executor-nitro typecheck`
 
+## Invoke Write-Shape Invalidation Hardening
+
+Previous completed checkpoint: `ab62339` Wire invoke commits to live query
+triggers.
+
+What changed:
+
+- Added adapter-level coverage that committed insert, patch, replace, delete,
+  and multi-write mutation sessions all update freshness and call the injected
+  live-query trigger hook.
+- Added no-write mutation coverage proving commits with no writes do not wake
+  live-query rerun work.
+- Fixed the HTTP invoke syscall route to accept `replace`, matching executor
+  core and generated `ctx.db.replace` behavior.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - committed writes wake sync work independent of the specific write shape.
+- `crates/sync/src/state.rs`
+  - active query results are refreshed after backend invalidation.
+- `crates/database/src/committer.rs`
+  - write publication and subscription visibility happen at commit.
+
+Flarex differences:
+
+- Flarex's sync trigger path crosses the executor HTTP/Nitro boundary before
+  reaching Cloudflare scheduler and connection Durable Objects.
+- Because of that split, the external syscall route must explicitly stay in
+  sync with all executor-supported write operations.
+
+Known limitations:
+
+- End-to-end scheduler rerun and DeliveryDO fanout still need a separate
+  integration slice.
+
+Verification:
+
+- `corepack pnpm --filter @flarex/executor-http test -- http.test.ts`
+- `corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts --testNamePattern "write shape"`
+- `corepack pnpm typecheck`
+- `corepack pnpm test`
+- `corepack pnpm test:integration`
+- `corepack pnpm build`
+- `git diff --check`
+
 ## Indexed Freshness Query Hardening
 
 Previous completed checkpoint: `120dcaa` Implement indexed live query freshness.
