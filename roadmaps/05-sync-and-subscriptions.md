@@ -1,5 +1,63 @@
 # Sync And Subscriptions
 
+## Public Client Postgres Delivery E2E
+
+Previous completed sync checkpoint: `07b0e38` Harden invoke write-shape
+invalidation.
+
+What changed:
+
+- Extended the example sync E2E so the same public `FlarexClient` scenario runs
+  against both:
+  - the legacy backend/DO path, and
+  - the Postgres executor path with durable delivery through Cloudflare
+    `DeliveryDO`.
+- The Postgres case proves this end-to-end chain:
+
+```txt
+FlarexClient.onUpdate()
+  -> ConnectionDO records the live query through the executor
+  -> FlarexClient.mutation() runs over /sync
+  -> Postgres executor commits the write
+  -> live-query invalidation reruns the query
+  -> durable delivery row wakes DeliveryDO
+  -> DeliveryDO fans out to ConnectionDO
+  -> client receives the updated query result
+```
+
+Why it changed:
+
+The internal sync pieces were covered separately, but the public-client path
+needed a real integration check. This is the first example-level proof that the
+Postgres-authoritative path can still feel like Convex live queries from the
+client API.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
+- `npm-packages/convex/src/browser/sync/client.ts`
+
+Flarex differences:
+
+- Convex keeps subscription state, query reruns, and fanout inside the backend
+  sync worker. Flarex splits those responsibilities across the trusted
+  executor, durable delivery rows, `DeliveryDO`, `ConnectionDO`, and the
+  public `FlarexClient`.
+
+Known limitations:
+
+- The E2E proves the local PGlite executor lane, not real Postgres.
+- The test observes the client-visible update, but it does not yet assert
+  delivery-row claim/ack internals directly.
+- Claim leases and retry visibility remain separate hardening work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example test -- sync-e2e.test.ts
+```
+
 ## DeliveryDO Wake Route Implementation
 
 Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack

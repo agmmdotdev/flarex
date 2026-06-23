@@ -1,5 +1,51 @@
 # Test SDK
 
+## Postgres Executor Runtime Option
+
+Previous completed test-SDK checkpoint: `d76c97c` Add reviewer subagent
+configs.
+
+What changed:
+
+- Added `executorTransport?: "legacy" | "postgres"` to `flarexTest(...)`.
+- The option forwards to `createFlarexDevRuntime(...)`, letting integration
+  tests choose the legacy backend path or the Postgres/PGlite executor path.
+- Updated the example sync E2E to use this option for the public-client
+  Postgres delivery scenario.
+
+Why it changed:
+
+The test SDK already ran the same Miniflare runtime as the Vite dev path, but
+it always used the default legacy transport. The current architecture needs
+tests to opt into the Postgres executor path without constructing dev-runtime
+internals by hand.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client subscriptions receive backend query transitions.
+- Convex testing docs / `convex-test` API shape
+  - tests use a compact harness API instead of directly wiring the backend.
+
+Flarex differences:
+
+- Convex test helpers can mock a unified Convex backend. Flarex exposes a
+  transport option because the local runtime has two meaningful execution
+  paths during migration: legacy DO execution and Postgres-authoritative
+  execution.
+
+Known limitations:
+
+- The option is transport-level only. It does not expose lower-level executor
+  hooks, seeded persistence, or real Postgres configuration yet.
+- `flarex-test` still lacks `run(fn)`, `withIdentity(...)`, and reset helpers.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example test -- sync-e2e.test.ts
+```
+
 ## Decision
 
 Flarex needs a dedicated test SDK, but it should not fork `convex-test` as the

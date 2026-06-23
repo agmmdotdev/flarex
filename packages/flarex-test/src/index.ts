@@ -1,4 +1,8 @@
-import { createFlarexDevRuntime, type FlarexDevRuntime } from "flarex-dev";
+import {
+  createFlarexDevRuntime,
+  type FlarexDevRuntime,
+  type FlarexDevRuntimeOptions,
+} from "flarex-dev";
 import {
   FlarexClient,
   getFunctionName,
@@ -16,6 +20,7 @@ export type FlarexTestOptions = {
   appDir?: string;
   generatedDir?: string;
   deploymentId?: string;
+  executorTransport?: FlarexDevRuntimeOptions["executorTransport"];
   persistDir?: string | false;
 };
 
@@ -76,6 +81,9 @@ export async function flarexTest(options: FlarexTestOptions = {}): Promise<Flare
     ...(options.appDir === undefined ? {} : { appDir: options.appDir }),
     ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
     ...(options.deploymentId === undefined ? {} : { deploymentId: options.deploymentId }),
+    ...(options.executorTransport === undefined
+      ? {}
+      : { executorTransport: options.executorTransport }),
     persistDir: options.persistDir ?? false,
   });
 
