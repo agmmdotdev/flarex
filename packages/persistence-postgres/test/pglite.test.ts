@@ -57,6 +57,7 @@ describe("createPGlitePersistence", () => {
       "invoke_session_table_reads",
       "invoke_sessions",
       "leases",
+      "live_query_connections",
       "live_query_deliveries",
       "live_query_subscriptions",
       "outbox",
@@ -2527,6 +2528,94 @@ describe("createPGlitePersistence", () => {
       { connectionId: "connection_a", queryId: 2, partitionKey: "team_a" },
       { connectionId: "connection_b", queryId: 1, partitionKey: "team_b" },
     ]);
+  });
+
+  it("tracks active live query subscriptions through connection leases", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const activeAt = new Date("2026-06-20T00:00:30.000Z");
+
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_live_query_leases",
+      connectionId: "connection_active",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_live_query_leases",
+      connectionId: "connection_expired",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:00:10.000Z"),
+    });
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_live_query_leases",
+      connectionId: "connection_closed",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await persistence.closeLiveQueryConnection({
+      deploymentId: "deployment_live_query_leases",
+      connectionId: "connection_closed",
+      closedAt: new Date("2026-06-20T00:00:20.000Z"),
+    });
+
+    for (const connectionId of [
+      "connection_active",
+      "connection_expired",
+      "connection_closed",
+    ]) {
+      await persistence.upsertLiveQuerySubscription({
+        deploymentId: "deployment_live_query_leases",
+        connectionId,
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: { connectionId },
+        partitionKey: "team_a",
+        beginTs: 10,
+        readSetJson: { tables: [{ tableId: 1, observedTs: 10 }] },
+        resultJson: [connectionId],
+        resultHash: connectionId,
+      });
+    }
+
+    await expect(
+      persistence.listActiveLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_leases",
+        activeAt,
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_active",
+        queryId: 1,
+      },
+    ]);
+
+    await expect(
+      persistence.deleteExpiredLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_leases",
+        expiredAt: activeAt,
+      }),
+    ).resolves.toEqual({ deleted: 2, deletedConnections: 2 });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_leases",
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_active",
+        queryId: 1,
+      },
+    ]);
+    await expect(
+      persistence.query<{ count: number }>(
+        `
+          select count(*)::int as count
+          from live_query_connections
+          where deployment_id = $1
+        `,
+        ["deployment_live_query_leases"],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 1 }] });
   });
 
   it("replaces and deletes live query subscriptions by key", async () => {

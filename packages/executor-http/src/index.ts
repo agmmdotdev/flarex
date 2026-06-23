@@ -54,12 +54,14 @@ import {
   type PrepareInvokeInput,
   type RecordLiveQueryDeliveryFailureInput,
   type RecordLiveQuerySubscriptionInput,
+  type RemoveExpiredLiveQuerySubscriptionsInput,
   type RemoveLiveQuerySubscriptionInput,
   type RemoveLiveQuerySubscriptionsForConnectionInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
   type RunLiveQueryDeliveryBatchInput,
   type RunLiveQuerySubscriptionWithInvokeInput,
+  type TouchLiveQueryConnectionInput,
 } from "@flarex/executor";
 
 export {
@@ -100,9 +102,11 @@ export interface FlarexHttpAppConfig {
   maintenanceInvokeSessionsPath?: string;
   maintenanceLiveQueryRerunPath?: string;
   maintenanceLiveQueryDeliveryPath?: string;
+  liveQueryConnectionTouchPath?: string;
   liveQuerySubscriptionRecordPath?: string;
   liveQuerySubscriptionRemovePath?: string;
   liveQuerySubscriptionRemoveConnectionPath?: string;
+  maintenanceLiveQueryConnectionCleanupPath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
   maintenanceLiveQueryFailurePath?: string;
@@ -146,6 +150,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     config.maintenanceLiveQueryDeliveryPath ??
       "/maintenance/live-queries/deliver",
   );
+  const liveQueryConnectionTouchPath = normalizePath(
+    config.liveQueryConnectionTouchPath ?? "/live-query-connections/touch",
+  );
   const liveQuerySubscriptionRecordPath = normalizePath(
     config.liveQuerySubscriptionRecordPath ??
       "/live-query-subscriptions/record",
@@ -157,6 +164,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const liveQuerySubscriptionRemoveConnectionPath = normalizePath(
     config.liveQuerySubscriptionRemoveConnectionPath ??
       "/live-query-subscriptions/remove-connection",
+  );
+  const maintenanceLiveQueryConnectionCleanupPath = normalizePath(
+    config.maintenanceLiveQueryConnectionCleanupPath ??
+      "/maintenance/live-queries/connections/cleanup",
   );
   const maintenanceLiveQueryClaimPath = normalizePath(
     config.maintenanceLiveQueryClaimPath ??
@@ -228,6 +239,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         config.liveQueryDelivery,
       ),
     )
+    .post(liveQueryConnectionTouchPath, ({ request, set }) =>
+      handleLiveQueryConnectionTouch(executor, request, set, capabilityToken),
+    )
     .post(liveQuerySubscriptionRecordPath, ({ request, set }) =>
       handleLiveQuerySubscriptionRecord(executor, request, set, capabilityToken),
     )
@@ -241,6 +255,9 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         set,
         capabilityToken,
       ),
+    )
+    .post(maintenanceLiveQueryConnectionCleanupPath, ({ request, set }) =>
+      handleLiveQueryConnectionCleanup(executor, request, set, capabilityToken),
     )
     .post(maintenanceLiveQueryClaimPath, ({ request, set }) =>
       handleLiveQueryClaimMaintenance(executor, request, set, capabilityToken),
@@ -351,6 +368,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         message: `${maintenanceLiveQueryDeliveryPath} only supports POST`,
       };
     })
+    .all(liveQueryConnectionTouchPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${liveQueryConnectionTouchPath} only supports POST`,
+      };
+    })
     .all(liveQuerySubscriptionRecordPath, ({ set }) => {
       set.status = 405;
       return {
@@ -370,6 +394,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${liveQuerySubscriptionRemoveConnectionPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryConnectionCleanupPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryConnectionCleanupPath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryClaimPath, ({ set }) => {
@@ -839,6 +870,41 @@ async function handleLiveQuerySubscriptionRecord(
   }
 }
 
+async function handleLiveQueryConnectionTouch(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryConnectionTouchBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.touchLiveQueryConnection(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 async function handleLiveQuerySubscriptionRemove(
   executor: FlarexExecutor,
   request: Request,
@@ -902,6 +968,41 @@ async function handleLiveQuerySubscriptionRemoveConnection(
 
   try {
     return await executor.removeLiveQuerySubscriptionsForConnection(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQueryConnectionCleanup(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryConnectionCleanupBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.removeExpiredLiveQuerySubscriptions(input.value);
   } catch (error) {
     const response = executorErrorBody(error);
     set.status = response.status;
@@ -1558,6 +1659,41 @@ function parseLiveQuerySubscriptionRemoveBody(
   };
 }
 
+function parseLiveQueryConnectionTouchBody(
+  body: unknown,
+):
+  | { value: TouchLiveQueryConnectionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const connectionId = requiredString(record, "connectionId");
+  if ("error" in connectionId) return connectionId;
+  const leaseDurationMs = optionalPositiveInteger(record, "leaseDurationMs");
+  if ("error" in leaseDurationMs) return leaseDurationMs;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      connectionId: connectionId.value,
+      ...(leaseDurationMs.value === undefined
+        ? {}
+        : { leaseDurationMs: leaseDurationMs.value }),
+    },
+  };
+}
+
 function parseLiveQuerySubscriptionRemoveConnectionBody(
   body: unknown,
 ):
@@ -1584,6 +1720,36 @@ function parseLiveQuerySubscriptionRemoveConnectionBody(
       deploymentId: deploymentId.value,
       projectId: projectId.value,
       connectionId: connectionId.value,
+    },
+  };
+}
+
+function parseLiveQueryConnectionCleanupBody(
+  body: unknown,
+):
+  | { value: RemoveExpiredLiveQuerySubscriptionsInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const expiredAt = optionalDate(record.expiredAt, "expiredAt");
+  if ("error" in expiredAt) return expiredAt;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
     },
   };
 }

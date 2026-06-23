@@ -27,11 +27,13 @@ import {
   findStaleLiveQuerySubscriptions,
   fingerprintJson,
   recordLiveQuerySubscription,
+  removeExpiredLiveQuerySubscriptions,
   removeLiveQuerySubscription,
   removeLiveQuerySubscriptionsForConnection,
   runLiveQuerySubscriptionWithInvoke,
   rerunLiveQuerySubscription,
   rerunStaleLiveQuerySubscriptions,
+  touchLiveQueryConnection,
 } from "./liveQueries";
 import {
   listMaintenanceDeployments,
@@ -181,6 +183,7 @@ export type {
   RunLiveQueryDeliveryBatchResult,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
+  RemoveExpiredLiveQuerySubscriptionsInput,
   RemoveLiveQuerySubscriptionInput,
   RemoveLiveQuerySubscriptionsForConnectionInput,
   RerunLiveQuerySubscriptionInput,
@@ -189,6 +192,8 @@ export type {
   RerunStaleLiveQuerySubscriptionsInput,
   RerunStaleLiveQuerySubscriptionsResult,
   RunLiveQuerySubscriptionWithInvokeInput,
+  TouchLiveQueryConnectionInput,
+  TouchLiveQueryConnectionResult,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
   SchemaIndexMetadata,
@@ -252,21 +257,25 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       deadLetterStuckLiveQueryDeliveries(persistence, clock, input),
     recordLiveQueryDeliveryFailure: (input) =>
       recordLiveQueryDeliveryFailure(persistence, input),
+    touchLiveQueryConnection: (input) =>
+      touchLiveQueryConnection(persistence, clock, input),
     recordLiveQuerySubscription: (input) =>
-      recordLiveQuerySubscription(persistence, input),
+      recordLiveQuerySubscription(persistence, clock, input),
     removeLiveQuerySubscription: (input) =>
       removeLiveQuerySubscription(persistence, input),
     removeLiveQuerySubscriptionsForConnection: (input) =>
-      removeLiveQuerySubscriptionsForConnection(persistence, input),
+      removeLiveQuerySubscriptionsForConnection(persistence, clock, input),
+    removeExpiredLiveQuerySubscriptions: (input) =>
+      removeExpiredLiveQuerySubscriptions(persistence, clock, input),
     findStaleLiveQuerySubscriptions: (input) =>
-      findStaleLiveQuerySubscriptions(persistence, input),
+      findStaleLiveQuerySubscriptions(persistence, clock, input),
     rerunLiveQuerySubscription: (input) =>
       rerunLiveQuerySubscription(persistence, {
         ...input,
         deliveryId: input.deliveryId ?? ids.nextId(),
       }),
     rerunStaleLiveQuerySubscriptions: (input) =>
-      rerunStaleLiveQuerySubscriptions(persistence, ids, input),
+      rerunStaleLiveQuerySubscriptions(persistence, clock, ids, input),
     runLiveQuerySubscriptionWithInvoke: (input) =>
       runLiveQuerySubscriptionWithInvoke(persistence, clock, ids, input),
     runMaintenanceSweep: (input) =>

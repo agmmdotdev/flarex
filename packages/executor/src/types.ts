@@ -44,6 +44,7 @@ import type {
   ListUndeliveredOutboxEventsInput,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
+  LiveQueryConnectionRecord,
   LiveQuerySubscriptionConnectionKey,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
@@ -62,7 +63,13 @@ import type {
   OutboxEventRecord,
   RecordLiveQueryRerunResultInput,
   RecordLiveQueryRerunResultResult,
+  UpsertLiveQueryConnectionLeaseInput,
+  UpsertLiveQuerySubscriptionWithLeaseInput,
   UpsertLiveQuerySubscriptionInput,
+  CloseLiveQueryConnectionInput,
+  DeleteExpiredLiveQuerySubscriptionsInput,
+  DeleteExpiredLiveQuerySubscriptionsResult,
+  ListActiveLiveQuerySubscriptionsInput,
   UpdateDeploymentMetadataActivationInput,
 } from "@flarex/persistence-postgres";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
@@ -84,6 +91,7 @@ export type {
   MarkLiveQueryDeliveriesDeliveredResult,
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
+  DeleteExpiredLiveQuerySubscriptionsResult,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
   OutboxEventCursor,
@@ -190,6 +198,9 @@ export interface FlarexExecutor {
   recordLiveQueryDeliveryFailure(
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
+  touchLiveQueryConnection(
+    input: TouchLiveQueryConnectionInput,
+  ): Promise<TouchLiveQueryConnectionResult>;
   recordLiveQuerySubscription(
     input: RecordLiveQuerySubscriptionInput,
   ): Promise<RecordLiveQuerySubscriptionResult>;
@@ -199,6 +210,9 @@ export interface FlarexExecutor {
   removeLiveQuerySubscriptionsForConnection(
     input: RemoveLiveQuerySubscriptionsForConnectionInput,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
+  removeExpiredLiveQuerySubscriptions(
+    input: RemoveExpiredLiveQuerySubscriptionsInput,
+  ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;
   findStaleLiveQuerySubscriptions(
     input: FindStaleLiveQuerySubscriptionsInput,
   ): Promise<FindStaleLiveQuerySubscriptionsResult>;
@@ -317,6 +331,15 @@ export interface FlarexExecutorPersistence {
   markOutboxEventsDelivered(
     input: MarkOutboxEventsDeliveredInput,
   ): Promise<MarkOutboxEventsDeliveredResult>;
+  upsertLiveQueryConnectionLease(
+    input: UpsertLiveQueryConnectionLeaseInput,
+  ): Promise<LiveQueryConnectionRecord>;
+  closeLiveQueryConnection(
+    input: CloseLiveQueryConnectionInput,
+  ): Promise<LiveQueryConnectionRecord | null>;
+  upsertLiveQuerySubscriptionWithLease(
+    input: UpsertLiveQuerySubscriptionWithLeaseInput,
+  ): Promise<LiveQuerySubscriptionRecord>;
   upsertLiveQuerySubscription(
     input: UpsertLiveQuerySubscriptionInput,
   ): Promise<LiveQuerySubscriptionRecord>;
@@ -332,6 +355,12 @@ export interface FlarexExecutorPersistence {
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
   ): Promise<LiveQuerySubscriptionRecord[]>;
+  listActiveLiveQuerySubscriptions(
+    input: ListActiveLiveQuerySubscriptionsInput,
+  ): Promise<LiveQuerySubscriptionRecord[]>;
+  deleteExpiredLiveQuerySubscriptions(
+    input: DeleteExpiredLiveQuerySubscriptionsInput,
+  ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;
   listUndeliveredLiveQueryDeliveries(
     input: ListUndeliveredLiveQueryDeliveriesInput,
   ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
@@ -447,6 +476,18 @@ export interface LiveQueryDeadLetterSummary {
   hasMore: boolean;
 }
 
+export interface TouchLiveQueryConnectionInput {
+  deploymentId: string;
+  projectId: string;
+  connectionId: string;
+  leaseDurationMs?: number;
+  now?: Date;
+}
+
+export interface TouchLiveQueryConnectionResult {
+  connection: LiveQueryConnectionRecord;
+}
+
 export interface RecordLiveQuerySubscriptionInput {
   deploymentId: string;
   projectId: string;
@@ -475,9 +516,16 @@ export type RemoveLiveQuerySubscriptionsForConnectionInput =
     projectId: string;
   };
 
+export interface RemoveExpiredLiveQuerySubscriptionsInput {
+  deploymentId: string;
+  projectId: string;
+  expiredAt?: Date;
+}
+
 export interface FindStaleLiveQuerySubscriptionsInput {
   deploymentId: string;
   freshnessStore: FreshnessMirrorStore;
+  activeAt?: Date;
 }
 
 export interface LiveQuerySubscriptionFreshnessEntry {
@@ -530,6 +578,7 @@ export interface RerunStaleLiveQuerySubscriptionsInput {
   freshnessStore: FreshnessMirrorStore;
   limit?: number;
   updatedAt?: Date;
+  activeAt?: Date;
   runQuery(
     subscription: LiveQuerySubscriptionRecord,
   ): Promise<RerunLiveQuerySubscriptionOutput>;

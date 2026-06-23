@@ -9,6 +9,7 @@ import {
   LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
   type RecordLiveQuerySubscriptionInput,
+  type RemoveExpiredLiveQuerySubscriptionsInput,
   type RemoveLiveQuerySubscriptionInput,
   type RemoveLiveQuerySubscriptionsForConnectionInput,
 } from "../src";
@@ -372,6 +373,97 @@ describe("executor live query subscriptions", () => {
         },
       ],
     });
+  });
+
+  it("excludes expired connection leases from stale live query scans", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_expired_live_query",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:message"],
+      tableIds: [1],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_expired_live_query",
+      connectionId: "connection_expired",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message" }],
+      },
+      resultJson: "stale",
+      updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await expect(
+      executor.findStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_expired_live_query",
+        freshnessStore,
+        activeAt: new Date("2026-06-20T00:02:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      fresh: [],
+      stale: [],
+      unsupported: [],
+    });
+  });
+
+  it("removes expired live query subscriptions through executor maintenance", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_expired_cleanup",
+      connectionId: "connection_expired",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:message" }],
+      },
+      resultJson: "expired",
+      updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_expired_cleanup",
+      connectionId: "connection_active",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:other" }],
+      },
+      resultJson: "active",
+      updatedAt: new Date("2026-06-20T00:02:00.000Z"),
+    });
+
+    await expect(
+      executor.removeExpiredLiveQuerySubscriptions({
+        deploymentId: "deployment_expired_cleanup",
+        expiredAt: new Date("2026-06-20T00:01:30.000Z"),
+      }),
+    ).resolves.toEqual({ deleted: 1, deletedConnections: 1 });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_expired_cleanup",
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_active",
+        queryId: 1,
+      },
+    ]);
   });
 
   it("reruns a live query subscription and reports changed results", async () => {
@@ -1518,6 +1610,14 @@ function createLiveQueryExecutor(
         Partial<Pick<RemoveLiveQuerySubscriptionsForConnectionInput, "projectId">>,
     ) =>
       executor.removeLiveQuerySubscriptionsForConnection({
+        projectId: "project_live_query",
+        ...input,
+      }),
+    removeExpiredLiveQuerySubscriptions: (
+      input: Omit<RemoveExpiredLiveQuerySubscriptionsInput, "projectId"> &
+        Partial<Pick<RemoveExpiredLiveQuerySubscriptionsInput, "projectId">>,
+    ) =>
+      executor.removeExpiredLiveQuerySubscriptions({
         projectId: "project_live_query",
         ...input,
       }),

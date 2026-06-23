@@ -30,6 +30,7 @@ import {
   commitOutboxEvent,
   type ClaimLiveQueryDeliveriesInput,
   type ClaimLiveQueryDeliveriesResult,
+  type DeleteExpiredLiveQuerySubscriptionsResult,
   type InsertOutboxEventInput,
   type InvokeSessionTableReadRecord,
   type OutboxEventRecord,
@@ -45,6 +46,7 @@ import {
   type ListOutboxEventsResult,
   type ListUndeliveredOutboxEventsInput,
   type LiveQueryDeliveryRecord,
+  type LiveQueryConnectionRecord,
   type LiveQuerySubscriptionKey,
   type LiveQuerySubscriptionRecord,
   type MarkLiveQueryDeliveriesDeadLetteredInput,
@@ -146,6 +148,7 @@ export function memoryPersistence(
   const committedDocuments: DocumentRevisionRecord[] = [];
   const commits: Array<{ deploymentId: string; ts: number }> = [];
   const outboxEvents: OutboxEventRecord[] = [];
+  const liveQueryConnections = new Map<string, LiveQueryConnectionRecord>();
   const liveQuerySubscriptions = new Map<string, LiveQuerySubscriptionRecord>();
   const liveQueryDeliveries: LiveQueryDeliveryRecord[] = [];
 
@@ -847,6 +850,42 @@ export function memoryPersistence(
       }
       return { delivered };
     },
+    async upsertLiveQueryConnectionLease(input): Promise<LiveQueryConnectionRecord> {
+      const key = liveQueryConnectionKey(input);
+      const existing = liveQueryConnections.get(key);
+      const connection: LiveQueryConnectionRecord = {
+        deploymentId: input.deploymentId,
+        connectionId: input.connectionId,
+        lastSeenAt: input.lastSeenAt,
+        expiresAt: input.expiresAt,
+        closedAt: null,
+        createdAt: existing?.createdAt ?? input.lastSeenAt,
+        updatedAt: input.lastSeenAt,
+      };
+      liveQueryConnections.set(key, connection);
+      return connection;
+    },
+    async closeLiveQueryConnection(input): Promise<LiveQueryConnectionRecord | null> {
+      const key = liveQueryConnectionKey(input);
+      const existing = liveQueryConnections.get(key);
+      if (existing === undefined) return null;
+      const closed: LiveQueryConnectionRecord = {
+        ...existing,
+        closedAt: input.closedAt,
+        updatedAt: input.closedAt,
+      };
+      liveQueryConnections.set(key, closed);
+      return closed;
+    },
+    async upsertLiveQuerySubscriptionWithLease(input): Promise<LiveQuerySubscriptionRecord> {
+      await this.upsertLiveQueryConnectionLease({
+        deploymentId: input.deploymentId,
+        connectionId: input.connectionId,
+        lastSeenAt: input.lastSeenAt,
+        expiresAt: input.expiresAt,
+      });
+      return await this.upsertLiveQuerySubscription(input);
+    },
     async upsertLiveQuerySubscription(
       input: UpsertLiveQuerySubscriptionInput,
     ): Promise<LiveQuerySubscriptionRecord> {
@@ -922,6 +961,58 @@ export function memoryPersistence(
             left.connectionId.localeCompare(right.connectionId) ||
             left.queryId - right.queryId,
         );
+    },
+    async listActiveLiveQuerySubscriptions(input): Promise<LiveQuerySubscriptionRecord[]> {
+      return Array.from(liveQuerySubscriptions.values())
+        .filter((subscription) => {
+          if (subscription.deploymentId !== input.deploymentId) return false;
+          if (
+            input.connectionId !== undefined &&
+            subscription.connectionId !== input.connectionId
+          ) {
+            return false;
+          }
+          const connection = liveQueryConnections.get(
+            liveQueryConnectionKey(subscription),
+          );
+          return (
+            connection !== undefined &&
+            connection.closedAt === null &&
+            connection.expiresAt.getTime() > input.activeAt.getTime()
+          );
+        })
+        .sort(
+          (left, right) =>
+            left.connectionId.localeCompare(right.connectionId) ||
+            left.queryId - right.queryId,
+        );
+    },
+    async deleteExpiredLiveQuerySubscriptions(
+      input,
+    ): Promise<DeleteExpiredLiveQuerySubscriptionsResult> {
+      const expiredConnectionIds = new Set<string>();
+      for (const connection of liveQueryConnections.values()) {
+        if (connection.deploymentId !== input.deploymentId) continue;
+        if (
+          connection.expiresAt.getTime() <= input.expiredAt.getTime() ||
+          (connection.closedAt !== null &&
+            connection.closedAt.getTime() <= input.expiredAt.getTime())
+        ) {
+          expiredConnectionIds.add(connection.connectionId);
+          liveQueryConnections.delete(liveQueryConnectionKey(connection));
+        }
+      }
+      let deleted = 0;
+      for (const subscription of liveQuerySubscriptions.values()) {
+        if (
+          subscription.deploymentId === input.deploymentId &&
+          expiredConnectionIds.has(subscription.connectionId)
+        ) {
+          liveQuerySubscriptions.delete(liveQuerySubscriptionKey(subscription));
+          deleted += 1;
+        }
+      }
+      return { deleted, deletedConnections: expiredConnectionIds.size };
     },
     async listUndeliveredLiveQueryDeliveries(
       input: ListUndeliveredLiveQueryDeliveriesInput,
@@ -1248,6 +1339,13 @@ function liveQuerySubscriptionKey(input: {
   queryId: number;
 }): string {
   return `${input.deploymentId}:${input.connectionId}:${input.queryId}`;
+}
+
+function liveQueryConnectionKey(input: {
+  deploymentId: string;
+  connectionId: string;
+}): string {
+  return `${input.deploymentId}:${input.connectionId}`;
 }
 
 function liveQueryDelivery(input: {

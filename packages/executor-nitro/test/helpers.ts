@@ -206,6 +206,23 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async markOutboxEventsDelivered() {
       return { delivered: 0 };
     },
+    async upsertLiveQueryConnectionLease(input) {
+      return {
+        deploymentId: input.deploymentId,
+        connectionId: input.connectionId,
+        lastSeenAt: input.lastSeenAt,
+        expiresAt: input.expiresAt,
+        closedAt: null,
+        createdAt: input.lastSeenAt,
+        updatedAt: input.lastSeenAt,
+      };
+    },
+    async closeLiveQueryConnection() {
+      return null;
+    },
+    async upsertLiveQuerySubscriptionWithLease(input) {
+      return await this.upsertLiveQuerySubscription(input);
+    },
     async upsertLiveQuerySubscription(input) {
       return {
         deploymentId: input.deploymentId,
@@ -259,6 +276,12 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     },
     async listLiveQuerySubscriptions() {
       return [];
+    },
+    async listActiveLiveQuerySubscriptions() {
+      return [];
+    },
+    async deleteExpiredLiveQuerySubscriptions() {
+      return { deleted: 0, deletedConnections: 0 };
     },
     async listUndeliveredLiveQueryDeliveries() {
       return { deliveries: [], nextCursor: null, hasMore: false };
@@ -389,6 +412,11 @@ export function fakeExecutor(
         "recordLiveQueryDeliveryFailure is not implemented by test fake",
       );
     },
+    async touchLiveQueryConnection() {
+      throw new Error(
+        "touchLiveQueryConnection is not implemented by test fake",
+      );
+    },
     async recordLiveQuerySubscription() {
       throw new Error(
         "recordLiveQuerySubscription is not implemented by test fake",
@@ -402,6 +430,11 @@ export function fakeExecutor(
     async removeLiveQuerySubscriptionsForConnection() {
       throw new Error(
         "removeLiveQuerySubscriptionsForConnection is not implemented by test fake",
+      );
+    },
+    async removeExpiredLiveQuerySubscriptions() {
+      throw new Error(
+        "removeExpiredLiveQuerySubscriptions is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

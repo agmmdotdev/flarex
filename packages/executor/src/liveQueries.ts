@@ -16,6 +16,7 @@ import { ensureDeployment } from "./deployments";
 import { runInvokeWithRetries } from "./retry";
 import type {
   Clock,
+  DeleteExpiredLiveQuerySubscriptionsResult,
   FindStaleLiveQuerySubscriptionsInput,
   FindStaleLiveQuerySubscriptionsResult,
   FlarexExecutorPersistence,
@@ -24,6 +25,7 @@ import type {
   LiveQueryChange,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
+  RemoveExpiredLiveQuerySubscriptionsInput,
   RemoveLiveQuerySubscriptionInput,
   RemoveLiveQuerySubscriptionsForConnectionInput,
   RerunLiveQuerySubscriptionInput,
@@ -32,16 +34,64 @@ import type {
   RerunStaleLiveQuerySubscriptionsInput,
   RerunStaleLiveQuerySubscriptionsResult,
   RunLiveQuerySubscriptionWithInvokeInput,
+  TouchLiveQueryConnectionInput,
+  TouchLiveQueryConnectionResult,
 } from "./types";
+
+const DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS = 60_000;
+
+export async function touchLiveQueryConnection(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: TouchLiveQueryConnectionInput,
+): Promise<TouchLiveQueryConnectionResult> {
+  await assertLiveQueryDeploymentProject(persistence, input);
+  return await upsertLiveQueryConnectionLease(persistence, clock, input);
+}
+
+async function upsertLiveQueryConnectionLease(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: Omit<TouchLiveQueryConnectionInput, "projectId">,
+): Promise<TouchLiveQueryConnectionResult> {
+  const lease = liveQueryConnectionLease(clock, input);
+  const connection = await persistence.upsertLiveQueryConnectionLease({
+    deploymentId: input.deploymentId,
+    connectionId: input.connectionId,
+    lastSeenAt: lease.lastSeenAt,
+    expiresAt: lease.expiresAt,
+  });
+  return { connection };
+}
+
+function liveQueryConnectionLease(
+  clock: Clock,
+  input: Pick<TouchLiveQueryConnectionInput, "leaseDurationMs" | "now">,
+): { lastSeenAt: Date; expiresAt: Date } {
+  const now = input.now ?? clock.now();
+  const leaseDurationMs =
+    input.leaseDurationMs ?? DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS;
+  if (!Number.isInteger(leaseDurationMs) || leaseDurationMs <= 0) {
+    throw new Error("leaseDurationMs must be a positive integer.");
+  }
+  return {
+    lastSeenAt: now,
+    expiresAt: new Date(now.getTime() + leaseDurationMs),
+  };
+}
 
 export async function recordLiveQuerySubscription(
   persistence: FlarexExecutorPersistence,
+  clock: Clock,
   input: RecordLiveQuerySubscriptionInput,
 ): Promise<RecordLiveQuerySubscriptionResult> {
   await assertLiveQueryDeploymentProject(persistence, input);
+  const lease = liveQueryConnectionLease(clock, {
+    ...(input.updatedAt === undefined ? {} : { now: input.updatedAt }),
+  });
   const readSet = readSetToFreshnessReadSet(input.readSet, input.beginTs);
   const resultHash = fingerprintJson(input.resultJson);
-  const subscription = await persistence.upsertLiveQuerySubscription({
+  const subscription = await persistence.upsertLiveQuerySubscriptionWithLease({
     deploymentId: input.deploymentId,
     connectionId: input.connectionId,
     queryId: input.queryId,
@@ -52,6 +102,8 @@ export async function recordLiveQuerySubscription(
     readSetJson: readSet as Record<string, unknown>,
     resultJson: input.resultJson,
     resultHash,
+    lastSeenAt: lease.lastSeenAt,
+    expiresAt: lease.expiresAt,
     ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
   });
 
@@ -71,10 +123,28 @@ export async function removeLiveQuerySubscription(
 
 export async function removeLiveQuerySubscriptionsForConnection(
   persistence: FlarexExecutorPersistence,
+  clock: Clock,
   input: RemoveLiveQuerySubscriptionsForConnectionInput,
 ): Promise<DeleteLiveQuerySubscriptionResult> {
   await assertLiveQueryDeploymentProject(persistence, input);
+  await persistence.closeLiveQueryConnection({
+    deploymentId: input.deploymentId,
+    connectionId: input.connectionId,
+    closedAt: clock.now(),
+  });
   return await persistence.deleteLiveQuerySubscriptionsForConnection(input);
+}
+
+export async function removeExpiredLiveQuerySubscriptions(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: RemoveExpiredLiveQuerySubscriptionsInput,
+): Promise<DeleteExpiredLiveQuerySubscriptionsResult> {
+  await assertLiveQueryDeploymentProject(persistence, input);
+  return await persistence.deleteExpiredLiveQuerySubscriptions({
+    deploymentId: input.deploymentId,
+    expiredAt: input.expiredAt ?? clock.now(),
+  });
 }
 
 async function assertLiveQueryDeploymentProject(
@@ -86,10 +156,12 @@ async function assertLiveQueryDeploymentProject(
 
 export async function findStaleLiveQuerySubscriptions(
   persistence: FlarexExecutorPersistence,
+  clock: Clock,
   input: FindStaleLiveQuerySubscriptionsInput,
 ): Promise<FindStaleLiveQuerySubscriptionsResult> {
-  const subscriptions = await persistence.listLiveQuerySubscriptions({
+  const subscriptions = await persistence.listActiveLiveQuerySubscriptions({
     deploymentId: input.deploymentId,
+    activeAt: input.activeAt ?? clock.now(),
   });
   const result: FindStaleLiveQuerySubscriptionsResult = {
     fresh: [],
@@ -174,6 +246,7 @@ export async function rerunLiveQuerySubscription(
 
 export async function rerunStaleLiveQuerySubscriptions(
   persistence: FlarexExecutorPersistence,
+  clock: Clock,
   ids: IdGenerator,
   input: RerunStaleLiveQuerySubscriptionsInput,
 ): Promise<RerunStaleLiveQuerySubscriptionsResult> {
@@ -184,9 +257,10 @@ export async function rerunStaleLiveQuerySubscriptions(
     throw new Error("limit must be a positive integer.");
   }
 
-  const scanned = await findStaleLiveQuerySubscriptions(persistence, {
+  const scanned = await findStaleLiveQuerySubscriptions(persistence, clock, {
     deploymentId: input.deploymentId,
     freshnessStore: input.freshnessStore,
+    ...(input.activeAt === undefined ? {} : { activeAt: input.activeAt }),
   });
   const staleToRerun =
     input.limit === undefined

@@ -75,6 +75,15 @@ import type {
   UpsertLiveQuerySubscriptionInput,
 } from "./liveQuerySubscriptions";
 import type {
+  CloseLiveQueryConnectionInput,
+  DeleteExpiredLiveQuerySubscriptionsInput,
+  DeleteExpiredLiveQuerySubscriptionsResult,
+  ListActiveLiveQuerySubscriptionsInput,
+  LiveQueryConnectionRecord,
+  UpsertLiveQueryConnectionLeaseInput,
+  UpsertLiveQuerySubscriptionWithLeaseInput,
+} from "./liveQueryConnections";
+import type {
   ClaimLiveQueryDeliveriesInput,
   ClaimLiveQueryDeliveriesResult,
   InsertLiveQueryDeliveryInput,
@@ -221,6 +230,15 @@ export interface FlarexPersistence extends FlarexSqlClient {
     deploymentId: string,
     tableId: number,
   ): Promise<TableFreshnessVersionRecord | null>;
+  upsertLiveQueryConnectionLease(
+    input: UpsertLiveQueryConnectionLeaseInput,
+  ): Promise<LiveQueryConnectionRecord>;
+  closeLiveQueryConnection(
+    input: CloseLiveQueryConnectionInput,
+  ): Promise<LiveQueryConnectionRecord | null>;
+  upsertLiveQuerySubscriptionWithLease(
+    input: UpsertLiveQuerySubscriptionWithLeaseInput,
+  ): Promise<LiveQuerySubscriptionRecord>;
   upsertLiveQuerySubscription(
     input: UpsertLiveQuerySubscriptionInput,
   ): Promise<LiveQuerySubscriptionRecord>;
@@ -236,6 +254,12 @@ export interface FlarexPersistence extends FlarexSqlClient {
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
   ): Promise<LiveQuerySubscriptionRecord[]>;
+  listActiveLiveQuerySubscriptions(
+    input: ListActiveLiveQuerySubscriptionsInput,
+  ): Promise<LiveQuerySubscriptionRecord[]>;
+  deleteExpiredLiveQuerySubscriptions(
+    input: DeleteExpiredLiveQuerySubscriptionsInput,
+  ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;
   insertLiveQueryDelivery(
     input: InsertLiveQueryDeliveryInput,
   ): Promise<LiveQueryDeliveryRecord>;
@@ -280,6 +304,7 @@ export * from "./invokeSessionIndexReads";
 export * from "./invokeSessionWrites";
 export * from "./outbox";
 export * from "./freshness";
+export * from "./liveQueryConnections";
 export * from "./liveQuerySubscriptions";
 export * from "./liveQueryDeliveries";
 export * from "./validation";

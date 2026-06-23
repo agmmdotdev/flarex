@@ -55,6 +55,9 @@ type ConnectionState = {
   queries: Map<QueryId, ActiveQuery>;
 };
 
+const CONNECTION_HEARTBEAT_INTERVAL_MS = 30_000;
+const CONNECTION_LEASE_DURATION_MS = 120_000;
+
 export class ConnectionDO extends DurableObject<Env> {
   private mutationQueue: Promise<void> = Promise.resolve();
   private connectionUnregistered = false;
@@ -79,6 +82,11 @@ export class ConnectionDO extends DurableObject<Env> {
     if (url.pathname === "/force-reconnect" && request.method === "POST") {
       return this.forceReconnect();
     }
+    if (url.pathname === "/heartbeat" && request.method === "POST") {
+      await this.refreshConnectionLease();
+      await this.scheduleConnectionHeartbeat();
+      return json({ touched: true });
+    }
     if (request.headers.get("Upgrade") !== "websocket") {
       return json({ service: "flarex-connection", status: "ok" });
     }
@@ -88,6 +96,7 @@ export class ConnectionDO extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
+    await this.scheduleConnectionHeartbeat();
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -106,6 +115,22 @@ export class ConnectionDO extends DurableObject<Env> {
   async webSocketClose(): Promise<void> {
     await this.unregisterConnection();
     this.state.queries.clear();
+  }
+
+  async alarm(): Promise<void> {
+    if (
+      this.ctx.getWebSockets().length === 0 ||
+      this.state.deploymentId === null ||
+      this.state.connectionName === null ||
+      this.connectionUnregistered
+    ) {
+      return;
+    }
+    try {
+      await this.refreshConnectionLease();
+    } finally {
+      await this.scheduleConnectionHeartbeat();
+    }
   }
 
   private async forceReconnect(): Promise<Response> {
@@ -495,6 +520,7 @@ export class ConnectionDO extends DurableObject<Env> {
         this.state.connectionName,
       );
       this.connectionUnregistered = true;
+      await this.ctx.storage.deleteAlarm();
       return;
     }
     const touchedPartitions = new Set(
@@ -513,6 +539,7 @@ export class ConnectionDO extends DurableObject<Env> {
       });
     }));
     this.connectionUnregistered = true;
+    await this.ctx.storage.deleteAlarm();
   }
 
   private async registerQueryWithExecutor(
@@ -557,6 +584,30 @@ export class ConnectionDO extends DurableObject<Env> {
       projectId: requireProjectId(this.env),
       connectionId: connectionName,
     });
+  }
+
+  private async refreshConnectionLease(): Promise<void> {
+    if (
+      this.env.FLAREX_EXECUTOR === undefined ||
+      this.state.deploymentId === null ||
+      this.state.connectionName === null ||
+      this.connectionUnregistered
+    ) {
+      return;
+    }
+    await postExecutor(this.env, "/live-query-connections/touch", {
+      deploymentId: this.state.deploymentId,
+      projectId: requireProjectId(this.env),
+      connectionId: this.state.connectionName,
+      leaseDurationMs: CONNECTION_LEASE_DURATION_MS,
+    });
+  }
+
+  private async scheduleConnectionHeartbeat(): Promise<void> {
+    if (this.env.FLAREX_EXECUTOR === undefined || this.connectionUnregistered) {
+      return;
+    }
+    await this.ctx.storage.setAlarm(Date.now() + CONNECTION_HEARTBEAT_INTERVAL_MS);
   }
 }
 

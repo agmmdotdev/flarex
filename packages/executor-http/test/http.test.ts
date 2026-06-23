@@ -1218,6 +1218,54 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({ deleted: 1 });
   });
 
+  it("maps live query connection touch requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async touchLiveQueryConnection(input) {
+          calls.push(input);
+          return {
+            connection: {
+              deploymentId: input.deploymentId,
+              connectionId: input.connectionId,
+              lastSeenAt: new Date("2026-06-23T00:00:00.000Z"),
+              expiresAt: new Date("2026-06-23T00:01:00.000Z"),
+              closedAt: null,
+              createdAt: new Date("2026-06-23T00:00:00.000Z"),
+              updatedAt: new Date("2026-06-23T00:00:00.000Z"),
+            },
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-connections/touch", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+        leaseDurationMs: 45000,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+        leaseDurationMs: 45000,
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      connection: {
+        deploymentId: "deployment_active",
+        connectionId: "connection_a",
+        closedAt: null,
+      },
+    });
+  });
+
   it("maps live query subscription remove-connection requests to the executor core", async () => {
     const calls: unknown[] = [];
     const app = createFlarexHttpApp({
@@ -1246,6 +1294,42 @@ describe("createFlarexHttpApp", () => {
       },
     ]);
     await expect(response.json()).resolves.toEqual({ deleted: 2 });
+  });
+
+  it("maps live query expired connection cleanup requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async removeExpiredLiveQuerySubscriptions(input) {
+          calls.push(input);
+          return { deleted: 3, deletedConnections: 2 };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest(
+        "https://executor.test/maintenance/live-queries/connections/cleanup",
+        {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          expiredAt: "2026-06-23T00:02:00.000Z",
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        expiredAt: new Date("2026-06-23T00:02:00.000Z"),
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deleted: 3,
+      deletedConnections: 2,
+    });
   });
 
   it("validates live query subscription record requests before calling the executor", async () => {
@@ -2717,6 +2801,11 @@ function fakeExecutor(
     async recordLiveQueryDeliveryFailure() {
       return { failed: 0 };
     },
+    async touchLiveQueryConnection() {
+      throw new Error(
+        "touchLiveQueryConnection is not implemented by test fake",
+      );
+    },
     async recordLiveQuerySubscription() {
       throw new Error(
         "recordLiveQuerySubscription is not implemented by test fake",
@@ -2730,6 +2819,11 @@ function fakeExecutor(
     async removeLiveQuerySubscriptionsForConnection() {
       throw new Error(
         "removeLiveQuerySubscriptionsForConnection is not implemented by test fake",
+      );
+    },
+    async removeExpiredLiveQuerySubscriptions() {
+      throw new Error(
+        "removeExpiredLiveQuerySubscriptions is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

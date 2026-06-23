@@ -2510,3 +2510,108 @@ corepack pnpm --filter @flarex/executor-http test -- http.test.ts
 corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
 corepack pnpm --filter flarex-backend test -- sync.test.ts
 ```
+
+## Connection Leases And Expired Subscription Filtering
+
+Previous completed checkpoint: `ae6cc57` Clean up live query subscriptions on
+disconnect.
+
+What changed:
+
+- Added the `live_query_connections` table with `last_seen_at`, `expires_at`,
+  `closed_at`, and deterministic deployment/connection primary key.
+- Added Postgres/PGlite persistence operations to:
+  - upsert a connection lease,
+  - close a connection lease,
+  - list only subscriptions whose connection lease is active, and
+  - delete subscriptions for expired or closed connection leases.
+- Changed executor live-query subscription recording to refresh the connection
+  lease and store the subscription row through one transaction-owned
+  persistence operation.
+- Changed stale live-query scans and batch reruns to read only active leased
+  subscriptions.
+- Changed connection-level subscription removal to mark the connection lease
+  closed before deleting the connection's subscription rows.
+- Added HTTP adapter routes:
+  - `POST /live-query-connections/touch`
+  - `POST /maintenance/live-queries/connections/cleanup`
+- Added `ConnectionDO` heartbeat/alarm refresh against
+  `/live-query-connections/touch` with a longer connection lease than the alarm
+  interval.
+- Made expired cleanup delete expired/closed connection rows and dependent
+  subscription rows through one DB-side CTE inside an adapter transaction, so
+  cleanup does not materialize unbounded connection IDs in TypeScript.
+- Added PGlite, executor, HTTP, and Nitro helper coverage for the new lease
+  boundary.
+
+Why this exists:
+
+```txt
+subscription record
+  -> executor validates deployment/project
+  -> transactionally upsert connection lease and durable subscription row
+
+stale scan / rerun
+  -> read only subscriptions joined to active non-closed leases
+  -> expired or closed connections do not rerun
+
+ConnectionDO heartbeat
+  -> touch connection lease while WebSocket remains open
+
+maintenance cleanup
+  -> delete expired or closed lease rows in a CTE
+  -> delete dependent subscription rows using the returned CTE rows
+```
+
+This handles the connection state that a clean WebSocket close cannot cover:
+client drops, Worker/DO eviction, crashes, or lost close events. Durable
+subscription rows no longer remain eligible for rerun forever without a live
+connection lease.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own live query state and subscription lifecycle inside
+    backend sync workers.
+- `crates/sync/src/state.rs`
+  - active query-set state is part of the sync state machine rather than a
+    separate durable lease table.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client reconnect/re-authentication re-establishes query state through the
+    sync protocol.
+
+Flarex differences:
+
+- Convex does not need a Postgres connection lease table for active query
+  filtering because active subscriptions are backend sync-worker state.
+- Flarex stores subscription rows durably so executor reruns can happen outside
+  the Cloudflare WebSocket DO. That split requires an explicit durable lease to
+  prove a subscription still belongs to an active connection.
+- The current lease is refreshed on subscription record and by `ConnectionDO`
+  heartbeat/alarm while the WebSocket remains open.
+
+Known limitations:
+
+- Expired subscription cleanup is available as an executor/HTTP maintenance
+  operation, but it is not yet wired into `SchedulerDO` or `DeliveryDO`.
+- Existing delivery rows already enqueued before expiry are not deleted by this
+  cleanup. Delivery fanout still relies on the existing active-socket check,
+  ack/failure recording, and dead-letter maintenance.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter @flarex/persistence-postgres build
+```

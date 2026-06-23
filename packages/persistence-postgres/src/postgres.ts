@@ -73,6 +73,13 @@ import {
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
 } from "./liveQuerySubscriptions";
 import {
+  closeLiveQueryConnection as closeLiveQueryConnectionWithDb,
+  deleteExpiredLiveQuerySubscriptions as deleteExpiredLiveQuerySubscriptionsWithDb,
+  listActiveLiveQuerySubscriptions as listActiveLiveQuerySubscriptionsWithDb,
+  upsertLiveQueryConnectionLease as upsertLiveQueryConnectionLeaseWithDb,
+  upsertLiveQuerySubscriptionWithLease as upsertLiveQuerySubscriptionWithLeaseWithDb,
+} from "./liveQueryConnections";
+import {
   claimLiveQueryDeliveries as claimLiveQueryDeliveriesWithDb,
   insertLiveQueryDelivery as insertLiveQueryDeliveryWithDb,
   listPendingLiveQueryDeliveryDeployments as listPendingLiveQueryDeliveryDeploymentsWithDb,
@@ -214,6 +221,17 @@ export async function createPostgresPersistence(
       getDocumentFreshnessVersionWithDb(drizzleDb, deploymentId, documentId),
     getTableFreshnessVersion: (deploymentId, tableId) =>
       getTableFreshnessVersionWithDb(drizzleDb, deploymentId, tableId),
+    upsertLiveQueryConnectionLease: (input) =>
+      upsertLiveQueryConnectionLeaseWithDb(drizzleDb, input),
+    closeLiveQueryConnection: (input) =>
+      closeLiveQueryConnectionWithDb(drizzleDb, input),
+    upsertLiveQuerySubscriptionWithLease: (input) =>
+      drizzleDb.transaction((tx) =>
+        upsertLiveQuerySubscriptionWithLeaseWithDb(
+          tx as Parameters<typeof upsertLiveQuerySubscriptionWithLeaseWithDb>[0],
+          input,
+        ),
+      ),
     upsertLiveQuerySubscription: (input) =>
       upsertLiveQuerySubscriptionWithDb(drizzleDb, input),
     recordLiveQueryRerunResult: (input) =>
@@ -229,6 +247,12 @@ export async function createPostgresPersistence(
       deleteLiveQuerySubscriptionsForConnectionWithDb(drizzleDb, input),
     listLiveQuerySubscriptions: (input) =>
       listLiveQuerySubscriptionsWithDb(drizzleDb, input),
+    listActiveLiveQuerySubscriptions: (input) =>
+      listActiveLiveQuerySubscriptionsWithDb(drizzleDb, input),
+    deleteExpiredLiveQuerySubscriptions: (input) =>
+      drizzleDb.transaction((tx) =>
+        deleteExpiredLiveQuerySubscriptionsWithDb(tx, input),
+      ),
     insertLiveQueryDelivery: (input) =>
       insertLiveQueryDeliveryWithDb(drizzleDb, input),
     listUndeliveredLiveQueryDeliveries: (input) =>

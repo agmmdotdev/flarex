@@ -485,6 +485,80 @@ describe("sync protocol", () => {
     ]);
   });
 
+  it("refreshes executor connection leases from ConnectionDO heartbeat", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const deploymentId = "sync-executor-heartbeat-deployment";
+    const connectionId = `connection:${deploymentId}:executor-heartbeat-session`;
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-connections/touch") {
+              return Response.json({
+                connection: {
+                  ...(body as Record<string, unknown>),
+                  lastSeenAt: "2026-06-23T00:00:00.000Z",
+                  expiresAt: "2026-06-23T00:02:00.000Z",
+                  closedAt: null,
+                  createdAt: "2026-06-23T00:00:00.000Z",
+                  updatedAt: "2026-06-23T00:00:00.000Z",
+                },
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: 0 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "executor-heartbeat-session");
+    executorRequests.length = 0;
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(connectionId);
+    const response = await connection.fetch("https://flarex.internal/heartbeat", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ touched: true });
+    expect(executorRequests).toEqual([
+      {
+        path: "/live-query-connections/touch",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          connectionId,
+          leaseDurationMs: 120000,
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);
