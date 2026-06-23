@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { HttpError, json, readJson } from "./http";
+import { errorResponse, HttpError, json, readJson } from "./http";
+import { projectIdFromRequestOrEnv } from "./project";
 import { deliveryObjectName } from "./routing";
+import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import type { Env } from "./types";
 
 type ReconcileLiveQueryDeliveriesRequest = {
@@ -102,6 +104,23 @@ type DeadLetterResult = {
   hasMore: boolean;
 };
 
+type CleanupLiveQueryConnectionsResult = {
+  deploymentId: string;
+  deleted: number;
+  deletedConnections: number;
+};
+
+type ExecutorCleanupLiveQueryConnectionsResult = {
+  deleted: number;
+  deletedConnections: number;
+};
+
+type ParsedCleanupLiveQueryConnectionsRequest = {
+  deploymentId: string;
+  projectId: string;
+  expiredAt?: string;
+};
+
 const DEFAULT_PENDING_DEPLOYMENT_LIMIT = 25;
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
@@ -117,44 +136,58 @@ export class SchedulerDO extends DurableObject<Env> {
   private rerunInFlight: Promise<RerunResult> | undefined;
 
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (
-      url.pathname === "/reconcile/live-query-deliveries" &&
-      request.method === "POST"
-    ) {
-      return json(
-        await this.reconcileLiveQueryDeliveries(
-          await readJson<ReconcileLiveQueryDeliveriesRequest>(request),
-        ),
-      );
+    try {
+      const url = new URL(request.url);
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries &&
+        request.method === "POST"
+      ) {
+        return json(
+          await this.reconcileLiveQueryDeliveries(
+            await readJson<ReconcileLiveQueryDeliveriesRequest>(request),
+          ),
+        );
+      }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries &&
+        request.method === "POST"
+      ) {
+        return json(
+          await this.deadLetterLiveQueryDeliveries(
+            await readJson<unknown>(request),
+          ),
+        );
+      }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections &&
+        request.method === "POST"
+      ) {
+        return json(
+          await this.cleanupLiveQueryConnections(
+            await readJson<unknown>(request),
+          ),
+        );
+      }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions &&
+        request.method === "POST"
+      ) {
+        return json(
+          await this.rerunLiveQuerySubscriptions(
+            await readJson<unknown>(request),
+          ),
+        );
+      }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueReruns &&
+        request.method === "POST"
+      ) {
+        return json(await this.continuePendingLiveQueryRerun());
+      }
+      return json({ service: "flarex-scheduler", status: "ok" });
+    } catch (error) {
+      return errorResponse(error);
     }
-    if (
-      url.pathname === "/dead-letter/live-query-deliveries" &&
-      request.method === "POST"
-    ) {
-      return json(
-        await this.deadLetterLiveQueryDeliveries(
-          await readJson<unknown>(request),
-        ),
-      );
-    }
-    if (
-      url.pathname === "/rerun/live-query-subscriptions" &&
-      request.method === "POST"
-    ) {
-      return json(
-        await this.rerunLiveQuerySubscriptions(
-          await readJson<unknown>(request),
-        ),
-      );
-    }
-    if (
-      url.pathname === "/continue-live-query-reruns" &&
-      request.method === "POST"
-    ) {
-      return json(await this.continuePendingLiveQueryRerun());
-    }
-    return json({ service: "flarex-scheduler", status: "ok" });
   }
 
   async alarm(): Promise<void> {
@@ -428,6 +461,40 @@ export class SchedulerDO extends DurableObject<Env> {
       nextCursor,
       hasMore,
     };
+  }
+
+  private async cleanupLiveQueryConnections(
+    body: unknown,
+  ): Promise<CleanupLiveQueryConnectionsResult> {
+    const request = cleanupConnectionsRequestFromBody(body, this.env);
+    const cleanup = await this.cleanupExpiredLiveQueryConnections({
+      deploymentId: request.deploymentId,
+      projectId: request.projectId,
+      ...(request.expiredAt === undefined ? {} : { expiredAt: request.expiredAt }),
+    });
+    return {
+      deploymentId: request.deploymentId,
+      deleted: cleanup.deleted,
+      deletedConnections: cleanup.deletedConnections,
+    };
+  }
+
+  private async cleanupExpiredLiveQueryConnections(
+    body: ParsedCleanupLiveQueryConnectionsRequest,
+  ): Promise<ExecutorCleanupLiveQueryConnectionsResult> {
+    const response = await this.executorFetch(
+      "/maintenance/live-queries/connections/cleanup",
+      body,
+    );
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Live query connection cleanup failed with status ${response.status}.`,
+      );
+    }
+    return cleanupConnectionsResultFromUnknown(
+      await response.json().catch(() => null),
+    );
   }
 
   private async deadLetterStuckLiveQueryDeliveries(
@@ -723,6 +790,23 @@ function deadLetterRequestFromBody(
   };
 }
 
+function cleanupConnectionsRequestFromBody(
+  value: unknown,
+  env: Env,
+): ParsedCleanupLiveQueryConnectionsRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query connection cleanup request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId"),
+    projectId: projectIdFromRequestOrEnv(body.projectId, env),
+    ...(body.expiredAt === undefined
+      ? {}
+      : { expiredAt: dateStringFromRequest(body.expiredAt, "expiredAt") }),
+  };
+}
+
 function olderThanFromBody(body: DeadLetterLiveQueryDeliveriesRequest): string {
   if (body.olderThan !== undefined) {
     return dateStringFromRequest(body.olderThan, "olderThan");
@@ -785,6 +869,22 @@ function forceReconnectResultFromUnknown(value: unknown): { closed: number } {
     closed: nonNegativeIntegerFromUnknown(
       (value as Record<string, unknown>).closed,
       "forceReconnect.closed",
+    ),
+  };
+}
+
+function cleanupConnectionsResultFromUnknown(
+  value: unknown,
+): ExecutorCleanupLiveQueryConnectionsResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, "Connection cleanup response must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    deleted: nonNegativeIntegerFromUnknown(record.deleted, "cleanup.deleted"),
+    deletedConnections: nonNegativeIntegerFromUnknown(
+      record.deletedConnections,
+      "cleanup.deletedConnections",
     ),
   };
 }

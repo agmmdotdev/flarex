@@ -559,6 +559,213 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("routes expired live query connection cleanup through SchedulerDO", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const deploymentId = "sync-connection-cleanup-deployment";
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/connections/cleanup") {
+              return Response.json({ deleted: 3, deletedConnections: 2 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          deploymentId,
+          expiredAt: "2026-06-23T00:02:00.000+00:00",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId,
+      deleted: 3,
+      deletedConnections: 2,
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/connections/cleanup",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          expiredAt: "2026-06-23T00:02:00.000Z",
+        },
+      },
+    ]);
+  });
+
+  it("routes expired live query connection cleanup with explicit project id", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const deploymentId = "sync-connection-cleanup-explicit-project";
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_PROJECT_ID: "",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/connections/cleanup") {
+              return Response.json({ deleted: 1, deletedConnections: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId,
+          projectId: "project_explicit",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId,
+      deleted: 1,
+      deletedConnections: 1,
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/connections/cleanup",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_explicit",
+        },
+      },
+    ]);
+  });
+
+  it("rejects expired live query connection cleanup without a project id", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_PROJECT_ID: "",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deleted: 1, deletedConnections: 1 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: "sync-connection-cleanup-missing-project",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "projectId is required when FLAREX_PROJECT_ID is not configured.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
+  it("reports executor failures during expired live query connection cleanup", async () => {
+    const deploymentId = "sync-connection-cleanup-executor-failure";
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            if (url.pathname === "/maintenance/live-queries/connections/cleanup") {
+              return Response.json({ error: "executor unavailable" }, { status: 503 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deploymentId }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Live query connection cleanup failed with status 503.",
+    });
+  });
+
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);

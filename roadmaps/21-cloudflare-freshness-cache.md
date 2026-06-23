@@ -2615,3 +2615,87 @@ corepack pnpm --filter @flarex/executor build
 corepack pnpm --filter @flarex/executor-http build
 corepack pnpm --filter @flarex/persistence-postgres build
 ```
+
+## Cloudflare-Scheduled Connection Lease Cleanup
+
+Previous completed checkpoint: `29f13b8` Add live query connection leases.
+
+What changed:
+
+- Added a Cloudflare scheduler trigger route:
+  `POST /scheduler/live-query-connections/cleanup`.
+- Added the matching internal `SchedulerDO` operation:
+  `POST /cleanup/live-query-connections`.
+- Centralized Worker-to-`SchedulerDO` live-query maintenance forwarding so new
+  scheduler routes share auth, scheduler object naming, JSON forwarding, and
+  internal request construction.
+- Added a shared typed internal live-query scheduler route map used by the
+  Worker scheduled handler, Worker forwarding routes, and `SchedulerDO` path
+  checks.
+- Extracted project-id resolution into a shared backend helper used by
+  `ConnectionDO` and `SchedulerDO`.
+- The scheduler validates the request, resolves `projectId` from the request or
+  `FLAREX_PROJECT_ID`, normalizes optional `expiredAt`, and calls the trusted
+  executor route:
+  `POST /maintenance/live-queries/connections/cleanup`.
+- `SchedulerDO` now converts `HttpError`s into JSON HTTP responses instead of
+  allowing validation failures to surface as Durable Object 500s.
+- The route returns stable cleanup counters:
+  `deploymentId`, `deleted`, and `deletedConnections`.
+- Added Miniflare coverage proving the Cloudflare route forwards the cleanup
+  request to the executor with bearer auth and normalized timestamps.
+- Added route coverage for explicit `projectId` when no environment fallback is
+  configured, and for rejecting cleanup before calling the executor when no
+  project id can be resolved.
+- Added route coverage for executor cleanup failure returning a SchedulerDO
+  502 response.
+
+Why it changed:
+
+```txt
+platform/admin/cron trigger
+  -> Cloudflare Worker route
+  -> SchedulerDO serializes one deployment cleanup request
+  -> trusted executor validates deployment/project ownership
+  -> Postgres deletes expired or closed connection leases and subscriptions
+```
+
+This keeps Vercel/Nitro executor deployments out of long-running polling loops
+while giving the Cloudflare side a concrete maintenance boundary for abandoned
+WebSocket subscriptions.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own active subscription lifecycle inside the backend.
+- `crates/sync/src/state.rs`
+  - active query-set state is removed from the sync state machine rather than a
+    public cleanup route.
+
+Flarex differences:
+
+- Convex does not need an expired connection lease cleanup route because live
+  subscriptions are backend worker state.
+- Flarex persists subscriptions in Postgres and owns WebSocket sessions in
+  Cloudflare `ConnectionDO`s, so abandoned connection cleanup must cross the
+  scheduler/executor boundary explicitly.
+- The Cloudflare scheduler owns when cleanup is triggered; the trusted executor
+  still owns which rows are valid to delete.
+
+Known limitations:
+
+- This is a per-deployment trigger. A future platform scheduler still needs to
+  enumerate deployments or enqueue per-deployment cleanup jobs.
+- Existing delivery rows already created for expired connections are not
+  deleted by this route. Delivery dead-letter and reconnect maintenance remain
+  separate cleanup paths.
+- No metrics sink is attached yet; callers only receive response counters.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```

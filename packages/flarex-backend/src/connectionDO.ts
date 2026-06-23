@@ -10,6 +10,7 @@ import {
   liveQueryDeliveryChangesFromBody,
   type LiveQueryDeliveryChange,
 } from "./liveQueryDelivery";
+import { requireProjectId } from "./project";
 import {
   partitionObjectName,
 } from "./routing";
@@ -697,13 +698,6 @@ function requireDeploymentId(value: string | null): string {
 function requireConnectionName(value: string | null): string {
   if (value !== null) return value;
   throw new Error("Sync connection has not been initialized with a connection name.");
-}
-
-function requireProjectId(env: Env): string {
-  if (env.FLAREX_PROJECT_ID !== undefined && env.FLAREX_PROJECT_ID.length > 0) {
-    return env.FLAREX_PROJECT_ID;
-  }
-  throw new Error("FLAREX_PROJECT_ID is required when FLAREX_EXECUTOR is configured.");
 }
 
 function connectionNameFromRequest(request: Request): string {

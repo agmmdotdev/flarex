@@ -34,6 +34,11 @@ import {
   schedulerObjectName,
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
+import {
+  LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
+  LIVE_QUERY_SCHEDULER_NAME,
+  type LiveQuerySchedulerInternalPath,
+} from "./schedulerRoutes";
 import type {
   AnalyzedStartPushRequest,
   AnalyzeSourcePackageResponse,
@@ -67,8 +72,8 @@ export default {
   ): Promise<void> {
     ctx.waitUntil(
       env.SCHEDULERS
-        .getByName(schedulerObjectName("live-query-deliveries"))
-        .fetch("https://flarex.internal/reconcile/live-query-deliveries", {
+        .getByName(LIVE_QUERY_SCHEDULER_NAME)
+        .fetch(`https://flarex.internal${LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({}),
@@ -100,56 +105,55 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-deliveries/reconcile" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
-    return env.SCHEDULERS
-      .getByName(schedulerObjectName("live-query-deliveries"))
-      .fetch("https://flarex.internal/reconcile/live-query-deliveries", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(await readJson(request)),
-      });
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries,
+    );
   }
 
   if (
     url.pathname === "/scheduler/live-query-deliveries/dead-letter" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
-    return env.SCHEDULERS
-      .getByName(schedulerObjectName("live-query-deliveries"))
-      .fetch("https://flarex.internal/dead-letter/live-query-deliveries", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(await readJson(request)),
-      });
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries,
+    );
+  }
+
+  if (
+    url.pathname === "/scheduler/live-query-connections/cleanup" &&
+    request.method === "POST"
+  ) {
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections,
+    );
   }
 
   if (
     url.pathname === "/scheduler/live-query-subscriptions/rerun" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
-    return env.SCHEDULERS
-      .getByName(schedulerObjectName("live-query-deliveries"))
-      .fetch("https://flarex.internal/rerun/live-query-subscriptions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(await readJson(request)),
-      });
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+    );
   }
 
   if (
     url.pathname === "/scheduler/live-query-subscriptions/trigger" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
-    return env.SCHEDULERS
-      .getByName(schedulerObjectName("live-query-deliveries"))
-      .fetch("https://flarex.internal/rerun/live-query-subscriptions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(await readJson(request)),
-      });
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+    );
   }
 
   if (parts[0] === "deployments") {
@@ -194,6 +198,21 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   return json({ error: "Not found." }, { status: 404 });
+}
+
+async function forwardLiveQuerySchedulerRequest(
+  request: Request,
+  env: Env,
+  internalPath: LiveQuerySchedulerInternalPath,
+): Promise<Response> {
+  authorizeLiveQueryDeliveryRequest(request, env);
+  return env.SCHEDULERS
+    .getByName(LIVE_QUERY_SCHEDULER_NAME)
+    .fetch(`https://flarex.internal${internalPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(await readJson(request)),
+    });
 }
 
 async function routeDeploymentPush(
