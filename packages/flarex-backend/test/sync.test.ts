@@ -200,6 +200,9 @@ describe("sync protocol", () => {
             if (url.pathname === "/live-query-subscriptions/remove") {
               return Response.json({ deleted: true });
             }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: true });
+            }
             return Response.json({ error: "not found" }, { status: 404 });
           },
         },
@@ -281,6 +284,205 @@ describe("sync protocol", () => {
       },
     ]);
     ws.close();
+  });
+
+  it("removes executor subscriptions for the whole connection when a WebSocket closes", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...(body as Record<string, unknown>),
+                  resultHash: "{\"user\":\"Ada\"}",
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: "{\"user\":\"Ada\"}",
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    const deploymentId = "sync-executor-close-cleanup-deployment";
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "executor-close-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 18,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+    executorRequests.length = 0;
+
+    ws.close();
+    await waitFor(() =>
+      executorRequests.some(request => request.path === "/live-query-subscriptions/remove-connection"),
+    );
+
+    expect(executorRequests).toEqual([
+      {
+        path: "/live-query-subscriptions/remove-connection",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          connectionId: `connection:${deploymentId}:executor-close-session`,
+        },
+      },
+    ]);
+  });
+
+  it("retries connection subscription cleanup after a transient executor failure", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    let removeConnectionAttempts = 0;
+    const deploymentId = "sync-executor-cleanup-retry-deployment";
+    const connectionId = `connection:${deploymentId}:executor-cleanup-retry-session`;
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...(body as Record<string, unknown>),
+                  resultHash: "{\"user\":\"Ada\"}",
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: "{\"user\":\"Ada\"}",
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              removeConnectionAttempts += 1;
+              if (removeConnectionAttempts === 1) {
+                return Response.json({ error: "temporary cleanup failure" }, { status: 503 });
+              }
+              return Response.json({ deleted: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "executor-cleanup-retry-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 19,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+    executorRequests.length = 0;
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(connectionId);
+    const firstReconnect = await connection
+      .fetch("https://flarex.internal/force-reconnect", { method: "POST" })
+      .catch(error => error as Error);
+
+    expect(removeConnectionAttempts).toBe(1);
+    expect(firstReconnect).not.toMatchObject({ status: 200 });
+    const closed = nextClose(ws);
+    const secondReconnect = await connection.fetch(
+      "https://flarex.internal/force-reconnect",
+      { method: "POST" },
+    );
+
+    expect(secondReconnect.status).toBe(200);
+    await expect(secondReconnect.json()).resolves.toEqual({
+      closed: 1,
+      activeQueries: 1,
+    });
+    await expect(closed).resolves.toMatchObject({
+      code: 1012,
+      reason: "flarex reconnect",
+    });
+    expect(executorRequests.filter(request =>
+      request.path === "/live-query-subscriptions/remove-connection",
+    )).toEqual([
+      {
+        path: "/live-query-subscriptions/remove-connection",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          connectionId,
+        },
+      },
+      {
+        path: "/live-query-subscriptions/remove-connection",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          connectionId,
+        },
+      },
+    ]);
   });
 
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
@@ -1626,6 +1828,9 @@ describe("sync protocol", () => {
             if (url.pathname === "/live-query-subscriptions/remove") {
               return Response.json({ deleted: true });
             }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: true });
+            }
             return Response.json({ error: "not found" }, { status: 404 });
           },
         },
@@ -1702,13 +1907,12 @@ describe("sync protocol", () => {
         },
       },
       {
-        path: "/live-query-subscriptions/remove",
+        path: "/live-query-subscriptions/remove-connection",
         authorization: "Bearer executor-secret",
         body: {
           deploymentId,
           projectId: "project_sync",
           connectionId,
-          queryId: 23,
         },
       },
     ]);

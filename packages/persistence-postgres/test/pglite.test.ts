@@ -2598,6 +2598,72 @@ describe("createPGlitePersistence", () => {
     ).resolves.toEqual([]);
   });
 
+  it("deletes all live query subscriptions for a connection", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_connection_delete",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSetJson: { documents: [{ tableId: 1, id: "1:message", observedTs: 10 }] },
+      resultJson: ["first"],
+      resultHash: "hash_first",
+    });
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_connection_delete",
+      connectionId: "connection_a",
+      queryId: 2,
+      functionPath: "messages:count",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSetJson: { tables: [{ tableId: 1, observedTs: 10 }] },
+      resultJson: 1,
+      resultHash: "hash_count",
+    });
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_connection_delete",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_b" },
+      partitionKey: "team_b",
+      beginTs: 10,
+      readSetJson: { documents: [{ tableId: 1, id: "1:other", observedTs: 10 }] },
+      resultJson: ["other"],
+      resultHash: "hash_other",
+    });
+
+    await expect(
+      persistence.deleteLiveQuerySubscriptionsForConnection({
+        deploymentId: "deployment_live_query_connection_delete",
+        connectionId: "connection_a",
+      }),
+    ).resolves.toEqual({ deleted: 2 });
+    await expect(
+      persistence.deleteLiveQuerySubscriptionsForConnection({
+        deploymentId: "deployment_live_query_connection_delete",
+        connectionId: "connection_a",
+      }),
+    ).resolves.toEqual({ deleted: 0 });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_connection_delete",
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_b",
+        queryId: 1,
+        resultHash: "hash_other",
+      },
+    ]);
+  });
+
   it("round-trips JSON null live query args and results", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

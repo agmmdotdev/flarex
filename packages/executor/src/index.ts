@@ -28,6 +28,7 @@ import {
   fingerprintJson,
   recordLiveQuerySubscription,
   removeLiveQuerySubscription,
+  removeLiveQuerySubscriptionsForConnection,
   runLiveQuerySubscriptionWithInvoke,
   rerunLiveQuerySubscription,
   rerunStaleLiveQuerySubscriptions,
@@ -181,6 +182,7 @@ export type {
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
+  RemoveLiveQuerySubscriptionsForConnectionInput,
   RerunLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionOutput,
   RerunLiveQuerySubscriptionResult,
@@ -254,6 +256,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       recordLiveQuerySubscription(persistence, input),
     removeLiveQuerySubscription: (input) =>
       removeLiveQuerySubscription(persistence, input),
+    removeLiveQuerySubscriptionsForConnection: (input) =>
+      removeLiveQuerySubscriptionsForConnection(persistence, input),
     findStaleLiveQuerySubscriptions: (input) =>
       findStaleLiveQuerySubscriptions(persistence, input),
     rerunLiveQuerySubscription: (input) =>

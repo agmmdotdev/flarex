@@ -254,6 +254,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async deleteLiveQuerySubscription() {
       return { deleted: 0 };
     },
+    async deleteLiveQuerySubscriptionsForConnection() {
+      return { deleted: 0 };
+    },
     async listLiveQuerySubscriptions() {
       return [];
     },
@@ -394,6 +397,11 @@ export function fakeExecutor(
     async removeLiveQuerySubscription() {
       throw new Error(
         "removeLiveQuerySubscription is not implemented by test fake",
+      );
+    },
+    async removeLiveQuerySubscriptionsForConnection() {
+      throw new Error(
+        "removeLiveQuerySubscriptionsForConnection is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

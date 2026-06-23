@@ -44,6 +44,7 @@ import type {
   ListUndeliveredOutboxEventsInput,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
+  LiveQuerySubscriptionConnectionKey,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
   MarkLiveQueryDeliveriesDeadLetteredInput,
@@ -195,6 +196,9 @@ export interface FlarexExecutor {
   removeLiveQuerySubscription(
     input: RemoveLiveQuerySubscriptionInput,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
+  removeLiveQuerySubscriptionsForConnection(
+    input: RemoveLiveQuerySubscriptionsForConnectionInput,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
   findStaleLiveQuerySubscriptions(
     input: FindStaleLiveQuerySubscriptionsInput,
   ): Promise<FindStaleLiveQuerySubscriptionsResult>;
@@ -321,6 +325,9 @@ export interface FlarexExecutorPersistence {
   ): Promise<RecordLiveQueryRerunResultResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
+  deleteLiveQuerySubscriptionsForConnection(
+    input: LiveQuerySubscriptionConnectionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
@@ -462,6 +469,11 @@ export interface RecordLiveQuerySubscriptionResult {
 export type RemoveLiveQuerySubscriptionInput = LiveQuerySubscriptionKey & {
   projectId: string;
 };
+
+export type RemoveLiveQuerySubscriptionsForConnectionInput =
+  LiveQuerySubscriptionConnectionKey & {
+    projectId: string;
+  };
 
 export interface FindStaleLiveQuerySubscriptionsInput {
   deploymentId: string;

@@ -55,6 +55,7 @@ import {
   type RecordLiveQueryDeliveryFailureInput,
   type RecordLiveQuerySubscriptionInput,
   type RemoveLiveQuerySubscriptionInput,
+  type RemoveLiveQuerySubscriptionsForConnectionInput,
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
   type RunLiveQueryDeliveryBatchInput,
@@ -101,6 +102,7 @@ export interface FlarexHttpAppConfig {
   maintenanceLiveQueryDeliveryPath?: string;
   liveQuerySubscriptionRecordPath?: string;
   liveQuerySubscriptionRemovePath?: string;
+  liveQuerySubscriptionRemoveConnectionPath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
   maintenanceLiveQueryFailurePath?: string;
@@ -151,6 +153,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const liveQuerySubscriptionRemovePath = normalizePath(
     config.liveQuerySubscriptionRemovePath ??
       "/live-query-subscriptions/remove",
+  );
+  const liveQuerySubscriptionRemoveConnectionPath = normalizePath(
+    config.liveQuerySubscriptionRemoveConnectionPath ??
+      "/live-query-subscriptions/remove-connection",
   );
   const maintenanceLiveQueryClaimPath = normalizePath(
     config.maintenanceLiveQueryClaimPath ??
@@ -227,6 +233,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
     )
     .post(liveQuerySubscriptionRemovePath, ({ request, set }) =>
       handleLiveQuerySubscriptionRemove(executor, request, set, capabilityToken),
+    )
+    .post(liveQuerySubscriptionRemoveConnectionPath, ({ request, set }) =>
+      handleLiveQuerySubscriptionRemoveConnection(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
     )
     .post(maintenanceLiveQueryClaimPath, ({ request, set }) =>
       handleLiveQueryClaimMaintenance(executor, request, set, capabilityToken),
@@ -349,6 +363,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${liveQuerySubscriptionRemovePath} only supports POST`,
+      };
+    })
+    .all(liveQuerySubscriptionRemoveConnectionPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${liveQuerySubscriptionRemoveConnectionPath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryClaimPath, ({ set }) => {
@@ -846,6 +867,41 @@ async function handleLiveQuerySubscriptionRemove(
 
   try {
     return await executor.removeLiveQuerySubscription(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
+async function handleLiveQuerySubscriptionRemoveConnection(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQuerySubscriptionRemoveConnectionBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.removeLiveQuerySubscriptionsForConnection(input.value);
   } catch (error) {
     const response = executorErrorBody(error);
     set.status = response.status;
@@ -1498,6 +1554,36 @@ function parseLiveQuerySubscriptionRemoveBody(
       projectId: projectId.value,
       connectionId: connectionId.value,
       queryId: queryId.value,
+    },
+  };
+}
+
+function parseLiveQuerySubscriptionRemoveConnectionBody(
+  body: unknown,
+):
+  | { value: RemoveLiveQuerySubscriptionsForConnectionInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) return deploymentId;
+  const projectId = requiredString(record, "projectId");
+  if ("error" in projectId) return projectId;
+  const connectionId = requiredString(record, "connectionId");
+  if ("error" in connectionId) return connectionId;
+
+  return {
+    value: {
+      deploymentId: deploymentId.value,
+      projectId: projectId.value,
+      connectionId: connectionId.value,
     },
   };
 }

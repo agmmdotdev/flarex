@@ -67,6 +67,7 @@ import {
 } from "./outbox";
 import {
   deleteLiveQuerySubscription as deleteLiveQuerySubscriptionWithDb,
+  deleteLiveQuerySubscriptionsForConnection as deleteLiveQuerySubscriptionsForConnectionWithDb,
   listLiveQuerySubscriptions as listLiveQuerySubscriptionsWithDb,
   recordLiveQueryRerunResult as recordLiveQueryRerunResultWithDb,
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
@@ -224,6 +225,8 @@ export async function createPostgresPersistence(
       ),
     deleteLiveQuerySubscription: (input) =>
       deleteLiveQuerySubscriptionWithDb(drizzleDb, input),
+    deleteLiveQuerySubscriptionsForConnection: (input) =>
+      deleteLiveQuerySubscriptionsForConnectionWithDb(drizzleDb, input),
     listLiveQuerySubscriptions: (input) =>
       listLiveQuerySubscriptionsWithDb(drizzleDb, input),
     insertLiveQueryDelivery: (input) =>

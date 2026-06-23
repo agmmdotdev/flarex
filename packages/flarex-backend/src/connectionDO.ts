@@ -57,6 +57,7 @@ type ConnectionState = {
 
 export class ConnectionDO extends DurableObject<Env> {
   private mutationQueue: Promise<void> = Promise.resolve();
+  private connectionUnregistered = false;
 
   private readonly state: ConnectionState = {
     deploymentId: null,
@@ -83,6 +84,7 @@ export class ConnectionDO extends DurableObject<Env> {
     }
     this.state.deploymentId = deploymentIdFromRequest(request);
     this.state.connectionName = connectionNameFromRequest(request);
+    this.connectionUnregistered = false;
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
@@ -486,14 +488,13 @@ export class ConnectionDO extends DurableObject<Env> {
 
   private async unregisterConnection(): Promise<void> {
     if (this.state.deploymentId === null || this.state.connectionName === null) return;
+    if (this.connectionUnregistered) return;
     if (this.env.FLAREX_EXECUTOR !== undefined) {
-      await Promise.all(Array.from(this.state.queries.keys(), queryId =>
-        this.removeQueryFromExecutor(
-          this.state.deploymentId!,
-          this.state.connectionName!,
-          queryId,
-        ),
-      ));
+      await this.removeConnectionFromExecutor(
+        this.state.deploymentId,
+        this.state.connectionName,
+      );
+      this.connectionUnregistered = true;
       return;
     }
     const touchedPartitions = new Set(
@@ -511,6 +512,7 @@ export class ConnectionDO extends DurableObject<Env> {
         body: JSON.stringify({ connectionName: this.state.connectionName }),
       });
     }));
+    this.connectionUnregistered = true;
   }
 
   private async registerQueryWithExecutor(
@@ -543,6 +545,17 @@ export class ConnectionDO extends DurableObject<Env> {
       projectId: requireProjectId(this.env),
       connectionId: connectionName,
       queryId,
+    });
+  }
+
+  private async removeConnectionFromExecutor(
+    deploymentId: string,
+    connectionName: string,
+  ): Promise<void> {
+    await postExecutor(this.env, "/live-query-subscriptions/remove-connection", {
+      deploymentId,
+      projectId: requireProjectId(this.env),
+      connectionId: connectionName,
     });
   }
 }

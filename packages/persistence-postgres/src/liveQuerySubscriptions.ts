@@ -30,6 +30,11 @@ export interface ListLiveQuerySubscriptionsInput {
   connectionId?: string;
 }
 
+export type LiveQuerySubscriptionConnectionKey = Pick<
+  LiveQuerySubscriptionKey,
+  "deploymentId" | "connectionId"
+>;
+
 export interface DeleteLiveQuerySubscriptionResult {
   deleted: number;
 }
@@ -120,6 +125,23 @@ export async function deleteLiveQuerySubscription(
         eq(liveQuerySubscriptions.deploymentId, input.deploymentId),
         eq(liveQuerySubscriptions.connectionId, input.connectionId),
         eq(liveQuerySubscriptions.queryId, input.queryId),
+      ),
+    )
+    .returning();
+
+  return { deleted: rows.length };
+}
+
+export async function deleteLiveQuerySubscriptionsForConnection(
+  db: FlarexMetadataDatabase,
+  input: LiveQuerySubscriptionConnectionKey,
+): Promise<DeleteLiveQuerySubscriptionResult> {
+  const rows = await db
+    .delete(liveQuerySubscriptions)
+    .where(
+      and(
+        eq(liveQuerySubscriptions.deploymentId, input.deploymentId),
+        eq(liveQuerySubscriptions.connectionId, input.connectionId),
       ),
     )
     .returning();

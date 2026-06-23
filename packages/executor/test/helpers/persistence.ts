@@ -894,6 +894,19 @@ export function memoryPersistence(
       );
       return { deleted: deleted ? 1 : 0 };
     },
+    async deleteLiveQuerySubscriptionsForConnection(input): Promise<{ deleted: number }> {
+      let deleted = 0;
+      for (const subscription of liveQuerySubscriptions.values()) {
+        if (
+          subscription.deploymentId === input.deploymentId &&
+          subscription.connectionId === input.connectionId
+        ) {
+          liveQuerySubscriptions.delete(liveQuerySubscriptionKey(subscription));
+          deleted += 1;
+        }
+      }
+      return { deleted };
+    },
     async listLiveQuerySubscriptions(
       input: ListLiveQuerySubscriptionsInput,
     ): Promise<LiveQuerySubscriptionRecord[]> {

@@ -10,6 +10,7 @@ import {
   LiveQuerySubscriptionRerunError,
   type RecordLiveQuerySubscriptionInput,
   type RemoveLiveQuerySubscriptionInput,
+  type RemoveLiveQuerySubscriptionsForConnectionInput,
 } from "../src";
 import {
   deploymentMetadata,
@@ -161,6 +162,94 @@ describe("executor live query subscriptions", () => {
         queryId: 1,
       }),
     ).resolves.toEqual({ deleted: 0 });
+  });
+
+  it("removes all live query subscriptions for a connection", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_remove_connection",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+      resultJson: ["first"],
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_remove_connection",
+      connectionId: "connection_a",
+      queryId: 2,
+      functionPath: "messages:count",
+      argsJson: { teamId: "team_a" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: 1,
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_remove_connection",
+      connectionId: "connection_b",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_b" },
+      partitionKey: "team_b",
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:other" }] },
+      resultJson: ["other"],
+    });
+
+    await expect(
+      executor.removeLiveQuerySubscriptionsForConnection({
+        deploymentId: "deployment_remove_connection",
+        connectionId: "connection_a",
+      }),
+    ).resolves.toEqual({ deleted: 2 });
+    await expect(
+      executor.removeLiveQuerySubscriptionsForConnection({
+        deploymentId: "deployment_remove_connection",
+        connectionId: "connection_a",
+      }),
+    ).resolves.toEqual({ deleted: 0 });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_remove_connection",
+      }),
+    ).resolves.toMatchObject([
+      {
+        connectionId: "connection_b",
+        queryId: 1,
+      },
+    ]);
+
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+    await freshnessStore.applyCommitFreshness({
+      eventKey: {
+        deploymentId: "deployment_remove_connection",
+        ts: 20,
+        sequence: 0,
+      },
+      commitTs: 20,
+      documentIds: ["1:message"],
+      tableIds: [1],
+    });
+
+    await expect(
+      executor.rerunStaleLiveQuerySubscriptions({
+        deploymentId: "deployment_remove_connection",
+        freshnessStore,
+        runQuery: () => {
+          throw new Error("deleted connection subscriptions should not rerun");
+        },
+      }),
+    ).resolves.toMatchObject({
+      changed: [],
+      unchanged: [],
+      changes: [],
+    });
   });
 
   it("fingerprints object results with stable key order", () => {
@@ -1421,6 +1510,14 @@ function createLiveQueryExecutor(
         Partial<Pick<RemoveLiveQuerySubscriptionInput, "projectId">>,
     ) =>
       executor.removeLiveQuerySubscription({
+        projectId: "project_live_query",
+        ...input,
+      }),
+    removeLiveQuerySubscriptionsForConnection: (
+      input: Omit<RemoveLiveQuerySubscriptionsForConnectionInput, "projectId"> &
+        Partial<Pick<RemoveLiveQuerySubscriptionsForConnectionInput, "projectId">>,
+    ) =>
+      executor.removeLiveQuerySubscriptionsForConnection({
         projectId: "project_live_query",
         ...input,
       }),

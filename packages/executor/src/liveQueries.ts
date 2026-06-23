@@ -25,6 +25,7 @@ import type {
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
   RemoveLiveQuerySubscriptionInput,
+  RemoveLiveQuerySubscriptionsForConnectionInput,
   RerunLiveQuerySubscriptionInput,
   RerunLiveQuerySubscriptionOutput,
   RerunLiveQuerySubscriptionResult,
@@ -66,6 +67,14 @@ export async function removeLiveQuerySubscription(
 ): Promise<DeleteLiveQuerySubscriptionResult> {
   await assertLiveQueryDeploymentProject(persistence, input);
   return await persistence.deleteLiveQuerySubscription(input);
+}
+
+export async function removeLiveQuerySubscriptionsForConnection(
+  persistence: FlarexExecutorPersistence,
+  input: RemoveLiveQuerySubscriptionsForConnectionInput,
+): Promise<DeleteLiveQuerySubscriptionResult> {
+  await assertLiveQueryDeploymentProject(persistence, input);
+  return await persistence.deleteLiveQuerySubscriptionsForConnection(input);
 }
 
 async function assertLiveQueryDeploymentProject(

@@ -2428,3 +2428,85 @@ corepack pnpm --filter @flarex/executor-nitro exec vitest run test/health.test.t
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
 ```
+
+## Connection Subscription Lifecycle Cleanup
+
+Previous completed checkpoint: `b69b881` Add live query delivery summaries.
+
+What changed:
+
+- Added a persistence primitive to delete all live-query subscriptions for a
+  deployment connection.
+- Added executor-core ownership validation and a typed
+  `removeLiveQuerySubscriptionsForConnection(...)` API.
+- Added the HTTP endpoint
+  `POST /live-query-subscriptions/remove-connection`.
+- Changed `ConnectionDO` WebSocket close and forced reconnect cleanup to remove
+  the whole connection's durable subscriptions in one executor-owned call.
+- Kept explicit query removal on `ModifyQuerySet` `Remove` using the existing
+  single-query endpoint.
+- Made `ConnectionDO` unregister idempotent so `/force-reconnect` and the
+  subsequent WebSocket close hook do not double-clean the same connection.
+
+Why this exists:
+
+```txt
+client disconnects or is force-reconnected
+  -> ConnectionDO unregisters connection once
+  -> executor verifies deployment/project ownership
+  -> Postgres deletes durable subscriptions for that connection
+  -> later stale scans have no row to rerun or deliver
+```
+
+This closes the durable lifecycle gap between Cloudflare connection state and
+Postgres-authoritative live-query subscriptions. Without this, stale rows could
+continue to rerun and enqueue delivery work after the client connection was
+gone.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers own active query lifecycle and transition delivery
+    inside the backend.
+- `crates/sync/src/state.rs`
+  - active query-set state is removed as part of sync state transitions instead
+    of a public persistence cleanup API.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - the browser sync client reconnects and re-establishes query state through
+    the sync protocol.
+
+Flarex differences:
+
+- Convex does not need a Postgres delete-by-connection route because active
+  query state is held by the backend sync runtime.
+- Flarex stores durable subscription rows for executor-driven reruns, while
+  Cloudflare `ConnectionDO` owns live WebSocket sockets. The close/reconnect
+  boundary must therefore explicitly remove durable subscription rows through
+  the executor.
+- The operation is intentionally connection-scoped, not query-looped, because a
+  disconnect invalidates the whole connection query set and because the DO may
+  not be the best long-term source of every persisted query ID.
+
+Known limitations:
+
+- This cleans durable subscription rows but does not yet cancel delivery rows
+  already claimed or enqueued before cleanup. Existing delivery paths still skip
+  inactive sockets and dead-letter/reconnect maintenance handles stuck rows.
+- There is no durable heartbeat expiry for abandoned connections yet. This
+  slice covers close and forced reconnect paths; crash/eviction expiry belongs
+  in a later maintenance slice.
+- The old Durable Object partition subscription unregister path remains for the
+  legacy prototype. New Postgres-authoritative sync uses the executor endpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/executor test -- liveQueries.test.ts
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test -- pglite.test.ts
+corepack pnpm --filter flarex-backend test -- sync.test.ts
+```

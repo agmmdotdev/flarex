@@ -1218,6 +1218,36 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({ deleted: 1 });
   });
 
+  it("maps live query subscription remove-connection requests to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async removeLiveQuerySubscriptionsForConnection(input) {
+          calls.push(input);
+          return { deleted: 2 };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-subscriptions/remove-connection", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({ deleted: 2 });
+  });
+
   it("validates live query subscription record requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -2695,6 +2725,11 @@ function fakeExecutor(
     async removeLiveQuerySubscription() {
       throw new Error(
         "removeLiveQuerySubscription is not implemented by test fake",
+      );
+    },
+    async removeLiveQuerySubscriptionsForConnection() {
+      throw new Error(
+        "removeLiveQuerySubscriptionsForConnection is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

@@ -67,6 +67,7 @@ import type {
 import type {
   DeleteLiveQuerySubscriptionResult,
   ListLiveQuerySubscriptionsInput,
+  LiveQuerySubscriptionConnectionKey,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
   RecordLiveQueryRerunResultInput,
@@ -228,6 +229,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   ): Promise<RecordLiveQueryRerunResultResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
+  ): Promise<DeleteLiveQuerySubscriptionResult>;
+  deleteLiveQuerySubscriptionsForConnection(
+    input: LiveQuerySubscriptionConnectionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
   listLiveQuerySubscriptions(
     input: ListLiveQuerySubscriptionsInput,
