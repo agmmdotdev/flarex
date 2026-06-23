@@ -72,6 +72,7 @@ import {
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
 } from "./liveQuerySubscriptions";
 import {
+  claimLiveQueryDeliveries as claimLiveQueryDeliveriesWithDb,
   insertLiveQueryDelivery as insertLiveQueryDeliveryWithDb,
   listPendingLiveQueryDeliveryDeployments as listPendingLiveQueryDeliveryDeploymentsWithDb,
   listStuckLiveQueryDeliveries as listStuckLiveQueryDeliveriesWithDb,
@@ -239,6 +240,8 @@ export async function createPostgresPersistence(
       markLiveQueryDeliveriesDeadLetteredWithDb(drizzleDb, input),
     recordLiveQueryDeliveryFailure: (input) =>
       recordLiveQueryDeliveryFailureWithDb(drizzleDb, input),
+    claimLiveQueryDeliveries: (input) =>
+      claimLiveQueryDeliveriesWithDb(drizzleDb, input),
 
     async migrate(): Promise<void> {
       await migrateNodePg(drizzleDb, {

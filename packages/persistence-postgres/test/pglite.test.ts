@@ -2736,6 +2736,195 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("leases live query deliveries during claim and reclaims expired leases", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_delivery_lease",
+      deliveryId: "delivery_lease",
+      connectionId: "connection_lease",
+      queryId: 1,
+      payloadJson: { resultJson: "fresh" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_lease",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+        claimOwner: "delivery:deployment_delivery_lease",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_lease",
+          claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+          claimOwner: "delivery:deployment_delivery_lease",
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_lease",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:30.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:30.000Z"),
+        claimOwner: "delivery:other",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_lease",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:02:00.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:03:00.000Z"),
+        claimOwner: "delivery:other",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_lease",
+          claimedAt: new Date("2026-06-20T00:02:00.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:03:00.000Z"),
+          claimOwner: "delivery:other",
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.recordLiveQueryDeliveryFailure({
+        deploymentId: "deployment_delivery_lease",
+        deliveryIds: ["delivery_lease"],
+        stage: "fanout",
+        error: "stale DeliveryDO failed late",
+        failedAt: new Date("2026-06-20T00:02:05.000Z"),
+        claimOwner: "delivery:deployment_delivery_lease",
+      }),
+    ).resolves.toEqual({ failed: 0 });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_lease",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:02:06.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:03:06.000Z"),
+        claimOwner: "delivery:third",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_delivery_lease",
+      deliveryIds: ["delivery_lease"],
+      stage: "fanout",
+      error: "ConnectionDO failed",
+      failedAt: new Date("2026-06-20T00:02:10.000Z"),
+      claimOwner: "delivery:other",
+    });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_delivery_lease",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:02:11.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:03:11.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_lease",
+          attemptCount: 1,
+          claimedAt: new Date("2026-06-20T00:02:11.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:03:11.000Z"),
+          claimOwner: null,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it("does not return the same live query delivery to concurrent claimers", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_concurrent_claim",
+      deliveryId: "delivery_concurrent",
+      connectionId: "connection_concurrent",
+      queryId: 1,
+      payloadJson: { resultJson: "fresh" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    const [first, second] = await Promise.all([
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_concurrent_claim",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+        claimOwner: "delivery:first",
+      }),
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_concurrent_claim",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+        claimOwner: "delivery:second",
+      }),
+    ]);
+
+    const claimed = [...first.deliveries, ...second.deliveries];
+    expect(claimed).toHaveLength(1);
+    const winner = claimed[0]!;
+    expect(winner.claimOwner).not.toBeNull();
+    const loserOwner =
+      winner.claimOwner === "delivery:first" ? "delivery:second" : "delivery:first";
+
+    await expect(
+      persistence.markLiveQueryDeliveriesDelivered({
+        deploymentId: "deployment_concurrent_claim",
+        deliveryIds: ["delivery_concurrent"],
+        deliveredAt: new Date("2026-06-20T00:01:10.000Z"),
+        claimOwner: loserOwner,
+      }),
+    ).resolves.toEqual({ delivered: 0 });
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_concurrent_claim",
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:11.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:11.000Z"),
+        claimOwner: "delivery:third",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.markLiveQueryDeliveriesDelivered({
+        deploymentId: "deployment_concurrent_claim",
+        deliveryIds: ["delivery_concurrent"],
+        deliveredAt: new Date("2026-06-20T00:01:20.000Z"),
+        claimOwner: winner.claimOwner!,
+      }),
+    ).resolves.toEqual({ delivered: 1 });
+  });
+
   it("lists deployments with pending live query deliveries", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -2886,6 +3075,14 @@ describe("createPGlitePersistence", () => {
       payloadJson: { resultJson: "fresh" },
       createdAt: new Date("2026-06-20T00:00:02.000Z"),
     });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_active_lease",
+      deliveryId: "delivery_active_lease",
+      connectionId: "connection_active_lease",
+      queryId: 1,
+      payloadJson: { resultJson: "active" },
+      createdAt: new Date("2026-06-20T00:00:03.000Z"),
+    });
     await persistence.recordLiveQueryDeliveryFailure({
       deploymentId: "deployment_stuck_b",
       deliveryIds: ["delivery_b"],
@@ -2906,6 +3103,20 @@ describe("createPGlitePersistence", () => {
       stage: "fanout",
       error: "fresh",
       failedAt: new Date("2026-06-20T00:10:00.000Z"),
+    });
+    await persistence.recordLiveQueryDeliveryFailure({
+      deploymentId: "deployment_active_lease",
+      deliveryIds: ["delivery_active_lease"],
+      stage: "fanout",
+      error: "old but actively leased",
+      failedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await persistence.claimLiveQueryDeliveries({
+      deploymentId: "deployment_active_lease",
+      limit: 10,
+      claimedAt: new Date("2026-06-20T00:04:30.000Z"),
+      claimExpiresAt: new Date("2026-06-20T00:06:00.000Z"),
+      claimOwner: "delivery:active",
     });
 
     const first = await persistence.listStuckLiveQueryDeliveries({
@@ -2945,6 +3156,22 @@ describe("createPGlitePersistence", () => {
         },
       ],
       nextCursor: null,
+      hasMore: false,
+    });
+
+    await expect(
+      persistence.listStuckLiveQueryDeliveries({
+        olderThan: new Date("2026-06-20T00:06:00.000Z"),
+        deploymentId: "deployment_active_lease",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deploymentId: "deployment_active_lease",
+          deliveryId: "delivery_active_lease",
+        },
+      ],
       hasMore: false,
     });
   });

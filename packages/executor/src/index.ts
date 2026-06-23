@@ -233,7 +233,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     markLiveQueryDeliveriesDelivered: (input) =>
       markLiveQueryDeliveriesDelivered(persistence, input),
     claimLiveQueryDeliveryBatch: (input) =>
-      claimLiveQueryDeliveryBatch(persistence, input),
+      claimLiveQueryDeliveryBatch(persistence, clock, input),
     ackLiveQueryDeliveries: (input) =>
       ackLiveQueryDeliveries(persistence, clock, input),
     runLiveQueryDeliveryBatch: (input) =>

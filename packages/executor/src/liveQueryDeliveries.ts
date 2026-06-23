@@ -25,6 +25,7 @@ import type {
 } from "./types";
 
 const DEFAULT_LIVE_QUERY_DELIVERY_LIMIT = 100;
+const DEFAULT_LIVE_QUERY_DELIVERY_LEASE_MS = 30_000;
 const MAX_DELIVERY_FAILURE_ERROR_LENGTH = 4000;
 const MAX_DELIVERY_DEAD_LETTER_REASON_LENGTH = 4000;
 
@@ -151,12 +152,18 @@ export async function recordLiveQueryDeliveryFailure(
 
 export async function claimLiveQueryDeliveryBatch(
   persistence: FlarexExecutorPersistence,
+  clock: Clock,
   input: ClaimLiveQueryDeliveryBatchInput,
 ): Promise<ClaimLiveQueryDeliveryBatchResult> {
   const limit = liveQueryDeliveryLimit(input.limit);
-  return await persistence.listUndeliveredLiveQueryDeliveries({
+  const leaseDurationMs = liveQueryDeliveryLeaseDurationMs(input.leaseDurationMs);
+  const claimedAt = clock.now();
+  return await persistence.claimLiveQueryDeliveries({
     deploymentId: input.deploymentId,
     limit,
+    claimedAt,
+    claimExpiresAt: new Date(claimedAt.getTime() + leaseDurationMs),
+    ...(input.claimOwner === undefined ? {} : { claimOwner: input.claimOwner }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
   });
 }
@@ -170,6 +177,7 @@ export async function ackLiveQueryDeliveries(
     deploymentId: input.deploymentId,
     deliveryIds: input.deliveryIds,
     deliveredAt: input.deliveredAt ?? clock.now(),
+    ...(input.claimOwner === undefined ? {} : { claimOwner: input.claimOwner }),
   });
 }
 
@@ -178,7 +186,11 @@ export async function runLiveQueryDeliveryBatch(
   clock: Clock,
   input: RunLiveQueryDeliveryBatchInput,
 ): Promise<RunLiveQueryDeliveryBatchResult> {
-  const page = await claimLiveQueryDeliveryBatch(persistence, input);
+  const claimOwner = input.claimOwner ?? liveQueryDeliveryClaimOwner(input.deploymentId);
+  const page = await claimLiveQueryDeliveryBatch(persistence, clock, {
+    ...input,
+    claimOwner,
+  });
   if (page.deliveries.length === 0) {
     return {
       deliveries: [],
@@ -193,6 +205,7 @@ export async function runLiveQueryDeliveryBatch(
     deploymentId: input.deploymentId,
     deliveryIds: page.deliveries.map((delivery) => delivery.deliveryId),
     ...(input.deliveredAt === undefined ? {} : { deliveredAt: input.deliveredAt }),
+    claimOwner,
   });
 
   return {
@@ -256,4 +269,19 @@ function liveQueryDeliveryLimit(limit: number | undefined): number {
     throw new LiveQueryDeliveryPolicyError("limit must be a positive integer.");
   }
   return resolved;
+}
+
+function liveQueryDeliveryLeaseDurationMs(value: number | undefined): number {
+  const resolved = value ?? DEFAULT_LIVE_QUERY_DELIVERY_LEASE_MS;
+  if (!Number.isFinite(resolved) || !Number.isInteger(resolved) || resolved <= 0) {
+    throw new LiveQueryDeliveryPolicyError(
+      "leaseDurationMs must be a positive integer.",
+    );
+  }
+  return resolved;
+}
+
+function liveQueryDeliveryClaimOwner(deploymentId: string): string {
+  const token = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  return `executor:${deploymentId}:${token}`;
 }

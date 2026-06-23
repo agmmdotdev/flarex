@@ -415,9 +415,10 @@ describe("executor live query subscriptions", () => {
 
   it("claims and acks live query deliveries without owning fanout", async () => {
     const persistence = memoryPersistence();
+    let now = new Date("2026-06-20T01:00:00.000Z");
     const executor = createLiveQueryExecutor({
       persistence,
-      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      clock: { now: () => now },
     });
     const initial = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_claim_ack",
@@ -444,6 +445,8 @@ describe("executor live query subscriptions", () => {
       executor.claimLiveQueryDeliveryBatch({
         deploymentId: "deployment_claim_ack",
         limit: 10,
+        leaseDurationMs: 60_000,
+        claimOwner: "delivery:deployment_claim_ack",
       }),
     ).resolves.toMatchObject({
       deliveries: [
@@ -452,6 +455,36 @@ describe("executor live query subscriptions", () => {
           connectionId: "connection_a",
           queryId: 1,
           deliveredAt: null,
+          claimedAt: new Date("2026-06-20T01:00:00.000Z"),
+          claimExpiresAt: new Date("2026-06-20T01:01:00.000Z"),
+          claimOwner: "delivery:deployment_claim_ack",
+        },
+      ],
+      hasMore: false,
+    });
+    await expect(
+      executor.claimLiveQueryDeliveryBatch({
+        deploymentId: "deployment_claim_ack",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [],
+      hasMore: false,
+    });
+
+    now = new Date("2026-06-20T01:01:00.000Z");
+    await expect(
+      executor.claimLiveQueryDeliveryBatch({
+        deploymentId: "deployment_claim_ack",
+        limit: 10,
+        leaseDurationMs: 30_000,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_claim_1",
+          claimedAt: new Date("2026-06-20T01:01:00.000Z"),
+          claimExpiresAt: new Date("2026-06-20T01:01:30.000Z"),
         },
       ],
       hasMore: false,

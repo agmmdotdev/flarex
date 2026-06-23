@@ -11,12 +11,15 @@ type DeliveryWakeRequest = {
   deploymentId?: string;
   limit?: number;
   maxBatches?: number;
+  leaseDurationMs?: number;
 };
 
 type PendingDeliveryDrain = {
   deploymentId: string;
   limit: number;
   maxBatches: number;
+  leaseDurationMs: number;
+  claimOwner: string;
   retryAttempt: number;
 };
 
@@ -53,6 +56,7 @@ type DeliveryFailureStage = "fanout" | "ack";
 
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
+const DEFAULT_LEASE_DURATION_MS = 30_000;
 const PENDING_DRAIN_KEY = "pendingDrain";
 const CONTINUE_ALARM_DELAY_MS = 100;
 const RETRY_ALARM_BASE_DELAY_MS = 250;
@@ -111,14 +115,10 @@ export class DeliveryDO extends DurableObject<Env> {
     return drain;
   }
 
-  private async drain(body: DeliveryWakeRequest): Promise<DeliveryDrainResult> {
-    const deploymentId = requiredWakeString(body.deploymentId, "deploymentId");
-    const limit = optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit");
-    const maxBatches = optionalPositiveInteger(
-      body.maxBatches,
-      DEFAULT_MAX_BATCHES,
-      "maxBatches",
-    );
+  private async drain(body: PendingDeliveryDrain): Promise<DeliveryDrainResult> {
+    const deploymentId = body.deploymentId;
+    const limit = body.limit;
+    const maxBatches = body.maxBatches;
 
     let batches = 0;
     let claimed = 0;
@@ -127,9 +127,17 @@ export class DeliveryDO extends DurableObject<Env> {
     let skipped = 0;
     let hasMore = false;
     let cursor: LiveQueryDeliveryCursor | undefined;
+    const leaseDurationMs = body.leaseDurationMs;
+    const claimOwner = body.claimOwner;
 
     while (batches < maxBatches) {
-      const page = await this.claim(deploymentId, limit, cursor);
+      const page = await this.claim(
+        deploymentId,
+        limit,
+        leaseDurationMs,
+        claimOwner,
+        cursor,
+      );
       batches += 1;
       if (page.deliveries.length === 0) {
         hasMore = page.hasMore;
@@ -146,7 +154,13 @@ export class DeliveryDO extends DurableObject<Env> {
           changes,
         );
       } catch (error) {
-        await this.reportDeliveryFailure(deploymentId, page.deliveries, "fanout", error);
+        await this.reportDeliveryFailure(
+          deploymentId,
+          page.deliveries,
+          claimOwner,
+          "fanout",
+          error,
+        );
         throw error;
       }
       delivered += fanout.delivered;
@@ -157,9 +171,16 @@ export class DeliveryDO extends DurableObject<Env> {
         ack = await this.ack(
           deploymentId,
           page.deliveries.map(delivery => delivery.deliveryId),
+          claimOwner,
         );
       } catch (error) {
-        await this.reportDeliveryFailure(deploymentId, page.deliveries, "ack", error);
+        await this.reportDeliveryFailure(
+          deploymentId,
+          page.deliveries,
+          claimOwner,
+          "ack",
+          error,
+        );
         throw error;
       }
       acked += ack.delivered;
@@ -209,11 +230,15 @@ export class DeliveryDO extends DurableObject<Env> {
   private async claim(
     deploymentId: string,
     limit: number,
+    leaseDurationMs: number,
+    claimOwner: string,
     cursor: LiveQueryDeliveryCursor | undefined,
   ): Promise<ClaimLiveQueryDeliveryBatchResult> {
     const body = {
       deploymentId,
       limit,
+      leaseDurationMs,
+      claimOwner,
       ...(cursor === undefined ? {} : { cursor }),
     };
     const response = await this.executorFetch("/maintenance/live-queries/claim", body);
@@ -229,10 +254,12 @@ export class DeliveryDO extends DurableObject<Env> {
   private async ack(
     deploymentId: string,
     deliveryIds: string[],
+    claimOwner: string,
   ): Promise<{ delivered: number }> {
     const response = await this.executorFetch("/maintenance/live-queries/ack", {
       deploymentId,
       deliveryIds,
+      claimOwner,
     });
     if (!response.ok) {
       throw new HttpError(
@@ -246,6 +273,7 @@ export class DeliveryDO extends DurableObject<Env> {
   private async reportDeliveryFailure(
     deploymentId: string,
     deliveries: LiveQueryDeliveryRecord[],
+    claimOwner: string,
     stage: DeliveryFailureStage,
     error: unknown,
   ): Promise<void> {
@@ -255,6 +283,7 @@ export class DeliveryDO extends DurableObject<Env> {
         {
           deploymentId,
           deliveryIds: deliveries.map(delivery => delivery.deliveryId),
+          claimOwner,
           stage,
           error: errorMessage(error),
           failedAt: new Date().toISOString(),
@@ -294,16 +323,28 @@ function errorMessage(error: unknown): string {
 }
 
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
+  const deploymentId = requiredWakeString(body.deploymentId, "deploymentId");
   return {
-    deploymentId: requiredWakeString(body.deploymentId, "deploymentId"),
+    deploymentId,
     limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit"),
     maxBatches: optionalPositiveInteger(
       body.maxBatches,
       DEFAULT_MAX_BATCHES,
       "maxBatches",
     ),
+    leaseDurationMs: optionalPositiveInteger(
+      body.leaseDurationMs,
+      DEFAULT_LEASE_DURATION_MS,
+      "leaseDurationMs",
+    ),
+    claimOwner: newDeliveryClaimOwner(deploymentId),
     retryAttempt: 0,
   };
+}
+
+function newDeliveryClaimOwner(deploymentId: string): string {
+  const token = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  return `delivery:${deploymentId}:${token}`;
 }
 
 function retryDelayMs(retryAttempt: number): number {

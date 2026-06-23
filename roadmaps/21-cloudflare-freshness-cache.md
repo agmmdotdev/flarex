@@ -2234,3 +2234,74 @@ corepack pnpm --filter @flarex/executor-nitro typecheck
 corepack pnpm --filter @flarex/executor-nitro test
 git diff --check
 ```
+
+## Live-Query Delivery Claim Leases
+
+Previous completed checkpoint: `da099c6` Prove Postgres live sync through
+client.
+
+What changed:
+
+- Added `claimed_at`, `claim_expires_at`, and `claim_owner` to durable
+  `live_query_deliveries` rows.
+- Replaced delivery claiming with an executor-owned lease operation:
+  `claimLiveQueryDeliveries(...)`.
+- Delivery rows are claimable only when they are undelivered, not
+  dead-lettered, and either unclaimed or past `claim_expires_at`.
+- Ack, explicit dead-letter, and delivery failure release the lease metadata.
+- `DeliveryDO` now passes a per-drain owner token and a lease duration to the
+  executor claim endpoint.
+- Ack and failure reports carry the same owner token so an expired old drain
+  cannot clear a newer drain's active lease.
+
+Why this exists:
+
+```txt
+executor records durable delivery row
+  -> DeliveryDO claims row with a short lease
+  -> DeliveryDO fans out to ConnectionDO
+  -> DeliveryDO acks row after successful fanout
+  -> failure clears lease so a later drain can retry
+```
+
+This prevents two `DeliveryDO` drains, reconciler wakeups, or retried host
+requests from concurrently delivering the same row while still allowing recovery
+after a crash or lost callback.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - backend sync workers own active query update processing and retries.
+- `crates/sync/src/state.rs`
+  - sync state keeps active query transitions inside the backend process.
+
+Flarex differences:
+
+- Convex does not need a Postgres delivery lease because the sync worker and
+  transition fanout are backend-internal.
+- Flarex splits rerun, durable delivery, and Cloudflare `DeliveryDO` fanout, so
+  Postgres must own the at-least-once claim boundary.
+
+Known limitations:
+
+- Explicit operator dead-letter calls can still omit an owner intentionally.
+- The lease is implemented in the repository method, but there is no
+  multi-process Postgres race test yet.
+- Metrics around expired leases and duplicate fanout attempts are still
+  missing.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter @flarex/executor-nitro exec vitest run test/health.test.ts --testTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/example exec vitest run flarex/sync-e2e.test.ts --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```

@@ -585,6 +585,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId: "sync-delivery-do-deployment",
           limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-do-deployment:/),
         },
       },
       {
@@ -593,6 +595,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId: "sync-delivery-do-deployment",
           deliveryIds: ["delivery_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-do-deployment:/),
         },
       },
     ]);
@@ -677,6 +680,8 @@ describe("sync protocol", () => {
       body: {
         deploymentId,
         limit: 10,
+        leaseDurationMs: 30000,
+        claimOwner: expect.stringMatching(/^delivery:sync-delivery-failure-deployment:/),
       },
     });
     expect(executorRequests[1]).toMatchObject({
@@ -685,6 +690,7 @@ describe("sync protocol", () => {
       body: {
         deploymentId,
         deliveryIds: ["delivery_failed"],
+        claimOwner: expect.stringMatching(/^delivery:sync-delivery-failure-deployment:/),
         stage: "fanout",
       },
     });
@@ -856,6 +862,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
         },
       },
       {
@@ -864,6 +872,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
         },
       },
       {
@@ -872,6 +881,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
         },
       },
       {
@@ -880,6 +891,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_2"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
         },
       },
     ]);
@@ -1019,6 +1031,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-reconcile-deployment:/),
         },
       },
       {
@@ -1027,6 +1041,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_reconcile_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-reconcile-deployment:/),
         },
       },
     ]);
@@ -1216,6 +1231,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-fanout-deployment:/),
         },
       },
       {
@@ -1224,6 +1241,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_rerun_fanout_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-fanout-deployment:/),
         },
       },
     ]);
@@ -1464,6 +1482,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-continuation-deployment:/),
         },
       },
       {
@@ -1472,6 +1492,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_rerun_continue_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-continuation-deployment:/),
         },
       },
       {
@@ -1489,6 +1510,8 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-continuation-deployment:/),
         },
       },
       {
@@ -1497,6 +1520,7 @@ describe("sync protocol", () => {
         body: {
           deploymentId,
           deliveryIds: ["delivery_rerun_continue_2"],
+          claimOwner: expect.stringMatching(/^delivery:sync-rerun-continuation-deployment:/),
         },
       },
     ]);

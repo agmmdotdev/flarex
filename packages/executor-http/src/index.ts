@@ -1520,6 +1520,10 @@ function parseLiveQueryClaimMaintenanceBody(
   if ("error" in deploymentId) return deploymentId;
   const limit = optionalPositiveInteger(record, "limit");
   if ("error" in limit) return limit;
+  const leaseDurationMs = optionalPositiveInteger(record, "leaseDurationMs");
+  if ("error" in leaseDurationMs) return leaseDurationMs;
+  const claimOwner = optionalString(record.claimOwner, "claimOwner");
+  if ("error" in claimOwner) return claimOwner;
   const cursor = optionalLiveQueryDeliveryCursor(record.cursor);
   if ("error" in cursor) return cursor;
 
@@ -1527,6 +1531,10 @@ function parseLiveQueryClaimMaintenanceBody(
     value: {
       deploymentId: deploymentId.value,
       ...(limit.value === undefined ? {} : { limit: limit.value }),
+      ...(leaseDurationMs.value === undefined
+        ? {}
+        : { leaseDurationMs: leaseDurationMs.value }),
+      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
       ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
     },
   };
@@ -1552,12 +1560,15 @@ function parseLiveQueryAckMaintenanceBody(
   if ("error" in deliveryIds) return deliveryIds;
   const deliveredAt = optionalDate(record.deliveredAt, "deliveredAt");
   if ("error" in deliveredAt) return deliveredAt;
+  const claimOwner = optionalString(record.claimOwner, "claimOwner");
+  if ("error" in claimOwner) return claimOwner;
 
   return {
     value: {
       deploymentId: deploymentId.value,
       deliveryIds: deliveryIds.value,
       ...(deliveredAt.value === undefined ? {} : { deliveredAt: deliveredAt.value }),
+      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
     },
   };
 }
@@ -1586,6 +1597,8 @@ function parseLiveQueryFailureMaintenanceBody(
   if ("error" in error) return error;
   const failedAt = requiredDate(record, "failedAt");
   if ("error" in failedAt) return failedAt;
+  const claimOwner = optionalString(record.claimOwner, "claimOwner");
+  if ("error" in claimOwner) return claimOwner;
 
   return {
     value: {
@@ -1594,6 +1607,7 @@ function parseLiveQueryFailureMaintenanceBody(
       stage: stage.value,
       error: error.value,
       failedAt: failedAt.value,
+      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
     },
   };
 }
@@ -1620,6 +1634,8 @@ function parseLiveQueryDeadLetterMaintenanceBody(
   if ("error" in reason) return reason;
   const deadLetteredAt = requiredDate(record, "deadLetteredAt");
   if ("error" in deadLetteredAt) return deadLetteredAt;
+  const claimOwner = optionalString(record.claimOwner, "claimOwner");
+  if ("error" in claimOwner) return claimOwner;
 
   return {
     value: {
@@ -1627,6 +1643,7 @@ function parseLiveQueryDeadLetterMaintenanceBody(
       deliveryIds: deliveryIds.value,
       reason: reason.value,
       deadLetteredAt: deadLetteredAt.value,
+      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
     },
   };
 }

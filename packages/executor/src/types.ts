@@ -12,6 +12,8 @@ import type {
   AbortInvokeSessionMetadataInput,
   AbortStaleInvokeSessionsMetadataInput,
   AbortStaleInvokeSessionsMetadataResult,
+  ClaimLiveQueryDeliveriesInput,
+  ClaimLiveQueryDeliveriesResult,
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
@@ -338,6 +340,9 @@ export interface FlarexExecutorPersistence {
   markLiveQueryDeliveriesDeadLettered(
     input: MarkLiveQueryDeliveriesDeadLetteredInput,
   ): Promise<MarkLiveQueryDeliveriesDeadLetteredResult>;
+  claimLiveQueryDeliveries(
+    input: ClaimLiveQueryDeliveriesInput,
+  ): Promise<ClaimLiveQueryDeliveriesResult>;
   recordLiveQueryDeliveryFailure(
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
@@ -363,6 +368,8 @@ export interface RunLiveQueryDeliveryBatchInput {
   cursor?: LiveQueryDeliveryCursor;
   limit?: number;
   deliveredAt?: Date;
+  leaseDurationMs?: number;
+  claimOwner?: string;
   deliver(deliveries: LiveQueryDeliveryRecord[]): Promise<void>;
 }
 
@@ -377,6 +384,8 @@ export interface ClaimLiveQueryDeliveryBatchInput {
   deploymentId: string;
   cursor?: LiveQueryDeliveryCursor;
   limit?: number;
+  leaseDurationMs?: number;
+  claimOwner?: string;
 }
 
 export interface ClaimLiveQueryDeliveryBatchResult {
@@ -389,6 +398,7 @@ export interface AckLiveQueryDeliveriesInput {
   deploymentId: string;
   deliveryIds: string[];
   deliveredAt?: Date;
+  claimOwner?: string;
 }
 
 export interface AckLiveQueryDeliveriesResult {

@@ -43,6 +43,17 @@ export interface ListUndeliveredLiveQueryDeliveriesResult {
   hasMore: boolean;
 }
 
+export interface ClaimLiveQueryDeliveriesInput {
+  deploymentId: string;
+  cursor?: LiveQueryDeliveryCursor;
+  limit: number;
+  claimedAt: Date;
+  claimExpiresAt: Date;
+  claimOwner?: string;
+}
+
+export type ClaimLiveQueryDeliveriesResult = ListUndeliveredLiveQueryDeliveriesResult;
+
 export interface PendingLiveQueryDeliveryDeploymentCursor {
   oldestCreatedAt: Date;
   deploymentId: string;
@@ -89,6 +100,7 @@ export interface MarkLiveQueryDeliveriesDeliveredInput {
   deploymentId: string;
   deliveryIds: string[];
   deliveredAt: Date;
+  claimOwner?: string;
 }
 
 export interface MarkLiveQueryDeliveriesDeliveredResult {
@@ -100,6 +112,7 @@ export interface MarkLiveQueryDeliveriesDeadLetteredInput {
   deliveryIds: string[];
   deadLetteredAt: Date;
   reason: string;
+  claimOwner?: string;
 }
 
 export interface MarkLiveQueryDeliveriesDeadLetteredResult {
@@ -115,6 +128,7 @@ export interface RecordLiveQueryDeliveryFailureInput {
   stage: LiveQueryDeliveryFailureStage;
   error: string;
   failedAt: Date;
+  claimOwner?: string;
 }
 
 export interface RecordLiveQueryDeliveryFailureResult {
@@ -198,6 +212,79 @@ export async function listUndeliveredLiveQueryDeliveries(
   };
 }
 
+export async function claimLiveQueryDeliveries(
+  db: FlarexMetadataDatabase,
+  input: ClaimLiveQueryDeliveriesInput,
+): Promise<ClaimLiveQueryDeliveriesResult> {
+  const cursorFilter = deliveryCursorFilter(input.cursor);
+  const claimableFilter = and(
+    eq(liveQueryDeliveries.deploymentId, input.deploymentId),
+    isNull(liveQueryDeliveries.deliveredAt),
+    isNull(liveQueryDeliveries.deadLetteredAt),
+    or(
+      isNull(liveQueryDeliveries.claimExpiresAt),
+      lte(liveQueryDeliveries.claimExpiresAt, input.claimedAt),
+    ),
+  );
+
+  const candidates = await db
+    .select({
+      deliveryId: liveQueryDeliveries.deliveryId,
+    })
+    .from(liveQueryDeliveries)
+    .where(
+      cursorFilter === undefined
+        ? claimableFilter
+        : and(claimableFilter, cursorFilter),
+    )
+    .orderBy(
+      asc(liveQueryDeliveries.createdAt),
+      asc(liveQueryDeliveries.deliveryId),
+    )
+    .limit(input.limit + 1);
+
+  const hasMore = candidates.length > input.limit;
+  const deliveryIds = candidates
+    .slice(0, input.limit)
+    .map(candidate => candidate.deliveryId);
+  if (deliveryIds.length === 0) {
+    return {
+      deliveries: [],
+      nextCursor: null,
+      hasMore,
+    };
+  }
+
+  const rows = await db
+    .update(liveQueryDeliveries)
+    .set({
+      claimedAt: input.claimedAt,
+      claimExpiresAt: input.claimExpiresAt,
+      claimOwner: input.claimOwner ?? null,
+    })
+    .where(
+      and(
+        claimableFilter,
+        inArray(liveQueryDeliveries.deliveryId, deliveryIds),
+      ),
+    )
+    .returning();
+
+  const deliveries = rows.sort(compareDeliveryRecords);
+  const last = deliveries.at(-1);
+  return {
+    deliveries,
+    nextCursor:
+      hasMore && last !== undefined
+        ? {
+            createdAt: last.createdAt,
+            deliveryId: last.deliveryId,
+          }
+        : null,
+    hasMore,
+  };
+}
+
 export async function markLiveQueryDeliveriesDelivered(
   db: FlarexMetadataDatabase,
   input: MarkLiveQueryDeliveriesDeliveredInput,
@@ -215,12 +302,16 @@ export async function markLiveQueryDeliveriesDelivered(
     .update(liveQueryDeliveries)
     .set({
       deliveredAt: input.deliveredAt,
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimOwner: null,
     })
     .where(
       and(
         eq(liveQueryDeliveries.deploymentId, input.deploymentId),
         isNull(liveQueryDeliveries.deliveredAt),
         isNull(liveQueryDeliveries.deadLetteredAt),
+        claimOwnerFilter(input.claimOwner),
         deliveryFilter,
       ),
     )
@@ -244,12 +335,16 @@ export async function markLiveQueryDeliveriesDeadLettered(
     .set({
       deadLetteredAt: input.deadLetteredAt,
       deadLetterReason: input.reason,
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimOwner: null,
     })
     .where(
       and(
         eq(liveQueryDeliveries.deploymentId, input.deploymentId),
         isNull(liveQueryDeliveries.deliveredAt),
         isNull(liveQueryDeliveries.deadLetteredAt),
+        claimOwnerFilter(input.claimOwner),
         inArray(liveQueryDeliveries.deliveryId, input.deliveryIds),
       ),
     )
@@ -337,12 +432,16 @@ export async function recordLiveQueryDeliveryFailure(
       lastAttemptedAt: input.failedAt,
       lastErrorStage: input.stage,
       lastError: input.error,
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimOwner: null,
     })
     .where(
       and(
         eq(liveQueryDeliveries.deploymentId, input.deploymentId),
         isNull(liveQueryDeliveries.deliveredAt),
         isNull(liveQueryDeliveries.deadLetteredAt),
+        claimOwnerFilter(input.claimOwner),
         inArray(liveQueryDeliveries.deliveryId, input.deliveryIds),
       ),
     )
@@ -387,6 +486,10 @@ export async function listStuckLiveQueryDeliveries(
         isNotNull(liveQueryDeliveries.lastAttemptedAt),
         lte(liveQueryDeliveries.lastAttemptedAt, input.olderThan),
         gte(liveQueryDeliveries.attemptCount, minAttempts),
+        or(
+          isNull(liveQueryDeliveries.claimExpiresAt),
+          lte(liveQueryDeliveries.claimExpiresAt, input.olderThan),
+        ),
         deploymentFilter,
         cursorFilter,
       ),
@@ -417,4 +520,36 @@ export async function listStuckLiveQueryDeliveries(
 
 function jsonbValue(value: unknown): unknown {
   return value === null ? sql`'null'::jsonb` : value;
+}
+
+function deliveryCursorFilter(
+  cursor: LiveQueryDeliveryCursor | undefined,
+): ReturnType<typeof or> | undefined {
+  return cursor === undefined
+    ? undefined
+    : or(
+        gt(liveQueryDeliveries.createdAt, cursor.createdAt),
+        and(
+          eq(liveQueryDeliveries.createdAt, cursor.createdAt),
+          gt(liveQueryDeliveries.deliveryId, cursor.deliveryId),
+        ),
+      );
+}
+
+function compareDeliveryRecords(
+  left: LiveQueryDeliveryRecord,
+  right: LiveQueryDeliveryRecord,
+): number {
+  return (
+    left.createdAt.getTime() - right.createdAt.getTime() ||
+    left.deliveryId.localeCompare(right.deliveryId)
+  );
+}
+
+function claimOwnerFilter(
+  claimOwner: string | undefined,
+): ReturnType<typeof eq> | undefined {
+  return claimOwner === undefined
+    ? undefined
+    : eq(liveQueryDeliveries.claimOwner, claimOwner);
 }

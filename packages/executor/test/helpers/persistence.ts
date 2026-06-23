@@ -28,6 +28,8 @@ import {
   InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
   commitOutboxEvent,
+  type ClaimLiveQueryDeliveriesInput,
+  type ClaimLiveQueryDeliveriesResult,
   type InsertOutboxEventInput,
   type InvokeSessionTableReadRecord,
   type OutboxEventRecord,
@@ -944,6 +946,63 @@ export function memoryPersistence(
           : null,
       };
     },
+    async claimLiveQueryDeliveries(
+      input: ClaimLiveQueryDeliveriesInput,
+    ): Promise<ClaimLiveQueryDeliveriesResult> {
+      const sorted = liveQueryDeliveries
+        .filter(
+          (delivery) =>
+            delivery.deploymentId === input.deploymentId &&
+            delivery.deliveredAt === null &&
+            delivery.deadLetteredAt === null &&
+            (delivery.claimExpiresAt === null ||
+              delivery.claimExpiresAt <= input.claimedAt) &&
+            (input.cursor === undefined ||
+              delivery.createdAt > input.cursor.createdAt ||
+              (delivery.createdAt.getTime() ===
+                input.cursor.createdAt.getTime() &&
+                delivery.deliveryId > input.cursor.deliveryId)),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            left.deliveryId.localeCompare(right.deliveryId),
+        );
+      const rows = sorted.slice(0, input.limit + 1);
+      const claimable = rows.slice(0, input.limit);
+      const deliveryKeys = new Set(claimable.map(liveQueryDeliveryKey));
+      const deliveries: LiveQueryDeliveryRecord[] = [];
+      for (let index = 0; index < liveQueryDeliveries.length; index += 1) {
+        const delivery = liveQueryDeliveries[index]!;
+        if (!deliveryKeys.has(liveQueryDeliveryKey(delivery))) continue;
+        const claimed = {
+          ...delivery,
+          claimedAt: input.claimedAt,
+          claimExpiresAt: input.claimExpiresAt,
+          claimOwner: input.claimOwner ?? null,
+        };
+        liveQueryDeliveries[index] = claimed;
+        deliveries.push(claimed);
+      }
+      deliveries.sort(
+        (left, right) =>
+          left.createdAt.getTime() - right.createdAt.getTime() ||
+          left.deliveryId.localeCompare(right.deliveryId),
+      );
+      const hasMore = rows.length > input.limit;
+      const last = deliveries.at(-1);
+      return {
+        deliveries,
+        hasMore,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                createdAt: last.createdAt,
+                deliveryId: last.deliveryId,
+              }
+            : null,
+      };
+    },
     async listPendingLiveQueryDeliveryDeployments(
       input: ListPendingLiveQueryDeliveryDeploymentsInput,
     ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult> {
@@ -1009,6 +1068,8 @@ export function memoryPersistence(
             delivery.lastAttemptedAt !== null &&
             delivery.lastAttemptedAt <= input.olderThan &&
             delivery.attemptCount >= minAttempts &&
+            (delivery.claimExpiresAt === null ||
+              delivery.claimExpiresAt <= input.olderThan) &&
             (input.deploymentId === undefined ||
               delivery.deploymentId === input.deploymentId) &&
             (input.cursor === undefined ||
@@ -1055,11 +1116,15 @@ export function memoryPersistence(
           delivery.deploymentId === input.deploymentId &&
           delivery.deliveredAt === null &&
           delivery.deadLetteredAt === null &&
+          claimOwnerMatches(delivery, input.claimOwner) &&
           deliveryIds.has(delivery.deliveryId)
         ) {
           liveQueryDeliveries[index] = {
             ...delivery,
             deliveredAt: input.deliveredAt,
+            claimedAt: null,
+            claimExpiresAt: null,
+            claimOwner: null,
           };
           delivered += 1;
         }
@@ -1077,12 +1142,16 @@ export function memoryPersistence(
           delivery.deploymentId === input.deploymentId &&
           delivery.deliveredAt === null &&
           delivery.deadLetteredAt === null &&
+          claimOwnerMatches(delivery, input.claimOwner) &&
           deliveryIds.has(delivery.deliveryId)
         ) {
           const deadLettered = {
             ...delivery,
             deadLetteredAt: input.deadLetteredAt,
             deadLetterReason: input.reason,
+            claimedAt: null,
+            claimExpiresAt: null,
+            claimOwner: null,
           };
           liveQueryDeliveries[index] = deadLettered;
           deliveries.push(deadLettered);
@@ -1104,6 +1173,7 @@ export function memoryPersistence(
           delivery.deploymentId === input.deploymentId &&
           delivery.deliveredAt === null &&
           delivery.deadLetteredAt === null &&
+          claimOwnerMatches(delivery, input.claimOwner) &&
           deliveryIds.has(delivery.deliveryId)
         ) {
           liveQueryDeliveries[index] = {
@@ -1112,6 +1182,9 @@ export function memoryPersistence(
             lastAttemptedAt: input.failedAt,
             lastErrorStage: input.stage,
             lastError: input.error,
+            claimedAt: null,
+            claimExpiresAt: null,
+            claimOwner: null,
           };
           failed += 1;
         }
@@ -1179,6 +1252,9 @@ function liveQueryDelivery(input: {
     queryId: input.queryId,
     payloadJson: input.payloadJson,
     deliveredAt: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    claimOwner: null,
     attemptCount: 0,
     lastAttemptedAt: null,
     lastErrorStage: null,
@@ -1415,6 +1491,17 @@ function cursorAllows(
 ): boolean {
   if (cursor === undefined) return true;
   return order === "desc" ? key < cursor : key > cursor;
+}
+
+function liveQueryDeliveryKey(delivery: LiveQueryDeliveryRecord): string {
+  return `${delivery.deploymentId}\0${delivery.deliveryId}`;
+}
+
+function claimOwnerMatches(
+  delivery: LiveQueryDeliveryRecord,
+  claimOwner: string | undefined,
+): boolean {
+  return claimOwner === undefined || delivery.claimOwner === claimOwner;
 }
 
 function isJsonObject(

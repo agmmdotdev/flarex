@@ -236,6 +236,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
                 queryId: input.delivery.queryId,
                 payloadJson: input.delivery.payloadJson,
                 deliveredAt: null,
+                claimedAt: null,
+                claimExpiresAt: null,
+                claimOwner: null,
                 attemptCount: 0,
                 lastAttemptedAt: null,
                 lastErrorStage: null,
@@ -255,6 +258,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
       return [];
     },
     async listUndeliveredLiveQueryDeliveries() {
+      return { deliveries: [], nextCursor: null, hasMore: false };
+    },
+    async claimLiveQueryDeliveries() {
       return { deliveries: [], nextCursor: null, hasMore: false };
     },
     async listPendingLiveQueryDeliveryDeployments() {

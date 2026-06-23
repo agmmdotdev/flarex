@@ -92,6 +92,13 @@
       "when": 1782155651304,
       "tag": "0012_sudden_king_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782200504291,
+      "tag": "0013_lethal_ezekiel_stane",
+      "breakpoints": true
     }
   ]
 }
