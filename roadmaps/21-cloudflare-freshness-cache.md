@@ -2305,3 +2305,63 @@ corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter @flarex/example exec vitest run flarex/sync-e2e.test.ts --testTimeout=30000 --hookTimeout=30000
 git diff --check
 ```
+
+## Real-Postgres Delivery Claim Race Coverage
+
+Previous completed checkpoint: `393d3b4` Lease live query delivery claims.
+
+What changed:
+
+- Added a gated real-Postgres concurrency test for live-query delivery claims.
+- The test creates one durable delivery row and races two
+  `claimLiveQueryDeliveries(...)` calls against it.
+- It asserts the row is returned to exactly one owner.
+- It then verifies stale-owner failure and stale-owner ack calls cannot release
+  or deliver the winner's active lease.
+
+Why this exists:
+
+```txt
+two delivery workers race the same pending row
+  -> Postgres UPDATE rechecks the lease predicate under row locking
+  -> only one owner receives the row
+  -> stale owner cannot clear the winner's lease
+```
+
+This is the concrete Postgres acceptance test for the lease boundary. PGlite
+continues to cover local behavior, but production correctness depends on real
+Postgres row-lock/recheck semantics.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps live-query transition processing inside backend sync workers.
+- `crates/sync/src/state.rs`
+  - active query state and transition delivery remain internal to the sync
+    runtime.
+
+Flarex differences:
+
+- Convex does not expose this database-level delivery claim race because its
+  sync worker is integrated with the backend.
+- Flarex uses Postgres as the durable claim boundary between executor reruns
+  and Cloudflare `DeliveryDO` fanout, so the race must be tested directly.
+
+Known limitations:
+
+- The test is gated by `FLAREX_POSTGRES_DATABASE_URL`; local runs without that
+  variable skip it.
+- The test proves claim exclusivity for one delivery row. Broader load and
+  lease-expiry stress tests still belong in a later operational test suite.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+git diff --check
+```
+
+Local result:
+
+- `test:postgres` skipped because `FLAREX_POSTGRES_DATABASE_URL` was not set.

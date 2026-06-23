@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   type CommitInvokeSessionWritesResult,
@@ -13,6 +14,127 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres OCC concurrency", () => {
+  it("returns a live query delivery to only one concurrent claimer", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await persistence.insertLiveQueryDelivery({
+        deploymentId: "deployment_pg_delivery_claim",
+        deliveryId: "delivery_concurrent",
+        connectionId: "connection_concurrent",
+        queryId: 1,
+        payloadJson: { resultJson: "fresh" },
+        createdAt: new Date("2026-06-20T00:00:00.000Z"),
+      });
+
+      const locker = await persistence.pool.connect();
+      let lockReleased = false;
+      let claimPromises:
+        | readonly [
+            ReturnType<typeof persistence.claimLiveQueryDeliveries>,
+            ReturnType<typeof persistence.claimLiveQueryDeliveries>,
+          ]
+        | undefined;
+      let setupError: unknown;
+      try {
+        await locker.query("begin");
+        await locker.query(
+          `
+            select 1
+            from live_query_deliveries
+            where deployment_id = $1 and delivery_id = $2
+            for update
+          `,
+          ["deployment_pg_delivery_claim", "delivery_concurrent"],
+        );
+
+        claimPromises = [
+          persistence.claimLiveQueryDeliveries({
+            deploymentId: "deployment_pg_delivery_claim",
+            limit: 10,
+            claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+            claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+            claimOwner: "delivery:first",
+          }),
+          persistence.claimLiveQueryDeliveries({
+            deploymentId: "deployment_pg_delivery_claim",
+            limit: 10,
+            claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+            claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+            claimOwner: "delivery:second",
+          }),
+        ] as const;
+
+        await waitForBlockedLiveQueryDeliveryUpdates(persistence, 2);
+        await locker.query("commit");
+        lockReleased = true;
+      } catch (error) {
+        setupError = error;
+      } finally {
+        if (!lockReleased) {
+          await locker.query("rollback").catch(() => undefined);
+        }
+        locker.release();
+      }
+
+      if (claimPromises === undefined) {
+        throw new Error("Expected claim promises to be created.");
+      }
+      if (setupError !== undefined) {
+        await Promise.allSettled(claimPromises);
+        throw setupError;
+      }
+      const [first, second] = await Promise.all(claimPromises);
+
+      const claimed = [...first.deliveries, ...second.deliveries];
+      expect(claimed).toHaveLength(1);
+      const winner = claimed[0];
+      if (winner === undefined || winner.claimOwner === null) {
+        throw new Error("Expected exactly one claimed delivery owner.");
+      }
+      const loserOwner =
+        winner.claimOwner === "delivery:first" ? "delivery:second" : "delivery:first";
+
+      await expect(
+        persistence.recordLiveQueryDeliveryFailure({
+          deploymentId: "deployment_pg_delivery_claim",
+          deliveryIds: ["delivery_concurrent"],
+          stage: "fanout",
+          error: "stale delivery owner failed late",
+          failedAt: new Date("2026-06-20T00:01:10.000Z"),
+          claimOwner: loserOwner,
+        }),
+      ).resolves.toEqual({ failed: 0 });
+      await expect(
+        persistence.markLiveQueryDeliveriesDelivered({
+          deploymentId: "deployment_pg_delivery_claim",
+          deliveryIds: ["delivery_concurrent"],
+          deliveredAt: new Date("2026-06-20T00:01:20.000Z"),
+          claimOwner: loserOwner,
+        }),
+      ).resolves.toEqual({ delivered: 0 });
+      await expect(
+        persistence.claimLiveQueryDeliveries({
+          deploymentId: "deployment_pg_delivery_claim",
+          limit: 10,
+          claimedAt: new Date("2026-06-20T00:01:30.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:02:30.000Z"),
+          claimOwner: "delivery:third",
+        }),
+      ).resolves.toMatchObject({
+        deliveries: [],
+        hasMore: false,
+      });
+
+      await expect(
+        persistence.markLiveQueryDeliveriesDelivered({
+          deploymentId: "deployment_pg_delivery_claim",
+          deliveryIds: ["delivery_concurrent"],
+          deliveredAt: new Date("2026-06-20T00:01:40.000Z"),
+          claimOwner: winner.claimOwner,
+        }),
+      ).resolves.toEqual({ delivered: 1 });
+    });
+  });
+
   it("serializes concurrent commits and rejects a stale document read", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await persistence.insertDocumentRevision({
@@ -149,6 +271,33 @@ describePostgres("real Postgres OCC concurrency", () => {
     });
   });
 });
+
+async function waitForBlockedLiveQueryDeliveryUpdates(
+  persistence: FlarexPersistence,
+  expectedBlocked: number,
+): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<BlockedQueryRow>(
+      `
+        select count(*)::int as blocked
+        from pg_stat_activity
+        where wait_event_type = 'Lock'
+          and query ilike '%update "live_query_deliveries"%'
+      `,
+    );
+    const blocked = result.rows[0]?.blocked ?? 0;
+    if (blocked >= expectedBlocked) return;
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for ${expectedBlocked} blocked live query delivery updates.`,
+  );
+}
+
+interface BlockedQueryRow extends Record<string, unknown> {
+  blocked: number;
+}
 
 async function insertMutationSession(
   persistence: FlarexPersistence,
