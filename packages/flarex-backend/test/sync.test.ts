@@ -766,6 +766,169 @@ describe("sync protocol", () => {
     });
   });
 
+  it("reconciles expired live query connection deployment scans through SchedulerDO", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/expired-connection-deployments") {
+              return Response.json({
+                deployments: [
+                  {
+                    deploymentId: "deployment_cleanup_a",
+                    projectId: "project_cleanup_a",
+                    oldestExpiredAt: "2026-06-23T00:00:30.000Z",
+                    expiredConnections: 2,
+                  },
+                  {
+                    deploymentId: "deployment_cleanup_b",
+                    projectId: "project_cleanup_b",
+                    oldestExpiredAt: "2026-06-23T00:00:45.000Z",
+                    expiredConnections: 1,
+                  },
+                ],
+                nextCursor: {
+                  oldestExpiredAt: "2026-06-23T00:00:45.000Z",
+                  deploymentId: "deployment_cleanup_b",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/connections/cleanup") {
+              const cleanup = body as { deploymentId?: string };
+              if (cleanup.deploymentId === "deployment_cleanup_b") {
+                return Response.json({ error: "temporary cleanup failure" }, { status: 503 });
+              }
+              return Response.json({ deleted: 3, deletedConnections: 2 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          expiredAt: "2026-06-23T00:02:00.000+00:00",
+          limit: 5,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deployments: 2,
+      cleaned: 1,
+      deleted: 3,
+      deletedConnections: 2,
+      failed: [
+        {
+          deploymentId: "deployment_cleanup_b",
+          status: 502,
+          error: "Live query connection cleanup failed with status 503.",
+        },
+      ],
+      nextCursor: {
+        oldestExpiredAt: "2026-06-23T00:00:45.000Z",
+        deploymentId: "deployment_cleanup_b",
+      },
+      hasMore: true,
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/expired-connection-deployments",
+        authorization: "Bearer executor-secret",
+        body: {
+          expiredAt: "2026-06-23T00:02:00.000Z",
+          limit: 5,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/connections/cleanup",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment_cleanup_a",
+          projectId: "project_cleanup_a",
+          expiredAt: "2026-06-23T00:02:00.000Z",
+        },
+      },
+      {
+        path: "/maintenance/live-queries/connections/cleanup",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment_cleanup_b",
+          projectId: "project_cleanup_b",
+          expiredAt: "2026-06-23T00:02:00.000Z",
+        },
+      },
+    ]);
+  });
+
+  it("rejects malformed live query connection cleanup reconcile cursors", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deployments: [], nextCursor: null, hasMore: false });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cursor: {
+            oldestExpiredAt: "not a date",
+            deploymentId: "deployment_bad_cursor",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "cursor.oldestExpiredAt must be an ISO date string.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);

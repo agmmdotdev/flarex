@@ -48,6 +48,7 @@ import {
   type InvokeSyscallInput,
   type InvokeSyscallRequest,
   type Json,
+  type ListExpiredLiveQueryConnectionDeploymentsInput,
   type ListPendingLiveQueryDeliveryDeploymentsInput,
   type ListStuckLiveQueryDeliveriesInput,
   type MarkLiveQueryDeliveriesDeadLetteredInput,
@@ -107,6 +108,7 @@ export interface FlarexHttpAppConfig {
   liveQuerySubscriptionRemovePath?: string;
   liveQuerySubscriptionRemoveConnectionPath?: string;
   maintenanceLiveQueryConnectionCleanupPath?: string;
+  maintenanceLiveQueryExpiredConnectionDeploymentsPath?: string;
   maintenanceLiveQueryClaimPath?: string;
   maintenanceLiveQueryAckPath?: string;
   maintenanceLiveQueryFailurePath?: string;
@@ -168,6 +170,10 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const maintenanceLiveQueryConnectionCleanupPath = normalizePath(
     config.maintenanceLiveQueryConnectionCleanupPath ??
       "/maintenance/live-queries/connections/cleanup",
+  );
+  const maintenanceLiveQueryExpiredConnectionDeploymentsPath = normalizePath(
+    config.maintenanceLiveQueryExpiredConnectionDeploymentsPath ??
+      "/maintenance/live-queries/expired-connection-deployments",
   );
   const maintenanceLiveQueryClaimPath = normalizePath(
     config.maintenanceLiveQueryClaimPath ??
@@ -297,6 +303,14 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
         capabilityToken,
       ),
     )
+    .post(maintenanceLiveQueryExpiredConnectionDeploymentsPath, ({ request, set }) =>
+      handleLiveQueryExpiredConnectionDeploymentsMaintenance(
+        executor,
+        request,
+        set,
+        capabilityToken,
+      ),
+    )
     .post(maintenanceLiveQueryStuckDeliveriesPath, ({ request, set }) =>
       handleLiveQueryStuckDeliveriesMaintenance(
         executor,
@@ -401,6 +415,13 @@ export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
       return {
         error: "method_not_allowed",
         message: `${maintenanceLiveQueryConnectionCleanupPath} only supports POST`,
+      };
+    })
+    .all(maintenanceLiveQueryExpiredConnectionDeploymentsPath, ({ set }) => {
+      set.status = 405;
+      return {
+        error: "method_not_allowed",
+        message: `${maintenanceLiveQueryExpiredConnectionDeploymentsPath} only supports POST`,
       };
     })
     .all(maintenanceLiveQueryClaimPath, ({ set }) => {
@@ -1220,6 +1241,41 @@ async function handleLiveQueryPendingDeploymentsMaintenance(
   }
 }
 
+async function handleLiveQueryExpiredConnectionDeploymentsMaintenance(
+  executor: FlarexExecutor,
+  request: Request,
+  set: { status?: number | string },
+  capabilityToken: string | undefined,
+): Promise<object> {
+  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
+  if (unauthorized !== null) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    set.status = 400;
+    return {
+      error: "bad_request",
+      message: "Request body must be valid JSON.",
+    };
+  }
+
+  const input = parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(body);
+  if ("error" in input) {
+    set.status = 400;
+    return input.error;
+  }
+
+  try {
+    return await executor.listExpiredLiveQueryConnectionDeployments(input.value);
+  } catch (error) {
+    const response = executorErrorBody(error);
+    set.status = response.status;
+    return response.body;
+  }
+}
+
 async function handleLiveQueryStuckDeliveriesMaintenance(
   executor: FlarexExecutor,
   request: Request,
@@ -1975,6 +2031,36 @@ function parseLiveQueryPendingDeploymentsMaintenanceBody(
   };
 }
 
+function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(
+  body: unknown,
+):
+  | { value: ListExpiredLiveQueryConnectionDeploymentsInput }
+  | { error: { error: "bad_request"; message: string } } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+  const record = body as Record<string, unknown>;
+  const expiredAt = optionalDate(record.expiredAt, "expiredAt");
+  if ("error" in expiredAt) return expiredAt;
+  const limit = optionalPositiveInteger(record, "limit");
+  if ("error" in limit) return limit;
+  const cursor = optionalExpiredLiveQueryConnectionDeploymentCursor(record.cursor);
+  if ("error" in cursor) return cursor;
+
+  return {
+    value: {
+      ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
+      ...(limit.value === undefined ? {} : { limit: limit.value }),
+      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+    },
+  };
+}
+
 function parseLiveQueryStuckDeliveriesMaintenanceBody(
   body: unknown,
 ):
@@ -2354,6 +2440,51 @@ function optionalPendingLiveQueryDeliveryDeploymentCursor(
   return {
     value: {
       oldestCreatedAt: oldestCreatedAt.value,
+      deploymentId: deploymentId.value,
+    },
+  };
+}
+
+function optionalExpiredLiveQueryConnectionDeploymentCursor(
+  value: unknown,
+):
+  | { value?: NonNullable<ListExpiredLiveQueryConnectionDeploymentsInput["cursor"]> }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor must be an object.",
+      },
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const oldestExpiredAt = optionalDate(
+    record.oldestExpiredAt,
+    "cursor.oldestExpiredAt",
+  );
+  if ("error" in oldestExpiredAt) return oldestExpiredAt;
+  const deploymentId = requiredString(record, "deploymentId");
+  if ("error" in deploymentId) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.deploymentId must be a non-empty string.",
+      },
+    };
+  }
+  if (oldestExpiredAt.value === undefined) {
+    return {
+      error: {
+        error: "bad_request",
+        message: "cursor.oldestExpiredAt must be an ISO timestamp string.",
+      },
+    };
+  }
+  return {
+    value: {
+      oldestExpiredAt: oldestExpiredAt.value,
       deploymentId: deploymentId.value,
     },
   };

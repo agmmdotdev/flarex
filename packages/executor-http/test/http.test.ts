@@ -1332,6 +1332,73 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("maps expired live query connection deployment scans to the executor core", async () => {
+    const calls: unknown[] = [];
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listExpiredLiveQueryConnectionDeployments(input) {
+          calls.push(input);
+          return {
+            deployments: [
+              {
+                deploymentId: "deployment_expired",
+                projectId: "project_expired",
+                oldestExpiredAt: new Date("2026-06-23T00:01:00.000Z"),
+                expiredConnections: 2,
+              },
+            ],
+            nextCursor: {
+              oldestExpiredAt: new Date("2026-06-23T00:01:00.000Z"),
+              deploymentId: "deployment_expired",
+            },
+            hasMore: true,
+          };
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest(
+        "https://executor.test/maintenance/live-queries/expired-connection-deployments",
+        {
+          expiredAt: "2026-06-23T00:02:00.000Z",
+          limit: 5,
+          cursor: {
+            oldestExpiredAt: "2026-06-23T00:00:00.000Z",
+            deploymentId: "deployment_before",
+          },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        expiredAt: new Date("2026-06-23T00:02:00.000Z"),
+        limit: 5,
+        cursor: {
+          oldestExpiredAt: new Date("2026-06-23T00:00:00.000Z"),
+          deploymentId: "deployment_before",
+        },
+      },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      deployments: [
+        {
+          deploymentId: "deployment_expired",
+          projectId: "project_expired",
+          oldestExpiredAt: "2026-06-23T00:01:00.000Z",
+          expiredConnections: 2,
+        },
+      ],
+      nextCursor: {
+        oldestExpiredAt: "2026-06-23T00:01:00.000Z",
+        deploymentId: "deployment_expired",
+      },
+      hasMore: true,
+    });
+  });
+
   it("validates live query subscription record requests before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({
@@ -2176,6 +2243,56 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("validates expired live query connection deployment scan requests before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async listExpiredLiveQueryConnectionDeployments() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const invalidLimit = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/expired-connection-deployments", {
+        limit: 0,
+      }),
+    );
+    const invalidCursorDate = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/expired-connection-deployments", {
+        cursor: {
+          oldestExpiredAt: "not a date",
+          deploymentId: "deployment_a",
+        },
+      }),
+    );
+    const missingCursorDeployment = await app.handle(
+      jsonRequest("https://executor.test/maintenance/live-queries/expired-connection-deployments", {
+        cursor: {
+          oldestExpiredAt: "2026-06-23T00:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(invalidLimit.status).toBe(400);
+    await expect(invalidLimit.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
+    });
+    expect(invalidCursorDate.status).toBe(400);
+    await expect(invalidCursorDate.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "cursor.oldestExpiredAt must be an ISO timestamp string.",
+    });
+    expect(missingCursorDeployment.status).toBe(400);
+    await expect(missingCursorDeployment.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "cursor.deploymentId must be a non-empty string.",
+    });
+  });
+
   it("posts live query deliveries to the Flarex backend callback endpoint", async () => {
     const requests: Array<{ url: string; headers: Record<string, string | null>; body: unknown }> = [];
     const deliver = createFlarexBackendLiveQueryDelivery({
@@ -2824,6 +2941,11 @@ function fakeExecutor(
     async removeExpiredLiveQuerySubscriptions() {
       throw new Error(
         "removeExpiredLiveQuerySubscriptions is not implemented by test fake",
+      );
+    },
+    async listExpiredLiveQueryConnectionDeployments() {
+      throw new Error(
+        "listExpiredLiveQueryConnectionDeployments is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

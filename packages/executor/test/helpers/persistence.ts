@@ -31,11 +31,13 @@ import {
   type ClaimLiveQueryDeliveriesInput,
   type ClaimLiveQueryDeliveriesResult,
   type DeleteExpiredLiveQuerySubscriptionsResult,
+  type ListExpiredLiveQueryConnectionDeploymentsResult,
   type InsertOutboxEventInput,
   type InvokeSessionTableReadRecord,
   type OutboxEventRecord,
   type ListDeploymentMetadataInput,
   type ListLiveQuerySubscriptionsInput,
+  type ListExpiredLiveQueryConnectionDeploymentsInput,
   type ListPendingLiveQueryDeliveryDeploymentsInput,
   type ListPendingLiveQueryDeliveryDeploymentsResult,
   type ListStuckLiveQueryDeliveriesInput,
@@ -1014,6 +1016,68 @@ export function memoryPersistence(
       }
       return { deleted, deletedConnections: expiredConnectionIds.size };
     },
+    async listExpiredLiveQueryConnectionDeployments(
+      input: ListExpiredLiveQueryConnectionDeploymentsInput,
+    ): Promise<ListExpiredLiveQueryConnectionDeploymentsResult> {
+      const byDeployment = new Map<
+        string,
+        { oldestExpiredAt: Date; expiredConnections: number }
+      >();
+      for (const connection of liveQueryConnections.values()) {
+        const expiredAt = liveQueryConnectionExpiredAt(connection);
+        if (expiredAt.getTime() > input.expiredAt.getTime()) continue;
+        const existing = byDeployment.get(connection.deploymentId);
+        if (existing === undefined) {
+          byDeployment.set(connection.deploymentId, {
+            oldestExpiredAt: expiredAt,
+            expiredConnections: 1,
+          });
+        } else {
+          if (expiredAt < existing.oldestExpiredAt) {
+            existing.oldestExpiredAt = expiredAt;
+          }
+          existing.expiredConnections += 1;
+        }
+      }
+      const sorted = Array.from(byDeployment, ([deploymentId, deployment]) => {
+        const metadata = deployments.get(deploymentId);
+        if (metadata === undefined) {
+          throw new Error(`Deployment metadata not found for ${deploymentId}.`);
+        }
+        return {
+          deploymentId,
+          projectId: metadata.projectId,
+          ...deployment,
+        };
+      })
+        .filter(
+          (deployment) =>
+            input.cursor === undefined ||
+            deployment.oldestExpiredAt > input.cursor.oldestExpiredAt ||
+            (deployment.oldestExpiredAt.getTime() ===
+              input.cursor.oldestExpiredAt.getTime() &&
+              deployment.deploymentId > input.cursor.deploymentId),
+        )
+        .sort(
+          (left, right) =>
+            left.oldestExpiredAt.getTime() - right.oldestExpiredAt.getTime() ||
+            left.deploymentId.localeCompare(right.deploymentId),
+        );
+      const page = sorted.slice(0, input.limit);
+      const last = page.at(-1);
+      const hasMore = sorted.length > input.limit;
+      return {
+        deployments: page,
+        nextCursor:
+          hasMore && last !== undefined
+            ? {
+                oldestExpiredAt: last.oldestExpiredAt,
+                deploymentId: last.deploymentId,
+              }
+            : null,
+        hasMore,
+      };
+    },
     async listUndeliveredLiveQueryDeliveries(
       input: ListUndeliveredLiveQueryDeliveriesInput,
     ): Promise<ListUndeliveredLiveQueryDeliveriesResult> {
@@ -1346,6 +1410,16 @@ function liveQueryConnectionKey(input: {
   connectionId: string;
 }): string {
   return `${input.deploymentId}:${input.connectionId}`;
+}
+
+function liveQueryConnectionExpiredAt(connection: LiveQueryConnectionRecord): Date {
+  if (
+    connection.closedAt !== null &&
+    connection.closedAt.getTime() < connection.expiresAt.getTime()
+  ) {
+    return connection.closedAt;
+  }
+  return connection.expiresAt;
 }
 
 function liveQueryDelivery(input: {

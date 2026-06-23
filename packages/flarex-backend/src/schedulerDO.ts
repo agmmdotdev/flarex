@@ -35,6 +35,34 @@ type ReconcileResult = {
   hasMore: boolean;
 };
 
+type ExpiredConnectionDeploymentCursor = {
+  oldestExpiredAt: string;
+  deploymentId: string;
+};
+
+type ExpiredConnectionDeployment = {
+  deploymentId: string;
+  projectId: string;
+  oldestExpiredAt: string;
+  expiredConnections: number;
+};
+
+type ExpiredConnectionDeploymentsResult = {
+  deployments: ExpiredConnectionDeployment[];
+  nextCursor: ExpiredConnectionDeploymentCursor | null;
+  hasMore: boolean;
+};
+
+type ReconcileConnectionCleanupResult = {
+  deployments: number;
+  cleaned: number;
+  deleted: number;
+  deletedConnections: number;
+  failed: Array<{ deploymentId: string; status: number; error: string }>;
+  nextCursor: ExpiredConnectionDeploymentCursor | null;
+  hasMore: boolean;
+};
+
 type RerunLiveQuerySubscriptionsRequest = {
   deploymentId?: string;
   projectId?: string;
@@ -122,6 +150,7 @@ type ParsedCleanupLiveQueryConnectionsRequest = {
 };
 
 const DEFAULT_PENDING_DEPLOYMENT_LIMIT = 25;
+const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT = 100;
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
 const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
@@ -145,6 +174,16 @@ export class SchedulerDO extends DurableObject<Env> {
         return json(
           await this.reconcileLiveQueryDeliveries(
             await readJson<ReconcileLiveQueryDeliveriesRequest>(request),
+          ),
+        );
+      }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections &&
+        request.method === "POST"
+      ) {
+        return json(
+          await this.reconcileLiveQueryConnections(
+            await readJson<unknown>(request),
           ),
         );
       }
@@ -248,6 +287,51 @@ export class SchedulerDO extends DurableObject<Env> {
       woken,
       failed,
       hasMore: pending.hasMore,
+    };
+  }
+
+  private async reconcileLiveQueryConnections(
+    body: unknown,
+  ): Promise<ReconcileConnectionCleanupResult> {
+    const request = reconcileConnectionsRequestFromBody(body);
+    const expiredAt = request.expiredAt ?? new Date().toISOString();
+    const candidates = await this.expiredConnectionDeployments({
+      expiredAt,
+      limit: request.limit,
+      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+    });
+    const failed: ReconcileConnectionCleanupResult["failed"] = [];
+    let cleaned = 0;
+    let deleted = 0;
+    let deletedConnections = 0;
+
+    for (const deployment of candidates.deployments) {
+      try {
+        const result = await this.cleanupExpiredLiveQueryConnections({
+          deploymentId: deployment.deploymentId,
+          projectId: deployment.projectId,
+          expiredAt,
+        });
+        cleaned += 1;
+        deleted += result.deleted;
+        deletedConnections += result.deletedConnections;
+      } catch (error) {
+        failed.push({
+          deploymentId: deployment.deploymentId,
+          status: error instanceof HttpError ? error.status : 500,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      deployments: candidates.deployments.length,
+      cleaned,
+      deleted,
+      deletedConnections,
+      failed,
+      nextCursor: candidates.nextCursor,
+      hasMore: candidates.hasMore,
     };
   }
 
@@ -497,6 +581,24 @@ export class SchedulerDO extends DurableObject<Env> {
     );
   }
 
+  private async expiredConnectionDeployments(
+    body: Record<string, unknown>,
+  ): Promise<ExpiredConnectionDeploymentsResult> {
+    const response = await this.executorFetch(
+      "/maintenance/live-queries/expired-connection-deployments",
+      body,
+    );
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Live query connection cleanup deployment scan failed with status ${response.status}.`,
+      );
+    }
+    return expiredConnectionDeploymentsResultFromUnknown(
+      await response.json().catch(() => null),
+    );
+  }
+
   private async deadLetterStuckLiveQueryDeliveries(
     body: Record<string, unknown>,
   ): Promise<ExecutorDeadLetterStuckResult> {
@@ -620,6 +722,34 @@ function pendingDeploymentsResultFromUnknown(
   };
 }
 
+function reconcileConnectionsRequestFromBody(value: unknown): {
+  expiredAt?: string;
+  limit?: number;
+  cursor?: ExpiredConnectionDeploymentCursor;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query connection reconcile request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    ...(body.expiredAt === undefined
+      ? {}
+      : { expiredAt: dateStringFromRequest(body.expiredAt, "expiredAt") }),
+    ...(body.limit === undefined
+      ? {}
+      : {
+          limit: optionalPositiveInteger(
+            body.limit,
+            DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT,
+            "limit",
+          ),
+        }),
+    ...(body.cursor === undefined
+      ? {}
+      : { cursor: expiredConnectionCursorFromRequest(body.cursor) }),
+  };
+}
+
 function rerunRequestFromBody(value: unknown): {
   deploymentId: string;
   projectId?: string;
@@ -733,6 +863,91 @@ function pendingCursorFromUnknown(value: unknown): PendingDeploymentCursor | nul
     oldestCreatedAt: stringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt"),
     deploymentId: stringFromUnknown(record.deploymentId, "nextCursor.deploymentId"),
   };
+}
+
+function expiredConnectionDeploymentsResultFromUnknown(
+  value: unknown,
+): ExpiredConnectionDeploymentsResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, "Expired connection deployments response must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.deployments)) {
+    throw new HttpError(502, "Expired connection deployments response.deployments must be an array.");
+  }
+  return {
+    deployments: record.deployments.map((deployment, index) =>
+      expiredConnectionDeploymentFromUnknown(deployment, `deployments[${index}]`),
+    ),
+    nextCursor: expiredConnectionCursorOrNullFromUnknown(record.nextCursor),
+    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
+  };
+}
+
+function expiredConnectionDeploymentFromUnknown(
+  value: unknown,
+  path: string,
+): ExpiredConnectionDeployment {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, `${path} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
+    projectId: stringFromUnknown(record.projectId, `${path}.projectId`),
+    oldestExpiredAt: dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`),
+    expiredConnections: nonNegativeIntegerFromUnknown(
+      record.expiredConnections,
+      `${path}.expiredConnections`,
+    ),
+  };
+}
+
+function expiredConnectionCursorOrNullFromUnknown(
+  value: unknown,
+): ExpiredConnectionDeploymentCursor | null {
+  if (value === null) return null;
+  return expiredConnectionCursorFromUnknown(value, "nextCursor");
+}
+
+function expiredConnectionCursorFromRequest(
+  value: unknown,
+): ExpiredConnectionDeploymentCursor {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "cursor must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    oldestExpiredAt: dateStringFromRequest(
+      record.oldestExpiredAt,
+      "cursor.oldestExpiredAt",
+    ),
+    deploymentId: nonEmptyStringFromRequest(
+      record.deploymentId,
+      "cursor.deploymentId",
+    ),
+  };
+}
+
+function expiredConnectionCursorFromUnknown(
+  value: unknown,
+  path: string,
+): ExpiredConnectionDeploymentCursor {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, `${path} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    oldestExpiredAt: dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`),
+    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
+  };
+}
+
+function dateStringFromUnknown(value: unknown, field: string): string {
+  const text = stringFromUnknown(value, field);
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  throw new HttpError(502, `${field} must be an ISO date string.`);
 }
 
 function stringFromUnknown(value: unknown, field: string): string {

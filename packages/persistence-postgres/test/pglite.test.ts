@@ -2618,6 +2618,128 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({ rows: [{ count: 1 }] });
   });
 
+  it("lists deployments with expired live query connection leases", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_expired_a",
+      projectId: "project_a",
+    });
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_expired_b",
+      projectId: "project_b",
+    });
+
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_expired_a",
+      connectionId: "connection_expired_a",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:00:10.000Z"),
+    });
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_expired_b",
+      connectionId: "connection_closed_b",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:05:00.000Z"),
+    });
+    await persistence.closeLiveQueryConnection({
+      deploymentId: "deployment_expired_b",
+      connectionId: "connection_closed_b",
+      closedAt: new Date("2026-06-20T00:00:20.000Z"),
+    });
+    await persistence.upsertLiveQueryConnectionLease({
+      deploymentId: "deployment_expired_b",
+      connectionId: "connection_active_b",
+      lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+      expiresAt: new Date("2026-06-20T00:05:00.000Z"),
+    });
+
+    const first = await persistence.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:01:00.000Z"),
+      limit: 1,
+    });
+    expect(first).toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_expired_a",
+          projectId: "project_a",
+          oldestExpiredAt: new Date("2026-06-20T00:00:10.000Z"),
+          expiredConnections: 1,
+        },
+      ],
+      hasMore: true,
+    });
+
+    expect(first.nextCursor).not.toBeNull();
+    const nextCursor = first.nextCursor;
+    if (nextCursor === null) {
+      throw new Error("Expected expired connection deployment scan to return a cursor.");
+    }
+
+    await expect(
+      persistence.listExpiredLiveQueryConnectionDeployments({
+        expiredAt: new Date("2026-06-20T00:01:00.000Z"),
+        cursor: nextCursor,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_expired_b",
+          projectId: "project_b",
+          oldestExpiredAt: new Date("2026-06-20T00:00:20.000Z"),
+          expiredConnections: 1,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it("uses deployment id as expired live query connection deployment cursor tie breaker", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_tie_a",
+      projectId: "project_a",
+    });
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_tie_b",
+      projectId: "project_b",
+    });
+    for (const deploymentId of ["deployment_tie_a", "deployment_tie_b"]) {
+      await persistence.upsertLiveQueryConnectionLease({
+        deploymentId,
+        connectionId: "connection_tie",
+        lastSeenAt: new Date("2026-06-20T00:00:00.000Z"),
+        expiresAt: new Date("2026-06-20T00:00:10.000Z"),
+      });
+    }
+
+    const first = await persistence.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:01:00.000Z"),
+      limit: 1,
+    });
+    expect(first.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_tie_a",
+    ]);
+    expect(first.nextCursor).not.toBeNull();
+    const nextCursor = first.nextCursor;
+    if (nextCursor === null) {
+      throw new Error("Expected tied expired connection deployment scan to return a cursor.");
+    }
+
+    const second = await persistence.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:01:00.000Z"),
+      cursor: nextCursor,
+      limit: 1,
+    });
+    expect(second.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_tie_b",
+    ]);
+    expect(second.hasMore).toBe(false);
+  });
+
   it("replaces and deletes live query subscriptions by key", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

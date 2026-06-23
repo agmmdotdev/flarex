@@ -30,6 +30,9 @@ import type {
   InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
   DeleteLiveQuerySubscriptionResult,
+  ListExpiredLiveQueryConnectionDeploymentsResult,
+  ExpiredLiveQueryConnectionDeploymentCursor,
+  ListExpiredLiveQueryConnectionDeploymentsInput as PersistenceListExpiredLiveQueryConnectionDeploymentsInput,
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
   ListLiveQuerySubscriptionsInput,
@@ -92,6 +95,8 @@ export type {
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
   DeleteExpiredLiveQuerySubscriptionsResult,
+  ListExpiredLiveQueryConnectionDeploymentsResult,
+  ExpiredLiveQueryConnectionDeploymentCursor,
   LiveQueryDeliveryCursor,
   LiveQueryDeliveryRecord,
   OutboxEventCursor,
@@ -213,6 +218,9 @@ export interface FlarexExecutor {
   removeExpiredLiveQuerySubscriptions(
     input: RemoveExpiredLiveQuerySubscriptionsInput,
   ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;
+  listExpiredLiveQueryConnectionDeployments(
+    input: ListExpiredLiveQueryConnectionDeploymentsInput,
+  ): Promise<ListExpiredLiveQueryConnectionDeploymentsResult>;
   findStaleLiveQuerySubscriptions(
     input: FindStaleLiveQuerySubscriptionsInput,
   ): Promise<FindStaleLiveQuerySubscriptionsResult>;
@@ -361,6 +369,9 @@ export interface FlarexExecutorPersistence {
   deleteExpiredLiveQuerySubscriptions(
     input: DeleteExpiredLiveQuerySubscriptionsInput,
   ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;
+  listExpiredLiveQueryConnectionDeployments(
+    input: PersistenceListExpiredLiveQueryConnectionDeploymentsInput,
+  ): Promise<ListExpiredLiveQueryConnectionDeploymentsResult>;
   listUndeliveredLiveQueryDeliveries(
     input: ListUndeliveredLiveQueryDeliveriesInput,
   ): Promise<ListUndeliveredLiveQueryDeliveriesResult>;
@@ -520,6 +531,12 @@ export interface RemoveExpiredLiveQuerySubscriptionsInput {
   deploymentId: string;
   projectId: string;
   expiredAt?: Date;
+}
+
+export interface ListExpiredLiveQueryConnectionDeploymentsInput {
+  expiredAt?: Date;
+  cursor?: ExpiredLiveQueryConnectionDeploymentCursor;
+  limit?: number;
 }
 
 export interface FindStaleLiveQuerySubscriptionsInput {

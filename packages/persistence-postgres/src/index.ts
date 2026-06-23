@@ -78,6 +78,8 @@ import type {
   CloseLiveQueryConnectionInput,
   DeleteExpiredLiveQuerySubscriptionsInput,
   DeleteExpiredLiveQuerySubscriptionsResult,
+  ListExpiredLiveQueryConnectionDeploymentsInput,
+  ListExpiredLiveQueryConnectionDeploymentsResult,
   ListActiveLiveQuerySubscriptionsInput,
   LiveQueryConnectionRecord,
   UpsertLiveQueryConnectionLeaseInput,
@@ -257,6 +259,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   listActiveLiveQuerySubscriptions(
     input: ListActiveLiveQuerySubscriptionsInput,
   ): Promise<LiveQuerySubscriptionRecord[]>;
+  listExpiredLiveQueryConnectionDeployments(
+    input: ListExpiredLiveQueryConnectionDeploymentsInput,
+  ): Promise<ListExpiredLiveQueryConnectionDeploymentsResult>;
   deleteExpiredLiveQuerySubscriptions(
     input: DeleteExpiredLiveQuerySubscriptionsInput,
   ): Promise<DeleteExpiredLiveQuerySubscriptionsResult>;

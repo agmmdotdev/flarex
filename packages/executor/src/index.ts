@@ -26,6 +26,7 @@ import {
 import {
   findStaleLiveQuerySubscriptions,
   fingerprintJson,
+  listExpiredLiveQueryConnectionDeployments,
   recordLiveQuerySubscription,
   removeExpiredLiveQuerySubscriptions,
   removeLiveQuerySubscription,
@@ -143,6 +144,8 @@ export type {
   Json,
   ListOutboxEventsResult,
   ListUndeliveredOutboxEventsInput,
+  ListExpiredLiveQueryConnectionDeploymentsInput,
+  ListExpiredLiveQueryConnectionDeploymentsResult,
   ListPendingLiveQueryDeliveryDeploymentsInput,
   ListPendingLiveQueryDeliveryDeploymentsResult,
   ListStuckLiveQueryDeliveriesInput,
@@ -267,6 +270,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       removeLiveQuerySubscriptionsForConnection(persistence, clock, input),
     removeExpiredLiveQuerySubscriptions: (input) =>
       removeExpiredLiveQuerySubscriptions(persistence, clock, input),
+    listExpiredLiveQueryConnectionDeployments: (input) =>
+      listExpiredLiveQueryConnectionDeployments(persistence, clock, input),
     findStaleLiveQuerySubscriptions: (input) =>
       findStaleLiveQuerySubscriptions(persistence, clock, input),
     rerunLiveQuerySubscription: (input) =>

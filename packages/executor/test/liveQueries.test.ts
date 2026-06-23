@@ -466,6 +466,141 @@ describe("executor live query subscriptions", () => {
     ]);
   });
 
+  it("lists deployments with expired live query connections for cleanup", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_cleanup_a",
+      connectionId: "connection_expired_a",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+      resultJson: "expired_a",
+      updatedAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_cleanup_b",
+      connectionId: "connection_expired_b",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:other" }] },
+      resultJson: "expired_b",
+      updatedAt: new Date("2026-06-20T00:01:00.000Z"),
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_cleanup_b",
+      connectionId: "connection_active_b",
+      queryId: 2,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSet: { documents: [{ tableId: 1, id: "1:active" }] },
+      resultJson: "active_b",
+      updatedAt: new Date("2026-06-20T00:04:00.000Z"),
+    });
+
+    const page = await executor.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:02:30.000Z"),
+      limit: 1,
+    });
+    expect(page).toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_cleanup_a",
+          projectId: "project_live_query",
+          oldestExpiredAt: new Date("2026-06-20T00:01:00.000Z"),
+          expiredConnections: 1,
+        },
+      ],
+      hasMore: true,
+    });
+
+    expect(page.nextCursor).not.toBeNull();
+    const nextCursor = page.nextCursor;
+    if (nextCursor === null) {
+      throw new Error("Expected expired connection scan to return a cursor.");
+    }
+
+    await expect(
+      executor.listExpiredLiveQueryConnectionDeployments({
+        expiredAt: new Date("2026-06-20T00:02:30.000Z"),
+        cursor: nextCursor,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deployments: [
+        {
+          deploymentId: "deployment_cleanup_b",
+          projectId: "project_live_query",
+          oldestExpiredAt: new Date("2026-06-20T00:02:00.000Z"),
+          expiredConnections: 1,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it("uses deployment id as the expired connection scan cursor tie breaker", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+
+    for (const deploymentId of ["deployment_tie_a", "deployment_tie_b"]) {
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_live_query",
+      });
+      await executor.recordLiveQuerySubscription({
+        deploymentId,
+        connectionId: "connection_tie",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 10,
+        readSet: { documents: [{ tableId: 1, id: `1:${deploymentId}` }] },
+        resultJson: deploymentId,
+        updatedAt: new Date("2026-06-20T00:01:00.000Z"),
+      });
+    }
+
+    const first = await executor.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:02:00.000Z"),
+      limit: 1,
+    });
+    expect(first.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_tie_a",
+    ]);
+    expect(first.nextCursor).not.toBeNull();
+    const nextCursor = first.nextCursor;
+    if (nextCursor === null) {
+      throw new Error("Expected tied expired connection scan to return a cursor.");
+    }
+
+    const second = await executor.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: new Date("2026-06-20T00:02:00.000Z"),
+      cursor: nextCursor,
+      limit: 1,
+    });
+    expect(second.deployments.map((deployment) => deployment.deploymentId)).toEqual([
+      "deployment_tie_b",
+    ]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it("validates expired live query connection deployment scan limits", async () => {
+    const executor = createLiveQueryExecutor({ persistence: memoryPersistence() });
+
+    await expect(
+      executor.listExpiredLiveQueryConnectionDeployments({
+        limit: 0,
+      }),
+    ).rejects.toThrow(LiveQueryDeliveryPolicyError);
+  });
+
   it("reruns a live query subscription and reports changed results", async () => {
     const persistence = memoryPersistence();
     const executor = createLiveQueryExecutor({ persistence });

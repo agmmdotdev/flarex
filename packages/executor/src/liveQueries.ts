@@ -10,6 +10,7 @@ import type { FreshnessReadSet } from "@flarex/freshness";
 import {
   DeploymentNotFoundError,
   DeploymentProjectMismatchError,
+  LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
 } from "./errors";
 import { ensureDeployment } from "./deployments";
@@ -22,6 +23,8 @@ import type {
   FlarexExecutorPersistence,
   IdGenerator,
   Json,
+  ListExpiredLiveQueryConnectionDeploymentsInput,
+  ListExpiredLiveQueryConnectionDeploymentsResult,
   LiveQueryChange,
   RecordLiveQuerySubscriptionInput,
   RecordLiveQuerySubscriptionResult,
@@ -39,6 +42,7 @@ import type {
 } from "./types";
 
 const DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS = 60_000;
+const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_LIMIT = 100;
 
 export async function touchLiveQueryConnection(
   persistence: FlarexExecutorPersistence,
@@ -147,11 +151,30 @@ export async function removeExpiredLiveQuerySubscriptions(
   });
 }
 
+export async function listExpiredLiveQueryConnectionDeployments(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  input: ListExpiredLiveQueryConnectionDeploymentsInput,
+): Promise<ListExpiredLiveQueryConnectionDeploymentsResult> {
+  const limit = liveQueryConnectionCleanupLimit(input.limit);
+  return await persistence.listExpiredLiveQueryConnectionDeployments({
+    expiredAt: input.expiredAt ?? clock.now(),
+    limit,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+  });
+}
+
 async function assertLiveQueryDeploymentProject(
   persistence: FlarexExecutorPersistence,
   input: { deploymentId: string; projectId: string },
 ): Promise<void> {
   await ensureDeployment(persistence, input);
+}
+
+function liveQueryConnectionCleanupLimit(limit: number | undefined): number {
+  if (limit === undefined) return DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_LIMIT;
+  if (Number.isInteger(limit) && limit > 0) return limit;
+  throw new LiveQueryDeliveryPolicyError("limit must be a positive integer.");
 }
 
 export async function findStaleLiveQuerySubscriptions(

@@ -1,9 +1,14 @@
 import { schedulerObjectName } from "./routing";
 
-export const LIVE_QUERY_SCHEDULER_NAME = schedulerObjectName("live-query-deliveries");
+const LIVE_QUERY_SCHEDULER_COMPATIBILITY_ID = "live-query-deliveries";
+
+export const LIVE_QUERY_SCHEDULER_NAME = schedulerObjectName(
+  LIVE_QUERY_SCHEDULER_COMPATIBILITY_ID,
+);
 
 export const LIVE_QUERY_SCHEDULER_INTERNAL_PATHS = {
   reconcileDeliveries: "/reconcile/live-query-deliveries",
+  reconcileConnections: "/reconcile/live-query-connections",
   deadLetterDeliveries: "/dead-letter/live-query-deliveries",
   cleanupConnections: "/cleanup/live-query-connections",
   rerunSubscriptions: "/rerun/live-query-subscriptions",

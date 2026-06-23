@@ -2699,3 +2699,115 @@ corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTi
 corepack pnpm --filter flarex-backend build
 git diff --check
 ```
+
+## Connection Cleanup Reconcile Owner
+
+Previous completed checkpoint: `7ae8a7b` Wire live query connection cleanup
+scheduler.
+
+What changed:
+
+- Added the executor/persistence candidate scan for expired connection cleanup:
+  `listExpiredLiveQueryConnectionDeployments(...)`.
+- Added HTTP adapter route:
+  `POST /maintenance/live-queries/expired-connection-deployments`.
+- The candidate scan returns deployment/project pairs, oldest expired lease
+  timestamp, expired connection counts, cursor, and `hasMore`.
+- Added Cloudflare Worker trigger route:
+  `POST /scheduler/live-query-connections/reconcile`.
+- Added internal `SchedulerDO` route:
+  `POST /reconcile/live-query-connections`.
+- The Cloudflare scheduled handler now triggers both delivery reconciliation
+  and expired connection cleanup reconciliation.
+- `SchedulerDO` now:
+  - asks the executor for expired connection cleanup candidates,
+  - calls the existing per-deployment cleanup route for each candidate,
+  - aggregates deleted subscription/connection counters,
+  - reports per-deployment failures without failing the whole batch, and
+  - returns `nextCursor`/`hasMore` for platform continuation.
+- Added PGlite, executor, HTTP adapter, and Miniflare coverage for the new
+  candidate scan and reconcile route.
+- Added request validation coverage for invalid scan limits, malformed scan
+  cursors, and malformed Cloudflare reconcile cursors so bad caller input fails
+  with 400 before reaching the executor.
+- Kept the singleton Cloudflare scheduler object at the existing
+  `scheduler:live-query-deliveries` compatibility name so any stored alarm or
+  rerun state is not orphaned, while documenting that the object is now the
+  broader live-query maintenance owner.
+- Tightened scheduler/executor response parsing so expired-connection scan
+  timestamps are validated and canonicalized as ISO timestamps; bad executor
+  output fails as a 502 protocol error.
+- Renamed HTTP adapter internals from "connection cleanup deployments" to
+  "expired connection deployments" so scan ownership stays separate from the
+  per-deployment delete route.
+- Added cursor tie-breaker coverage for equal `oldestExpiredAt` timestamps in
+  both the memory executor test lane and the PGlite persistence lane.
+- Added a connection-specific deployment scan default so expired connection
+  scanning does not reuse delivery-pending naming by accident.
+
+Why it changed:
+
+```txt
+Cloudflare cron / platform trigger
+  -> SchedulerDO reconcile live-query connections
+  -> executor lists deployments with expired connection leases
+  -> SchedulerDO calls per-deployment cleanup
+  -> executor validates deployment/project ownership
+  -> Postgres deletes expired lease rows and dependent subscriptions
+```
+
+This makes abandoned WebSocket subscription cleanup operational instead of only
+manually callable. Vercel/Nitro still does not run a loop; Cloudflare owns the
+maintenance trigger, while the trusted executor owns row selection and deletion.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps active subscription lifecycle and sync worker cleanup inside
+    the backend worker runtime.
+- `crates/sync/src/state.rs`
+  - active query-set state is part of the backend sync state machine.
+
+Flarex differences:
+
+- Convex does not need a public deployment-candidate scan because live sync
+  state is in-process backend state.
+- Flarex stores live-query subscription state durably in Postgres and owns
+  WebSocket sessions in Cloudflare, so the cleanup owner must be explicit:
+  Cloudflare schedules, executor scans/deletes, Postgres remains authoritative.
+- The scheduler uses at-least-once maintenance semantics. Repeated cleanup is
+  safe because the executor route is idempotent over already-deleted leases.
+- The singleton Cloudflare DO still uses the historical delivery-shaped storage
+  name for compatibility, but its responsibility is now maintenance-scoped:
+  delivery reconciliation, delivery dead-lettering, and expired connection
+  reconciliation.
+
+Known limitations:
+
+- The scheduled handler currently sends one default reconcile request. A future
+  platform scheduler should persist `nextCursor`/`hasMore` continuation state or
+  enqueue follow-up work for very large installations.
+- Candidate scanning is deployment-level only; it does not yet prioritize by
+  project, region, or customer plan.
+- Metrics are still response counters, not a durable metrics sink.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=30000
+corepack pnpm --filter @flarex/executor-nitro exec vitest run test/health.test.ts --testTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+git diff --check
+```

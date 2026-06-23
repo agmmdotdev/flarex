@@ -283,6 +283,9 @@ export function healthyPersistence(): FlarexExecutorPersistence {
     async deleteExpiredLiveQuerySubscriptions() {
       return { deleted: 0, deletedConnections: 0 };
     },
+    async listExpiredLiveQueryConnectionDeployments() {
+      return { deployments: [], nextCursor: null, hasMore: false };
+    },
     async listUndeliveredLiveQueryDeliveries() {
       return { deliveries: [], nextCursor: null, hasMore: false };
     },
@@ -435,6 +438,11 @@ export function fakeExecutor(
     async removeExpiredLiveQuerySubscriptions() {
       throw new Error(
         "removeExpiredLiveQuerySubscriptions is not implemented by test fake",
+      );
+    },
+    async listExpiredLiveQueryConnectionDeployments() {
+      throw new Error(
+        "listExpiredLiveQueryConnectionDeployments is not implemented by test fake",
       );
     },
     async findStaleLiveQuerySubscriptions() {

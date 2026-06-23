@@ -1,8 +1,9 @@
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
+  deployments,
   liveQueryConnections,
   liveQuerySubscriptions,
 } from "./schema";
@@ -50,6 +51,30 @@ export interface DeleteExpiredLiveQuerySubscriptionsInput {
 export interface DeleteExpiredLiveQuerySubscriptionsResult
   extends DeleteLiveQuerySubscriptionResult {
   deletedConnections: number;
+}
+
+export interface ExpiredLiveQueryConnectionDeploymentCursor {
+  oldestExpiredAt: Date;
+  deploymentId: string;
+}
+
+export interface ExpiredLiveQueryConnectionDeployment {
+  deploymentId: string;
+  projectId: string;
+  oldestExpiredAt: Date;
+  expiredConnections: number;
+}
+
+export interface ListExpiredLiveQueryConnectionDeploymentsInput {
+  expiredAt: Date;
+  cursor?: ExpiredLiveQueryConnectionDeploymentCursor;
+  limit: number;
+}
+
+export interface ListExpiredLiveQueryConnectionDeploymentsResult {
+  deployments: ExpiredLiveQueryConnectionDeployment[];
+  nextCursor: ExpiredLiveQueryConnectionDeploymentCursor | null;
+  hasMore: boolean;
 }
 
 export type LiveQueryConnectionRecord =
@@ -205,10 +230,89 @@ export async function deleteExpiredLiveQuerySubscriptions(
   };
 }
 
+export async function listExpiredLiveQueryConnectionDeployments(
+  db: FlarexMetadataDatabase,
+  input: ListExpiredLiveQueryConnectionDeploymentsInput,
+): Promise<ListExpiredLiveQueryConnectionDeploymentsResult> {
+  const oldestExpiredAt = sql<Date>`min(least(
+    ${liveQueryConnections.expiresAt},
+    coalesce(${liveQueryConnections.closedAt}, ${liveQueryConnections.expiresAt})
+  ))`;
+  const expiredConnections = count();
+  const cursorFilter =
+    input.cursor === undefined
+      ? undefined
+      : or(
+          gt(oldestExpiredAt, input.cursor.oldestExpiredAt),
+          and(
+            eq(oldestExpiredAt, input.cursor.oldestExpiredAt),
+            gt(liveQueryConnections.deploymentId, input.cursor.deploymentId),
+          ),
+        );
+
+  const rows = await db
+    .select({
+      deploymentId: liveQueryConnections.deploymentId,
+      projectId: deployments.projectId,
+      oldestExpiredAt,
+      expiredConnections,
+    })
+    .from(liveQueryConnections)
+    .innerJoin(
+      deployments,
+      eq(deployments.deploymentId, liveQueryConnections.deploymentId),
+    )
+    .where(
+      or(
+        lte(liveQueryConnections.expiresAt, input.expiredAt),
+        lte(liveQueryConnections.closedAt, input.expiredAt),
+      ),
+    )
+    .groupBy(liveQueryConnections.deploymentId, deployments.projectId)
+    .having(cursorFilter)
+    .orderBy(asc(oldestExpiredAt), asc(liveQueryConnections.deploymentId))
+    .limit(input.limit + 1);
+
+  const hasMore = rows.length > input.limit;
+  const page = rows.slice(0, input.limit).map((row) => {
+    const oldestExpiredAt = dateField(
+      row.oldestExpiredAt,
+      `oldestExpiredAt for ${row.deploymentId}`,
+    );
+    return {
+      deploymentId: row.deploymentId,
+      projectId: row.projectId,
+      oldestExpiredAt,
+      expiredConnections: row.expiredConnections,
+    };
+  });
+  const last = page.at(-1);
+  return {
+    deployments: page,
+    nextCursor:
+      hasMore && last !== undefined
+        ? {
+            oldestExpiredAt: last.oldestExpiredAt,
+            deploymentId: last.deploymentId,
+          }
+        : null,
+    hasMore,
+  };
+}
+
 function numberField(
   row: Record<string, unknown> | undefined,
   field: string,
 ): number {
   const value = row?.[field];
   return typeof value === "number" ? value : 0;
+}
+
+function dateField(value: unknown, field: string): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  throw new Error(`${field} must be a Date.`);
 }

@@ -78,6 +78,7 @@ import {
   closeLiveQueryConnection as closeLiveQueryConnectionWithDb,
   deleteExpiredLiveQuerySubscriptions as deleteExpiredLiveQuerySubscriptionsWithDb,
   listActiveLiveQuerySubscriptions as listActiveLiveQuerySubscriptionsWithDb,
+  listExpiredLiveQueryConnectionDeployments as listExpiredLiveQueryConnectionDeploymentsWithDb,
   upsertLiveQueryConnectionLease as upsertLiveQueryConnectionLeaseWithDb,
   upsertLiveQuerySubscriptionWithLease as upsertLiveQuerySubscriptionWithLeaseWithDb,
 } from "./liveQueryConnections";
@@ -251,6 +252,8 @@ export async function createPGlitePersistence(
       listLiveQuerySubscriptionsWithDb(drizzleDb, input),
     listActiveLiveQuerySubscriptions: (input) =>
       listActiveLiveQuerySubscriptionsWithDb(drizzleDb, input),
+    listExpiredLiveQueryConnectionDeployments: (input) =>
+      listExpiredLiveQueryConnectionDeploymentsWithDb(drizzleDb, input),
     deleteExpiredLiveQuerySubscriptions: (input) =>
       drizzleDb.transaction((tx) =>
         deleteExpiredLiveQuerySubscriptionsWithDb(tx, input),

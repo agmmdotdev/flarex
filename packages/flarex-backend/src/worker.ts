@@ -79,6 +79,15 @@ export default {
           body: JSON.stringify({}),
         }),
     );
+    ctx.waitUntil(
+      env.SCHEDULERS
+        .getByName(LIVE_QUERY_SCHEDULER_NAME)
+        .fetch(`https://flarex.internal${LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+    );
   },
 } satisfies ExportedHandler<Env>;
 
@@ -109,6 +118,17 @@ async function route(request: Request, env: Env): Promise<Response> {
       request,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries,
+    );
+  }
+
+  if (
+    url.pathname === "/scheduler/live-query-connections/reconcile" &&
+    request.method === "POST"
+  ) {
+    return forwardLiveQuerySchedulerRequest(
+      request,
+      env,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections,
     );
   }
 
