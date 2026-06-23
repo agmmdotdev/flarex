@@ -63,6 +63,14 @@ type ReconcileConnectionCleanupResult = {
   hasMore: boolean;
 };
 
+type PendingLiveQueryConnectionCleanup = {
+  expiredAt: string;
+  limit: number;
+  cursor: ExpiredConnectionDeploymentCursor;
+  retryAttempt: number;
+  nextRunAt: string;
+};
+
 type RerunLiveQuerySubscriptionsRequest = {
   deploymentId?: string;
   projectId?: string;
@@ -78,6 +86,7 @@ type PendingLiveQueryRerun = {
   deliveryLimit: number;
   maxBatches: number;
   retryAttempt: number;
+  nextRunAt?: string;
 };
 
 type ExecutorLiveQueryRerunResult = {
@@ -157,12 +166,23 @@ const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
 const DEFAULT_MIN_ATTEMPTS = 3;
 const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
 const PENDING_RERUN_KEY = "pendingLiveQueryRerun";
+const PENDING_CONNECTION_CLEANUP_KEY = "pendingLiveQueryConnectionCleanup";
+const CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS = 100;
+const CONNECTION_CLEANUP_RETRY_ALARM_BASE_DELAY_MS = 250;
+const CONNECTION_CLEANUP_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 const CONTINUE_RERUN_ALARM_DELAY_MS = 100;
 const RERUN_RETRY_ALARM_BASE_DELAY_MS = 250;
 const RERUN_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 
 export class SchedulerDO extends DurableObject<Env> {
   private rerunInFlight: Promise<RerunResult> | undefined;
+  private readonly connectionCleanupInFlight = new Map<
+    string,
+    Promise<ReconcileConnectionCleanupResult>
+  >();
+  private freshConnectionCleanupInFlight:
+    | Promise<ReconcileConnectionCleanupResult>
+    | undefined;
 
   async fetch(request: Request): Promise<Response> {
     try {
@@ -223,6 +243,12 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(await this.continuePendingLiveQueryRerun());
       }
+      if (
+        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueConnectionCleanup &&
+        request.method === "POST"
+      ) {
+        return json(await this.continuePendingLiveQueryConnectionCleanup());
+      }
       return json({ service: "flarex-scheduler", status: "ok" });
     } catch (error) {
       return errorResponse(error);
@@ -230,11 +256,11 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    try {
-      await this.continuePendingLiveQueryRerun();
-    } catch {
-      // Retry state is persisted by continuePendingLiveQueryRerun().
-    }
+    const now = Date.now();
+    await Promise.allSettled([
+      this.continuePendingLiveQueryRerun({ respectNextRunAt: true, now }),
+      this.continuePendingLiveQueryConnectionCleanup({ respectNextRunAt: true, now }),
+    ]);
   }
 
   private async reconcileLiveQueryDeliveries(
@@ -294,11 +320,113 @@ export class SchedulerDO extends DurableObject<Env> {
     body: unknown,
   ): Promise<ReconcileConnectionCleanupResult> {
     const request = reconcileConnectionsRequestFromBody(body);
+    if (request.cursor === undefined) {
+      const pending = await this.readPendingLiveQueryConnectionCleanup();
+      if (pending !== undefined) {
+        if (!continuationIsDue(pending, Date.now())) {
+          return pendingConnectionCleanupResult(pending);
+        }
+        return this.runAndPersistConnectionCleanup(pending);
+      }
+      if (this.freshConnectionCleanupInFlight !== undefined) {
+        return this.freshConnectionCleanupInFlight;
+      }
+    }
     const expiredAt = request.expiredAt ?? new Date().toISOString();
-    const candidates = await this.expiredConnectionDeployments({
+    const limit = request.limit ?? DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT;
+    const cleanup = this.runAndPersistConnectionCleanup({
       expiredAt,
-      limit: request.limit,
+      limit,
+      retryAttempt: 0,
       ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+    }, { persistContinuation: request.cursor === undefined });
+    if (request.cursor === undefined) {
+      this.freshConnectionCleanupInFlight = cleanup.finally(() => {
+        this.freshConnectionCleanupInFlight = undefined;
+      });
+      return this.freshConnectionCleanupInFlight;
+    }
+    return cleanup;
+  }
+
+  private async continuePendingLiveQueryConnectionCleanup(): Promise<
+    ReconcileConnectionCleanupResult | { skipped: true }
+  >;
+  private async continuePendingLiveQueryConnectionCleanup(options: {
+    respectNextRunAt: true;
+    now: number;
+  }): Promise<ReconcileConnectionCleanupResult | { skipped: true }>;
+  private async continuePendingLiveQueryConnectionCleanup(options?: {
+    respectNextRunAt?: boolean;
+    now?: number;
+  }): Promise<ReconcileConnectionCleanupResult | { skipped: true }> {
+    const pending = await this.readPendingLiveQueryConnectionCleanup();
+    if (pending === undefined) return { skipped: true };
+    if (
+      options?.respectNextRunAt === true &&
+      !continuationIsDue(pending, options.now ?? Date.now())
+    ) {
+      await this.refreshContinuationAlarm();
+      return { skipped: true };
+    }
+    return this.runAndPersistConnectionCleanup(pending);
+  }
+
+  private async readPendingLiveQueryConnectionCleanup(): Promise<
+    PendingLiveQueryConnectionCleanup | undefined
+  > {
+    const value = await this.ctx.storage.get<unknown>(
+      PENDING_CONNECTION_CLEANUP_KEY,
+    );
+    if (value === undefined) return undefined;
+    return pendingConnectionCleanupFromStorage(value);
+  }
+
+  private async runAndPersistConnectionCleanup(
+    pending: {
+      expiredAt: string;
+      limit: number;
+      retryAttempt: number;
+      cursor?: ExpiredConnectionDeploymentCursor;
+    },
+    options: { persistContinuation: boolean } = { persistContinuation: true },
+  ): Promise<ReconcileConnectionCleanupResult> {
+    const key = connectionCleanupInFlightKey(pending);
+    const existing = this.connectionCleanupInFlight.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const cleanup = this.runConnectionCleanup(pending)
+      .then(async result => {
+        if (options.persistContinuation) {
+          await this.persistConnectionCleanupContinuation(pending, result);
+        }
+        return result;
+      })
+      .catch(async error => {
+        if (options.persistContinuation && pending.cursor !== undefined) {
+          await this.scheduleConnectionCleanupRetry(pending);
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.connectionCleanupInFlight.delete(key);
+      });
+    this.connectionCleanupInFlight.set(key, cleanup);
+    return cleanup;
+  }
+
+  private async runConnectionCleanup(
+    pending: {
+      expiredAt: string;
+      limit: number;
+      cursor?: ExpiredConnectionDeploymentCursor;
+    },
+  ): Promise<ReconcileConnectionCleanupResult> {
+    const candidates = await this.expiredConnectionDeployments({
+      expiredAt: pending.expiredAt,
+      limit: pending.limit,
+      ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
     });
     const failed: ReconcileConnectionCleanupResult["failed"] = [];
     let cleaned = 0;
@@ -310,7 +438,7 @@ export class SchedulerDO extends DurableObject<Env> {
         const result = await this.cleanupExpiredLiveQueryConnections({
           deploymentId: deployment.deploymentId,
           projectId: deployment.projectId,
-          expiredAt,
+          expiredAt: pending.expiredAt,
         });
         cleaned += 1;
         deleted += result.deleted;
@@ -335,17 +463,94 @@ export class SchedulerDO extends DurableObject<Env> {
     };
   }
 
+  private async persistConnectionCleanupContinuation(
+    pending: {
+      expiredAt: string;
+      limit: number;
+      retryAttempt: number;
+      cursor?: ExpiredConnectionDeploymentCursor;
+    },
+    result: ReconcileConnectionCleanupResult,
+  ): Promise<void> {
+    if (!result.hasMore) {
+      await this.ctx.storage.delete(PENDING_CONNECTION_CLEANUP_KEY);
+      await this.refreshContinuationAlarm();
+      return;
+    }
+    if (result.nextCursor === null) {
+      throw new HttpError(
+        502,
+        "Expired connection deployment scan returned hasMore without nextCursor.",
+      );
+    }
+    const nextRunAt = new Date(
+      Date.now() + CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS,
+    ).toISOString();
+    await this.ctx.storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
+      expiredAt: pending.expiredAt,
+      limit: pending.limit,
+      cursor: result.nextCursor,
+      retryAttempt: 0,
+      nextRunAt,
+    } satisfies PendingLiveQueryConnectionCleanup);
+    await this.refreshContinuationAlarm();
+  }
+
+  private async scheduleConnectionCleanupRetry(
+    pending: {
+      expiredAt: string;
+      limit: number;
+      retryAttempt: number;
+      cursor?: ExpiredConnectionDeploymentCursor;
+    },
+  ): Promise<void> {
+    if (pending.cursor === undefined) return;
+    const retryAttempt = pending.retryAttempt + 1;
+    const nextRunAt = new Date(
+      Date.now() + connectionCleanupRetryDelayMs(retryAttempt),
+    ).toISOString();
+    await this.ctx.storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
+      expiredAt: pending.expiredAt,
+      limit: pending.limit,
+      cursor: pending.cursor,
+      retryAttempt,
+      nextRunAt,
+    } satisfies PendingLiveQueryConnectionCleanup);
+    await this.refreshContinuationAlarm();
+  }
+
   private async rerunLiveQuerySubscriptions(body: unknown): Promise<RerunResult> {
     const request = rerunRequestFromBody(body);
     return this.runAndPersistLiveQueryRerun(pendingRerunFromRequest(request));
   }
 
-  private async continuePendingLiveQueryRerun(): Promise<RerunResult | { skipped: true }> {
-    const pending = await this.ctx.storage.get<PendingLiveQueryRerun>(
-      PENDING_RERUN_KEY,
-    );
+  private async continuePendingLiveQueryRerun(): Promise<RerunResult | { skipped: true }>;
+  private async continuePendingLiveQueryRerun(options: {
+    respectNextRunAt: true;
+    now: number;
+  }): Promise<RerunResult | { skipped: true }>;
+  private async continuePendingLiveQueryRerun(options?: {
+    respectNextRunAt?: boolean;
+    now?: number;
+  }): Promise<RerunResult | { skipped: true }> {
+    const pending = await this.readPendingLiveQueryRerun();
     if (pending === undefined) return { skipped: true };
+    if (
+      options?.respectNextRunAt === true &&
+      !continuationIsDue(pending, options.now ?? Date.now())
+    ) {
+      await this.refreshContinuationAlarm();
+      return { skipped: true };
+    }
     return this.runAndPersistLiveQueryRerun(pending);
+  }
+
+  private async readPendingLiveQueryRerun(): Promise<
+    PendingLiveQueryRerun | undefined
+  > {
+    const value = await this.ctx.storage.get<unknown>(PENDING_RERUN_KEY);
+    if (value === undefined) return undefined;
+    return pendingRerunFromStorage(value);
   }
 
   private async runAndPersistLiveQueryRerun(
@@ -413,25 +618,46 @@ export class SchedulerDO extends DurableObject<Env> {
   ): Promise<void> {
     if (!result.hasMoreStale) {
       await this.ctx.storage.delete(PENDING_RERUN_KEY);
-      await this.ctx.storage.deleteAlarm();
+      await this.refreshContinuationAlarm();
       return;
     }
+    const nextRunAt = new Date(Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS).toISOString();
     await this.ctx.storage.put(PENDING_RERUN_KEY, {
       ...pending,
       retryAttempt: 0,
+      nextRunAt,
     });
-    await this.ctx.storage.setAlarm(Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS);
+    await this.refreshContinuationAlarm();
   }
 
   private async scheduleRerunRetry(pending: PendingLiveQueryRerun): Promise<void> {
     const retryAttempt = pending.retryAttempt + 1;
+    const nextRunAt = new Date(
+      Date.now() + rerunRetryDelayMs(retryAttempt),
+    ).toISOString();
     await this.ctx.storage.put(PENDING_RERUN_KEY, {
       ...pending,
       retryAttempt,
+      nextRunAt,
     });
-    await this.ctx.storage.setAlarm(
-      Date.now() + rerunRetryDelayMs(retryAttempt),
-    );
+    await this.refreshContinuationAlarm();
+  }
+
+  private async refreshContinuationAlarm(): Promise<void> {
+    const [pendingRerunValue, pendingConnectionCleanupValue] = await Promise.all([
+      this.ctx.storage.get<unknown>(PENDING_RERUN_KEY),
+      this.ctx.storage.get<unknown>(PENDING_CONNECTION_CLEANUP_KEY),
+    ]);
+    const nextRunAts = [
+      continuationNextRunAt(pendingRerunValue),
+      continuationNextRunAt(pendingConnectionCleanupValue),
+    ].filter((nextRunAt): nextRunAt is number => nextRunAt !== null);
+    const nextRunAt = Math.min(...nextRunAts);
+    if (Number.isFinite(nextRunAt)) {
+      await this.ctx.storage.setAlarm(nextRunAt);
+      return;
+    }
+    await this.ctx.storage.deleteAlarm();
   }
 
   private async rerunStaleLiveQuerySubscriptions(
@@ -812,6 +1038,156 @@ function rerunRetryDelayMs(retryAttempt: number): number {
     RERUN_RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
     RERUN_RETRY_ALARM_MAX_DELAY_MS,
   );
+}
+
+function connectionCleanupRetryDelayMs(retryAttempt: number): number {
+  return Math.min(
+    CONNECTION_CLEANUP_RETRY_ALARM_BASE_DELAY_MS * 2 ** Math.max(0, retryAttempt - 1),
+    CONNECTION_CLEANUP_RETRY_ALARM_MAX_DELAY_MS,
+  );
+}
+
+function pendingConnectionCleanupResult(
+  pending: PendingLiveQueryConnectionCleanup,
+): ReconcileConnectionCleanupResult {
+  return {
+    deployments: 0,
+    cleaned: 0,
+    deleted: 0,
+    deletedConnections: 0,
+    failed: [],
+    nextCursor: pending.cursor,
+    hasMore: true,
+  };
+}
+
+function continuationIsDue(
+  pending: { nextRunAt?: string },
+  now: number,
+): boolean {
+  if (pending.nextRunAt === undefined) return true;
+  return new Date(pending.nextRunAt).getTime() <= now;
+}
+
+function continuationNextRunAt(value: unknown): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.nextRunAt === undefined) {
+    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
+  }
+  if (typeof record.nextRunAt !== "string") {
+    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
+  }
+  const nextRunAt = new Date(record.nextRunAt).getTime();
+  if (Number.isNaN(nextRunAt)) return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
+  return nextRunAt;
+}
+
+function connectionCleanupInFlightKey(input: {
+  expiredAt: string;
+  limit: number;
+  cursor?: ExpiredConnectionDeploymentCursor;
+}): string {
+  return JSON.stringify({
+    expiredAt: input.expiredAt,
+    limit: input.limit,
+    cursor: input.cursor ?? null,
+  });
+}
+
+function pendingConnectionCleanupFromStorage(
+  value: unknown,
+): PendingLiveQueryConnectionCleanup {
+  const record = storageRecord(value, "pending live query connection cleanup");
+  return {
+    expiredAt: dateStringFromStorage(record.expiredAt, "pending connection cleanup expiredAt"),
+    limit: positiveIntegerFromStorage(record.limit, "pending connection cleanup limit"),
+    cursor: expiredConnectionCursorFromStorage(
+      record.cursor,
+      "pending connection cleanup cursor",
+    ),
+    retryAttempt: nonNegativeIntegerFromStorage(
+      record.retryAttempt,
+      "pending connection cleanup retryAttempt",
+    ),
+    nextRunAt:
+      record.nextRunAt === undefined
+        ? new Date(0).toISOString()
+        : dateStringFromStorage(record.nextRunAt, "pending connection cleanup nextRunAt"),
+  };
+}
+
+function pendingRerunFromStorage(value: unknown): PendingLiveQueryRerun {
+  const record = storageRecord(value, "pending live query rerun");
+  const projectId =
+    record.projectId === undefined
+      ? undefined
+      : nonEmptyStringFromStorage(record.projectId, "pending rerun projectId");
+  return {
+    deploymentId: nonEmptyStringFromStorage(record.deploymentId, "pending rerun deploymentId"),
+    ...(projectId === undefined ? {} : { projectId }),
+    limit: positiveIntegerFromStorage(record.limit, "pending rerun limit"),
+    deliveryLimit: positiveIntegerFromStorage(
+      record.deliveryLimit,
+      "pending rerun deliveryLimit",
+    ),
+    maxBatches: positiveIntegerFromStorage(record.maxBatches, "pending rerun maxBatches"),
+    retryAttempt: nonNegativeIntegerFromStorage(
+      record.retryAttempt,
+      "pending rerun retryAttempt",
+    ),
+    ...(record.nextRunAt === undefined
+      ? {}
+      : { nextRunAt: dateStringFromStorage(record.nextRunAt, "pending rerun nextRunAt") }),
+  };
+}
+
+function expiredConnectionCursorFromStorage(
+  value: unknown,
+  path: string,
+): ExpiredConnectionDeploymentCursor {
+  const record = storageRecord(value, path);
+  return {
+    oldestExpiredAt: dateStringFromStorage(
+      record.oldestExpiredAt,
+      `${path}.oldestExpiredAt`,
+    ),
+    deploymentId: nonEmptyStringFromStorage(record.deploymentId, `${path}.deploymentId`),
+  };
+}
+
+function storageRecord(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  throw new HttpError(500, `${field} must be an object.`);
+}
+
+function dateStringFromStorage(value: unknown, field: string): string {
+  const text = nonEmptyStringFromStorage(value, field);
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  throw new HttpError(500, `${field} must be an ISO date string.`);
+}
+
+function nonEmptyStringFromStorage(value: unknown, field: string): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new HttpError(500, `${field} must be a non-empty string.`);
+}
+
+function positiveIntegerFromStorage(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  throw new HttpError(500, `${field} must be a positive integer.`);
+}
+
+function nonNegativeIntegerFromStorage(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new HttpError(500, `${field} must be a non-negative integer.`);
 }
 
 function executorLiveQueryRerunResultFromUnknown(

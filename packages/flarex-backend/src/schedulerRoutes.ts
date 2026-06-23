@@ -13,6 +13,7 @@ export const LIVE_QUERY_SCHEDULER_INTERNAL_PATHS = {
   cleanupConnections: "/cleanup/live-query-connections",
   rerunSubscriptions: "/rerun/live-query-subscriptions",
   continueReruns: "/continue-live-query-reruns",
+  continueConnectionCleanup: "/continue-live-query-connection-cleanup",
 } as const;
 
 export type LiveQuerySchedulerInternalPath =

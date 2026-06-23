@@ -587,6 +587,121 @@ corepack pnpm --filter @flarex/persistence-postgres db:check
 git diff --check
 ```
 
+## Connection Cleanup Continuation State
+
+Previous completed checkpoint: `025eac6` Add live query connection cleanup
+reconciliation.
+
+What changed:
+
+- Added durable SchedulerDO continuation state for expired live-query
+  connection deployment scans.
+- Added internal continuation route:
+  `POST /continue-live-query-connection-cleanup`.
+- When a cleanup scan returns `hasMore: true`, SchedulerDO now persists the
+  same `expiredAt` cutoff, the scan `limit`, and the returned `nextCursor`,
+  then schedules the DO alarm to continue from that cursor.
+- When the continuation reaches `hasMore: false`, SchedulerDO clears the
+  pending connection cleanup state and removes the alarm only if no other
+  continuation state remains.
+- Shared the SchedulerDO alarm between stale-query rerun continuation and
+  expired-connection cleanup continuation, with each persisted state carrying
+  its own `nextRunAt` so retry backoff is not collapsed by the other owner.
+- Added a cursor-keyed in-flight guard for connection cleanup continuation so a
+  manual continuation request and a scheduled alarm cannot process the same
+  cursor concurrently, without coalescing unrelated cleanup scans.
+- Added a singleton in-flight guard for fresh no-cursor connection cleanup
+  scans so concurrent fresh reconciles cannot race and overwrite the same
+  pending cursor state.
+- Kept explicit-cursor cleanup reconciles stateless: they scan and clean that
+  cursor page, but they do not replace the singleton pending cleanup cursor.
+- Parsed persisted Durable Object continuation state from `unknown` before
+  executing it, instead of trusting generic storage reads at the persistence
+  boundary.
+- Made fresh no-cursor connection reconcile requests continue or report the
+  existing singleton cleanup cursor rather than overwriting it with a new scan.
+- Added Miniflare coverage for:
+  - continuing a two-page expired connection deployment scan,
+  - preserving the original `expiredAt` cutoff across continuation, and
+  - advancing the scan cursor even when cleanup for one candidate deployment
+    fails,
+  - coalescing concurrent fresh cleanup reconciles before singleton cursor
+    state is persisted, and
+  - keeping explicit-cursor reconcile calls stateless.
+- Hardened the existing DeliveryDO alarm continuation test so it accepts either
+  valid ordering: manual `/continue` performs the second batch, or the real DO
+  alarm wins the race and the manual call observes the already-drained batch.
+
+Why it changed:
+
+```txt
+Cloudflare scheduled trigger
+  -> SchedulerDO scans expired connection deployments
+  -> scan page hasMore=true
+  -> SchedulerDO stores expiredAt + limit + nextCursor
+  -> DO alarm / internal continuation resumes from the cursor
+  -> final page hasMore=false
+  -> SchedulerDO clears continuation state
+```
+
+This turns connection cleanup from "one batch per cron" into a durable
+at-least-once scan loop owned by Cloudflare, without moving row selection or
+deletion out of the trusted executor.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps sync worker lifecycle and cleanup progress inside backend
+    worker state.
+- `crates/sync/src/state.rs`
+  - active query-set state is in the backend sync state machine rather than
+    stored behind Cloudflare alarms.
+
+Flarex differences:
+
+- Convex does not need a Durable Object alarm continuation for this path
+  because live sync cleanup is in backend worker state.
+- Flarex splits WebSocket ownership into Cloudflare and authoritative rows into
+  Postgres, so long-running cleanup scans need explicit Durable Object cursor
+  state.
+- The historical singleton DO name remains `scheduler:live-query-deliveries`
+  for compatibility, but the object now coordinates multiple live-query
+  maintenance continuations.
+- Because Cloudflare Durable Objects expose one alarm per object, Flarex stores
+  per-owner due times and schedules the shared alarm to the earliest due
+  continuation.
+- New continuation and retry states preserve owner-specific `nextRunAt` due
+  times. Legacy pending rerun records written before this checkpoint do not
+  contain `nextRunAt`, so they are treated as due during migration rather than
+  reconstructing old alarm backoff from unavailable state.
+
+Known limitations:
+
+- Continuation state is singleton-wide for expired connection cleanup. Future
+  platform scheduling may need per-region, per-project, or priority queue
+  partitioning.
+- There is not yet a metrics sink for continuation attempts, retries, or
+  duration; response counters remain the only observable surface.
+- Executor scan failures before a cursor is known still fail the triggering
+  request without persisting a retry state.
+- Expired connection cleanup continuation remains singleton-wide: a no-cursor
+  reconcile call will not start a separate scan while one cursor is pending.
+- Explicit-cursor reconcile calls are operator/debug-style stateless page
+  scans. They return `nextCursor` to the caller, but the caller must pass that
+  cursor again if it wants to continue outside the singleton scheduled scan.
+- Existing pending rerun retry records without `nextRunAt` may run earlier than
+  their original exponential retry alarm after this code is deployed. Newly
+  written retry records preserve `nextRunAt`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Executor Live-Query Registry Writer
 
 Previous completed checkpoint: `f32cc4f` Add durable live query registry.
