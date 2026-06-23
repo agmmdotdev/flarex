@@ -4,7 +4,54 @@ These are operating rules for future agents working in this workspace. Feature
 design records, implementation notes, Convex references, and Cloudflare
 differences belong in `roadmaps/`, not in this file.
 
-Before committing a significant code change, spawn both project custom reviewer subagents: typescript-diff-reviewer and code-quality-diff-reviewer. Significant code changes include behavior changes, public contract/type changes, data model/schema/migration changes changes that might need reviews, non-trivial refactors, or test changes that materially alter coverage or expectations. Do not require reviewer subagents for docs-only commits, planning/roadmap updates, formatting-only changes, generated-file refreshes, or minor mechanical edits that do not affect behavior. The typescript-diff-reviewer prompt must use the global TypeScript skill at C:\Users\Admin\.codex\skills\typescript-expert\SKILL.md instead of the project-local .agents/skills/typescript-expert copy. When reviewers are required, both reviewers must review only the current uncommitted diff and return read-only findings to the main thread. The main thread owns any follow-up edits: triage their recommendations, apply the useful type/reuse/refactor fixes, then rerun the relevant validation before committing.
+Before committing a significant code change, spawn both project custom reviewer
+subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
+Significant code changes include behavior changes, public contract/type
+changes, data model/schema/migration changes, non-trivial refactors, or test
+changes that materially alter coverage or expectations. Do not require reviewer
+subagents for docs-only commits, planning/roadmap updates, formatting-only
+changes, generated-file refreshes, or minor mechanical edits that do not affect
+behavior.
+
+Reviewer subagents are strictly read-only reviewers, not implementation
+workers. They must not edit files, run `apply_patch`, run formatters that write
+files, stage files, commit, push, create branches, or emit git directives.
+Allowed reviewer actions are read-only inspection commands such as `git diff`,
+`git status`, `rg`, `Get-Content`, and read-only validation commands such as
+typecheck/test/build. Reviewers must return findings only, ordered by severity
+with file/line references. If there are no blocking findings, they must say so
+and list residual risks briefly. They must not include implementation summaries
+that imply they changed code.
+
+The main thread owns all writes and all Git operations. The main thread must
+triage reviewer findings, apply useful fixes itself, rerun validation, then
+commit. If a reviewer edits files, stages, commits, pushes, emits git
+directives, or reports that it implemented the work, treat that reviewer result
+as invalid for the review requirement. Immediately inspect `git status` and
+`git log`, close that reviewer, and run a fresh read-only reviewer pass against
+the final uncommitted diff before committing. If the diff changes after
+reviewers are spawned, the previous reviews are stale; rerun both reviewers
+against the final diff unless the only change is docs-only commentary.
+
+The `typescript-diff-reviewer` prompt must use the global TypeScript skill at
+`C:\Users\Admin\.codex\skills\typescript-expert\SKILL.md` instead of any
+project-local skill copy.
+
+Use this prompt contract when spawning reviewers:
+
+```txt
+READ-ONLY REVIEW ONLY. Do not edit files, run apply_patch, run write-formatters,
+stage, commit, push, create branches, or emit git directives.
+
+Review only the current uncommitted diff in:
+C:\Users\Admin\Documents\github\convex-backend\custom\cloudflare-executor
+
+There are/are no untracked files at spawn time: <state this explicitly>.
+
+Return findings only, ordered by severity with file/line references. If there
+are no blocking findings, say so and list residual risks briefly. Do not modify
+files.
+```
 ## Core Rule
 
 Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
