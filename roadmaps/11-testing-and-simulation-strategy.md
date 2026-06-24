@@ -1,5 +1,55 @@
 # Testing and Simulation Strategy
 
+## Generated Runtime Typecheck Coverage
+
+Previous completed checkpoint: `90df37a` Guard nested function execution.
+
+What changed:
+
+- Added test-only TypeScript compilation for generated
+  `flarex/_generated/worker.ts`.
+- The test writes a temporary strict TypeScript config into the generated app
+  and runs the workspace TypeScript compiler with `noEmit`.
+- The config includes Cloudflare Worker types and workspace path mappings so a
+  temp app can typecheck generated imports without its own installed
+  dependencies.
+
+Why it changed:
+
+Generated Worker code is authored as a template string inside `flarex-dev`.
+Package typecheck validates the generator, not the emitted Worker. This test
+lane closes that gap and would have caught the missing `nestedCallDepth` field
+found during review.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex connects codegen with explicit typecheck modes.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  - generated TypeScript is a maintained compatibility surface.
+
+Flarex differences:
+
+- Flarex starts with a focused Worker-template typecheck in Vitest instead of
+  a full CLI typecheck mode.
+- The temp config uses direct workspace path mappings because generated test
+  projects are outside package manager resolution.
+
+Known limitations:
+
+- Generated API/server/dataModel files are still asserted mostly by string
+  checks and downstream bundle tests.
+- This is not yet exposed as a user command in local dev.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated Worker output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## PGlite Local And Test Lane
 
 Previous completed checkpoint: `beef4d2` Document Postgres multitenant

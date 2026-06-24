@@ -1,5 +1,54 @@
 # SDK And CLI Fork
 
+## Generated Worker Typecheck Gate
+
+Previous completed checkpoint: `90df37a` Guard nested function execution.
+
+What changed:
+
+- `generateFlarex` tests now run TypeScript against emitted
+  `_generated/worker.ts`.
+- The temporary generated-app `tsconfig` uses strict settings,
+  `exactOptionalPropertyTypes`, Cloudflare Worker types, and workspace path
+  mappings for `flarex` package imports.
+- This protects generated Worker API/runtime contracts such as
+  `executionContextForSession(...)`, `ctx.runQuery`, `ctx.runMutation`, and
+  `nestedCallDepth`.
+
+Why it changed:
+
+The SDK/codegen contract is only useful if emitted files typecheck for app
+developers. Vite bundling transpiles the Worker but does not prove TypeScript
+correctness. This checkpoint adds the missing generated-source check.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex wires codegen to function typechecking modes.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  - generated TypeScript is treated as an authored API surface.
+
+Flarex differences:
+
+- This is a test helper, not a public CLI flag yet.
+- Path mappings are explicit because Flarex generator tests use temp projects
+  without their own `node_modules`.
+
+Known limitations:
+
+- The helper currently typechecks `worker.ts` only.
+- Generated API/server/dataModel typecheck coverage should be added as those
+  templates become more behaviorful.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated Worker output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Server Context Nested Call Guardrails
 
 Previous completed checkpoint: `185775f` Execute same-artifact nested

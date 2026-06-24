@@ -1,5 +1,61 @@
 # Dynamic Worker Execution
 
+## Generated Worker Typecheck Gate
+
+Previous completed checkpoint: `90df37a` Guard nested function execution.
+
+What changed:
+
+- Generator tests now typecheck the emitted `flarex/_generated/worker.ts`
+  with a temporary strict `tsconfig.generated-worker.json`.
+- The typecheck maps `flarex` and `flarex/*` imports back to workspace source
+  files and resolves Cloudflare Worker types from the workspace
+  `node_modules`.
+- This catches generated Worker template type holes that package-level
+  `flarex-dev` typecheck cannot see because the template lives inside a
+  string.
+
+Why it changed:
+
+The nested-call guardrail checkpoint introduced `nestedCallDepth` inside the
+generated Worker template. Reviewers correctly caught that ordinary
+`flarex-dev` typecheck does not validate emitted Worker source. Generated
+runtime source should be treated as first-class code, because it is what app
+developers will actually run and typecheck.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex codegen is tied into an explicit typecheck mode for generated and
+    function code.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  - Convex keeps generated API code as TypeScript templates that must remain
+    valid generated output.
+
+Flarex differences:
+
+- Flarex currently adds this as a focused generator test instead of a full
+  CLI-level typecheck command.
+- The temp config uses explicit workspace path mappings because test projects
+  are created outside the workspace package tree.
+
+Known limitations:
+
+- Only the generated Worker is typechecked by this helper today. Future slices
+  should extend the same pattern to generated API/server/dataModel files when
+  their template contracts become more complex.
+- The helper is test-only; the CLI/dev plugin does not yet expose a user-facing
+  `flarex typecheck-generated` command.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated Worker output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Nested Call Guardrails
 
 Previous completed checkpoint: `185775f` Execute same-artifact nested

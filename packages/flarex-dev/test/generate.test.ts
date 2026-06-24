@@ -1,11 +1,32 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import { generateFlarex } from "../src/generate";
+
+const execFileAsync = promisify(execFile);
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
+const TYPECHECK_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+
+type GeneratedWorkerTsconfig = {
+  extends: string;
+  compilerOptions: {
+    typeRoots: string[];
+    paths: {
+      flarex: string[];
+      "flarex/*": string[];
+    };
+  };
+  include: string[];
+};
 
 describe("generateFlarex", () => {
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {
@@ -97,6 +118,36 @@ export const helper = "not a function";
     expect(worker).toContain('"/invoke/abort"');
     expect(worker).toContain("x-flarex-project");
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
+  });
+
+  it("typechecks generated Worker output", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { internalQuery, query } from "../_generated/server";
+import type { FunctionReference } from "flarex/server";
+
+const helperRef: FunctionReference<"query", "internal", {}, string> = {
+  _path: "messages:helper",
+};
+
+export const helper = internalQuery({
+  args: {},
+  handler: async () => "nested ok",
+});
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.runQuery(helperRef);
+  },
+});
+`,
+    );
+
+    await generateFlarex({ root });
+
+    await expect(typecheckGeneratedWorker(root)).resolves.toBeUndefined();
   });
 
   it("removes stale generated files after final codegen", async () => {
@@ -965,6 +1016,71 @@ function jsonRecord(value: unknown, pathName: string): Record<string, unknown> {
     throw new Error(`${pathName} request body is not a JSON object.`);
   }
   return Object.fromEntries(Object.entries(value));
+}
+
+async function typecheckGeneratedWorker(root: string): Promise<void> {
+  const configPath = path.join(root, "tsconfig.generated-worker.json");
+  await writeFile(
+    configPath,
+    `${JSON.stringify(generatedWorkerTsconfig(root), null, 2)}\n`,
+  );
+  const tsc = path.join(workspaceRoot, "node_modules/typescript/bin/tsc");
+  try {
+    await execFileAsync(process.execPath, [tsc, "-p", configPath], {
+      cwd: workspaceRoot,
+      maxBuffer: TYPECHECK_MAX_BUFFER_BYTES,
+    });
+  } catch (error) {
+    throw new Error(
+      [
+        "Generated Worker typecheck failed.",
+        childProcessErrorMessage(error),
+        childProcessOutput(error, "stdout"),
+        childProcessOutput(error, "stderr"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+}
+
+function generatedWorkerTsconfig(root: string): GeneratedWorkerTsconfig {
+  return {
+    extends: workspacePath("tsconfig.base.json"),
+    compilerOptions: {
+      typeRoots: [
+        workspacePath("node_modules/@types"),
+        workspacePath("node_modules"),
+      ],
+      paths: {
+        flarex: [workspacePath("packages/flarex/src/index.ts")],
+        "flarex/*": [workspacePath("packages/flarex/src/*")],
+      },
+    },
+    include: [slashPath(path.join(root, "flarex/_generated/worker.ts"))],
+  };
+}
+
+function childProcessErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function childProcessOutput(error: unknown, key: "stdout" | "stderr"): string | undefined {
+  if (error === null || typeof error !== "object" || !(key in error)) {
+    return undefined;
+  }
+  const value = (error as Record<typeof key, unknown>)[key];
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value)) return value.toString();
+  return undefined;
+}
+
+function workspacePath(relativePath: string): string {
+  return slashPath(path.join(workspaceRoot, relativePath));
+}
+
+function slashPath(filePath: string): string {
+  return filePath.replaceAll(path.sep, "/");
 }
 
 async function bundleGeneratedWorker(root: string): Promise<string> {
