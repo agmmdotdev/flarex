@@ -16,6 +16,10 @@ export type LiveQueryDeliverySkipReason = typeof LIVE_QUERY_DELIVERY_SKIP_REASON
 
 export type LiveQueryDeliverySkipReasons = Partial<Record<LiveQueryDeliverySkipReason, number>>;
 
+export function isLiveQueryDeliverySkipReason(value: string): value is LiveQueryDeliverySkipReason {
+  return (LIVE_QUERY_DELIVERY_SKIP_REASONS as readonly string[]).includes(value);
+}
+
 export type LiveQueryDeliveryResult = {
   delivered: number;
   skipped: number;

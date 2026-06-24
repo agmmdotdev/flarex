@@ -3,6 +3,8 @@ import { errorResponse, HttpError, json, readJson } from "./http";
 import { projectIdFromRequestOrEnv } from "./project";
 import { deliveryObjectName } from "./routing";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
+import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
+import type { DeliveryDrainFailureResult } from "./deliveryDO";
 import type { Env } from "./types";
 
 type PendingDeploymentCursor = {
@@ -25,9 +27,17 @@ type PendingDeploymentsResult = {
 type ReconcileResult = {
   deployments: number;
   woken: number;
-  failed: Array<{ deploymentId: string; status: number; error: string }>;
+  failed: DeliveryWakeFailure[];
   nextCursor: PendingDeploymentCursor | null;
   hasMore: boolean;
+};
+
+type DeliveryWakeFailure = {
+  deploymentId: string;
+  status: number;
+  error: string;
+  failure?: DeliveryDrainFailureResult["failure"];
+  summary?: DeliveryDrainFailureResult["summary"];
 };
 
 type PendingLiveQueryDeliveryReconcile = {
@@ -119,6 +129,7 @@ type RerunResult = {
     status: number | null;
     result: unknown;
     error: string | null;
+    failure?: DeliveryDrainFailureResult["failure"];
   };
 };
 
@@ -402,6 +413,10 @@ export class SchedulerDO extends DurableObject<Env> {
           deploymentId: deployment.deploymentId,
           status: delivery.status ?? 500,
           error: delivery.error ?? "Delivery wake failed without an error body.",
+          ...(delivery.failure === undefined ? {} : { failure: delivery.failure }),
+          ...(isDeliveryDrainFailureResult(delivery.result)
+            ? { summary: delivery.result.summary }
+            : {}),
         });
       } catch (error) {
         failed.push({
@@ -854,11 +869,21 @@ export class SchedulerDO extends DurableObject<Env> {
         }),
       });
     if (!response.ok) {
+      const result = responseBodyFromText(await response.text());
+      if (isDeliveryDrainFailureResult(result)) {
+        return {
+          woken: false,
+          status: response.status,
+          result,
+          error: result.error,
+          failure: result.failure,
+        };
+      }
       return {
         woken: false,
         status: response.status,
-        result: null,
-        error: await response.text(),
+        result,
+        error: responseBodyError(result),
       };
     }
     return {
@@ -1751,6 +1776,146 @@ function forceReconnectResultFromUnknown(value: unknown): { closed: number } {
       "forceReconnect.closed",
     ),
   };
+}
+
+function responseBodyFromText(text: string): unknown {
+  if (text.length === 0) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function responseBodyError(value: unknown): string {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const error = (value as Record<string, unknown>).error;
+    if (typeof error === "string") return error;
+  }
+  if (typeof value === "string") return value;
+  if (value === null) return "Delivery wake failed without an error body.";
+  return JSON.stringify(value) ?? String(value);
+}
+
+function isDeliveryDrainFailureResult(value: unknown): value is DeliveryDrainFailureResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const failure = record.failure;
+  const summary = record.summary;
+  return (
+    typeof record.deploymentId === "string" &&
+    typeof record.error === "string" &&
+    isDeliveryDrainFailureDetail(failure) &&
+    record.error === failure.error &&
+    isDeliveryDrainFailureSummary(summary) &&
+    deliveryDrainFailureDetailsMatch(failure, summary.failure)
+  );
+}
+
+function isDeliveryDrainFailureSummary(
+  value: unknown,
+): value is DeliveryDrainFailureResult["summary"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const skipReasons = record.skipReasons;
+  const staleSkipped = record.staleSkipped;
+  return (
+    isNonNegativeInteger(record.batches) &&
+    deliveryPendingAckMatches(record.claimed, record.acked, record.pendingAck) &&
+    isNonNegativeInteger(record.delivered) &&
+    isNonNegativeInteger(record.skipped) &&
+    (staleSkipped === undefined || isNonNegativeInteger(staleSkipped)) &&
+    isOptionalDeliverySkipReasons(skipReasons) &&
+    deliveryStaleSkippedMatchesSkipReason(staleSkipped, skipReasons) &&
+    typeof record.hasMore === "boolean" &&
+    isDeliveryDrainFailureDetail(record.failure)
+  );
+}
+
+function isDeliveryDrainFailureDetail(
+  value: unknown,
+): value is DeliveryDrainFailureResult["failure"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    (
+      record.stage === "claim" ||
+      record.stage === "fanout" ||
+      record.stage === "ack"
+    ) &&
+    isHttpStatus(record.status) &&
+    typeof record.error === "string"
+  );
+}
+
+function deliveryDrainFailureDetailsMatch(
+  left: DeliveryDrainFailureResult["failure"],
+  right: DeliveryDrainFailureResult["failure"],
+): boolean {
+  return left.stage === right.stage && left.status === right.status && left.error === right.error;
+}
+
+function isOptionalDeliverySkipReasons(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).every(isLiveQueryDeliverySkipReason) &&
+    isOptionalNonNegativeInteger(record.wrongDeployment) &&
+    isOptionalNonNegativeInteger(record.wrongConnection) &&
+    isOptionalNonNegativeInteger(record.missingQuery) &&
+    isOptionalNonNegativeInteger(record.stale) &&
+    isOptionalNonNegativeInteger(record.unchanged)
+  );
+}
+
+function deliveryStaleSkippedMatchesSkipReason(
+  staleSkipped: unknown,
+  skipReasons: unknown,
+): boolean {
+  if (
+    staleSkipped === undefined ||
+    typeof skipReasons !== "object" ||
+    skipReasons === null ||
+    Array.isArray(skipReasons)
+  ) {
+    return true;
+  }
+  const staleSkipReason = (skipReasons as Record<string, unknown>).stale;
+  return staleSkipReason === undefined || staleSkipReason === staleSkipped;
+}
+
+function deliveryPendingAckMatches(
+  claimed: unknown,
+  acked: unknown,
+  pendingAck: unknown,
+): boolean {
+  return (
+    isNonNegativeInteger(claimed) &&
+    isNonNegativeInteger(acked) &&
+    isNonNegativeInteger(pendingAck) &&
+    pendingAck === Math.max(0, claimed - acked)
+  );
+}
+
+function isOptionalNonNegativeInteger(value: unknown): boolean {
+  return value === undefined || isNonNegativeInteger(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599;
 }
 
 function cleanupConnectionsResultFromUnknown(

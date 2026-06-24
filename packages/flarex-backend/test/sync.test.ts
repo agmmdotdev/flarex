@@ -1577,6 +1577,7 @@ describe("sync protocol", () => {
 
     const env = await harness.mf.getBindings<Env>();
     const connection = env.CONNECTIONS.getByName(connectionId);
+    const updatedMessage = nextJsonMessage(ws);
     const updateResponse = await connection.fetch("https://flarex.internal/deliver/live-query", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1599,7 +1600,7 @@ describe("sync protocol", () => {
     expect(updateResponse.status).toBe(200);
     const updateBody: unknown = await updateResponse.json();
     expect(updateBody).toEqual({ delivered: 1, skipped: 0 });
-    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+    await expect(updatedMessage).resolves.toMatchObject({
       type: "Transition",
       modifications: [{ type: "QueryUpdated", queryId: 15 }],
     });
@@ -2160,8 +2161,11 @@ describe("sync protocol", () => {
                     createdAt: "2026-06-21T00:00:00.000Z",
                   },
                 ],
-                nextCursor: null,
-                hasMore: false,
+                nextCursor: {
+                  createdAt: "2026-06-21T00:00:00.000Z",
+                  deliveryId: "delivery_failed",
+                },
+                hasMore: true,
               });
             }
             if (url.pathname === "/maintenance/live-queries/failure") {
@@ -2187,6 +2191,28 @@ describe("sync protocol", () => {
     );
 
     expect(response.status).toBe(500);
+    const responseBody: unknown = await response.json();
+    expect(responseBody).toMatchObject({
+      deploymentId,
+      failure: {
+        stage: "fanout",
+        status: 400,
+      },
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 1,
+        hasMore: true,
+        failure: {
+          stage: "fanout",
+          status: 400,
+        },
+      },
+    });
+    expect(jsonRecord(responseBody).error).toContain("wrong_connection");
     expect(executorRequests).toHaveLength(2);
     expect(executorRequests[0]).toEqual({
       path: "/maintenance/live-queries/claim",
@@ -2338,6 +2364,30 @@ describe("sync protocol", () => {
     );
 
     expect(response.status).toBe(500);
+    const responseBody: unknown = await response.json();
+    expect(responseBody).toMatchObject({
+      deploymentId,
+      error: "Live query delivery ack failed with status 503.",
+      failure: {
+        stage: "ack",
+        status: 502,
+        error: "Live query delivery ack failed with status 503.",
+      },
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 0,
+        delivered: 1,
+        skipped: 0,
+        pendingAck: 1,
+        hasMore: false,
+        failure: {
+          stage: "ack",
+          status: 502,
+          error: "Live query delivery ack failed with status 503.",
+        },
+      },
+    });
     await expect(delivered).resolves.toMatchObject({
       type: "Transition",
       modifications: [
@@ -3307,13 +3357,34 @@ describe("sync protocol", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const responseBody: unknown = await response.json();
+    expect(responseBody).toMatchObject({
       deployments: 1,
       woken: 0,
       failed: [
         {
           deploymentId: "deployment_delivery_failed",
           status: 500,
+          error: "Live query delivery claim failed with status 503.",
+          failure: {
+            stage: "claim",
+            status: 502,
+            error: "Live query delivery claim failed with status 503.",
+          },
+          summary: {
+            batches: 0,
+            claimed: 0,
+            acked: 0,
+            delivered: 0,
+            skipped: 0,
+            pendingAck: 0,
+            hasMore: false,
+            failure: {
+              stage: "claim",
+              status: 502,
+              error: "Live query delivery claim failed with status 503.",
+            },
+          },
         },
       ],
       nextCursor: {

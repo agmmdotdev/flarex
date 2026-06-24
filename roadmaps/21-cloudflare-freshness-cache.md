@@ -1,5 +1,82 @@
 # Cloudflare Freshness Cache
 
+## Delivery Drain Failure Summaries
+
+Previous completed checkpoint: `ed5c4dd` Report live query delivery skip reasons.
+
+What changed:
+
+- Added structured failure bodies for `DeliveryDO` wake/continue drain failures.
+- Drain failures now return:
+  - top-level `error`
+  - top-level `failure` with `stage`, `status`, and `error`
+  - `summary.failure` with the same detail
+  - partial drain counters for batches, claimed rows, acked rows, delivered
+    transitions, skipped deliveries, pending ack count, and `hasMore`
+- Covered fanout failure and ack failure paths in backend sync tests.
+- Scheduler delivery reconciliation now preserves structured DeliveryDO failure
+  details from failed wake responses instead of flattening them to response
+  text.
+- Scheduler failed wake parsing now reads the response body once, attempts JSON
+  decoding, and preserves raw text for non-JSON failures while validating
+  structured delivery summaries before exposing them.
+- Scheduler structured summary validation reuses the canonical live-query
+  delivery skip-reason vocabulary and rejects mismatched derived counters such
+  as `pendingAck`.
+- Post-claim fanout/ack failure summaries report the claimed page's `hasMore`
+  value, so operators can still see whether more delivery rows were pending
+  when the drain failed.
+- The external HTTP status remains `500` for these thrown drain failures so
+  existing callers still treat the wake as failed.
+
+Why it changed:
+
+Delivery drains can fail after useful work has already happened. In particular,
+fanout failure means the client did not receive the transition, while ack
+failure can happen after the client already received a transition. Returning
+only an opaque error body forces operators to infer the stage from text and
+separate executor failure rows. The response now exposes enough structured
+state for schedulers, adapters, and future metrics sinks to classify the
+failure safely.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps sync rerun and transition processing in the backend worker
+    and does not need an HTTP DeliveryDO failure response.
+- `crates/sync/src/state.rs`
+  - sync state transitions distinguish updated, failed, and unchanged query
+    results before client-visible modifications are emitted.
+
+Flarex differences:
+
+- Flarex has a separate Cloudflare `DeliveryDO` maintenance boundary between
+  executor durable delivery rows and active `ConnectionDO` sockets.
+- Because that boundary can fail independently at claim, fanout, or ack time,
+  Flarex exposes backend-internal structured failure summaries on maintenance
+  responses. This is not part of the Convex-style client protocol.
+
+Known limitations:
+
+- These summaries are response-level observability only; no durable metrics
+  sink or alerting hook consumes them yet.
+- Claim failure summaries are supported by the implementation but not covered
+  by direct DeliveryDO tests. They are covered through SchedulerDO failed wake
+  propagation.
+- Wake failures still use HTTP `500` for compatibility even when the internal
+  failure detail records a more specific status.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "wakes DeliveryDO to claim, fanout, and ack live query deliveries|wakes DeliveryDO and delivers failed live query reruns as QueryFailed|records DeliveryDO fanout failures|records DeliveryDO ack failures|keeps pending delivery deployment cursor when a wake fails" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "skips stale failed live query deliveries after a newer result is active" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery Skip Reason Counters
 
 Previous completed checkpoint: `0220e51` Report stale delivery skips.

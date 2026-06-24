@@ -65,6 +65,25 @@ type DeliveryDrainSummary = LiveQueryDeliveryResult & {
   hasMore: boolean;
 };
 
+export type DeliveryDrainFailureStage = "claim" | DeliveryFailureStage;
+
+export type DeliveryDrainFailureDetail = {
+  stage: DeliveryDrainFailureStage;
+  status: number;
+  error: string;
+};
+
+export type DeliveryDrainFailureSummary = DeliveryDrainSummary & {
+  failure: DeliveryDrainFailureDetail;
+};
+
+export type DeliveryDrainFailureResult = {
+  deploymentId: string;
+  error: string;
+  failure: DeliveryDrainFailureDetail;
+  summary: DeliveryDrainFailureSummary;
+};
+
 const DEFAULT_DELIVERY_LIMIT = 100;
 const DEFAULT_MAX_BATCHES = 3;
 const DEFAULT_LEASE_DURATION_MS = 30_000;
@@ -79,10 +98,24 @@ export class DeliveryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/wake" && request.method === "POST") {
-      return json(await this.wake(await readJson<DeliveryWakeRequest>(request)));
+      try {
+        return json(await this.wake(await readJson<DeliveryWakeRequest>(request)));
+      } catch (error) {
+        if (error instanceof DeliveryDrainFailureError) {
+          return json(error.result, { status: 500 });
+        }
+        throw error;
+      }
     }
     if (url.pathname === "/continue" && request.method === "POST") {
-      return json(await this.continuePendingDrain());
+      try {
+        return json(await this.continuePendingDrain());
+      } catch (error) {
+        if (error instanceof DeliveryDrainFailureError) {
+          return json(error.result, { status: 500 });
+        }
+        throw error;
+      }
     }
     return json({ service: "flarex-delivery", status: "ok" });
   }
@@ -143,13 +176,29 @@ export class DeliveryDO extends DurableObject<Env> {
     const claimOwner = body.claimOwner;
 
     while (batches < maxBatches) {
-      const page = await this.claim(
-        deploymentId,
-        limit,
-        leaseDurationMs,
-        claimOwner,
-        cursor,
-      );
+      let page: ClaimLiveQueryDeliveryBatchResult;
+      try {
+        page = await this.claim(
+          deploymentId,
+          limit,
+          leaseDurationMs,
+          claimOwner,
+          cursor,
+        );
+      } catch (error) {
+        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
+          deploymentId,
+          stage: "claim",
+          error,
+          batches,
+          claimed,
+          acked,
+          delivered,
+          skipped,
+          skipReasons,
+          hasMore,
+        }));
+      }
       batches += 1;
       if (page.deliveries.length === 0) {
         hasMore = page.hasMore;
@@ -173,7 +222,18 @@ export class DeliveryDO extends DurableObject<Env> {
           "fanout",
           error,
         );
-        throw error;
+        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
+          deploymentId,
+          stage: "fanout",
+          error,
+          batches,
+          claimed,
+          acked,
+          delivered,
+          skipped,
+          skipReasons,
+          hasMore: page.hasMore,
+        }));
       }
       delivered += fanout.delivered;
       skipped += fanout.skipped;
@@ -194,7 +254,18 @@ export class DeliveryDO extends DurableObject<Env> {
           "ack",
           error,
         );
-        throw error;
+        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
+          deploymentId,
+          stage: "ack",
+          error,
+          batches,
+          claimed,
+          acked,
+          delivered,
+          skipped,
+          skipReasons,
+          hasMore: page.hasMore,
+        }));
       }
       acked += ack.delivered;
       hasMore = page.hasMore;
@@ -344,6 +415,48 @@ export class DeliveryDO extends DurableObject<Env> {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+class DeliveryDrainFailureError extends Error {
+  constructor(readonly result: DeliveryDrainFailureResult) {
+    super(result.error);
+    this.name = "DeliveryDrainFailureError";
+  }
+}
+
+function deliveryDrainFailureResult(input: {
+  deploymentId: string;
+  stage: DeliveryDrainFailureStage;
+  error: unknown;
+  batches: number;
+  claimed: number;
+  acked: number;
+  delivered: number;
+  skipped: number;
+  skipReasons: LiveQueryDeliverySkipReasons;
+  hasMore: boolean;
+}): DeliveryDrainFailureResult {
+  const detail = {
+    stage: input.stage,
+    status: input.error instanceof HttpError ? input.error.status : 500,
+    error: errorMessage(input.error),
+  };
+  return {
+    deploymentId: input.deploymentId,
+    error: detail.error,
+    failure: detail,
+    summary: {
+      batches: input.batches,
+      claimed: input.claimed,
+      acked: input.acked,
+      delivered: input.delivered,
+      skipped: input.skipped,
+      ...liveQueryDeliverySkipMetadata(input.skipReasons),
+      pendingAck: Math.max(0, input.claimed - input.acked),
+      hasMore: input.hasMore,
+      failure: detail,
+    },
+  };
 }
 
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
