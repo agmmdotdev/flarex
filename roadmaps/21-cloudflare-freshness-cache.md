@@ -1,5 +1,73 @@
 # Cloudflare Freshness Cache
 
+## Multi-Connection Generated Sync Fanout
+
+Previous completed checkpoint: `dbc748c` Add indexed generated sync fanout.
+
+What changed:
+
+- Extended the hosted generated-app sync integration from one WebSocket session
+  to two independent `ConnectionDO` sessions for the same deployment.
+- Both sessions now subscribe to the same generated direct document query
+  `messages:get` and indexed list query `messages:listByTeam`.
+- A single generated `/sync` mutation updates the message, and the test proves
+  all four durable live-query subscriptions become stale:
+  - first connection, direct document query,
+  - first connection, indexed list query,
+  - second connection, direct document query,
+  - second connection, indexed list query.
+- The scheduler trigger now reruns all four stale subscriptions and wakes
+  `DeliveryDO`, which claims, fans out, acks, and delivers four changed rows to
+  the two active WebSocket connections.
+- The test asserts both WebSocket transitions contain exactly the expected
+  direct document result and indexed list result after delivery.
+
+Why it changed:
+
+The previous generated integration proved indexed sync on one active
+connection. Convex-style live sync has to fan out the same changed query result
+shape to every subscribed client, not just to the mutation caller. This slice
+exercises the Cloudflare split explicitly: durable subscriptions live in the
+trusted executor, `SchedulerDO` reruns stale rows, `DeliveryDO` drains durable
+delivery rows, and each named `ConnectionDO` sends the client transition.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers rerun invalidated queries and fan changed results out
+    to connected clients.
+- `crates/sync/src/state.rs`
+  - query-set state is per client connection, so identical query IDs on
+    different connections are independent subscriptions.
+- `crates/database/src/transaction.rs`
+  - indexed query dependencies participate in the read set that drives
+    invalidation.
+
+Flarex differences:
+
+- Convex owns subscriptions, reruns, and client fanout in one backend sync
+  worker. Flarex persists subscription and delivery rows in the trusted
+  executor, then uses Cloudflare `SchedulerDO`, `DeliveryDO`, and
+  `ConnectionDO` as the fanout boundary close to active WebSockets.
+- The generated integration still uses the local PGlite executor lane. It
+  proves the distributed component contract, not production Postgres lock or
+  query-plan behavior.
+
+Known limitations:
+
+- Repeated scheduler continuation over more stale subscriptions than the
+  configured limit is already covered in lower-level `SchedulerDO` tests, but
+  not yet in the generated hosted app integration.
+- Indexed coverage remains an equality-prefix list query. Range pagination,
+  ordering, cursors, and multi-index query sets remain follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+```
+
 ## DeliveryDO Wake And Bounded Drain
 
 Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack APIs.

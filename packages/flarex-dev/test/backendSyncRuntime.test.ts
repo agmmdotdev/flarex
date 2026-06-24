@@ -57,8 +57,10 @@ describe("backend sync with local executor runtime", () => {
     let nextSession = 0;
     const deploymentId = "deployment-backend-runtime-live";
     const projectId = "project-backend-runtime-live";
-    const sessionId = "runtime-live-session";
-    const connectionId = `connection:${deploymentId}:${sessionId}`;
+    const firstSessionId = "runtime-live-session-a";
+    const secondSessionId = "runtime-live-session-b";
+    const firstConnectionId = `connection:${deploymentId}:${firstSessionId}`;
+    const secondConnectionId = `connection:${deploymentId}:${secondSessionId}`;
     const teamId = "2:team_alpha";
     const generatedDeployment = await createGeneratedMessageDeployment();
 
@@ -138,16 +140,17 @@ describe("backend sync with local executor runtime", () => {
       generatedDeployment.analysis,
     );
 
-    const ws = await openSync(harness, deploymentId, sessionId);
+    const firstWs = await openSync(harness, deploymentId, firstSessionId);
+    const secondWs = await openSync(harness, deploymentId, secondSessionId);
     try {
-      sendMutation(ws, {
+      sendMutation(firstWs, {
         type: "Mutation",
         requestId: 1,
         udfPath: "messages:seed",
         args: [{ teamId, text: "initial" }],
         partitionKey: teamId,
       });
-      const created = mutationResponseFromUnknown(await nextJsonMessage(ws));
+      const created = mutationResponseFromUnknown(await nextJsonMessage(firstWs));
       expect(created).toMatchObject({
         type: "MutationResponse",
         requestId: 1,
@@ -159,37 +162,28 @@ describe("backend sync with local executor runtime", () => {
       expect(materializeCount).toBe(1);
       expect(storeGetCount).toBe(1);
 
-      sendModifyQuerySet(ws, {
-        type: "ModifyQuerySet",
-        baseVersion: 0,
-        newVersion: 1,
-        modifications: [
-          {
-            type: "Add",
-            queryId: 1,
-            udfPath: "messages:get",
-            args: [{ teamId, messageId }],
-            partitionKey: teamId,
-          },
-          {
-            type: "Add",
-            queryId: 2,
-            udfPath: "messages:listByTeam",
-            args: [{ teamId }],
-            partitionKey: teamId,
-          },
-        ],
-      });
-      const initialTransition = await nextJsonMessage(ws);
-      const initialUpdates = transitionUpdatesByQueryId(
-        initialTransition,
-        "initial transition",
+      sendMessageSubscriptions(firstWs, teamId, messageId);
+      sendMessageSubscriptions(secondWs, teamId, messageId);
+      const [firstInitialTransition, secondInitialTransition] = await Promise.all([
+        nextJsonMessage(firstWs),
+        nextJsonMessage(secondWs),
+      ]);
+      expectMessageSubscriptionTransition(
+        firstInitialTransition,
+        "first initial transition",
+        messageId,
+        teamId,
+        "initial",
       );
-      expect([...initialUpdates.keys()]).toEqual([1, 2]);
-      expect(initialUpdates.get(1)).toEqual({ _id: messageId, teamId, text: "initial" });
-      expect(initialUpdates.get(2)).toEqual([{ _id: messageId, teamId, text: "initial" }]);
+      expectMessageSubscriptionTransition(
+        secondInitialTransition,
+        "second initial transition",
+        messageId,
+        teamId,
+        "initial",
+      );
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(3);
+      expect(storeGetCount).toBe(5);
 
       const initiallyStale = await runtime.executor.findStaleLiveQuerySubscriptions({
         deploymentId,
@@ -197,14 +191,14 @@ describe("backend sync with local executor runtime", () => {
       });
       expect(initiallyStale.stale).toEqual([]);
 
-      sendMutation(ws, {
+      sendMutation(firstWs, {
         type: "Mutation",
         requestId: 2,
         udfPath: "messages:update",
         args: [{ teamId, messageId, text: "fresh" }],
         partitionKey: teamId,
       });
-      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      await expect(nextJsonMessage(firstWs)).resolves.toMatchObject({
         type: "MutationResponse",
         requestId: 2,
         success: true,
@@ -212,34 +206,56 @@ describe("backend sync with local executor runtime", () => {
         ts: expect.any(Number),
       });
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(4);
+      expect(storeGetCount).toBe(6);
       const stale = await runtime.executor.findStaleLiveQuerySubscriptions({
           deploymentId,
           freshnessStore: runtime.freshnessStore,
       });
       expect(stale.fresh).toEqual([]);
       expect(stale.unsupported).toEqual([]);
-      expect(stale.stale.map(entry => entry.subscription.queryId).sort()).toEqual([1, 2]);
+      expect(stale.stale.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:1`,
+        `${firstConnectionId}:2`,
+        `${secondConnectionId}:1`,
+        `${secondConnectionId}:2`,
+      ]);
       expect(stale).toMatchObject({
         stale: expect.arrayContaining([
           expect.objectContaining({
             subscription: expect.objectContaining({
               deploymentId,
-              connectionId,
+              connectionId: firstConnectionId,
               queryId: 1,
             }),
           }),
           expect.objectContaining({
             subscription: expect.objectContaining({
               deploymentId,
-              connectionId,
+              connectionId: firstConnectionId,
+              queryId: 2,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId: secondConnectionId,
+              queryId: 1,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId: secondConnectionId,
               queryId: 2,
             }),
           }),
         ]),
       });
 
-      const delivered = nextJsonMessage(ws);
+      const firstDelivered = nextJsonMessage(firstWs);
+      const secondDelivered = nextJsonMessage(secondWs);
       const response = await harness.mf.dispatchFetch(
         "http://flarex.test/scheduler/live-query-subscriptions/trigger",
         {
@@ -261,7 +277,7 @@ describe("backend sync with local executor runtime", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
         deploymentId,
-        changed: 2,
+        changed: 4,
         unchanged: 0,
         unsupported: 0,
         hasMoreStale: false,
@@ -270,23 +286,29 @@ describe("backend sync with local executor runtime", () => {
           status: 200,
           result: {
             deploymentId,
-            claimed: 2,
-            acked: 2,
-            delivered: 2,
+            claimed: 4,
+            acked: 4,
+            delivered: 4,
             skipped: 0,
             hasMore: false,
           },
         },
       });
 
-      const deliveredTransition = await delivered;
-      const deliveredUpdates = transitionUpdatesByQueryId(
-        deliveredTransition,
-        "delivered transition",
+      expectMessageSubscriptionTransition(
+        await firstDelivered,
+        "first delivered transition",
+        messageId,
+        teamId,
+        "fresh",
       );
-      expect([...deliveredUpdates.keys()]).toEqual([1, 2]);
-      expect(deliveredUpdates.get(1)).toEqual({ _id: messageId, teamId, text: "fresh" });
-      expect(deliveredUpdates.get(2)).toEqual([{ _id: messageId, teamId, text: "fresh" }]);
+      expectMessageSubscriptionTransition(
+        await secondDelivered,
+        "second delivered transition",
+        messageId,
+        teamId,
+        "fresh",
+      );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
           deploymentId,
@@ -295,7 +317,8 @@ describe("backend sync with local executor runtime", () => {
       ).resolves.toMatchObject({ deliveries: [], hasMore: false });
       expect(runtime.cacheSize()).toBe(1);
     } finally {
-      ws.close();
+      firstWs.close();
+      secondWs.close();
     }
   }, 30000);
 });
@@ -597,6 +620,47 @@ function transitionUpdatesByQueryId(value: unknown, name: string): Map<number, J
     );
   }
   return new Map([...updates].sort(([left], [right]) => left - right));
+}
+
+function sendMessageSubscriptions(
+  ws: SyncWebSocket,
+  teamId: string,
+  messageId: string,
+): void {
+  sendModifyQuerySet(ws, {
+    type: "ModifyQuerySet",
+    baseVersion: 0,
+    newVersion: 1,
+    modifications: [
+      {
+        type: "Add",
+        queryId: 1,
+        udfPath: "messages:get",
+        args: [{ teamId, messageId }],
+        partitionKey: teamId,
+      },
+      {
+        type: "Add",
+        queryId: 2,
+        udfPath: "messages:listByTeam",
+        args: [{ teamId }],
+        partitionKey: teamId,
+      },
+    ],
+  });
+}
+
+function expectMessageSubscriptionTransition(
+  transition: unknown,
+  name: string,
+  messageId: string,
+  teamId: string,
+  text: string,
+): void {
+  const updates = transitionUpdatesByQueryId(transition, name);
+  expect([...updates.keys()]).toEqual([1, 2]);
+  expect(updates.get(1)).toEqual({ _id: messageId, teamId, text });
+  expect(updates.get(2)).toEqual([{ _id: messageId, teamId, text }]);
 }
 
 function assertJson(value: unknown, name: string): Json {
