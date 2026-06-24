@@ -71,6 +71,7 @@ import {
   deleteLiveQuerySubscription as deleteLiveQuerySubscriptionWithDb,
   deleteLiveQuerySubscriptionsForConnection as deleteLiveQuerySubscriptionsForConnectionWithDb,
   listLiveQuerySubscriptions as listLiveQuerySubscriptionsWithDb,
+  recordLiveQueryRerunFailure as recordLiveQueryRerunFailureWithDb,
   recordLiveQueryRerunResult as recordLiveQueryRerunResultWithDb,
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
 } from "./liveQuerySubscriptions";
@@ -241,6 +242,13 @@ export async function createPGlitePersistence(
       drizzleDb.transaction((tx) =>
         recordLiveQueryRerunResultWithDb(
           tx as unknown as Parameters<typeof recordLiveQueryRerunResultWithDb>[0],
+          input,
+        ),
+      ),
+    recordLiveQueryRerunFailure: (input) =>
+      drizzleDb.transaction((tx) =>
+        recordLiveQueryRerunFailureWithDb(
+          tx as unknown as Parameters<typeof recordLiveQueryRerunFailureWithDb>[0],
           input,
         ),
       ),

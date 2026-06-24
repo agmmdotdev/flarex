@@ -215,12 +215,54 @@ export async function rerunLiveQuerySubscription(
   persistence: FlarexExecutorPersistence,
   input: RerunLiveQuerySubscriptionInput,
 ): Promise<RerunLiveQuerySubscriptionResult> {
-  const rerun = await input.runQuery(input.subscription);
   const previousResultHash = input.subscription.resultHash;
+  let rerun: RerunLiveQuerySubscriptionOutput;
+  try {
+    rerun = await input.runQuery(input.subscription);
+  } catch (error) {
+    const errorText = errorMessage(error);
+    const deliveryPayload: LiveQueryChange = {
+      kind: "failed",
+      deploymentId: input.subscription.deploymentId,
+      connectionId: input.subscription.connectionId,
+      queryId: input.subscription.queryId,
+      functionPath: input.subscription.functionPath,
+      argsJson: input.subscription.argsJson as Json,
+      previousResultHash,
+      errorMessage: errorText,
+      errorData: null,
+    };
+    const recorded = await persistence.recordLiveQueryRerunFailure({
+      deploymentId: input.subscription.deploymentId,
+      connectionId: input.subscription.connectionId,
+      queryId: input.subscription.queryId,
+      ...(input.deliveryId === undefined
+        ? {}
+        : {
+            delivery: {
+              deliveryId: input.deliveryId,
+              payloadJson: deliveryPayload,
+              ...(input.updatedAt === undefined
+                ? {}
+                : { createdAt: input.updatedAt }),
+            },
+          }),
+    });
+    return {
+      status: "failed",
+      subscription: input.subscription,
+      previousResultHash,
+      changed: true,
+      deleted: recorded.deleted,
+      delivery: recorded.delivery,
+      errorMessage: errorText,
+    };
+  }
   const resultHash = fingerprintJson(rerun.value);
   const changed = previousResultHash !== resultHash;
   const readSet = readSetToFreshnessReadSet(rerun.readSet, rerun.beginTs);
   const deliveryPayload: LiveQueryChange = {
+    kind: "updated",
     deploymentId: input.subscription.deploymentId,
     connectionId: input.subscription.connectionId,
     queryId: input.subscription.queryId,
@@ -259,6 +301,7 @@ export async function rerunLiveQuerySubscription(
   });
 
   return {
+    status: "updated",
     subscription: recorded.subscription,
     previousResultHash,
     resultHash,
@@ -381,7 +424,21 @@ export function fingerprintJson(value: Json): string {
 function liveQueryChangeFromRerun(
   rerun: RerunLiveQuerySubscriptionResult,
 ): LiveQueryChange {
+  if (rerun.status === "failed") {
+    return {
+      kind: "failed",
+      deploymentId: rerun.subscription.deploymentId,
+      connectionId: rerun.subscription.connectionId,
+      queryId: rerun.subscription.queryId,
+      functionPath: rerun.subscription.functionPath,
+      argsJson: rerun.subscription.argsJson as Json,
+      previousResultHash: rerun.previousResultHash,
+      errorMessage: rerun.errorMessage,
+      errorData: null,
+    };
+  }
   return {
+    kind: "updated",
     deploymentId: rerun.subscription.deploymentId,
     connectionId: rerun.subscription.connectionId,
     queryId: rerun.subscription.queryId,
@@ -391,6 +448,10 @@ function liveQueryChangeFromRerun(
     previousResultHash: rerun.previousResultHash,
     resultHash: rerun.resultHash,
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function stableJson(value: Json): string {

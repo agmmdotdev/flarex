@@ -268,6 +268,34 @@ export function healthyPersistence(): FlarexExecutorPersistence {
               },
       };
     },
+    async recordLiveQueryRerunFailure(input) {
+      return {
+        deleted: 0,
+        delivery:
+          input.delivery === undefined
+            ? null
+            : {
+                deploymentId: input.deploymentId,
+                deliveryId: input.delivery.deliveryId,
+                connectionId: input.connectionId,
+                queryId: input.queryId,
+                payloadJson: input.delivery.payloadJson,
+                deliveredAt: null,
+                claimedAt: null,
+                claimExpiresAt: null,
+                claimOwner: null,
+                attemptCount: 0,
+                lastAttemptedAt: null,
+                lastErrorStage: null,
+                lastError: null,
+                deadLetteredAt: null,
+                deadLetterReason: null,
+                createdAt:
+                  input.delivery.createdAt ??
+                  new Date("2026-06-19T00:00:00.000Z"),
+              },
+      };
+    },
     async deleteLiveQuerySubscription() {
       return { deleted: 0 };
     },

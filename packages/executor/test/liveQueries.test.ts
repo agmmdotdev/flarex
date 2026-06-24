@@ -736,6 +736,81 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("records a failed live query rerun as a durable failure delivery", async () => {
+    const persistence = memoryPersistence();
+    const executor = createLiveQueryExecutor({ persistence });
+    const initial = await executor.recordLiveQuerySubscription({
+      deploymentId: "deployment_rerun_failed",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:uniqueByText",
+      argsJson: { teamId: "team_a", text: "dupe" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSet: { tables: [{ tableId: 1 }] },
+      resultJson: { _id: "1:old", teamId: "team_a", text: "dupe" },
+    });
+
+    await expect(
+      executor.rerunLiveQuerySubscription({
+        subscription: initial.subscription,
+        deliveryId: "delivery_failed_1",
+        updatedAt: new Date("2026-06-20T00:20:00.000Z"),
+        runQuery: async () => {
+          throw new Error("Query returned more than one document.");
+        },
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      previousResultHash: '{"_id":"1:old","teamId":"team_a","text":"dupe"}',
+      changed: true,
+      deleted: 1,
+      delivery: {
+        deploymentId: "deployment_rerun_failed",
+        connectionId: "connection_a",
+        queryId: 1,
+        payloadJson: {
+          kind: "failed",
+          deploymentId: "deployment_rerun_failed",
+          connectionId: "connection_a",
+          queryId: 1,
+          functionPath: "messages:uniqueByText",
+          argsJson: { teamId: "team_a", text: "dupe" },
+          previousResultHash: '{"_id":"1:old","teamId":"team_a","text":"dupe"}',
+          errorMessage: "Query returned more than one document.",
+          errorData: null,
+        },
+      },
+    });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_rerun_failed",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      executor.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_rerun_failed",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deploymentId: "deployment_rerun_failed",
+          connectionId: "connection_a",
+          queryId: 1,
+          payloadJson: {
+            kind: "failed",
+            previousResultHash: '{"_id":"1:old","teamId":"team_a","text":"dupe"}',
+            errorMessage: "Query returned more than one document.",
+            errorData: null,
+          },
+          deliveredAt: null,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
   it("claims and acks live query deliveries without owning fanout", async () => {
     const persistence = memoryPersistence();
     let now = new Date("2026-06-20T01:00:00.000Z");
@@ -1236,6 +1311,7 @@ describe("executor live query subscriptions", () => {
     expect(rerunPaths).toEqual(["messages:changed"]);
     expect(delivered).toEqual([
       {
+        kind: "updated",
         deploymentId: "deployment_batch_rerun",
         connectionId: "connection_a",
         queryId: 2,
@@ -1257,6 +1333,7 @@ describe("executor live query subscriptions", () => {
           connectionId: "connection_a",
           queryId: 2,
           payloadJson: {
+            kind: "updated",
             resultJson: "new",
             previousResultHash: '"old"',
             resultHash: '"new"',

@@ -927,6 +927,28 @@ export function memoryPersistence(
         delivery,
       };
     },
+    async recordLiveQueryRerunFailure(input): Promise<{
+      deleted: number;
+      delivery: LiveQueryDeliveryRecord | null;
+    }> {
+      const deleted = await this.deleteLiveQuerySubscription(input);
+      const delivery =
+        input.delivery === undefined
+          ? null
+          : liveQueryDelivery({
+              deploymentId: input.deploymentId,
+              connectionId: input.connectionId,
+              queryId: input.queryId,
+              ...input.delivery,
+            });
+      if (delivery !== null) {
+        liveQueryDeliveries.push(delivery);
+      }
+      return {
+        deleted: deleted.deleted,
+        delivery,
+      };
+    },
     async deleteLiveQuerySubscription(
       input: LiveQuerySubscriptionKey,
     ): Promise<{ deleted: number }> {

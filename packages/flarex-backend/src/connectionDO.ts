@@ -413,6 +413,26 @@ export class ConnectionDO extends DurableObject<Env> {
         skipped += 1;
         continue;
       }
+      if (delivery.kind === "failed") {
+        if (
+          query.resultHash !== undefined &&
+          query.resultHash !== delivery.previousResultHash
+        ) {
+          skipped += 1;
+          continue;
+        }
+        this.state.ts += 1;
+        modifications.push({
+          type: "QueryFailed",
+          queryId: delivery.queryId,
+          errorMessage: delivery.errorMessage,
+          logLines: [],
+          errorData: delivery.errorData,
+          journal: query.journal,
+        });
+        this.state.queries.delete(query.queryId);
+        continue;
+      }
       if (query.resultHash === delivery.resultHash) {
         skipped += 1;
         continue;

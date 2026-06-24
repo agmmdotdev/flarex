@@ -19,6 +19,7 @@
     "@electric-sql/pglite": "^0.3.14",
     "@types/pg": "^8.20.0",
     "drizzle-orm": "^0.45.2",
+    "flarex": "workspace:*",
     "pg": "^8.22.0"
   },
   "devDependencies": {

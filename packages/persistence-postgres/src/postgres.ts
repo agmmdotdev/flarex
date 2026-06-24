@@ -69,6 +69,7 @@ import {
   deleteLiveQuerySubscription as deleteLiveQuerySubscriptionWithDb,
   deleteLiveQuerySubscriptionsForConnection as deleteLiveQuerySubscriptionsForConnectionWithDb,
   listLiveQuerySubscriptions as listLiveQuerySubscriptionsWithDb,
+  recordLiveQueryRerunFailure as recordLiveQueryRerunFailureWithDb,
   recordLiveQueryRerunResult as recordLiveQueryRerunResultWithDb,
   upsertLiveQuerySubscription as upsertLiveQuerySubscriptionWithDb,
 } from "./liveQuerySubscriptions";
@@ -239,6 +240,13 @@ export async function createPostgresPersistence(
       drizzleDb.transaction((tx) =>
         recordLiveQueryRerunResultWithDb(
           tx as Parameters<typeof recordLiveQueryRerunResultWithDb>[0],
+          input,
+        ),
+      ),
+    recordLiveQueryRerunFailure: (input) =>
+      drizzleDb.transaction((tx) =>
+        recordLiveQueryRerunFailureWithDb(
+          tx as Parameters<typeof recordLiveQueryRerunFailureWithDb>[0],
           input,
         ),
       ),

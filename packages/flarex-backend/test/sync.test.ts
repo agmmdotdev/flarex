@@ -180,7 +180,7 @@ describe("sync protocol", () => {
         serviceBindings: {
           FLAREX_EXECUTOR: async request => {
             const url = new URL(request.url);
-            const body = await request.json();
+            const body: unknown = await request.json();
             executorRequests.push({
               path: url.pathname,
               authorization: request.headers.get("authorization"),
@@ -1536,6 +1536,96 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("skips stale failed live query deliveries after a newer result is active", async () => {
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    const deploymentId = "sync-stale-failed-delivery-deployment";
+    const connectionId = `connection:${deploymentId}:stale-failed-delivery-session`;
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "stale-failed-delivery-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 15,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(connectionId);
+    const updateResponse = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            kind: "updated",
+            deploymentId,
+            connectionId,
+            queryId: 15,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+        ],
+      }),
+    });
+    expect(updateResponse.status).toBe(200);
+    const updateBody: unknown = await updateResponse.json();
+    expect(updateBody).toEqual({ delivered: 1, skipped: 0 });
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", queryId: 15 }],
+    });
+
+    const staleFailedResponse = await connection.fetch(
+      "https://flarex.internal/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              kind: "failed",
+              deploymentId,
+              connectionId,
+              queryId: 15,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              previousResultHash: '{"user":"Ada"}',
+              errorMessage: "Query returned more than one document.",
+              errorData: null,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(staleFailedResponse.status).toBe(200);
+    const staleFailedBody: unknown = await staleFailedResponse.json();
+    expect(staleFailedBody).toEqual({
+      delivered: 0,
+      skipped: 1,
+    });
+    ws.close();
+  });
+
   it("routes backend live query delivery callbacks to named connections", async () => {
     const runtimeCalls: unknown[] = [];
     const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
@@ -1622,7 +1712,7 @@ describe("sync protocol", () => {
         serviceBindings: {
           FLAREX_EXECUTOR: async request => {
             const url = new URL(request.url);
-            const body = await request.json();
+            const body: unknown = await request.json();
             executorRequests.push({
               path: url.pathname,
               authorization: request.headers.get("authorization"),
@@ -1747,6 +1837,148 @@ describe("sync protocol", () => {
           deploymentId: "sync-delivery-do-deployment",
           deliveryIds: ["delivery_1"],
           claimOwner: expect.stringMatching(/^delivery:sync-delivery-do-deployment:/),
+        },
+      },
+    ]);
+    ws.close();
+  });
+
+  it("wakes DeliveryDO and delivers failed live query reruns as QueryFailed", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-do-failed-deployment";
+    const connectionId = `connection:${deploymentId}:delivery-do-failed-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_PROJECT_ID: "project_sync",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_failed_1",
+                    connectionId,
+                    queryId: 18,
+                    payloadJson: {
+                      kind: "failed",
+                      deploymentId,
+                      connectionId,
+                      queryId: 18,
+                      functionPath: "users:unique",
+                      argsJson: { id: "1:ada" },
+                      previousResultHash: '{"user":"Ada"}',
+                      errorMessage: "Query returned more than one document.",
+                      errorData: null,
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ ok: true });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "delivery-do-failed-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 18,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+    executorRequests.length = 0;
+
+    const delivered = nextJsonMessage(ws);
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const responseBody: unknown = await response.json();
+    expect(responseBody).toMatchObject({
+      deploymentId,
+      claimed: 1,
+      acked: 1,
+      delivered: 1,
+      skipped: 0,
+      hasMore: false,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryFailed",
+          queryId: 18,
+          errorMessage: "Query returned more than one document.",
+          errorData: null,
+        },
+      ],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-do-failed-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_failed_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-do-failed-deployment:/),
         },
       },
     ]);

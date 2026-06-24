@@ -654,6 +654,68 @@ describe("backend sync with local executor runtime", () => {
           limit: 10,
         }),
       ).resolves.toMatchObject({ deliveries: [], hasMore: false });
+
+      const rerunFailureTeamId = "2:team_unique_failure";
+      const firstRerunFailureMessageId = await seedMessage(
+        firstWs,
+        80,
+        rerunFailureTeamId,
+        "live-dupe",
+      );
+      sendUniqueTextSubscription(
+        firstWs,
+        2,
+        3,
+        8,
+        rerunFailureTeamId,
+        "live-dupe",
+      );
+      expectUniqueTextTransition(
+        await nextJsonMessage(firstWs),
+        "initial successful unique before duplicate rerun",
+        8,
+        {
+          _id: firstRerunFailureMessageId,
+          teamId: rerunFailureTeamId,
+          text: "live-dupe",
+        },
+      );
+
+      await seedMessage(firstWs, 81, rerunFailureTeamId, "live-dupe");
+      const rerunFailureDelivered = nextJsonMessage(firstWs);
+      const rerunFailureResponse = await harness.mf.dispatchFetch(
+        "http://flarex.test/scheduler/live-query-subscriptions/trigger",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer delivery-secret",
+          },
+          body: JSON.stringify({
+            deploymentId,
+            projectId,
+            limit: 10,
+            deliveryLimit: 10,
+            maxBatches: 1,
+          }),
+        },
+      );
+
+      expect(rerunFailureResponse.status).toBe(200);
+      const rerunFailureBody: unknown = await rerunFailureResponse.json();
+      expectSchedulerTriggerResponse(rerunFailureBody, {
+        deploymentId,
+        changed: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 1,
+      });
+      expectQueryFailedTransition(
+        await rerunFailureDelivered,
+        "previously successful unique rerun failure transition",
+        8,
+        "Query returned more than one document.",
+      );
       expect(runtime.cacheSize()).toBe(1);
     } finally {
       firstWs.close();
@@ -1139,6 +1201,30 @@ function sendDuplicateUniqueSubscription(
   });
 }
 
+function sendUniqueTextSubscription(
+  ws: SyncWebSocket,
+  baseVersion: number,
+  newVersion: number,
+  queryId: number,
+  teamId: string,
+  text: string,
+): void {
+  sendModifyQuerySet(ws, {
+    type: "ModifyQuerySet",
+    baseVersion,
+    newVersion,
+    modifications: [
+      {
+        type: "Add",
+        queryId,
+        udfPath: "messages:uniqueByText",
+        args: [{ teamId, text }],
+        partitionKey: teamId,
+      },
+    ],
+  });
+}
+
 type ExpectedMessage = {
   _id: string;
   teamId: string;
@@ -1193,6 +1279,17 @@ function expectListSubscriptionTransition(
   if (uniqueMessage !== undefined) {
     expect(updates.get(6)).toEqual(uniqueMessage);
   }
+}
+
+function expectUniqueTextTransition(
+  transition: unknown,
+  name: string,
+  queryId: number,
+  uniqueMessage: ExpectedMaybeMessage,
+): void {
+  const updates = transitionUpdatesByQueryId(transition, name);
+  expect([...updates.keys()]).toEqual([queryId]);
+  expect(updates.get(queryId)).toEqual(uniqueMessage);
 }
 
 function expectPaginatedMessagesResult(

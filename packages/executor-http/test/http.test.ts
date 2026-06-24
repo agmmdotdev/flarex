@@ -820,6 +820,7 @@ describe("createFlarexHttpApp", () => {
           await input.runQuery(liveQuerySubscription());
           await input.deliverChanges?.([
             {
+              kind: "updated",
               deploymentId: "deployment_active",
               connectionId: "connection_a",
               queryId: 1,
@@ -889,6 +890,7 @@ describe("createFlarexHttpApp", () => {
     ]);
     expect(delivered).toEqual([
       {
+        kind: "updated",
         deploymentId: "deployment_active",
         connectionId: "connection_a",
         queryId: 1,
@@ -918,6 +920,7 @@ describe("createFlarexHttpApp", () => {
             scanned: { fresh: [], stale: [], unsupported: [] },
             changed: [
               {
+                status: "updated",
                 subscription: liveQuerySubscription({
                   deploymentId: input.deploymentId,
                   connectionId: "connection_a",
@@ -932,6 +935,7 @@ describe("createFlarexHttpApp", () => {
             unchanged: [],
             changes: [
               {
+                kind: "updated",
                 deploymentId: input.deploymentId,
                 connectionId: "connection_a",
                 queryId: 1,

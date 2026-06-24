@@ -3,6 +3,7 @@ import type {
   FreshnessSourceReadSet,
   FreshnessMirrorStore,
 } from "@flarex/freshness";
+import type { LiveQueryDeliveryChange } from "flarex";
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
@@ -64,6 +65,8 @@ import type {
   ListDocumentsInIndexAtTsInput,
   OutboxEventCursor,
   OutboxEventRecord,
+  RecordLiveQueryRerunFailureInput,
+  RecordLiveQueryRerunFailureResult,
   RecordLiveQueryRerunResultInput,
   RecordLiveQueryRerunResultResult,
   UpsertLiveQueryConnectionLeaseInput,
@@ -360,6 +363,9 @@ export interface FlarexExecutorPersistence {
   recordLiveQueryRerunResult(
     input: RecordLiveQueryRerunResultInput,
   ): Promise<RecordLiveQueryRerunResultResult>;
+  recordLiveQueryRerunFailure(
+    input: RecordLiveQueryRerunFailureInput,
+  ): Promise<RecordLiveQueryRerunFailureResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
@@ -577,7 +583,8 @@ export interface RerunLiveQuerySubscriptionInput {
   ): Promise<RerunLiveQuerySubscriptionOutput>;
 }
 
-export interface RerunLiveQuerySubscriptionResult {
+export interface RerunLiveQuerySubscriptionUpdatedResult {
+  status: "updated";
   subscription: LiveQuerySubscriptionRecord;
   previousResultHash: string;
   resultHash: string;
@@ -585,16 +592,21 @@ export interface RerunLiveQuerySubscriptionResult {
   delivery: LiveQueryDeliveryRecord | null;
 }
 
-export interface LiveQueryChange {
-  deploymentId: string;
-  connectionId: string;
-  queryId: number;
-  functionPath: string;
-  argsJson: Json;
-  resultJson: Json;
+export interface RerunLiveQuerySubscriptionFailedResult {
+  status: "failed";
+  subscription: LiveQuerySubscriptionRecord;
   previousResultHash: string;
-  resultHash: string;
+  changed: true;
+  deleted: number;
+  delivery: LiveQueryDeliveryRecord | null;
+  errorMessage: string;
 }
+
+export type RerunLiveQuerySubscriptionResult =
+  | RerunLiveQuerySubscriptionUpdatedResult
+  | RerunLiveQuerySubscriptionFailedResult;
+
+export type LiveQueryChange = LiveQueryDeliveryChange;
 
 export interface RerunStaleLiveQuerySubscriptionsInput {
   deploymentId: string;

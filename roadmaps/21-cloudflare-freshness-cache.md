@@ -1,5 +1,99 @@
 # Cloudflare Freshness Cache
 
+## Durable Rerun QueryFailed Delivery
+
+Previous completed checkpoint: `351e027` Cover duplicate unique sync failure.
+
+What changed:
+
+- Added a durable failed-rerun delivery payload for live queries:
+  - `kind: "updated"` for successful changed results.
+  - `kind: "failed"` for reruns that throw after a query was previously
+    registered successfully.
+- Added `recordLiveQueryRerunFailure(...)` to the Postgres persistence
+  boundary. The PGlite and Postgres adapters run it inside their adapter
+  transaction style so subscription removal and failure delivery insertion are
+  owned by persistence, not hand-composed in executor code.
+- Updated the executor live-query rerun path so a thrown query:
+  - records a durable failure delivery when a delivery ID is supplied,
+  - removes the durable subscription, and
+  - returns a typed failed rerun result.
+- Updated backend delivery parsing and `ConnectionDO` fanout so failed durable
+  deliveries emit `Transition(QueryFailed)` and remove the active in-memory
+  query from the connection.
+- Failed delivery payloads carry `previousResultHash`, and `ConnectionDO`
+  skips them when the active local query has already advanced to a different
+  result hash. This mirrors the stale-delivery guard used by successful
+  `QueryUpdated` payloads.
+- The durable live-query delivery payload union now lives in the shared
+  `flarex` package and is reused by executor, backend delivery parsing, and
+  the narrowed persistence rerun-failure input.
+- Extended generated hosted sync coverage so a previously successful
+  `messages:uniqueByText` subscription later reruns into duplicate results and
+  reaches the WebSocket as `QueryFailed`.
+
+Why it changed:
+
+The previous checkpoint proved initial duplicate `unique()` query failure. The
+remaining correctness gap was a durable live query that was valid when
+registered but becomes invalid when later rerun by the trusted executor. Convex
+sync treats rerun failures as query state transitions; Flarex must not lose the
+failure just because the rerun happens outside the active `ConnectionDO`.
+
+Convex references:
+
+- `npm-packages/convex/src/server/query.ts`
+  - documents `unique()` as throwing when more than one document matches.
+- `npm-packages/convex/src/server/impl/query_impl.ts`
+  - implements `unique()` with a two-row read and duplicate-result throw.
+- `crates/sync/src/worker.rs`
+  - reruns subscribed queries and sends query result/error transitions through
+    the sync worker path.
+- `crates/sync/src/state.rs`
+  - tracks query modifications as state transitions keyed by query ID.
+
+Flarex differences:
+
+- Convex has an integrated sync worker and database runtime. Flarex reruns
+  durable subscriptions in the trusted executor, stores a delivery row, then
+  fans out through DeliveryDO and ConnectionDO.
+- Failed durable reruns remove the durable subscription in the executor before
+  delivery. `ConnectionDO` only removes local query state after receiving that
+  durable failure payload.
+- The failure payload is intentionally minimal for now: message string,
+  `errorData: null`, and empty log lines at fanout.
+- Existing update payloads without `kind` remain accepted by backend parsers as
+  `kind: "updated"` during the transition.
+- The generic delivery table still stores `payload_json` as `unknown`, but the
+  rerun-failure persistence API narrows the failure payload to the shared
+  delivery type.
+
+Known limitations:
+
+- Failure delivery is durable, but failed-query recovery is still manual: the
+  client must add the query again after app data or arguments change.
+- Error payloads do not yet include structured Convex-style error data.
+- The executor persistence operation is transactional at the adapter boundary,
+  but there is not yet a richer domain event tying failure delivery to
+  subscription lifecycle audit records.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "rerun failures|rerun results" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivers failed live query reruns|wakes DeliveryDO to claim" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "live query reruns|delivery wake|changed live query" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/executor-nitro typecheck
+git diff --check
+```
+
 ## Generated Duplicate Unique QueryFailed Sync
 
 Previous completed checkpoint: `53c7daf` Cover first and unique sync.

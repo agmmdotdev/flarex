@@ -1,4 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
+import type { LiveQueryDeliveryFailedChange } from "flarex";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -49,6 +50,21 @@ export interface RecordLiveQueryRerunResultInput
 
 export interface RecordLiveQueryRerunResultResult {
   subscription: LiveQuerySubscriptionRecord;
+  delivery: LiveQueryDeliveryRecord | null;
+}
+
+export interface RecordLiveQueryRerunFailureInput
+  extends LiveQuerySubscriptionKey {
+  delivery?: Omit<
+    InsertLiveQueryDeliveryInput,
+    keyof LiveQuerySubscriptionKey | "payloadJson"
+  > & {
+    payloadJson: LiveQueryDeliveryFailedChange;
+  };
+}
+
+export interface RecordLiveQueryRerunFailureResult {
+  deleted: number;
   delivery: LiveQueryDeliveryRecord | null;
 }
 
@@ -110,6 +126,26 @@ export async function recordLiveQueryRerunResult(
       : await insertLiveQueryDelivery(db, input.delivery);
   return {
     subscription,
+    delivery,
+  };
+}
+
+export async function recordLiveQueryRerunFailure(
+  db: FlarexMetadataDatabase,
+  input: RecordLiveQueryRerunFailureInput,
+): Promise<RecordLiveQueryRerunFailureResult> {
+  const deleted = await deleteLiveQuerySubscription(db, input);
+  const delivery =
+    input.delivery === undefined
+      ? null
+      : await insertLiveQueryDelivery(db, {
+          deploymentId: input.deploymentId,
+          connectionId: input.connectionId,
+          queryId: input.queryId,
+          ...input.delivery,
+        });
+  return {
+    deleted: deleted.deleted,
     delivery,
   };
 }

@@ -3013,6 +3013,86 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("records live query rerun failures by removing the subscription and keeping a delivery row", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const createdAt = new Date("2026-06-20T00:20:00.000Z");
+
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_failure",
+      connectionId: "connection_a",
+      queryId: 1,
+      functionPath: "messages:uniqueByText",
+      argsJson: { teamId: "team_a", text: "dupe" },
+      partitionKey: "team_a",
+      beginTs: 10,
+      readSetJson: { tables: [{ tableId: 1, observedTs: 10 }] },
+      resultJson: { _id: "1:old", teamId: "team_a", text: "dupe" },
+      resultHash: "old_hash",
+      updatedAt: new Date("2026-06-20T00:10:00.000Z"),
+    });
+
+    await expect(
+      persistence.recordLiveQueryRerunFailure({
+        deploymentId: "deployment_live_query_failure",
+        connectionId: "connection_a",
+        queryId: 1,
+        delivery: {
+          deliveryId: "delivery_failed_1",
+          payloadJson: {
+            kind: "failed",
+            deploymentId: "deployment_live_query_failure",
+            connectionId: "connection_a",
+            queryId: 1,
+            functionPath: "messages:uniqueByText",
+            argsJson: { teamId: "team_a", text: "dupe" },
+            previousResultHash: "old_hash",
+            errorMessage: "Query returned more than one document.",
+            errorData: null,
+          },
+          createdAt,
+        },
+      }),
+    ).resolves.toMatchObject({
+      deleted: 1,
+      delivery: {
+        deploymentId: "deployment_live_query_failure",
+        deliveryId: "delivery_failed_1",
+        payloadJson: {
+          kind: "failed",
+          previousResultHash: "old_hash",
+          errorMessage: "Query returned more than one document.",
+          errorData: null,
+        },
+        deliveredAt: null,
+        createdAt,
+      },
+    });
+    await expect(
+      persistence.listLiveQuerySubscriptions({
+        deploymentId: "deployment_live_query_failure",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_live_query_failure",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_failed_1",
+          payloadJson: {
+            kind: "failed",
+            previousResultHash: "old_hash",
+            errorData: null,
+          },
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
   it("leases live query deliveries during claim and reclaims expired leases", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

@@ -1,16 +1,8 @@
 import { HttpError } from "./http";
+import type { LiveQueryDeliveryChange } from "flarex";
 import type { Env, Json } from "./types";
 
-export type LiveQueryDeliveryChange = {
-  deploymentId: string;
-  connectionId: string;
-  queryId: number;
-  functionPath: string;
-  argsJson: Json;
-  resultJson: Json;
-  previousResultHash: string;
-  resultHash: string;
-};
+export type { LiveQueryDeliveryChange } from "flarex";
 
 export type LiveQueryDeliveryResult = {
   delivered: number;
@@ -111,7 +103,31 @@ function liveQueryDeliveryChangeFromUnknown(
     throw new Error(`${path} must be an object.`);
   }
   const record = value as Record<string, unknown>;
+  const kind = record.kind;
+  if (kind === "failed") {
+    return {
+      kind: "failed",
+      deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
+      connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
+      queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),
+      functionPath: requiredDeliveryString(record.functionPath, `${path}.functionPath`),
+      argsJson: deliveryJson(record.argsJson, `${path}.argsJson`),
+      previousResultHash: requiredDeliveryString(
+        record.previousResultHash,
+        `${path}.previousResultHash`,
+      ),
+      errorMessage: requiredDeliveryString(record.errorMessage, `${path}.errorMessage`),
+      errorData:
+        record.errorData === undefined
+          ? null
+          : deliveryJson(record.errorData, `${path}.errorData`),
+    };
+  }
+  if (kind !== undefined && kind !== "updated") {
+    throw new Error(`${path}.kind must be "updated" or "failed".`);
+  }
   return {
+    kind: "updated",
     deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
     connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
     queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),

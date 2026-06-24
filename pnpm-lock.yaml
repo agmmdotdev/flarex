@@ -225,6 +225,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260613.1)(@electric-sql/pglite@0.3.16)(@types/pg@8.20.0)(pg@8.22.0)
+      flarex:
+        specifier: workspace:*
+        version: link:../flarex
       pg:
         specifier: ^8.22.0
         version: 8.22.0

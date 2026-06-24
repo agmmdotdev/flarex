@@ -70,6 +70,8 @@ import type {
   LiveQuerySubscriptionConnectionKey,
   LiveQuerySubscriptionKey,
   LiveQuerySubscriptionRecord,
+  RecordLiveQueryRerunFailureInput,
+  RecordLiveQueryRerunFailureResult,
   RecordLiveQueryRerunResultInput,
   RecordLiveQueryRerunResultResult,
   UpsertLiveQuerySubscriptionInput,
@@ -247,6 +249,9 @@ export interface FlarexPersistence extends FlarexSqlClient {
   recordLiveQueryRerunResult(
     input: RecordLiveQueryRerunResultInput,
   ): Promise<RecordLiveQueryRerunResultResult>;
+  recordLiveQueryRerunFailure(
+    input: RecordLiveQueryRerunFailureInput,
+  ): Promise<RecordLiveQueryRerunFailureResult>;
   deleteLiveQuerySubscription(
     input: LiveQuerySubscriptionKey,
   ): Promise<DeleteLiveQuerySubscriptionResult>;
