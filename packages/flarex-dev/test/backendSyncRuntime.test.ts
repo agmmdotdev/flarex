@@ -2,7 +2,6 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import type { BeginInvokeSessionResult } from "@flarex/executor";
 import {
   createExecutionArtifactRuntimeService,
   type ExecutionArtifactRuntimeService,
@@ -13,8 +12,14 @@ import {
   type BackendHarness,
 } from "flarex-backend/test/backendHarness";
 import type {
+  ModifyQuerySet,
+  MutationRequest,
+  MutationResponse,
+} from "flarex-backend/test/sync-protocol";
+import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
+  Json,
   PushStatus,
   PushSourcePackage,
 } from "flarex-backend/types";
@@ -134,7 +139,25 @@ describe("backend sync with local executor runtime", () => {
 
     const ws = await openSync(harness, deploymentId, sessionId);
     try {
-      ws.send(JSON.stringify({
+      sendMutation(ws, {
+        type: "Mutation",
+        requestId: 1,
+        udfPath: "messages:seed",
+        args: [{ text: "initial" }],
+      });
+      const created = mutationResponseFromUnknown(await nextJsonMessage(ws));
+      expect(created).toMatchObject({
+        type: "MutationResponse",
+        requestId: 1,
+        success: true,
+        ts: expect.any(Number),
+      });
+      const messageId = jsonString(created.result, "seed mutation result");
+      expect(messageId).toMatch(/^1:/);
+      expect(materializeCount).toBe(1);
+      expect(storeGetCount).toBe(1);
+
+      sendModifyQuerySet(ws, {
         type: "ModifyQuerySet",
         baseVersion: 0,
         newVersion: 1,
@@ -143,23 +166,23 @@ describe("backend sync with local executor runtime", () => {
             type: "Add",
             queryId: 1,
             udfPath: "messages:get",
-            args: [{ messageId: "1:message" }],
-            partitionKey: "1:message",
+            args: [{ messageId }],
+            partitionKey: messageId,
           },
         ],
-      }));
+      });
       await expect(nextJsonMessage(ws)).resolves.toMatchObject({
         type: "Transition",
         modifications: [
           {
             type: "QueryUpdated",
             queryId: 1,
-            value: null,
+            value: { _id: messageId, text: "initial" },
           },
         ],
       });
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(1);
+      expect(storeGetCount).toBe(2);
 
       await expect(
         runtime.executor.findStaleLiveQuerySubscriptions({
@@ -168,7 +191,22 @@ describe("backend sync with local executor runtime", () => {
         }),
       ).resolves.toMatchObject({ stale: [] });
 
-      await writeMessage(runtime, deploymentId, projectId);
+      sendMutation(ws, {
+        type: "Mutation",
+        requestId: 2,
+        udfPath: "messages:update",
+        args: [{ messageId, text: "fresh" }],
+        partitionKey: messageId,
+      });
+      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+        type: "MutationResponse",
+        requestId: 2,
+        success: true,
+        result: messageId,
+        ts: expect.any(Number),
+      });
+      expect(materializeCount).toBe(1);
+      expect(storeGetCount).toBe(3);
       await expect(
         runtime.executor.findStaleLiveQuerySubscriptions({
           deploymentId,
@@ -232,7 +270,7 @@ describe("backend sync with local executor runtime", () => {
           {
             type: "QueryUpdated",
             queryId: 1,
-            value: { _id: "1:message", text: "fresh" },
+            value: { _id: messageId, text: "fresh" },
           },
         ],
       });
@@ -248,40 +286,6 @@ describe("backend sync with local executor runtime", () => {
     }
   }, 30000);
 });
-
-async function writeMessage(
-  runtime: LocalPGliteExecutorHttpRuntime,
-  deploymentId: string,
-  projectId: string,
-): Promise<void> {
-  const started = sessionStartFromUnknown(await postJson(
-    runtime,
-    "/invoke/start",
-    {
-      deploymentId,
-      projectId,
-      path: "messages:seed",
-      kind: "mutation",
-      args: { messageId: "1:message", text: "fresh" },
-      partitionKey: "1:message",
-    },
-  ));
-  await postJson(runtime, "/invoke/syscall", {
-    deploymentId,
-    projectId,
-    sessionId: started.sessionId,
-    op: "insert",
-    table: "messages",
-    id: "1:message",
-    value: { text: "fresh" },
-  });
-  await postJson(runtime, "/invoke/finish", {
-    deploymentId,
-    projectId,
-    sessionId: started.sessionId,
-    value: "1:message",
-  });
-}
 
 async function createGeneratedMessageDeployment(): Promise<{
   sourcePackage: PushSourcePackage;
@@ -329,34 +333,25 @@ export const get = query({
 
 export const seed = mutation({
   partition: model.messages,
+  args: { text: v.string() },
+  returns: v.id("messages"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("messages", { text: args.text });
+  },
+});
+
+export const update = mutation({
+  partition: model.messages,
   args: { messageId: v.id("messages"), text: v.string() },
   returns: v.id("messages"),
-  handler: async () => {
-    throw new Error("seed is exercised directly through executor syscalls");
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.messageId, { text: args.text });
+    return args.messageId;
   },
 });
 `,
   );
   return root;
-}
-
-async function postJson(
-  runtime: LocalPGliteExecutorHttpRuntime,
-  path: string,
-  body: unknown,
-): Promise<unknown> {
-  const response = await runtime.fetch(new Request(`https://executor.test${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: "Bearer executor-secret",
-    },
-    body: JSON.stringify(body),
-  }));
-  if (!response.ok) {
-    expect(response.status, await response.text()).toBe(200);
-  }
-  return await response.json();
 }
 
 async function activateBackendDeployment(
@@ -460,16 +455,6 @@ function isR2BucketLike(value: unknown): value is R2BucketLike {
   );
 }
 
-function sessionStartFromUnknown(
-  value: unknown,
-): Pick<BeginInvokeSessionResult, "sessionId"> {
-  const record = jsonRecord(value, "invoke start response");
-  if (typeof record.sessionId !== "string" || record.sessionId.length === 0) {
-    throw new Error("invoke start response.sessionId must be a non-empty string.");
-  }
-  return { sessionId: record.sessionId };
-}
-
 function pushStatusFromUnknown(value: unknown): Pick<PushStatus, "pushId" | "state"> {
   const record = jsonRecord(value, "push status");
   if (typeof record.pushId !== "string" || record.pushId.length === 0) {
@@ -488,11 +473,80 @@ function isPushStatusState(value: unknown): value is PushStatus["state"] {
   return typeof value === "string" && value in pushStatusStates;
 }
 
+function mutationResponseFromUnknown(value: unknown): MutationResponse {
+  const record = jsonRecord(value, "mutation response");
+  if (record.type !== "MutationResponse") {
+    throw new Error("mutation response.type must be MutationResponse.");
+  }
+  if (typeof record.requestId !== "number" || !Number.isInteger(record.requestId)) {
+    throw new Error("mutation response.requestId must be an integer.");
+  }
+  if (record.success === true) {
+    return {
+      type: "MutationResponse",
+      requestId: record.requestId,
+      success: true,
+      result: assertJson(record.result, "mutation response.result"),
+      ...(record.ts === undefined ? {} : { ts: jsonInteger(record.ts, "mutation response.ts") }),
+      logLines: jsonStringArray(record.logLines, "mutation response.logLines"),
+    };
+  }
+  if (record.success === false) {
+    return {
+      type: "MutationResponse",
+      requestId: record.requestId,
+      success: false,
+      result: jsonString(record.result, "mutation response.result"),
+      logLines: jsonStringArray(record.logLines, "mutation response.logLines"),
+      ...(record.errorData === undefined
+        ? {}
+        : { errorData: assertJson(record.errorData, "mutation response.errorData") }),
+    };
+  }
+  throw new Error("mutation response.success must be a boolean.");
+}
+
 function jsonRecord(value: unknown, name: string): Record<string, unknown> {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
   throw new Error(`${name} must be an object.`);
+}
+
+function jsonString(value: unknown, name: string): string {
+  if (typeof value === "string") return value;
+  throw new Error(`${name} must be a string.`);
+}
+
+function jsonInteger(value: unknown, name: string): number {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  throw new Error(`${name} must be an integer.`);
+}
+
+function jsonStringArray(value: unknown, name: string): string[] {
+  if (Array.isArray(value)) {
+    return value.map(item => jsonString(item, name));
+  }
+  throw new Error(`${name} must be a string array.`);
+}
+
+function assertJson(value: unknown, name: string): Json {
+  if (isJson(value)) return value;
+  throw new Error(`${name} must be JSON.`);
+}
+
+function isJson(value: unknown): value is Json {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) return value.every(isJson);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every(isJson);
 }
 
 const pushStatusStates = {
@@ -518,4 +572,12 @@ function nextJsonMessage(ws: SyncWebSocket): Promise<unknown> {
       reject(event);
     }, { once: true });
   });
+}
+
+function sendMutation(ws: SyncWebSocket, message: MutationRequest): void {
+  ws.send(JSON.stringify(message));
+}
+
+function sendModifyQuerySet(ws: SyncWebSocket, message: ModifyQuerySet): void {
+  ws.send(JSON.stringify(message));
 }

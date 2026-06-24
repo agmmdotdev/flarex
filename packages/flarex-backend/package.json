@@ -8,7 +8,8 @@
     "./artifact-store": "./src/artifactStore.ts",
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
-    "./test/backendHarness": "./test/backendHarness.ts"
+    "./test/backendHarness": "./test/backendHarness.ts",
+    "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

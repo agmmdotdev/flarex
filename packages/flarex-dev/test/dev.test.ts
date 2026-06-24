@@ -206,7 +206,7 @@ describe("Flarex dev runtime", () => {
       await postgresRuntime.dispose();
       await rm(postgresPersistDir, { recursive: true, force: true });
     }
-  }, 30000);
+  }, 60000);
 });
 
 async function openDevSync(runtime: FlarexDevRuntime): Promise<MiniflareWebSocket> {

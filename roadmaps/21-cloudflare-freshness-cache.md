@@ -1005,8 +1005,95 @@ Known limitations:
   row. It does not yet cover generated indexed/range queries, multi-query sets,
   multiple WebSocket connections, or repeated scheduler continuation in the
   same hosted-runtime path.
-- Generated mutation execution over `/sync` is not covered here; the write path
-  remains a direct executor session for deterministic setup.
+- Superseded by the next checkpoint: at the time of `87933a3`, generated
+  mutation execution over `/sync` was not covered and the write path remained a
+  direct executor session for deterministic setup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
+## Generated Mutation Sync Fanout Integration
+
+Previous completed checkpoint: `87933a3` Use generated app for hosted sync
+integration.
+
+What changed:
+
+- Replaced the hosted sync integration test's direct executor write setup with
+  real WebSocket `Mutation` messages.
+- Changed the generated `messages:seed` mutation to execute user code through
+  `ctx.db.insert(...)` and return the backend preallocated create-root document
+  ID.
+- Added a generated `messages:update` mutation that patches the created
+  document through `ctx.db.patch(...)`.
+- The test now:
+  - creates a message through generated mutation-over-`/sync`,
+  - subscribes to the returned document ID,
+  - updates that same document through generated mutation-over-`/sync`,
+  - verifies the executor marks the durable live-query subscription stale, and
+  - triggers `SchedulerDO -> DeliveryDO -> ConnectionDO` fanout to deliver the
+    updated query result.
+- The test keeps assertions that source is loaded from backend artifact storage
+  and that the generated artifact is materialized once and reused.
+- Exported `flarex-backend/test/sync-protocol` so cross-package integration
+  tests can type WebSocket mutation/query messages and mutation responses
+  against the backend sync protocol instead of duplicating protocol shapes
+  locally. This is deliberately test-scoped because the SDK still has its own
+  client protocol module until we consolidate the public sync boundary.
+- Raised the existing local Postgres `/sync` dev-runtime integration test's
+  per-test timeout to 60s because the focused test takes roughly 29s on this
+  Windows machine and can exceed Vitest's default 30s timeout during the full
+  package run.
+- Raised the backend package Vitest hook/test timeout to 30s so the default
+  `flarex-backend test` gate matches the sync-suite timeout already used for
+  SchedulerDO/DeliveryDO validation.
+
+Why it changed:
+
+The previous checkpoint proved generated query deployment and hosted live-query
+rerun, but mutation writes still bypassed the sync protocol by calling executor
+session routes directly. This closes the Convex-style loop through the client
+sync surface: generated query subscription, generated mutation execution,
+trusted executor commit, stale subscription detection, scheduler rerun, and
+WebSocket query update.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers queue mutations, emit mutation responses, and then
+    drive query invalidation/rerun through the same sync state machine.
+- `crates/sync/src/state.rs`
+  - active query results and mutation-driven transitions are coordinated in the
+    backend sync state.
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - client mutations and query subscriptions share the sync WebSocket protocol.
+
+Flarex differences:
+
+- Convex performs mutation execution, commit, invalidation, rerun, and fanout
+  in one backend runtime. Flarex splits that work across Cloudflare
+  `ConnectionDO`, a materialized execution artifact, the trusted PGlite/Postgres
+  executor, `SchedulerDO`, and `DeliveryDO`.
+- The generated create-root mutation relies on backend preallocation for the
+  root document ID, so the test subscribes to the mutation result rather than a
+  hard-coded document ID.
+
+Known limitations:
+
+- This still uses the local PGlite executor lane, not the real Postgres
+  correctness lane.
+- The integration covers one generated query, one generated create mutation,
+  one generated update mutation, and one delivery row. It does not yet cover
+  generated indexed/range queries, multi-query sets, multiple WebSocket
+  connections, or repeated scheduler continuation in the same hosted-runtime
+  path.
 
 Verification:
 
