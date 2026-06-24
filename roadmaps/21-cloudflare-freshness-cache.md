@@ -1,5 +1,81 @@
 # Cloudflare Freshness Cache
 
+## Generated Duplicate Unique QueryFailed Sync
+
+Previous completed checkpoint: `53c7daf` Cover first and unique sync.
+
+What changed:
+
+- Extended the hosted generated-app sync integration with a duplicate
+  `unique()` failure case.
+- The generated fixture now seeds two colocated messages with the same indexed
+  `text` value in a separate partition.
+- Both WebSocket sessions add a generated `messages:uniqueByText` query over
+  that duplicate equality range.
+- The test proves the generated Dynamic Worker query throws from
+  `.unique()` and `ConnectionDO` emits a `Transition(QueryFailed)` with:
+  - query ID `7`,
+  - the runtime error message,
+  - empty log lines,
+  - `errorData: null`, and
+  - `journal: null`.
+- Tightened the WebSocket test helper so one-shot message waits remove their
+  paired error listener after success, preventing listener accumulation during
+  longer sync flows.
+
+Why it changed:
+
+The previous checkpoint proved successful `first()` and `unique()` subscriptions,
+including `unique()` changing from one matching row to no matching rows. The
+remaining Convex-style semantic gap was the duplicate-result failure: Convex
+documents `unique()` as throwing when more than one document matches. Flarex
+must surface that failure through the sync protocol as `QueryFailed`, not as a
+silent missing subscription or a fatal socket error.
+
+Convex references:
+
+- `npm-packages/convex/src/server/query.ts`
+  - documents `unique()` as returning the single result and throwing when more
+    than one document matches.
+- `npm-packages/convex/src/server/impl/query_impl.ts`
+  - implements `unique()` by reading two rows and throwing on the duplicate
+    case.
+- `crates/sync/src/worker.rs`
+  - packages query execution results and failures into sync transitions.
+- `crates/sync/src/state.rs`
+  - sync state tracks query result/error modifications per query ID.
+
+Flarex differences:
+
+- Convex throws a richer table/id-specific duplicate error from its integrated
+  query runtime. Flarex currently throws the portable SDK/runtime message
+  `"Query returned more than one document."`.
+- The failed generated query is not durably registered as a live subscription,
+  matching the current `ConnectionDO` behavior for `QueryFailed`.
+- This slice proves initial query failure delivery. It does not add retry or
+  recovery behavior for a failed query later becoming valid.
+
+Known limitations:
+
+- Query failure transitions are proven for initial query-set addition, not for
+  a previously successful durable live query that later reruns into a duplicate
+  `unique()` failure.
+- Error payloads remain minimal: `errorData` is `null` and log lines are empty.
+- The integration test is now a broad generated sync behavior test. Future
+  slices should consider extracting scenario helpers before adding many more
+  query shapes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Generated First And Unique Sync
 
 Previous completed checkpoint: `ac41661` Cover indexed paginated sync.

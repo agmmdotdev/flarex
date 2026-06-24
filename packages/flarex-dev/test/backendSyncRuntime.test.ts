@@ -15,6 +15,7 @@ import type {
   ModifyQuerySet,
   MutationRequest,
   MutationResponse,
+  QueryFailed,
 } from "flarex-backend/test/sync-protocol";
 import type {
   AnalyzedStartPushRequest,
@@ -63,6 +64,7 @@ describe("backend sync with local executor runtime", () => {
     const firstConnectionId = `connection:${deploymentId}:${firstSessionId}`;
     const secondConnectionId = `connection:${deploymentId}:${secondSessionId}`;
     const teamId = "2:team_alpha";
+    const duplicateTeamId = "2:team_duplicate";
     const generatedDeployment = await createGeneratedMessageDeployment();
 
     const runtime = await createLocalPGliteExecutorHttpRuntime({
@@ -145,6 +147,8 @@ describe("backend sync with local executor runtime", () => {
       const firstMessageId = await seedMessage(firstWs, 1, teamId, "first");
       const secondMessageId = await seedMessage(firstWs, 2, teamId, "second");
       const thirdMessageId = await seedMessage(firstWs, 3, teamId, "third");
+      await seedMessage(firstWs, 40, duplicateTeamId, "dupe");
+      await seedMessage(firstWs, 41, duplicateTeamId, "dupe");
       expect(materializeCount).toBe(1);
 
       const initialMessages: ExpectedMessage[] = [
@@ -189,6 +193,26 @@ describe("backend sync with local executor runtime", () => {
         uniqueSecondMessage,
       );
       expect(materializeCount).toBe(1);
+
+      sendDuplicateUniqueSubscription(firstWs, duplicateTeamId);
+      sendDuplicateUniqueSubscription(secondWs, duplicateTeamId);
+      const [firstDuplicateUniqueTransition, secondDuplicateUniqueTransition] =
+        await Promise.all([
+          nextJsonMessage(firstWs),
+          nextJsonMessage(secondWs),
+        ]);
+      expectQueryFailedTransition(
+        firstDuplicateUniqueTransition,
+        "first duplicate unique transition",
+        7,
+        "Query returned more than one document.",
+      );
+      expectQueryFailedTransition(
+        secondDuplicateUniqueTransition,
+        "second duplicate unique transition",
+        7,
+        "Query returned more than one document.",
+      );
 
       const initiallyStale = await runtime.executor.findStaleLiveQuerySubscriptions({
         deploymentId,
@@ -960,6 +984,11 @@ function jsonRecord(value: unknown, name: string): Record<string, unknown> {
   throw new Error(`${name} must be an object.`);
 }
 
+function jsonArray(value: unknown, name: string): unknown[] {
+  if (Array.isArray(value)) return value;
+  throw new Error(`${name} must be an array.`);
+}
+
 function jsonString(value: unknown, name: string): string {
   if (typeof value === "string") return value;
   throw new Error(`${name} must be a string.`);
@@ -1090,6 +1119,26 @@ function sendMessageSubscriptions(
   });
 }
 
+function sendDuplicateUniqueSubscription(
+  ws: SyncWebSocket,
+  teamId: string,
+): void {
+  sendModifyQuerySet(ws, {
+    type: "ModifyQuerySet",
+    baseVersion: 1,
+    newVersion: 2,
+    modifications: [
+      {
+        type: "Add",
+        queryId: 7,
+        udfPath: "messages:uniqueByText",
+        args: [{ teamId, text: "dupe" }],
+        partitionKey: teamId,
+      },
+    ],
+  });
+}
+
 type ExpectedMessage = {
   _id: string;
   teamId: string;
@@ -1156,6 +1205,30 @@ function expectPaginatedMessagesResult(
   expect(record.isDone).toBe(expected.isDone);
   expect(jsonString(record.continueCursor, `${name}.continueCursor`).length)
     .toBeGreaterThan(0);
+}
+
+function expectQueryFailedTransition(
+  transition: unknown,
+  name: string,
+  queryId: number,
+  errorMessage: string,
+): void {
+  const record = jsonRecord(transition, name);
+  if (record.type !== "Transition") {
+    throw new Error(`${name}.type must be Transition.`);
+  }
+  const modifications = jsonArray(record.modifications, `${name}.modifications`);
+  expect(modifications).toHaveLength(1);
+  const modification = jsonRecord(modifications[0], `${name}.modifications[0]`);
+  const expected = {
+    type: "QueryFailed",
+    queryId,
+    errorMessage,
+    logLines: [],
+    errorData: null,
+    journal: null,
+  } satisfies QueryFailed;
+  expect(modification).toMatchObject(expected);
 }
 
 function expectSchedulerTriggerResponse(
@@ -1225,18 +1298,26 @@ const pushStatusStates = {
 
 function nextJsonMessage(ws: SyncWebSocket): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      ws.removeEventListener("error", onError);
+    };
+    const onError = (event: Event): void => {
+      cleanup();
+      reject(event);
+    };
     const timeout = setTimeout(
-      () => reject(new Error("Timed out waiting for WebSocket message.")),
+      () => {
+        cleanup();
+        reject(new Error("Timed out waiting for WebSocket message."));
+      },
       5000,
     );
     ws.addEventListener("message", event => {
-      clearTimeout(timeout);
+      cleanup();
       resolve(JSON.parse(String(event.data)));
     }, { once: true });
-    ws.addEventListener("error", event => {
-      clearTimeout(timeout);
-      reject(event);
-    }, { once: true });
+    ws.addEventListener("error", onError, { once: true });
   });
 }
 
