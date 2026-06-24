@@ -8,6 +8,7 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  FunctionVisibilityMismatchError,
   InvokeFinishNotImplementedError,
   InvokeSessionNotFoundError,
   InvokeSessionDocumentWriteAlreadyExistsError,
@@ -96,6 +97,7 @@ describe("createFlarexHttpApp", () => {
         projectId: "project_active",
         path: "messages:list",
         kind: "query",
+        visibility: "internal",
         args: { teamId: "team:1" },
         partitionKey: "team:1",
       }),
@@ -108,6 +110,7 @@ describe("createFlarexHttpApp", () => {
         projectId: "project_active",
         path: "messages:list",
         kind: "query",
+        visibility: "internal",
         args: { teamId: "team:1" },
         partitionKey: "team:1",
       },
@@ -2705,6 +2708,19 @@ describe("createFlarexHttpApp", () => {
     ).resolves.toMatchObject({
       status: 400,
       body: { error: "FunctionKindMismatchError" },
+    });
+    await expect(
+      expectPrepareError(
+        new FunctionVisibilityMismatchError(
+          "deployment_active",
+          "messages:internalList",
+          "public",
+          "internal",
+        ),
+      ),
+    ).resolves.toMatchObject({
+      status: 400,
+      body: { error: "FunctionVisibilityMismatchError" },
     });
     await expect(
       expectPrepareError(

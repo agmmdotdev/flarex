@@ -1,5 +1,83 @@
 # Function Routing And Shard Policy
 
+## Invoke Visibility Boundary
+
+Previous completed checkpoint: `d3aacfd` Audit post-commit live query
+invalidation.
+
+What changed:
+
+- `PrepareInvokeInput` now accepts an optional `visibility` expectation.
+- Public visibility is the default when callers omit the field, matching
+  Convex-style public client invocation.
+- `prepareInvoke(...)` now rejects a public/default caller trying to prepare an
+  internal function.
+- Internal runtime callers can opt in with `visibility: "internal"` and prepare
+  internal query/mutation functions.
+- `@flarex/executor-http` parses and forwards the visibility field for both
+  `/invoke/prepare` and `/invoke/start`.
+- Added stable HTTP error mapping for `FunctionVisibilityMismatchError`.
+- Generated Postgres runtime artifacts derive expected visibility from the
+  route: public `/invoke` prepares as `public`, while
+  `/__flarex_internal/invoke` prepares from analyzed internal metadata.
+- Local materialized Postgres artifacts use marker-derived visibility because
+  artifact invocation enters through the internal execution route.
+- Local materialized artifacts now require the same function visibility marker
+  contract as analysis: exactly one of `isPublic` or `isInternal`.
+
+Why it changed:
+
+Function visibility is part of the authoritative backend analysis metadata.
+Flarex already parsed and preserved `public`/`internal` visibility, but the
+Postgres executor prepare path did not enforce it. That left a gap between
+Convex-style generated `api`/`internal` references and actual hosted invoke
+routing. The executor now makes visibility explicit at the routing boundary
+without depending on a particular HTTP adapter or Dynamic Worker implementation.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+  - public and internal builders mark function visibility before analysis.
+- `npm-packages/convex/src/server/api.ts`
+  - generated API references preserve public/internal separation.
+- `crates/application/src/application_function_runner/mod.rs`
+  - backend function execution receives already-resolved function metadata.
+
+Flarex differences:
+
+- Convex resolves public/internal references inside its backend runtime. Flarex
+  has a split Dynamic Worker and trusted executor, so the expected visibility
+  travels as part of the prepare/start request.
+- The executor capability token still protects the HTTP route itself; the new
+  visibility field protects the function-reference boundary inside that
+  trusted channel.
+
+Known limitations:
+
+- This checkpoint is a Postgres trusted-executor boundary. The legacy Durable
+  Object invoke transport remains prototype behavior and does not enforce the
+  new visibility expectation.
+- Generated public API separation is not complete yet: the generated public
+  `api` surface can still name internal functions. The next Convex-style slice
+  should split generated `api` and `internal` references instead of relying only
+  on runtime rejection.
+- Action and workflowMutation execution remain outside `/invoke`; this
+  checkpoint only covers query/mutation preparation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/invoke.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "invoke prepare|known executor errors" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "derives Postgres invoke visibility|guards generated internal routes" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "Postgres executor invoke routes|internal visibility|visibility marker|handler throws" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Superseded Public API Direction
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

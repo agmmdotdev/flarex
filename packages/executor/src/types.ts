@@ -780,6 +780,7 @@ export interface PrepareInvokeInput {
   projectId: string;
   path: string;
   kind?: InvokableFunctionKind;
+  visibility?: FunctionVisibility;
   args: Json;
   partitionKey?: string;
 }

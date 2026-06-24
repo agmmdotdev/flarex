@@ -74,6 +74,7 @@ export {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  FunctionVisibilityMismatchError,
   InvokeFinishNotImplementedError,
   InvokePatchDocumentNotFoundError,
   InvokePatchNonObjectDocumentError,

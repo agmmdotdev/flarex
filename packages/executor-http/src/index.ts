@@ -12,6 +12,7 @@ import {
   FunctionKindMismatchError,
   FunctionNotFoundError,
   FunctionNotInvokableError,
+  FunctionVisibilityMismatchError,
   InvokeDeleteDocumentNotFoundError,
   InvokeFinishNotImplementedError,
   InvokePatchDocumentNotFoundError,
@@ -44,6 +45,7 @@ import {
   type DeadLetterStuckLiveQueryDeliveriesInput,
   type FinishInvokeSessionInput,
   type FlarexExecutor,
+  type FunctionVisibility,
   type InvokableFunctionKind,
   type InvokeSyscallInput,
   type InvokeSyscallRequest,
@@ -1379,6 +1381,8 @@ function parseInvokeBody(
   if ("error" in path) return path;
   const kind = optionalInvokableKind(record.kind);
   if ("error" in kind) return kind;
+  const visibility = optionalFunctionVisibility(record.visibility);
+  if ("error" in visibility) return visibility;
   const args = jsonValue(record.args, "args");
   if ("error" in args) return args;
   const partitionKey = optionalString(record.partitionKey, "partitionKey");
@@ -1392,6 +1396,7 @@ function parseInvokeBody(
       projectId: projectId.value,
       path: path.value,
       ...(kind.value === undefined ? {} : { kind: kind.value }),
+      ...(visibility.value === undefined ? {} : { visibility: visibility.value }),
       args: args.value,
       ...(partitionKey.value === undefined
         ? {}
@@ -2259,6 +2264,21 @@ function optionalInvokableKind(
   };
 }
 
+function optionalFunctionVisibility(
+  value: unknown,
+):
+  | { value?: FunctionVisibility }
+  | { error: { error: "bad_request"; message: string } } {
+  if (value === undefined) return {};
+  if (value === "public" || value === "internal") return { value };
+  return {
+    error: {
+      error: "bad_request",
+      message: "visibility must be public or internal.",
+    },
+  };
+}
+
 function optionalString(
   value: unknown,
   field: string,
@@ -2782,6 +2802,7 @@ function executorErrorBody(error: unknown): {
   }
   if (
     error instanceof FunctionKindMismatchError ||
+    error instanceof FunctionVisibilityMismatchError ||
     error instanceof FunctionNotInvokableError ||
     error instanceof FlarexDocumentIdFormatError ||
     error instanceof FlarexInsertIdTableMismatchError ||

@@ -1,3 +1,5 @@
+import type { FunctionVisibility } from "./types";
+
 export class DeploymentProjectMismatchError extends Error {
   constructor(
     readonly deploymentId: string,
@@ -94,6 +96,20 @@ export class FunctionKindMismatchError extends Error {
       `Function kind mismatch for ${deploymentId}/${path}. Expected ${expectedKind}, got ${actualKind}`,
     );
     this.name = "FunctionKindMismatchError";
+  }
+}
+
+export class FunctionVisibilityMismatchError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly path: string,
+    readonly expectedVisibility: FunctionVisibility,
+    readonly actualVisibility: FunctionVisibility,
+  ) {
+    super(
+      `Function visibility mismatch for ${deploymentId}/${path}. Expected ${expectedVisibility}, got ${actualVisibility}`,
+    );
+    this.name = "FunctionVisibilityMismatchError";
   }
 }
 

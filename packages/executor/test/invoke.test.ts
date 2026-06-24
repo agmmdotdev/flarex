@@ -5,6 +5,7 @@ import {
   DeploymentSchemaMetadataUnavailableError,
   FunctionKindMismatchError,
   FunctionNotInvokableError,
+  FunctionVisibilityMismatchError,
   createFlarexExecutor,
 } from "../src";
 import {
@@ -155,6 +156,63 @@ describe("executor invoke preparation", () => {
         partitionKey: "team:1",
       }),
     ).rejects.toThrow(FunctionKindMismatchError);
+  });
+
+  it("rejects internal functions for public invoke preparation by default", async () => {
+    const executor = executorWithActivePackage({
+      functions: [
+        {
+          path: "messages:internalList",
+          kind: "query",
+          visibility: "internal",
+          route: { type: "args", field: "teamId" },
+          partition: teamPartition(),
+        },
+      ],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "messages:internalList",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+      }),
+    ).rejects.toThrow(FunctionVisibilityMismatchError);
+  });
+
+  it("prepares internal functions when the caller expects internal visibility", async () => {
+    const executor = executorWithActivePackage({
+      functions: [
+        {
+          path: "messages:internalList",
+          kind: "query",
+          visibility: "internal",
+          route: { type: "args", field: "teamId" },
+          partition: teamPartition(),
+        },
+      ],
+    });
+
+    await expect(
+      executor.prepareInvoke({
+        deploymentId: "deployment_invoke",
+        projectId: "project_invoke",
+        path: "messages:internalList",
+        visibility: "internal",
+        kind: "query",
+        args: { teamId: "team:1" },
+        partitionKey: "team:1",
+      }),
+    ).resolves.toMatchObject({
+      function: {
+        path: "messages:internalList",
+        kind: "query",
+        visibility: "internal",
+      },
+    });
   });
 
   it("rejects active actions because /invoke only supports queries and mutations", async () => {

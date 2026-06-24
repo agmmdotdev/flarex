@@ -30,6 +30,8 @@ export type FlarexGenerationContext = {
   functionModules: FunctionModule[];
 };
 
+type FunctionVisibility = AnalyzedFunction["visibility"];
+
 function typedApi(modules: string[], metadataByPath: Record<string, unknown> = {}): string {
   const imports = modules
     .map(
@@ -520,6 +522,10 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
   const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
   const maxAttempts = invokeMaxAttempts(transport, metadata.kind, env);
+  const expectedVisibility =
+    new URL(request.url).pathname === "/__flarex_internal/invoke"
+      ? metadata.visibility
+      : "public";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const start = await startExecution(env.FLAREX_BACKEND, {
@@ -530,6 +536,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
       path: body.path,
       args: body.args,
       kind: metadata.kind,
+      visibility: expectedVisibility,
       ...(partitionKey === undefined ? {} : { partitionKey }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     });
@@ -606,6 +613,7 @@ async function startExecution(
     path: string;
     args: unknown;
     kind: "query" | "mutation";
+    visibility: FunctionVisibility;
     partitionKey?: string;
     idempotencyKey?: string;
   },
@@ -617,6 +625,7 @@ async function startExecution(
       path: input.path,
       args: input.args,
       kind: input.kind,
+      visibility: input.visibility,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
     }, executorHeaders(input.executorToken));

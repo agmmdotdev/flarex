@@ -232,6 +232,7 @@ async function invokeWithBackend(body, env, request) {
   const projectId = projectIdForTransport(transport, body, env, request);
   const partitionKey = request.headers.get("x-flarex-partition") ?? body.partitionKey;
   const maxAttempts = invokeMaxAttempts(transport, kind, env);
+  const expectedVisibility = functionVisibility(fn);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const start = await startExecution(env.FLAREX_BACKEND, {
@@ -242,6 +243,7 @@ async function invokeWithBackend(body, env, request) {
       path: body.path,
       args: body.args ?? null,
       kind,
+      visibility: expectedVisibility,
       ...(partitionKey === undefined ? {} : { partitionKey }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
     });
@@ -340,6 +342,7 @@ async function startExecution(backend, input) {
       path: input.path,
       args: input.args,
       kind: input.kind,
+      visibility: input.visibility,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
       ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
     }, executorHeaders(input.executorToken));
@@ -451,6 +454,18 @@ function functionKind(value) {
   ];
   const marked = kinds.filter(([marker]) => marker in value);
   return marked.length === 1 ? marked[0][1] : null;
+}
+
+function functionVisibility(value) {
+  if (!isRecord(value)) {
+    throw new Error("Flarex function is missing visibility metadata.");
+  }
+  const publicFunction = "isPublic" in value;
+  const internalFunction = "isInternal" in value;
+  if (publicFunction === internalFunction) {
+    throw new Error("Flarex function must be exactly one of public or internal.");
+  }
+  return publicFunction ? "public" : "internal";
 }
 
 function handlerFor(value) {

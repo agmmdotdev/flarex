@@ -400,6 +400,129 @@ export const list = query({ args: {}, handler: async () => [] });
       await worker.dispose();
     }
   });
+
+  it("derives Postgres invoke visibility from public and internal routes", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { internalQuery, query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => "public" });
+export const hidden = internalQuery({ args: {}, handler: async () => "secret" });
+`,
+    );
+    await generateFlarex({ root });
+
+    const backendCalls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: "deployment-generated-visibility",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_PROJECT_ID: "project-generated-visibility",
+      },
+      serviceBindings: {
+        FLAREX_BACKEND: async (request: Request) => {
+          const url = new URL(request.url);
+          const body = await request.json().catch(() => null);
+          const record = jsonRecord(body, url.pathname);
+          backendCalls.push({ path: url.pathname, body: record });
+          if (url.pathname === "/invoke/start") {
+            if (record.path === "messages:hidden" && record.visibility === "public") {
+              return Response.json(
+                {
+                  error: "FunctionVisibilityMismatchError",
+                  message: "Function visibility mismatch.",
+                },
+                { status: 400 },
+              );
+            }
+            return Response.json({
+              sessionId: `session-${backendCalls.length}`,
+              function: { kind: "query" },
+            });
+          }
+          if (url.pathname === "/invoke/finish") {
+            return Response.json({ value: record.value });
+          }
+          return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+        },
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const publicResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "messages:list", args: {} }),
+      });
+      await expect(publicResponse.json()).resolves.toEqual({ value: "public" });
+
+      const internalResponse = await worker.dispatchFetch(
+        "http://flarex.test/__flarex_internal/invoke",
+        {
+          method: "POST",
+          body: JSON.stringify({ path: "messages:hidden", args: {} }),
+        },
+      );
+      await expect(internalResponse.json()).resolves.toEqual({ value: "secret" });
+
+      const hiddenPublicResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "messages:hidden", args: {} }),
+      });
+      expect(hiddenPublicResponse.status).toBe(400);
+      await expect(hiddenPublicResponse.json()).resolves.toEqual({
+        error: "Function visibility mismatch.",
+      });
+    } finally {
+      await worker.dispose();
+    }
+
+    expect(backendCalls.filter(call => call.path === "/invoke/start")).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-visibility",
+          projectId: "project-generated-visibility",
+          path: "messages:list",
+          args: {},
+          kind: "query",
+          visibility: "public",
+        },
+      },
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-visibility",
+          projectId: "project-generated-visibility",
+          path: "messages:hidden",
+          args: {},
+          kind: "query",
+          visibility: "internal",
+        },
+      },
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-visibility",
+          projectId: "project-generated-visibility",
+          path: "messages:hidden",
+          args: {},
+          kind: "query",
+          visibility: "public",
+        },
+      },
+    ]);
+  });
 });
 
 async function createProject(): Promise<string> {
@@ -424,6 +547,13 @@ async function fileExists(file: string): Promise<boolean> {
       throw error;
     },
   );
+}
+
+function jsonRecord(value: unknown, pathName: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${pathName} request body is not a JSON object.`);
+  }
+  return Object.fromEntries(Object.entries(value));
 }
 
 async function bundleGeneratedWorker(root: string): Promise<string> {

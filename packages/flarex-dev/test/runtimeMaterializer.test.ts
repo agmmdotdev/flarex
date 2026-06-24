@@ -376,6 +376,7 @@ describe("runtime materializer", () => {
           path: "messages:list",
           args: { lessonId: "1:lesson" },
           kind: "query",
+          visibility: "public",
           partitionKey: "1:lesson",
         },
       },
@@ -411,6 +412,99 @@ describe("runtime materializer", () => {
         },
       },
     ]);
+  });
+
+  it("forwards internal visibility for internal materialized artifact invokes", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-internal",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-internal",
+            function: { path: "messages:internalList", kind: "query" },
+            beginTs: 1,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "1:lesson" },
+            executionModule: "_flarex/execution.js",
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({ value: finishValue(body) });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = internalQueryPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).resolves.toEqual({ value: "secret" });
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-internal",
+          projectId: "project-internal",
+          path: "messages:internalList",
+          args: { lessonId: "1:lesson" },
+          kind: "query",
+          visibility: "internal",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-internal",
+          projectId: "project-internal",
+          sessionId: "session-internal",
+          value: "secret",
+        },
+      },
+    ]);
+  });
+
+  it("rejects materialized functions without exactly one visibility marker before backend start", async () => {
+    const cases = [
+      {
+        name: "missing visibility marker",
+        extraMarkers: "",
+      },
+      {
+        name: "ambiguous visibility markers",
+        extraMarkers: "isPublic: true,\n      isInternal: true,",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const calls: string[] = [];
+      const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+        executorTransport: "postgres",
+        projectId: `project-${testCase.name.replaceAll(" ", "-")}`,
+        backend: async (request) => {
+          calls.push(new URL(request.url).pathname);
+          return Response.json({ error: "backend should not be called" }, { status: 500 });
+        },
+      });
+      const payload = malformedVisibilityPayload(testCase.extraMarkers);
+      const artifact = await materializer.materialize(payload);
+      try {
+        await expect(artifact.invoke(payload)).rejects.toThrow(
+          "Flarex function must be exactly one of public or internal.",
+        );
+      } finally {
+        await artifact.dispose?.();
+      }
+      expect(calls).toEqual([]);
+    }
   });
 
   it("executes live-query reruns against an existing Postgres invoke session", async () => {
@@ -565,6 +659,7 @@ describe("runtime materializer", () => {
           path: "messages:fail",
           args: { lessonId: "1:lesson" },
           kind: "mutation",
+          visibility: "public",
           partitionKey: "1:lesson",
         },
       },
@@ -772,6 +867,13 @@ export const list = query({
   return root;
 }
 
+function finishValue(body: unknown): unknown {
+  if (body === null || typeof body !== "object" || !("value" in body)) {
+    throw new Error("Expected /invoke/finish body with value.");
+  }
+  return body.value;
+}
+
 function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
   const sourcePackage: PushSourcePackage = {
     modules: [
@@ -783,6 +885,7 @@ function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
   messages: {
     list: {
       isQuery: true,
+      isPublic: true,
       _handler: async ({ db }, args) => {
         return await db
           .query("messages")
@@ -828,6 +931,7 @@ function failingMutationPayload(): MaterializedExecutionArtifactPayload {
   messages: {
     fail: {
       isMutation: true,
+      isPublic: true,
       _handler: async () => {
         throw new Error("boom");
       },
@@ -857,6 +961,84 @@ function failingMutationPayload(): MaterializedExecutionArtifactPayload {
   };
 }
 
+function internalQueryPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "e".repeat(64),
+        source: `export default {
+  messages: {
+    internalList: {
+      isQuery: true,
+      isInternal: true,
+      _handler: async () => "secret",
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-internal",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-internal",
+      sourcePackageHash: "e".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:internalList",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "query",
+    },
+  };
+}
+
+function malformedVisibilityPayload(extraMarkers: string): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "f".repeat(64),
+        source: `export default {
+  messages: {
+    malformed: {
+      isQuery: true,
+      ${extraMarkers}
+      _handler: async () => "malformed",
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-malformed",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-malformed",
+      sourcePackageHash: "f".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:malformed",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "query",
+    },
+  };
+}
+
 function retryMutationPayload(): MaterializedExecutionArtifactPayload {
   const sourcePackage: PushSourcePackage = {
     modules: [
@@ -868,6 +1050,7 @@ function retryMutationPayload(): MaterializedExecutionArtifactPayload {
   messages: {
     retryCreate: {
       isMutation: true,
+      isPublic: true,
       _handler: async ({ db }, args) => {
         const id = await db.insert("messages", {
           lessonId: args.lessonId,
@@ -912,6 +1095,7 @@ function replaceMutationPayload(): MaterializedExecutionArtifactPayload {
   messages: {
     replace: {
       isMutation: true,
+      isPublic: true,
       _handler: async ({ db }) => {
         await db.replace("2:message", {
           lessonId: "1:lesson",

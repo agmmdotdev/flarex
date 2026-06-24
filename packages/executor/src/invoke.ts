@@ -1,6 +1,7 @@
 import {
   DeploymentSchemaMetadataUnavailableError,
   FunctionKindMismatchError,
+  FunctionVisibilityMismatchError,
   FunctionNotInvokableError,
   PartitionValidationError,
 } from "./errors";
@@ -38,6 +39,16 @@ export async function prepareInvoke(
       input.path,
       input.kind,
       active.function.kind,
+    );
+  }
+  const expectedVisibility = input.visibility ?? "public";
+  const actualVisibility = active.function.visibility ?? "public";
+  if (expectedVisibility !== actualVisibility) {
+    throw new FunctionVisibilityMismatchError(
+      input.deploymentId,
+      input.path,
+      expectedVisibility,
+      actualVisibility,
     );
   }
   const schema = deploymentSchemaFromAnalysis(
