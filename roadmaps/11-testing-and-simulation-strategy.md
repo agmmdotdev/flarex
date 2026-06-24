@@ -1,5 +1,54 @@
 # Testing and Simulation Strategy
 
+## Example Generate Validates CLI Runner
+
+Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.
+
+What changed:
+
+- The example app's `generate` script now runs through `runFlarexDevCli(...)`.
+- Validation now includes `corepack pnpm --filter @flarex/example generate` as
+  a direct check of the normal app codegen path.
+- Existing example typecheck commands now exercise CLI-runner codegen both
+  directly and transitively.
+
+Why it changed:
+
+The previous tests covered the runner and generated typecheck, but the normal
+example app generation command still used the lower-level helper. Moving that
+script to the runner proves the app-facing codegen command shape works in the
+real workspace package.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen tests should exercise the command workflow, not only lower-level
+    helpers.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - project-local command behavior is part of local workflow readiness.
+
+Flarex differences:
+
+- The command is still invoked through `tsx` because no built binary is
+  published.
+- The reusable helper remains tested directly for parser and option behavior.
+
+Known limitations:
+
+- This does not test global binary installation.
+- This does not add deploy/dev CLI coverage.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## CLI Default Project Root Coverage
 
 Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.

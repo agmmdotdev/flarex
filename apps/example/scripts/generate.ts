@@ -1,6 +1,5 @@
-import { generateFlarex } from "flarex-dev";
-import { fileURLToPath } from "node:url";
+import { runFlarexDevCli } from "flarex-dev/cli";
 
-await generateFlarex({
-  root: fileURLToPath(new URL("..", import.meta.url)),
+process.exitCode = await runFlarexDevCli({
+  argv: ["codegen"],
 });

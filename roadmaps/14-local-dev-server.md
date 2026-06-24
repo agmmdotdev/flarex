@@ -1,5 +1,52 @@
 # Local Dev Server
 
+## Example App Generation Uses Command Boundary
+
+Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.
+
+What changed:
+
+- `apps/example/scripts/generate.ts` now delegates to `flarex-dev/cli`.
+- The example app's `generate`, `typecheck`, `build`, and `test` scripts now
+  reach codegen through the CLI runner because they all depend on `pnpm
+  generate`.
+- The separate generated-output typecheck command already uses the same runner.
+
+Why it changed:
+
+Local app scripts should model the future user workflow. Using the command
+runner for normal generation keeps the example aligned with the Convex-style
+project command direction instead of preserving an app-local helper shortcut.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local workflows compose project commands around generated state.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is command workflow logic.
+
+Flarex differences:
+
+- This is still not a `flarex dev` process.
+- The app still invokes the source runner through `tsx`, not an installed
+  executable.
+
+Known limitations:
+
+- No watch mode is attached to the CLI runner.
+- No published binary installation path exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Project-Root CLI Script Shape
 
 Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.

@@ -1,5 +1,58 @@
 # SDK And CLI Fork
 
+## Example Generate Uses CLI Runner
+
+Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.
+
+What changed:
+
+- `apps/example/scripts/generate.ts` now calls `runFlarexDevCli(...)` from
+  `flarex-dev/cli` instead of importing `generateFlarex(...)` directly.
+- The example app's normal `generate` script now exercises the same
+  command-shaped codegen path as `typecheck:generated`.
+- The script relies on the package script cwd and the CLI runner's default app
+  root, matching the project-command shape introduced in the previous
+  checkpoint.
+
+Why it changed:
+
+The previous checkpoint made `codegen` default to the current project root, but
+the example app's normal generation path still bypassed the CLI runner. Convex
+keeps codegen behind developer commands. Flarex should move app-facing
+workflows through the same command boundary before adding a real package
+binary.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated API files are produced through CLI workflow code.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local workflows coordinate codegen from project context.
+
+Flarex differences:
+
+- This still runs through an app-local `tsx` script because `flarex-dev` does
+  not emit a published executable binary yet.
+- The low-level `generateFlarex(...)` API remains exported for tests and direct
+  programmatic use.
+
+Known limitations:
+
+- No installed `flarex` binary exists yet.
+- The example still uses a separate `typecheck:generated` script until a
+  stable `codegen --typecheck` binary command exists.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Codegen CLI Defaults To Project Root
 
 Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.
