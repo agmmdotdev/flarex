@@ -478,6 +478,7 @@ type ExecutionStartResponse = {
 };
 
 const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const MAX_NESTED_CALL_DEPTH = 8;
 const RETRYABLE_INVOKE_ERROR_CODES = new Set([
   "InvokeSessionOccConflictError",
   "InvokeSessionTableOccConflictError",
@@ -550,6 +551,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
         sessionId: start.sessionId,
         kind: startedKind,
         transport,
+        nestedCallDepth: 0,
         ...(projectId === undefined ? {} : { projectId }),
         ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
       });
@@ -803,6 +805,7 @@ function executionContextForSession(input: {
   sessionId: string;
   kind: "query" | "mutation";
   transport: ExecutorTransport;
+  nestedCallDepth: number;
   projectId?: string;
   executorToken?: string;
 }): {
@@ -848,12 +851,14 @@ async function executeNestedFunction(input: {
   sessionId: string;
   kind: "query" | "mutation";
   transport: ExecutorTransport;
+  nestedCallDepth: number;
   projectId?: string;
   executorToken?: string;
   expectedKind: "query" | "mutation";
   path: string;
   args: unknown;
 }): Promise<unknown> {
+  assertNestedCallDepth(input.nestedCallDepth);
   const fn = functions[input.path];
   if (!fn) throw new Error(\`Unknown Flarex function: \${input.path}\`);
   const metadata = functionMetadataByPath.get(input.path);
@@ -869,12 +874,20 @@ async function executeNestedFunction(input: {
     sessionId: input.sessionId,
     kind: nestedKind,
     transport: input.transport,
+    nestedCallDepth: input.nestedCallDepth + 1,
     ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
     ...(input.executorToken === undefined ? {} : { executorToken: input.executorToken }),
   });
   const value = normalizeReturnValue(await fn._handler(nestedCtx as never, input.args as never));
   validateFunctionReturn(metadata.returns, value);
   return value;
+}
+
+function assertNestedCallDepth(depth: number): void {
+  if (depth < MAX_NESTED_CALL_DEPTH) return;
+  throw new Error(
+    "Maximum nested function call depth exceeded. Do you have an infinite loop in your app?",
+  );
 }
 
 function executorHeaders(executorToken: string | undefined): Record<string, string> {

@@ -256,6 +256,7 @@ async function invokeWithBackend(body, env, request) {
         sessionId: start.sessionId,
         kind: startedKind,
         transport,
+        nestedCallDepth: 0,
         projectId,
         executorToken: env.FLAREX_EXECUTOR_TOKEN,
       });
@@ -312,6 +313,7 @@ async function executeQuerySession(body, env, request) {
     sessionId: body.sessionId,
     kind: "query",
     transport,
+    nestedCallDepth: 0,
     projectId,
     executorToken: env.FLAREX_EXECUTOR_TOKEN,
   });
@@ -363,6 +365,7 @@ function executionKind(start) {
 }
 
 const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const MAX_NESTED_CALL_DEPTH = 8;
 const RETRYABLE_INVOKE_ERROR_CODES = new Set([
   "InvokeSessionOccConflictError",
   "InvokeSessionTableOccConflictError",
@@ -561,6 +564,7 @@ function executionContextForSession(input) {
 }
 
 async function executeNestedFunction(input) {
+  assertNestedCallDepth(input.nestedCallDepth);
   const fn = await resolveFunction(input.path);
   const kind = functionKind(fn);
   if (kind !== input.expectedKind) {
@@ -573,11 +577,19 @@ async function executeNestedFunction(input) {
     sessionId: input.sessionId,
     kind: nestedKind,
     transport: input.transport,
+    nestedCallDepth: input.nestedCallDepth + 1,
     projectId: input.projectId,
     executorToken: input.executorToken,
   });
   const handler = handlerFor(fn);
   return normalizeReturnValue(await handler(ctx, input.args));
+}
+
+function assertNestedCallDepth(depth) {
+  if (depth < MAX_NESTED_CALL_DEPTH) return;
+  throw new Error(
+    "Maximum nested function call depth exceeded. Do you have an infinite loop in your app?",
+  );
 }
 
 function createQueryInitializer(table, query, index, range, limit, cursor, order) {

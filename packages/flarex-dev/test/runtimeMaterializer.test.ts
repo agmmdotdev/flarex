@@ -746,6 +746,74 @@ describe("runtime materializer", () => {
     ]);
   });
 
+  it("rejects nested mutation calls from a query context", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-query-nested-mutation",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-query-nested-mutation",
+            function: { path: "messages:queryCallsMutation", kind: "query" },
+          });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = queryCallsNestedMutationPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).rejects.toThrow(
+        "Cannot run mutation during a query.",
+      );
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls.map(call => call.path)).toEqual(["/invoke/start", "/invoke/abort"]);
+  });
+
+  it("rejects recursive nested server-side calls before stack overflow", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-nested-recursive",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-nested-recursive",
+            function: { path: "messages:recursive", kind: "query" },
+          });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = recursiveNestedQueryPayload();
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).rejects.toThrow(
+        "Maximum nested function call depth exceeded.",
+      );
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls.map(call => call.path)).toEqual(["/invoke/start", "/invoke/abort"]);
+  });
+
   it("executes live-query reruns against an existing Postgres invoke session", async () => {
     const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
@@ -1377,6 +1445,95 @@ function nestedRunMutationPayload(): MaterializedExecutionArtifactPayload {
       args: { lessonId: "1:lesson" },
       partitionKey: "1:lesson",
       kind: "mutation",
+    },
+  };
+}
+
+function queryCallsNestedMutationPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "i".repeat(64),
+        source: `export default {
+  messages: {
+    queryCallsMutation: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (ctx) => {
+        return await ctx.runMutation({ _path: "messages:create" }, { text: "nested" });
+      },
+    },
+    create: {
+      isMutation: true,
+      isInternal: true,
+      _handler: async ({ db }, args) => {
+        return await db.insert("messages", { text: args.text });
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-query-nested-mutation",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-query-nested-mutation",
+      sourcePackageHash: "i".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:queryCallsMutation",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "query",
+    },
+  };
+}
+
+function recursiveNestedQueryPayload(): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "j".repeat(64),
+        source: `export default {
+  messages: {
+    recursive: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (ctx) => {
+        return await ctx.runQuery({ _path: "messages:recursive" }, {});
+      },
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-nested-recursive",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-nested-recursive",
+      sourcePackageHash: "j".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path: "messages:recursive",
+      args: { lessonId: "1:lesson" },
+      partitionKey: "1:lesson",
+      kind: "query",
     },
   };
 }

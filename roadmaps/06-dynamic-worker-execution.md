@@ -1,5 +1,64 @@
 # Dynamic Worker Execution
 
+## Nested Call Guardrails
+
+Previous completed checkpoint: `185775f` Execute same-artifact nested
+functions.
+
+What changed:
+
+- Generated Worker execution and local materialized execution artifacts now
+  track nested function call depth.
+- Same-artifact nested calls fail with a Flarex-specific error before
+  recursive `ctx.runQuery` / `ctx.runMutation` calls can overflow the runtime
+  stack.
+- The depth limit is `8`, matching Convex's default
+  `MAX_REACTOR_CALL_DEPTH`.
+- Query contexts still reject nested mutations before resolving or executing
+  the mutation in both generated Worker and materialized runtime paths.
+- Added generated Worker coverage for recursive nested calls.
+- Added generated Worker and materialized runtime coverage for recursive
+  nested calls and query-to-mutation nested calls.
+
+Why it changed:
+
+The previous checkpoint made same-artifact nested execution work, but recursive
+function references could still fail as generic runtime recursion. Convex has
+an explicit reactor call-depth guard for the same class of user-code bug.
+Flarex should fail clearly and keep the active backend session bounded.
+
+Convex references inspected:
+
+- `crates/common/src/knobs.rs`
+  - defines `MAX_REACTOR_CALL_DEPTH` with default `8`.
+- `crates/isolate/src/environment/udf/async_syscall.rs`
+  - checks reactor depth before nested query/mutation execution and reports a
+    user-facing maximum-depth error.
+
+Flarex differences:
+
+- Convex enforces the depth inside the integrated Rust isolate/reactor path.
+  Flarex enforces it inside the generated/materialized execution artifact
+  before same-artifact dispatch.
+- Flarex's current guard covers same-artifact nested query/mutation calls only.
+  Future cross-artifact or host-owned nested calls must carry the same depth
+  field through their protocol.
+
+Known limitations:
+
+- No nested `ctx.runAction` support.
+- No cross-artifact nested function calls yet.
+- The depth limit is a constant in generated/materialized runtimes; it is not
+  configurable through deployment metadata yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "nested server-side|derives Postgres invoke visibility" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "nested|Postgres executor invoke routes" --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Same-Artifact Nested Function Calls
 
 Previous completed checkpoint: `4428c8d` Add fail-closed server context calls.
@@ -61,11 +120,10 @@ Flarex differences:
 Known limitations:
 
 - No nested `ctx.runAction` support.
-- No recursion/depth guard yet.
 - No backend route exists for a host-owned nested call. The current path is an
   in-artifact dispatch.
 - Nested mutations rely on the outer mutation session. Calling a mutation from
-  a query still fails at runtime and is blocked by TypeScript.
+  a query fails at runtime and is blocked by TypeScript.
 
 Verification:
 

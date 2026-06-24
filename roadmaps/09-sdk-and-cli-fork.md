@@ -1,5 +1,52 @@
 # SDK And CLI Fork
 
+## Server Context Nested Call Guardrails
+
+Previous completed checkpoint: `185775f` Execute same-artifact nested
+functions.
+
+What changed:
+
+- `ctx.runQuery` and `ctx.runMutation` now fail with a clear maximum-depth
+  error when same-artifact nested calls recurse too deeply.
+- Query contexts continue to reject `ctx.runMutation` at runtime, matching the
+  existing TypeScript contract.
+- Generated Worker and materialized runtime tests cover these developer-facing
+  errors.
+
+Why it changed:
+
+Convex-style server contexts should be easy to use, but recursive function
+references need a bounded failure mode. Without this guard, a developer typo
+could show up as a generic stack overflow instead of a Flarex/Convex-style
+runtime error.
+
+Convex references inspected:
+
+- `crates/common/src/knobs.rs`
+  - `MAX_REACTOR_CALL_DEPTH` defaults to `8`.
+- `crates/isolate/src/environment/udf/async_syscall.rs`
+  - checks nested call depth before running the nested UDF.
+
+Flarex differences:
+
+- Flarex enforces the limit inside execution artifacts for now, not inside a
+  Rust isolate reactor.
+- The limit is not yet configurable through project/deployment settings.
+
+Known limitations:
+
+- No `ctx.runAction` API or runtime path yet.
+- No cross-artifact nested function calls yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "nested server-side|derives Postgres invoke visibility" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "nested|Postgres executor invoke routes" --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Server Context Same-Artifact Execution
 
 Previous completed checkpoint: `4428c8d` Add fail-closed server context calls.
@@ -42,7 +89,6 @@ Known limitations:
 
 - No `ctx.runAction` API or runtime path yet.
 - No cross-artifact nested function calls yet.
-- No recursion depth guard yet.
 
 Verification:
 
