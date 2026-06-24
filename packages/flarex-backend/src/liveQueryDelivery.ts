@@ -4,10 +4,23 @@ import type { Env, Json } from "./types";
 
 export type { LiveQueryDeliveryChange } from "flarex";
 
+const LIVE_QUERY_DELIVERY_SKIP_REASONS = [
+  "wrongDeployment",
+  "wrongConnection",
+  "missingQuery",
+  "stale",
+  "unchanged",
+] as const;
+
+export type LiveQueryDeliverySkipReason = typeof LIVE_QUERY_DELIVERY_SKIP_REASONS[number];
+
+export type LiveQueryDeliverySkipReasons = Partial<Record<LiveQueryDeliverySkipReason, number>>;
+
 export type LiveQueryDeliveryResult = {
   delivered: number;
   skipped: number;
   staleSkipped?: number;
+  skipReasons?: LiveQueryDeliverySkipReasons;
 };
 
 export type ConnectionLiveQueryDeliveryResult = LiveQueryDeliveryResult & {
@@ -48,7 +61,7 @@ export async function deliverLiveQueryChangesToConnections(
 
   let delivered = 0;
   let skipped = 0;
-  let staleSkipped = 0;
+  const skipReasons: LiveQueryDeliverySkipReasons = {};
   for (const [connectionId, connectionDeliveries] of byConnection) {
     const response = await env.CONNECTIONS.getByName(connectionId).fetch(
       "https://flarex.internal/deliver/live-query",
@@ -70,14 +83,44 @@ export async function deliverLiveQueryChangesToConnections(
     );
     delivered += result.delivered;
     skipped += result.skipped;
-    staleSkipped += result.staleSkipped ?? 0;
+    addLiveQueryDeliverySkipReasons(skipReasons, result.skipReasons);
   }
 
   return {
     delivered,
     skipped,
-    ...(staleSkipped > 0 ? { staleSkipped } : {}),
+    ...liveQueryDeliverySkipMetadata(skipReasons),
     connections: byConnection.size,
+  };
+}
+
+export function addLiveQueryDeliverySkipReason(
+  reasons: LiveQueryDeliverySkipReasons,
+  reason: LiveQueryDeliverySkipReason,
+): void {
+  reasons[reason] = (reasons[reason] ?? 0) + 1;
+}
+
+export function addLiveQueryDeliverySkipReasons(
+  target: LiveQueryDeliverySkipReasons,
+  source: LiveQueryDeliverySkipReasons | undefined,
+): void {
+  if (source === undefined) return;
+  for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
+    const count = source[reason];
+    if (count === undefined) continue;
+    target[reason] = (target[reason] ?? 0) + count;
+  }
+}
+
+export function liveQueryDeliverySkipMetadata(
+  reasons: LiveQueryDeliverySkipReasons,
+): Pick<LiveQueryDeliveryResult, "staleSkipped" | "skipReasons"> {
+  const skipReasons = nonZeroLiveQueryDeliverySkipReasons(reasons);
+  if (skipReasons === undefined) return {};
+  return {
+    ...(skipReasons.stale === undefined ? {} : { staleSkipped: skipReasons.stale }),
+    skipReasons,
   };
 }
 
@@ -146,7 +189,7 @@ function liveQueryDeliveryChangeFromUnknown(
   };
 }
 
-function liveQueryDeliveryResultFromUnknown(
+export function liveQueryDeliveryResultFromUnknown(
   value: unknown,
   connectionId: string,
 ): LiveQueryDeliveryResult {
@@ -157,10 +200,28 @@ function liveQueryDeliveryResultFromUnknown(
     );
   }
   const record = value as Record<string, unknown>;
+  const skipReasons = optionalLiveQueryDeliverySkipReasons(
+    record.skipReasons,
+    `${connectionId}.skipReasons`,
+  );
+  const staleSkipped = optionalResultInteger(record.staleSkipped, `${connectionId}.staleSkipped`);
+  if (
+    staleSkipped !== undefined &&
+    skipReasons?.stale !== undefined &&
+    staleSkipped !== skipReasons.stale
+  ) {
+    throw new HttpError(
+      502,
+      `${connectionId}.staleSkipped must match ${connectionId}.skipReasons.stale when both are present.`,
+    );
+  }
+  const parsedStaleSkipped = staleSkipped ?? skipReasons?.stale;
+  const parsedSkipReasons = normalizeParsedSkipReasons(skipReasons, staleSkipped);
   return {
     delivered: requiredResultInteger(record.delivered, `${connectionId}.delivered`),
     skipped: requiredResultInteger(record.skipped, `${connectionId}.skipped`),
-    ...optionalResultInteger(record.staleSkipped, `${connectionId}.staleSkipped`),
+    ...(parsedStaleSkipped === undefined ? {} : { staleSkipped: parsedStaleSkipped }),
+    ...(parsedSkipReasons === undefined ? {} : { skipReasons: parsedSkipReasons }),
   };
 }
 
@@ -181,15 +242,56 @@ function requiredResultInteger(value: unknown, field: string): number {
   throw new HttpError(502, `${field} must be a non-negative integer.`);
 }
 
-function optionalResultInteger(
-  value: unknown,
-  field: string,
-): Pick<LiveQueryDeliveryResult, "staleSkipped"> {
-  if (value === undefined) return {};
+function optionalResultInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return { staleSkipped: value };
+    return value;
   }
   throw new HttpError(502, `${field} must be a non-negative integer when present.`);
+}
+
+function nonZeroLiveQueryDeliverySkipReasons(
+  reasons: LiveQueryDeliverySkipReasons,
+): LiveQueryDeliverySkipReasons | undefined {
+  const result: LiveQueryDeliverySkipReasons = {};
+  for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
+    const count = reasons[reason];
+    if (count === undefined || count === 0) continue;
+    result[reason] = count;
+  }
+  return Object.keys(result).length === 0 ? undefined : result;
+}
+
+function optionalLiveQueryDeliverySkipReasons(
+  value: unknown,
+  field: string,
+): LiveQueryDeliverySkipReasons | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(502, `${field} must be an object when present.`);
+  }
+  const record = value as Record<string, unknown>;
+  const result: LiveQueryDeliverySkipReasons = {};
+  for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
+    const count = optionalResultInteger(record[reason], `${field}.${reason}`);
+    if (count === undefined) continue;
+    result[reason] = count;
+  }
+  return nonZeroLiveQueryDeliverySkipReasons(result);
+}
+
+function normalizeParsedSkipReasons(
+  skipReasons: LiveQueryDeliverySkipReasons | undefined,
+  staleSkipped: number | undefined,
+): LiveQueryDeliverySkipReasons | undefined {
+  if (skipReasons === undefined) {
+    return staleSkipped === undefined ? undefined : { stale: staleSkipped };
+  }
+  if (staleSkipped === undefined || skipReasons.stale !== undefined) return skipReasons;
+  return {
+    ...skipReasons,
+    stale: staleSkipped,
+  };
 }
 
 function deliveryJson(value: unknown, field: string): Json {

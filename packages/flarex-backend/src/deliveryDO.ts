@@ -1,10 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json, readJson } from "./http";
 import {
+  addLiveQueryDeliverySkipReasons,
   deliverLiveQueryChangesToConnections,
   liveQueryDeliveryChangesFromBody,
+  liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliveryResult,
+  type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
 import type { Env } from "./types";
 
@@ -133,7 +136,7 @@ export class DeliveryDO extends DurableObject<Env> {
     let acked = 0;
     let delivered = 0;
     let skipped = 0;
-    let staleSkipped = 0;
+    const skipReasons: LiveQueryDeliverySkipReasons = {};
     let hasMore = false;
     let cursor: LiveQueryDeliveryCursor | undefined;
     const leaseDurationMs = body.leaseDurationMs;
@@ -174,7 +177,7 @@ export class DeliveryDO extends DurableObject<Env> {
       }
       delivered += fanout.delivered;
       skipped += fanout.skipped;
-      staleSkipped += fanout.staleSkipped ?? 0;
+      addLiveQueryDeliverySkipReasons(skipReasons, fanout.skipReasons);
 
       let ack;
       try {
@@ -206,7 +209,7 @@ export class DeliveryDO extends DurableObject<Env> {
       acked,
       delivered,
       skipped,
-      ...(staleSkipped > 0 ? { staleSkipped } : {}),
+      ...liveQueryDeliverySkipMetadata(skipReasons),
       hasMore,
       summary: {
         batches,
@@ -214,7 +217,7 @@ export class DeliveryDO extends DurableObject<Env> {
         acked,
         delivered,
         skipped,
-        ...(staleSkipped > 0 ? { staleSkipped } : {}),
+        ...liveQueryDeliverySkipMetadata(skipReasons),
         pendingAck: Math.max(0, claimed - acked),
         hasMore,
       },

@@ -7,8 +7,11 @@ import {
   loadActiveDeployment,
 } from "./invoke";
 import {
+  addLiveQueryDeliverySkipReason,
   liveQueryDeliveryChangesFromBody,
+  liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
+  type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
 import { requireProjectId } from "./project";
 import {
@@ -398,20 +401,23 @@ export class ConnectionDO extends DurableObject<Env> {
     const startVersion = this.currentVersion();
     const modifications: StateModification[] = [];
     let skipped = 0;
-    let staleSkipped = 0;
+    const skipReasons: LiveQueryDeliverySkipReasons = {};
 
     for (const delivery of deliveries) {
       if (this.state.deploymentId !== null && delivery.deploymentId !== this.state.deploymentId) {
         skipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "wrongDeployment");
         continue;
       }
       if (this.state.connectionName !== null && delivery.connectionId !== this.state.connectionName) {
         skipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "wrongConnection");
         continue;
       }
       const query = this.state.queries.get(delivery.queryId);
       if (query === undefined) {
         skipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "missingQuery");
         continue;
       }
       if (delivery.kind === "failed") {
@@ -420,7 +426,7 @@ export class ConnectionDO extends DurableObject<Env> {
           query.resultHash !== delivery.previousResultHash
         ) {
           skipped += 1;
-          staleSkipped += 1;
+          addLiveQueryDeliverySkipReason(skipReasons, "stale");
           continue;
         }
         this.state.ts += 1;
@@ -440,11 +446,12 @@ export class ConnectionDO extends DurableObject<Env> {
         query.resultHash !== delivery.previousResultHash
       ) {
         skipped += 1;
-        staleSkipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "stale");
         continue;
       }
       if (query.resultHash === delivery.resultHash) {
         skipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "unchanged");
         continue;
       }
 
@@ -467,7 +474,7 @@ export class ConnectionDO extends DurableObject<Env> {
     return json({
       delivered: modifications.length,
       skipped,
-      ...(staleSkipped > 0 ? { staleSkipped } : {}),
+      ...liveQueryDeliverySkipMetadata(skipReasons),
     });
   }
 

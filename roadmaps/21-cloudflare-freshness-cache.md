@@ -1,5 +1,79 @@
 # Cloudflare Freshness Cache
 
+## Delivery Skip Reason Counters
+
+Previous completed checkpoint: `0220e51` Report stale delivery skips.
+
+What changed:
+
+- Added typed live-query delivery skip reason counters:
+  - `wrongDeployment`
+  - `wrongConnection`
+  - `missingQuery`
+  - `stale`
+  - `unchanged`
+- `ConnectionDO` records the concrete reason for every skipped delivery row.
+- `deliverLiveQueryChangesToConnections` parses and aggregates reason counters
+  across named connection fanout responses.
+- `DeliveryDO` propagates aggregated reason counters into wake/drain responses
+  and summaries.
+- Legacy connection responses that only return top-level `staleSkipped` are
+  normalized into `skipReasons.stale` at the parser boundary before fanout
+  aggregation. Mixed responses with `staleSkipped` plus other `skipReasons`
+  are canonicalized the same way when the reason object omits `stale`.
+- Existing aggregate fields remain:
+  - `skipped` is the total skipped row count.
+  - `staleSkipped` remains a top-level compatibility/operational shortcut for
+    the `stale` reason.
+- Hardened the sync test `waitFor` helper from a 1s fixed timeout to a 5s
+  default so concurrent Miniflare reconcile assertions do not fail before the
+  background request reaches the fake executor.
+
+Why it changed:
+
+The previous checkpoint separated stale skips from the total `skipped` count,
+but all other non-stale skips were still opaque. That made it difficult to tell
+whether a delivery drain was seeing benign unchanged results, missing queries
+from closed subscriptions, wrong connection routing, or stale retries.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` detects unchanged query results, logs
+    deduplication, and suppresses client modifications.
+- `crates/sync/src/worker.rs`
+  - sync transitions are derived from query state; Flarex needs additional
+    delivery-boundary counters because Durable Object fanout can skip rows for
+    routing and connection-state reasons before a transition exists.
+
+Flarex differences:
+
+- Convex does not expose delivery skip reasons because it does not have a
+  separate DeliveryDO-to-ConnectionDO retry/fanout boundary.
+- Flarex keeps these counters backend-internal. They are not part of the
+  Convex-style client sync protocol.
+
+Known limitations:
+
+- Skip reasons are response-level observability only. They are not yet written
+  to a durable metrics table or external metrics sink.
+- The reason set is intentionally narrow and delivery-specific; it does not
+  classify executor claim, ack, or failure-report errors.
+- The test wait helper change only affects tests; production retry and
+  coalescing behavior is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivery skip reasons|stale live query delivery rows|stale failed live query deliveries|stale DeliveryDO retries" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "coalesces concurrent fresh pending delivery reconciles|does not coalesce concurrent pending delivery reconciles" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```
+
 ## Stale Delivery Metrics
 
 Previous completed checkpoint: `f3fb118` Cover stale delivery retry suppression.

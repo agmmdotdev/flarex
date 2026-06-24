@@ -1633,6 +1633,98 @@ describe("sync protocol", () => {
       delivered: 0,
       skipped: 1,
       staleSkipped: 1,
+      skipReasons: { stale: 1 },
+    });
+    ws.close();
+  });
+
+  it("reports live query delivery skip reasons", async () => {
+    const runtimeCalls: unknown[] = [];
+    const deploymentId = "sync-delivery-skip-reasons-deployment";
+    const connectionId = `connection:${deploymentId}:skip-reasons-session`;
+    const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "skip-reasons-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 16,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(connectionId);
+    const response = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deliveries: [
+          {
+            deploymentId: "other-deployment",
+            connectionId,
+            queryId: 16,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+          {
+            deploymentId,
+            connectionId: `connection:${deploymentId}:other-session`,
+            queryId: 16,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+          {
+            deploymentId,
+            connectionId,
+            queryId: 999,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Grace" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Grace"}',
+          },
+          {
+            deploymentId,
+            connectionId,
+            queryId: 16,
+            functionPath: "users:get",
+            argsJson: { id: "1:ada" },
+            resultJson: { user: "Ada" },
+            previousResultHash: '{"user":"Ada"}',
+            resultHash: '{"user":"Ada"}',
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body: unknown = await response.json();
+    expect(body).toEqual({
+      delivered: 0,
+      skipped: 4,
+      skipReasons: {
+        wrongDeployment: 1,
+        wrongConnection: 1,
+        missingQuery: 1,
+        unchanged: 1,
+      },
     });
     ws.close();
   });
@@ -2447,6 +2539,7 @@ describe("sync protocol", () => {
       delivered: 0,
       skipped: 1,
       staleSkipped: 1,
+      skipReasons: { stale: 1 },
       hasMore: false,
       summary: {
         batches: 1,
@@ -2455,6 +2548,7 @@ describe("sync protocol", () => {
         delivered: 0,
         skipped: 1,
         staleSkipped: 1,
+        skipReasons: { stale: 1 },
         pendingAck: 0,
         hasMore: false,
       },
@@ -4266,7 +4360,12 @@ describe("sync protocol", () => {
 
     expect(stale.status).toBe(200);
     const staleBody: unknown = await stale.json();
-    expect(staleBody).toEqual({ delivered: 0, skipped: 1, staleSkipped: 1 });
+    expect(staleBody).toEqual({
+      delivered: 0,
+      skipped: 1,
+      staleSkipped: 1,
+      skipReasons: { stale: 1 },
+    });
     const valid = nextJsonMessage(ws);
     await connection.fetch("https://flarex.internal/deliver/live-query", {
       method: "POST",
@@ -4872,10 +4971,10 @@ async function openSync(
   return ws! as unknown as MiniflareWebSocket;
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const started = Date.now();
   while (!predicate()) {
-    if (Date.now() - started > 1000) throw new Error("Timed out waiting for condition.");
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition.");
     await new Promise(resolve => setTimeout(resolve, 5));
   }
 }
