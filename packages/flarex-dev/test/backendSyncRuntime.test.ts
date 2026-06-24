@@ -143,27 +143,23 @@ describe("backend sync with local executor runtime", () => {
     const firstWs = await openSync(harness, deploymentId, firstSessionId);
     const secondWs = await openSync(harness, deploymentId, secondSessionId);
     try {
-      sendMutation(firstWs, {
-        type: "Mutation",
-        requestId: 1,
-        udfPath: "messages:seed",
-        args: [{ teamId, text: "initial" }],
-        partitionKey: teamId,
-      });
-      const created = mutationResponseFromUnknown(await nextJsonMessage(firstWs));
-      expect(created).toMatchObject({
-        type: "MutationResponse",
-        requestId: 1,
-        success: true,
-        ts: expect.any(Number),
-      });
-      const messageId = jsonString(created.result, "seed mutation result");
-      expect(messageId).toMatch(/^1:/);
+      const firstMessageId = await seedMessage(firstWs, 1, teamId, "first");
+      const secondMessageId = await seedMessage(firstWs, 2, teamId, "second");
+      const thirdMessageId = await seedMessage(firstWs, 3, teamId, "third");
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(1);
+      expect(storeGetCount).toBe(3);
 
-      sendMessageSubscriptions(firstWs, teamId, messageId);
-      sendMessageSubscriptions(secondWs, teamId, messageId);
+      const initialMessages = [
+        { _id: firstMessageId, teamId, text: "first" },
+        { _id: secondMessageId, teamId, text: "second" },
+        { _id: thirdMessageId, teamId, text: "third" },
+      ];
+      const initialRecentMessages = [
+        { _id: thirdMessageId, teamId, text: "third" },
+        { _id: secondMessageId, teamId, text: "second" },
+      ];
+      sendMessageSubscriptions(firstWs, teamId, thirdMessageId);
+      sendMessageSubscriptions(secondWs, teamId, thirdMessageId);
       const [firstInitialTransition, secondInitialTransition] = await Promise.all([
         nextJsonMessage(firstWs),
         nextJsonMessage(secondWs),
@@ -171,19 +167,19 @@ describe("backend sync with local executor runtime", () => {
       expectMessageSubscriptionTransition(
         firstInitialTransition,
         "first initial transition",
-        messageId,
-        teamId,
-        "initial",
+        { _id: thirdMessageId, teamId, text: "third" },
+        initialMessages,
+        initialRecentMessages,
       );
       expectMessageSubscriptionTransition(
         secondInitialTransition,
         "second initial transition",
-        messageId,
-        teamId,
-        "initial",
+        { _id: thirdMessageId, teamId, text: "third" },
+        initialMessages,
+        initialRecentMessages,
       );
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(5);
+      expect(storeGetCount).toBe(9);
 
       const initiallyStale = await runtime.executor.findStaleLiveQuerySubscriptions({
         deploymentId,
@@ -193,23 +189,23 @@ describe("backend sync with local executor runtime", () => {
 
       sendMutation(firstWs, {
         type: "Mutation",
-        requestId: 2,
+        requestId: 4,
         udfPath: "messages:update",
-        args: [{ teamId, messageId, text: "fresh" }],
+        args: [{ teamId, messageId: thirdMessageId, text: "updated" }],
         partitionKey: teamId,
       });
       await expect(nextJsonMessage(firstWs)).resolves.toMatchObject({
         type: "MutationResponse",
-        requestId: 2,
+        requestId: 4,
         success: true,
-        result: messageId,
+        result: thirdMessageId,
         ts: expect.any(Number),
       });
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(6);
+      expect(storeGetCount).toBe(10);
       const stale = await runtime.executor.findStaleLiveQuerySubscriptions({
-          deploymentId,
-          freshnessStore: runtime.freshnessStore,
+        deploymentId,
+        freshnessStore: runtime.freshnessStore,
       });
       expect(stale.fresh).toEqual([]);
       expect(stale.unsupported).toEqual([]);
@@ -218,8 +214,10 @@ describe("backend sync with local executor runtime", () => {
       ).sort()).toEqual([
         `${firstConnectionId}:1`,
         `${firstConnectionId}:2`,
+        `${firstConnectionId}:3`,
         `${secondConnectionId}:1`,
         `${secondConnectionId}:2`,
+        `${secondConnectionId}:3`,
       ]);
       expect(stale).toMatchObject({
         stale: expect.arrayContaining([
@@ -240,6 +238,13 @@ describe("backend sync with local executor runtime", () => {
           expect.objectContaining({
             subscription: expect.objectContaining({
               deploymentId,
+              connectionId: firstConnectionId,
+              queryId: 3,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
               connectionId: secondConnectionId,
               queryId: 1,
             }),
@@ -249,6 +254,13 @@ describe("backend sync with local executor runtime", () => {
               deploymentId,
               connectionId: secondConnectionId,
               queryId: 2,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId: secondConnectionId,
+              queryId: 3,
             }),
           }),
         ]),
@@ -275,39 +287,138 @@ describe("backend sync with local executor runtime", () => {
       );
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
+      expectSchedulerTriggerResponse(await response.json(), {
         deploymentId,
-        changed: 4,
-        unchanged: 0,
-        unsupported: 0,
-        hasMoreStale: false,
-        delivery: {
-          woken: true,
-          status: 200,
-          result: {
-            deploymentId,
-            claimed: 4,
-            acked: 4,
-            delivered: 4,
-            skipped: 0,
-            hasMore: false,
-          },
-        },
+        changed: 6,
+        claimed: 6,
+        acked: 6,
+        delivered: 6,
       });
 
       expectMessageSubscriptionTransition(
         await firstDelivered,
         "first delivered transition",
-        messageId,
-        teamId,
-        "fresh",
+        { _id: thirdMessageId, teamId, text: "updated" },
+        [
+          { _id: firstMessageId, teamId, text: "first" },
+          { _id: secondMessageId, teamId, text: "second" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+        ],
+        [
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: secondMessageId, teamId, text: "second" },
+        ],
       );
       expectMessageSubscriptionTransition(
         await secondDelivered,
         "second delivered transition",
-        messageId,
-        teamId,
-        "fresh",
+        { _id: thirdMessageId, teamId, text: "updated" },
+        [
+          { _id: firstMessageId, teamId, text: "first" },
+          { _id: secondMessageId, teamId, text: "second" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+        ],
+        [
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: secondMessageId, teamId, text: "second" },
+        ],
+      );
+      await expect(
+        runtime.persistence.listUndeliveredLiveQueryDeliveries({
+          deploymentId,
+          limit: 10,
+        }),
+      ).resolves.toMatchObject({ deliveries: [], hasMore: false });
+
+      sendMutation(firstWs, {
+        type: "Mutation",
+        requestId: 5,
+        udfPath: "messages:update",
+        args: [{ teamId, messageId: firstMessageId, text: "z-last" }],
+        partitionKey: teamId,
+      });
+      await expect(nextJsonMessage(firstWs)).resolves.toMatchObject({
+        type: "MutationResponse",
+        requestId: 5,
+        success: true,
+        result: firstMessageId,
+        ts: expect.any(Number),
+      });
+
+      const staleAfterLimitedMembershipChange =
+        await runtime.executor.findStaleLiveQuerySubscriptions({
+          deploymentId,
+          freshnessStore: runtime.freshnessStore,
+        });
+      expect(staleAfterLimitedMembershipChange.fresh.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:1`,
+        `${secondConnectionId}:1`,
+      ]);
+      expect(staleAfterLimitedMembershipChange.unsupported).toEqual([]);
+      expect(staleAfterLimitedMembershipChange.stale.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:2`,
+        `${firstConnectionId}:3`,
+        `${secondConnectionId}:2`,
+        `${secondConnectionId}:3`,
+      ]);
+
+      const firstLimitedBoundaryDelivered = nextJsonMessage(firstWs);
+      const secondLimitedBoundaryDelivered = nextJsonMessage(secondWs);
+      const limitedBoundaryResponse = await harness.mf.dispatchFetch(
+        "http://flarex.test/scheduler/live-query-subscriptions/trigger",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer delivery-secret",
+          },
+          body: JSON.stringify({
+            deploymentId,
+            projectId,
+            limit: 10,
+            deliveryLimit: 10,
+            maxBatches: 1,
+          }),
+        },
+      );
+
+      expect(limitedBoundaryResponse.status).toBe(200);
+      expectSchedulerTriggerResponse(await limitedBoundaryResponse.json(), {
+        deploymentId,
+        changed: 4,
+        claimed: 4,
+        acked: 4,
+        delivered: 4,
+      });
+      expectListSubscriptionTransition(
+        await firstLimitedBoundaryDelivered,
+        "first limited-boundary delivered transition",
+        [
+          { _id: secondMessageId, teamId, text: "second" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+        ],
+        [
+          { _id: firstMessageId, teamId, text: "z-last" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+        ],
+      );
+      expectListSubscriptionTransition(
+        await secondLimitedBoundaryDelivered,
+        "second limited-boundary delivered transition",
+        [
+          { _id: secondMessageId, teamId, text: "second" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+        ],
+        [
+          { _id: firstMessageId, teamId, text: "z-last" },
+          { _id: thirdMessageId, teamId, text: "updated" },
+        ],
       );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
@@ -353,7 +464,7 @@ export default defineSchema({
   messages: defineColocatedTable("teams", "teamId", {
     teamId: v.id("teams"),
     text: v.string(),
-  }).index("by_team", ["teamId"]),
+  }).index("by_team_text", ["teamId", "text"]),
 });
 `,
   );
@@ -386,8 +497,25 @@ export const listByTeam = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("messages")
-      .withIndex("by_team", q => q.eq("teamId", args.teamId))
+      .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
       .collect();
+  },
+});
+
+export const recentByTeam = query({
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams") },
+  returns: v.array(v.object({
+    _id: v.id("messages"),
+    teamId: v.id("teams"),
+    text: v.string(),
+  })),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
+      .order("desc")
+      .take(2);
   },
 });
 
@@ -622,6 +750,31 @@ function transitionUpdatesByQueryId(value: unknown, name: string): Map<number, J
   return new Map([...updates].sort(([left], [right]) => left - right));
 }
 
+async function seedMessage(
+  ws: SyncWebSocket,
+  requestId: number,
+  teamId: string,
+  text: string,
+): Promise<string> {
+  sendMutation(ws, {
+    type: "Mutation",
+    requestId,
+    udfPath: "messages:seed",
+    args: [{ teamId, text }],
+    partitionKey: teamId,
+  });
+  const created = mutationResponseFromUnknown(await nextJsonMessage(ws));
+  expect(created).toMatchObject({
+    type: "MutationResponse",
+    requestId,
+    success: true,
+    ts: expect.any(Number),
+  });
+  const messageId = jsonString(created.result, `seed ${requestId} mutation result`);
+  expect(messageId).toMatch(/^1:/);
+  return messageId;
+}
+
 function sendMessageSubscriptions(
   ws: SyncWebSocket,
   teamId: string,
@@ -646,6 +799,13 @@ function sendMessageSubscriptions(
         args: [{ teamId }],
         partitionKey: teamId,
       },
+      {
+        type: "Add",
+        queryId: 3,
+        udfPath: "messages:recentByTeam",
+        args: [{ teamId }],
+        partitionKey: teamId,
+      },
     ],
   });
 }
@@ -653,14 +813,65 @@ function sendMessageSubscriptions(
 function expectMessageSubscriptionTransition(
   transition: unknown,
   name: string,
-  messageId: string,
-  teamId: string,
-  text: string,
+  message: Json,
+  messages: Json,
+  recentMessages: Json,
 ): void {
   const updates = transitionUpdatesByQueryId(transition, name);
-  expect([...updates.keys()]).toEqual([1, 2]);
-  expect(updates.get(1)).toEqual({ _id: messageId, teamId, text });
-  expect(updates.get(2)).toEqual([{ _id: messageId, teamId, text }]);
+  expect([...updates.keys()]).toEqual([1, 2, 3]);
+  expect(updates.get(1)).toEqual(message);
+  expect(updates.get(2)).toEqual(messages);
+  expect(updates.get(3)).toEqual(recentMessages);
+}
+
+function expectListSubscriptionTransition(
+  transition: unknown,
+  name: string,
+  messages: Json,
+  recentMessages: Json,
+): void {
+  const updates = transitionUpdatesByQueryId(transition, name);
+  expect([...updates.keys()]).toEqual([2, 3]);
+  expect(updates.get(2)).toEqual(messages);
+  expect(updates.get(3)).toEqual(recentMessages);
+}
+
+function expectSchedulerTriggerResponse(
+  value: unknown,
+  expected: {
+    deploymentId: string;
+    changed: number;
+    claimed: number;
+    acked: number;
+    delivered: number;
+  },
+): void {
+  const record = jsonRecord(value, "scheduler trigger response");
+  expect(jsonString(record.deploymentId, "scheduler trigger response.deploymentId"))
+    .toBe(expected.deploymentId);
+  expect(jsonInteger(record.changed, "scheduler trigger response.changed"))
+    .toBe(expected.changed);
+  expect(jsonInteger(record.unchanged, "scheduler trigger response.unchanged"))
+    .toBe(0);
+  expect(jsonInteger(record.unsupported, "scheduler trigger response.unsupported"))
+    .toBe(0);
+  expect(record.hasMoreStale).toBe(false);
+  const delivery = jsonRecord(record.delivery, "scheduler trigger response.delivery");
+  expect(delivery.woken).toBe(true);
+  expect(jsonInteger(delivery.status, "scheduler trigger response.delivery.status"))
+    .toBe(200);
+  const result = jsonRecord(delivery.result, "scheduler trigger response.delivery.result");
+  expect(jsonString(result.deploymentId, "scheduler trigger response.delivery.result.deploymentId"))
+    .toBe(expected.deploymentId);
+  expect(jsonInteger(result.claimed, "scheduler trigger response.delivery.result.claimed"))
+    .toBe(expected.claimed);
+  expect(jsonInteger(result.acked, "scheduler trigger response.delivery.result.acked"))
+    .toBe(expected.acked);
+  expect(jsonInteger(result.delivered, "scheduler trigger response.delivery.result.delivered"))
+    .toBe(expected.delivered);
+  expect(jsonInteger(result.skipped, "scheduler trigger response.delivery.result.skipped"))
+    .toBe(0);
+  expect(result.hasMore).toBe(false);
 }
 
 function assertJson(value: unknown, name: string): Json {

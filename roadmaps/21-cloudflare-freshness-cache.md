@@ -1,5 +1,88 @@
 # Cloudflare Freshness Cache
 
+## Generated Indexed Order And Limit Sync
+
+Previous completed checkpoint: `a485403` Prove multi-connection indexed sync
+fanout.
+
+What changed:
+
+- Extended the hosted generated-app sync integration with a third generated
+  query, `messages:recentByTeam`.
+- The new query uses the Convex-style chain:
+  `ctx.db.query("messages").withIndex("by_team_text", q => q.eq("teamId", args.teamId)).order("desc").take(2)`.
+- The test now seeds three colocated messages so descending index order and
+  limit behavior have observable semantics.
+- The generated schema uses a deterministic compound index
+  `["teamId", "text"]` so the ordered assertions prove index-field ordering
+  rather than incidental generated document ID ordering.
+- Both WebSocket sessions subscribe to:
+  - `messages:get`,
+  - `messages:listByTeam`, and
+  - `messages:recentByTeam`.
+- A single generated mutation updates the newest message, and the integration
+  proves all six live-query subscriptions rerun and deliver exact changed
+  results, including the ordered limited list.
+- A second generated mutation updates the row that was previously outside the
+  `take(2)` result so it sorts above the current top two. The test proves only
+  the list subscriptions rerun while direct document subscriptions stay fresh,
+  and the ordered limited result changes membership correctly.
+
+Why it changed:
+
+The previous checkpoint proved multi-connection fanout for direct and indexed
+collect queries. Convex apps commonly use `order("desc").take(n)` for recent
+items, feeds, notifications, and chat messages. This slice proves that Flarex's
+generated Dynamic Worker path, trusted executor syscalls, read-set freshness,
+durable delivery rows, and Cloudflare WebSocket fanout preserve that query
+shape end to end. The excluded-row mutation is the important membership
+boundary: it catches implementations that only track returned documents instead
+of the index range dependency behind a limited query.
+
+Convex references:
+
+- `npm-packages/version/convex/util/oldCursorRules.ts`
+  - documents the public Convex mental model for `withIndex(...)`,
+    `order("desc")`, and `take(n)`.
+- `npm-packages/private-demos/snippets/convex/queriesExample.ts`
+  - uses `withIndex(...).order("desc").take(...)` for common app query
+    patterns.
+- `crates/sync/src/worker.rs`
+  - reruns invalidated query work and emits changed query results to clients.
+- `crates/database/src/query/mod.rs`
+  - tracks the query model where indexed reads participate in database query
+    execution and dependency recording.
+
+Flarex differences:
+
+- Convex executes ordered limited queries inside its integrated Rust database
+  and sync runtime. Flarex sends the query shape through the Dynamic Worker
+  syscall boundary and persists read dependencies in the trusted executor so
+  Cloudflare DOs can later fan out the changed result.
+- The current ordered limited query relies on the existing index key order
+  implementation and local PGlite executor lane. It does not yet prove real
+  Postgres plan behavior or high-volume range performance.
+
+Known limitations:
+
+- Cursor pagination is still not covered in the hosted generated sync
+  integration.
+- `first()` and `unique()` are covered by lower-level query API tests but not
+  yet by generated hosted `/sync` integration.
+- Range predicates beyond equality-prefix still need generated hosted sync
+  coverage.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Multi-Connection Generated Sync Fanout
 
 Previous completed checkpoint: `dbc748c` Add indexed generated sync fanout.
