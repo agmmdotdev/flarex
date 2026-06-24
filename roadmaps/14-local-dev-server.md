@@ -1,5 +1,58 @@
 # Local Dev Server
 
+## Generated Output Typecheck Building Block
+
+Previous completed checkpoint: `f7634e1` Typecheck generated output tree.
+
+What changed:
+
+- Added an exported `typecheckGeneratedOutput(...)` API in `flarex-dev`.
+- The API can be called by future Vite plugin, dev runtime, or CLI flows after
+  codegen completes.
+- The helper supports custom `typescriptCliPath`, `cwd`, ambient `types`,
+  `typeRoots`, and `paths` so local dev can use normal app resolution while
+  tests can resolve workspace source packages.
+- By default the helper writes its config to a temporary directory and cleans
+  it up after TypeScript exits.
+
+Why it changed:
+
+Local development should eventually follow the Convex-style sequence:
+generate, analyze/push, final codegen, then typecheck generated output before
+activating or serving a broken app. This checkpoint creates the reusable
+primitive without changing dev-server activation behavior yet.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex's dev/push/codegen workflow owns generated-code correctness checks.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated files are local developer imports and should be verified before
+    use.
+
+Flarex differences:
+
+- This slice does not yet call the helper from the Vite plugin or dev runtime.
+- The helper compiles only `_generated/**/*.ts`, not the whole application.
+
+Known limitations:
+
+- Dev-server push/codegen can still complete without invoking generated output
+  typecheck.
+- No surfaced diagnostic formatting beyond TypeScript stdout/stderr wrapping
+  exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Vite Config Load Boundary
 
 Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.

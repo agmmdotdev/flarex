@@ -1,5 +1,56 @@
 # Testing and Simulation Strategy
 
+## Reusable Generated Output Typecheck Helper
+
+Previous completed checkpoint: `f7634e1` Typecheck generated output tree.
+
+What changed:
+
+- The generated-output TypeScript gate now uses the exported
+  `typecheckGeneratedOutput(...)` helper from `flarex-dev` source.
+- The test no longer owns child-process execution, TypeScript config
+  construction, or error-output formatting.
+- Test-specific workspace path mappings remain in the test, while the reusable
+  helper owns generated directory discovery, temporary config cleanup, and
+  compiler invocation.
+
+Why it changed:
+
+Keeping the compiler gate only in a test made it impossible for future dev
+server, CLI, or example-app lanes to reuse the same behavior. This makes the
+test cover the actual package API that will become the local developer
+typecheck boundary.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen/typecheck behavior is shared workflow logic, not isolated test
+    code.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript contracts require reusable validation.
+
+Flarex differences:
+
+- Flarex still validates through Vitest in this slice.
+- The helper writes a focused temporary config and cleans it up rather than
+  invoking a full app typecheck or leaving root-level generated config files.
+
+Known limitations:
+
+- Only the generator test currently exercises the helper.
+- Future tests should cover failure output once the public CLI/dev gate exists.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Directory Typecheck Coverage
 
 Previous completed checkpoint: `53eda56` Typecheck generated Worker output.

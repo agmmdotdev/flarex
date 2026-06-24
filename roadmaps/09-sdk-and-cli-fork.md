@@ -1,5 +1,64 @@
 # SDK And CLI Fork
 
+## Generated Output Typecheck API
+
+Previous completed checkpoint: `f7634e1` Typecheck generated output tree.
+
+What changed:
+
+- `flarex-dev` now exports `typecheckGeneratedOutput(...)`.
+- The generated-output typecheck implementation moved from
+  `generate.test.ts` into `packages/flarex-dev/src/generatedTypecheck.ts`.
+- The API writes a generated-output tsconfig into a temporary directory by
+  default, removes it after the compiler exits, compiles
+  `flarex/_generated/**/*.ts`, and accepts overrides for the TypeScript CLI JS
+  entrypoint, working directory, path mappings, ambient types, type roots, and
+  output buffer size.
+- `flarex-dev` now declares `typescript` and `@cloudflare/workers-types` as
+  peer dependencies because this API resolves the compiler and defaults to
+  Worker ambient types at runtime.
+
+Why it changed:
+
+The previous checkpoint proved generated output only inside a package test.
+Convex treats generated code and typechecking as part of the developer
+workflow. Flarex needs the same direction: generated files should be
+typechecked by reusable dev tooling, then later wired into CLI/dev-server
+flows.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex couples codegen with typecheck-capable workflows.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript remains a stable developer-facing API surface.
+
+Flarex differences:
+
+- Flarex exposes this as a package API first, not a CLI command yet.
+- The API is configurable so tests can typecheck temp apps without installed
+  dependencies while real apps can rely on normal package resolution. Callers
+  can pass `tsconfigPath` only when they intentionally want a persisted config
+  for debugging. Relative `paths`, `typeRoots`, and `typescriptCliPath` values
+  resolve from `cwd ?? root`, which keeps the temp config location invisible to
+  callers.
+
+Known limitations:
+
+- No `flarex codegen --typecheck` command exists yet.
+- The Vite/dev runtime does not call this API automatically yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Output Typecheck Gate
 
 Previous completed checkpoint: `53eda56` Typecheck generated Worker output.

@@ -20,6 +20,10 @@ export type {
   FlarexGenerateOptions,
   FlarexGenerationContext,
 } from "./generate.ts";
+export { typecheckGeneratedOutput } from "./generatedTypecheck.ts";
+export type {
+  FlarexGeneratedOutputTypecheckOptions,
+} from "./generatedTypecheck.ts";
 export { analyzeSourcePackageLocally } from "./analyze.ts";
 export type {
   AnalyzedFunction,
