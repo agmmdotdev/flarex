@@ -1,5 +1,60 @@
 # Cloudflare Freshness Cache
 
+## Real Postgres Delivery Claim Cursor Race Coverage
+
+Previous completed checkpoint: `8677dba` Persist delivery continuation cursors.
+
+What changed:
+
+- Added an optional real Postgres concurrency regression for live-query delivery
+  claiming.
+- The test inserts two delivery rows, locks the first row, starts two
+  concurrent `claimLiveQueryDeliveries(...)` calls with `limit: 1`, then
+  releases the lock so one claimer wins the first row and the other returns an
+  empty page.
+- The empty loser page must still return `hasMore: true` and a concrete cursor
+  for the selected candidate row.
+- The test then resumes from the loser cursor and proves the second delivery
+  row can still be claimed.
+
+Why it changed:
+
+The previous checkpoint changed Postgres delivery claiming to derive
+`nextCursor` from the selected candidate page rather than the rows returned by
+the update. That was the intended production race fix, but the first regression
+only covered normal PGlite pagination. This checkpoint adds the real Postgres
+lock/concurrency shape that motivated the cursor rule.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps delivery scan progress inside backend worker state instead of
+    exposing a Postgres claim page API.
+- `crates/sync/src/state.rs`
+  - sync transitions advance only after backend-owned query state is coherent.
+
+Flarex differences:
+
+- Flarex exposes a framework-neutral Postgres delivery claim primitive because
+  Cloudflare `DeliveryDO` drains durable rows in bounded batches.
+- Real Postgres can return fewer updated rows than selected candidates under
+  concurrent claimers, so Flarex's claim cursor must be candidate-derived and
+  restartable.
+
+Known limitations:
+
+- The test is optional and skips unless `FLAREX_POSTGRES_DATABASE_URL` is set.
+- This proves the row-lock race for delivery claiming only. Broader
+  delivery-dead-letter and stuck-delivery real Postgres races remain future
+  hardening work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test:postgres -- --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Delivery Continuation Cursor Persistence
 
 Previous completed checkpoint: `f632a11` Cover delivery continue failure summaries.

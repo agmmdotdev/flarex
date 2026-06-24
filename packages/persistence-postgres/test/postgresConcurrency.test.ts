@@ -14,6 +14,135 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres OCC concurrency", () => {
+  it("returns a cursor when a concurrent delivery claimer loses the selected row", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await persistence.insertLiveQueryDelivery({
+        deploymentId: "deployment_pg_delivery_claim_cursor_race",
+        deliveryId: "delivery_cursor_race_a",
+        connectionId: "connection_cursor_race",
+        queryId: 1,
+        payloadJson: { resultJson: "a" },
+        createdAt: new Date("2026-06-20T00:00:00.000Z"),
+      });
+      await persistence.insertLiveQueryDelivery({
+        deploymentId: "deployment_pg_delivery_claim_cursor_race",
+        deliveryId: "delivery_cursor_race_b",
+        connectionId: "connection_cursor_race",
+        queryId: 2,
+        payloadJson: { resultJson: "b" },
+        createdAt: new Date("2026-06-20T00:00:01.000Z"),
+      });
+
+      const locker = await persistence.pool.connect();
+      let lockReleased = false;
+      let claimPromises:
+        | readonly [
+            ReturnType<typeof persistence.claimLiveQueryDeliveries>,
+            ReturnType<typeof persistence.claimLiveQueryDeliveries>,
+          ]
+        | undefined;
+      let setupError: unknown;
+      try {
+        await locker.query("begin");
+        await locker.query(
+          `
+            select 1
+            from live_query_deliveries
+            where deployment_id = $1 and delivery_id = $2
+            for update
+          `,
+          ["deployment_pg_delivery_claim_cursor_race", "delivery_cursor_race_a"],
+        );
+
+        claimPromises = [
+          persistence.claimLiveQueryDeliveries({
+            deploymentId: "deployment_pg_delivery_claim_cursor_race",
+            limit: 1,
+            claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+            claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+            claimOwner: "delivery:first",
+          }),
+          persistence.claimLiveQueryDeliveries({
+            deploymentId: "deployment_pg_delivery_claim_cursor_race",
+            limit: 1,
+            claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+            claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+            claimOwner: "delivery:second",
+          }),
+        ] as const;
+
+        await waitForBlockedLiveQueryDeliveryUpdates(persistence, 2);
+        await locker.query("commit");
+        lockReleased = true;
+      } catch (error) {
+        setupError = error;
+      } finally {
+        if (!lockReleased) {
+          await locker.query("rollback").catch(() => undefined);
+        }
+        locker.release();
+      }
+
+      if (claimPromises === undefined) {
+        throw new Error("Expected claim promises to be created.");
+      }
+      if (setupError !== undefined) {
+        await Promise.allSettled(claimPromises);
+        throw setupError;
+      }
+
+      const [first, second] = await Promise.all(claimPromises);
+      const winner = [first, second].find(result => result.deliveries.length === 1);
+      const loser = [first, second].find(result => result.deliveries.length === 0);
+      if (winner === undefined || loser === undefined) {
+        throw new Error("Expected one delivery claim winner and one empty loser.");
+      }
+      if (!winner.hasMore || !loser.hasMore) {
+        throw new Error("Expected both first-page claim results to expose continuation cursors.");
+      }
+      expect(winner).toMatchObject({
+        deliveries: [
+          {
+            deliveryId: "delivery_cursor_race_a",
+          },
+        ],
+        nextCursor: {
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+          deliveryId: "delivery_cursor_race_a",
+        },
+        hasMore: true,
+      });
+      expect(loser).toEqual({
+        deliveries: [],
+        nextCursor: {
+          createdAt: new Date("2026-06-20T00:00:00.000Z"),
+          deliveryId: "delivery_cursor_race_a",
+        },
+        hasMore: true,
+      });
+
+      await expect(
+        persistence.claimLiveQueryDeliveries({
+          deploymentId: "deployment_pg_delivery_claim_cursor_race",
+          cursor: loser.nextCursor,
+          limit: 10,
+          claimedAt: new Date("2026-06-20T00:01:10.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:02:10.000Z"),
+          claimOwner: "delivery:third",
+        }),
+      ).resolves.toMatchObject({
+        deliveries: [
+          {
+            deliveryId: "delivery_cursor_race_b",
+            claimOwner: "delivery:third",
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      });
+    });
+  });
+
   it("returns a live query delivery to only one concurrent claimer", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await persistence.insertLiveQueryDelivery({
