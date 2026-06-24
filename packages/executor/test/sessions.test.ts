@@ -978,6 +978,68 @@ describe("executor invoke sessions", () => {
     ).resolves.toMatchObject({ state: "finished" });
   });
 
+  it("reports async live query trigger failures without failing committed mutations", async () => {
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 100 })],
+    );
+    const triggerError = new Error("backend trigger rejected");
+    const errorReports: Array<{ committedTs: number; error: unknown }> = [];
+    const executor = createFlarexExecutor({
+      persistence,
+      liveQueryInvalidation: {
+        notifyTrigger: async () => {
+          throw triggerError;
+        },
+        onError: input => {
+          errorReports.push({
+            committedTs: input.committedTs,
+            error: input.error,
+          });
+        },
+      },
+    });
+
+    await executor.invokeSyscall({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sessionId: "session_active",
+      syscall: {
+        op: "insert",
+        table: "teams",
+        id: "1:team_insert",
+        value: { name: "Team" },
+      },
+    });
+
+    await expect(
+      executor.finishInvokeSession({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        value: "ok",
+      }),
+    ).resolves.toMatchObject({
+      value: "ok",
+      committedTs: 101,
+    });
+    await waitForReport(
+      errorReports,
+      1_000,
+      "async live query invalidation error was not reported",
+    );
+    expect(errorReports).toHaveLength(1);
+    expect(errorReports[0]?.committedTs).toBe(101);
+    expect(errorReports[0]?.error).toBe(triggerError);
+    await expect(
+      persistence.getInvokeSessionMetadata(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toMatchObject({ state: "finished" });
+  });
+
   it("rejects finishing inactive sessions", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence([], [], [
@@ -2687,5 +2749,27 @@ async function commitConcurrentTeamPatch(input: {
     source: "invoke:messages:send",
     finishedAt: new Date(input.minimumTs),
     minimumTs: input.minimumTs,
+  });
+}
+
+async function waitForReport(
+  reports: unknown[],
+  timeoutMs: number,
+  message: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (reports.length === 0) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(message);
+    }
+    await delay(Math.min(remainingMs, 10));
+  }
+  await delay(0);
+}
+
+async function delay(timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, timeoutMs);
   });
 }

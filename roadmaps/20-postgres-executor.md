@@ -1,5 +1,60 @@
 # Postgres Executor
 
+## Async Live-Query Trigger Failure Coverage
+
+Previous completed checkpoint: `921a079` Deliver failed live query reruns.
+
+What changed:
+
+- Added executor session coverage for an asynchronous rejected
+  `liveQueryInvalidation.notifyTrigger(...)`.
+- The test proves a mutation whose writes already committed still resolves
+  successfully, the invoke session remains `finished`, and the rejected
+  notifier promise is surfaced through `liveQueryInvalidation.onError(...)`.
+
+Why it changed:
+
+Flarex's trusted executor commits writes and freshness metadata before asking a
+host-specific notifier to wake Cloudflare sync work. That notifier will usually
+be an async HTTP call, so rejected promises must be observable without turning a
+successful commit into a user-visible mutation failure.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commits validate reads, persist writes, then publish write-log state for
+    subscribers.
+- `crates/sync/src/worker.rs`
+  - sync query update work is a separate worker responsibility after backend
+    state advances.
+- `crates/sync/src/state.rs`
+  - active query state records result hashes/subscriptions and is repaired by
+    later worker transitions.
+
+Flarex differences:
+
+- Convex keeps commit publication and sync worker scheduling inside its backend
+  runtime. Flarex splits them: the executor commits durable state, then invokes
+  an injected notifier that may cross to Cloudflare.
+- Because the notifier is outside the commit transaction, notifier failure is
+  reported to the host through `onError` instead of rolling back the mutation.
+
+Known limitations:
+
+- This does not add retry, alerting, or durable notifier-failure persistence.
+  Those belong to the delivery/wake reliability layer.
+- The hook remains best-effort after commit; if a host ignores `onError`, the
+  durable rows still exist but wake recovery depends on later maintenance.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts -t "async live query trigger failures" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/executor test
+git diff --check
+```
+
 ## Real Postgres Executor Retry Lane
 
 Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.
