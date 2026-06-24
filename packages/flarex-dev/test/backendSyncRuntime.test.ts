@@ -1,5 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import type { BeginInvokeSessionResult } from "@flarex/executor";
+import {
+  createExecutionArtifactRuntimeService,
+  type ExecutionArtifactRuntimeService,
+} from "flarex-backend/artifact-runtime";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "flarex-backend/artifact-store";
 import {
   createBackendHarness,
@@ -16,6 +20,7 @@ import {
   createLocalPGliteExecutorHttpRuntime,
   type LocalPGliteExecutorHttpRuntime,
 } from "../src/executorHttpRuntime";
+import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMaterializer";
 
 type BackendDispatchResponse = Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>;
 type SyncWebSocket = NonNullable<BackendDispatchResponse["webSocket"]>;
@@ -23,11 +28,13 @@ type SyncWebSocket = NonNullable<BackendDispatchResponse["webSocket"]>;
 describe("backend sync with local executor runtime", () => {
   const harnesses: BackendHarness[] = [];
   const runtimes: LocalPGliteExecutorHttpRuntime[] = [];
+  const artifactRuntimes: ExecutionArtifactRuntimeService[] = [];
 
   afterAll(async () => {
     await Promise.all([
       ...harnesses.map(harness => harness.dispose()),
       ...runtimes.map(runtime => runtime.dispose()),
+      ...artifactRuntimes.map(runtime => runtime.dispose()),
     ]);
   });
 
@@ -63,9 +70,41 @@ describe("backend sync with local executor runtime", () => {
       schemaVersion: 1,
     });
 
-    const harness = await createBackendHarness({
+    let harness: BackendHarness | undefined;
+    let materializeCount = 0;
+    let storeGetCount = 0;
+    const baseMaterializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId,
+      executorToken: "executor-secret",
+      backend: request => runtime.fetch(request),
+    });
+    const artifactRuntime = createExecutionArtifactRuntimeService({
+      capabilityToken: "sync-secret",
+      store: {
+        put: async package_ => new R2BackendExecutionArtifactStore(
+          r2BucketLikeFromMiniflare(await requireHarness(harness).mf.getR2Bucket("ARTIFACTS")),
+        ).put(package_),
+        get: async ref => {
+          storeGetCount += 1;
+          return new R2BackendExecutionArtifactStore(
+            r2BucketLikeFromMiniflare(await requireHarness(harness).mf.getR2Bucket("ARTIFACTS")),
+          ).get(ref);
+        },
+      },
+      materializer: {
+        materialize: async payload => {
+          materializeCount += 1;
+          return baseMaterializer.materialize(payload);
+        },
+      },
+    });
+    artifactRuntimes.push(artifactRuntime);
+
+    harness = await createBackendHarness({
       bindings: {
         FLAREX_ARTIFACT_RUNTIME_TOKEN: "sync-secret",
+        FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
         FLAREX_EXECUTOR_TOKEN: "executor-secret",
         FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
         FLAREX_PROJECT_ID: projectId,
@@ -73,12 +112,7 @@ describe("backend sync with local executor runtime", () => {
       r2Buckets: ["ARTIFACTS"],
       serviceBindings: {
         FLAREX_EXECUTOR: request => runtime.fetch(request),
-        FLAREX_ARTIFACT_RUNTIME: async () =>
-          Response.json({
-            value: null,
-            readSet: { documents: [{ tableId: 1, id: "1:message" }] },
-            readTs: 100,
-          }),
+        FLAREX_ARTIFACT_RUNTIME: artifactRuntime,
       },
     });
     harnesses.push(harness);
@@ -110,6 +144,8 @@ describe("backend sync with local executor runtime", () => {
           },
         ],
       });
+      expect(materializeCount).toBe(1);
+      expect(storeGetCount).toBe(1);
 
       await expect(
         runtime.executor.findStaleLiveQuerySubscriptions({
@@ -322,6 +358,13 @@ async function openSync(
   }
   ws.accept();
   return ws;
+}
+
+function requireHarness(harness: BackendHarness | undefined): BackendHarness {
+  if (harness === undefined) {
+    throw new Error("Backend harness is not initialized.");
+  }
+  return harness;
 }
 
 function r2BucketLikeFromMiniflare(bucket: unknown): R2BucketLike {

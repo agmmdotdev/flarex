@@ -844,9 +844,9 @@ Flarex differences:
   `ConnectionDO`.
 - Because the pieces are split, this is integration coverage rather than a
   direct port of Convex's in-process sync worker loop.
-- The initial WebSocket query in this test still uses a narrow fake artifact
-  runtime response; the rerun path under test uses the real materialized
-  executor/runtime bridge.
+- Superseded by the next checkpoint: at the time of `4d10756`, the initial
+  WebSocket query still used a narrow fake artifact runtime response while the
+  rerun path used the real materialized executor/runtime bridge.
 
 Known limitations:
 
@@ -855,8 +855,9 @@ Known limitations:
 - The test covers one document read/query and one delivery row. It does not yet
   cover index/range freshness, multiple connections, or repeated `hasMoreStale`
   continuation through this PGlite-backed end-to-end path.
-- The backend harness still needs a fake initial artifact response to seed the
-  live subscription before the rerun path takes over.
+- Superseded by the next checkpoint: at the time of `4d10756`, the backend
+  harness still needed a fake initial artifact response to seed the live
+  subscription before the rerun path took over.
 
 Verification:
 
@@ -864,6 +865,77 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
 corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts -t "wires PGlite mutation commits to the Cloudflare live-query trigger notifier" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
+## Hosted Initial Live-Query Execution Bridge
+
+Previous completed checkpoint: `4d10756` Add hosted live query rerun bridge
+integration.
+
+What changed:
+
+- Replaced the fake initial `FLAREX_ARTIFACT_RUNTIME` response in
+  `backendSyncRuntime.test.ts` with the real
+  `createExecutionArtifactRuntimeService(...)`.
+- Bound the runtime service to a `LocalMiniflareExecutionArtifactMaterializer`
+  configured for Postgres executor transport, so initial subscription execution
+  runs user source code through the same restricted syscall boundary:
+  `/invoke/start -> /invoke/syscall -> /invoke/finish`.
+- Kept the backend harness as the WebSocket/DO owner and the PGlite executor
+  runtime as the durable session/subscription owner.
+- Added an assertion that the source package is materialized during the initial
+  WebSocket subscription, proving the first result is not a hard-coded fake
+  runtime response.
+- Added an assertion that the artifact runtime loads source from backend
+  artifact storage during the initial subscription, proving
+  `FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true` is exercising runtime-owned
+  source loading instead of inline source delivery from `ConnectionDO`.
+
+Why it changed:
+
+The previous integration checkpoint proved the stale-rerun fanout bridge, but
+the initial `ModifyQuerySet Add` result was still seeded by a narrow fake
+artifact runtime. This closes that gap: both the initial subscription result
+and the later stale rerun now execute through materialized user code and the
+executor syscall API.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync workers execute initial query subscriptions and subsequent
+    invalidated reruns through the same backend query execution path.
+- `crates/sync/src/state.rs`
+  - Convex keeps active query results, hashes, and subscription state in one
+    sync state machine.
+
+Flarex differences:
+
+- Convex keeps the sync worker and database executor in one backend runtime.
+  Flarex keeps WebSocket/session ownership in Cloudflare `ConnectionDO`, while
+  the materialized Dynamic Worker code calls the trusted PGlite/Postgres
+  executor over the restricted syscall API.
+- The test uses `FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true`, so the runtime
+  service loads the active source package from backend artifact storage instead
+  of receiving source inline from `ConnectionDO`.
+
+Known limitations:
+
+- This still uses the local PGlite executor lane, not the real Postgres
+  correctness lane.
+- The integration covers one document read/query and one delivery row. It does
+  not yet cover indexed/range reads, multi-query sets, multiple connections, or
+  repeated scheduler continuation in the same hosted-runtime path.
+- The test fixture uses a hand-written source package. A later generation-path
+  integration should build the package from a real `flarex/` app folder.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
 corepack pnpm --filter flarex-dev test
 corepack pnpm --filter flarex-dev build
 git diff --check
