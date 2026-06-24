@@ -1,5 +1,63 @@
 # Cloudflare Freshness Cache
 
+## Direct Delivery Claim Failure Coverage
+
+Previous completed checkpoint: `bc2e71d` Report delivery drain failure summaries.
+
+What changed:
+
+- Added direct backend sync coverage for `DeliveryDO` claim failures.
+- The new test drives the public deployment wake route with an executor claim
+  endpoint returning `503`.
+- The response must now prove the structured claim-failure contract:
+  - `failure.stage` is `claim`
+  - the internal failure status is `502`
+  - all partial drain counters are zero
+  - `pendingAck` is zero
+  - no delivery failure-report call is made because no rows were claimed
+
+Why it changed:
+
+The previous checkpoint implemented claim-failure summaries but only proved the
+path indirectly through `SchedulerDO` failed wake propagation. Direct coverage
+keeps the Cloudflare maintenance boundary honest: a claim error happens before
+fanout and ack work exists, so the failure body should not imply any row-level
+delivery state.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex's sync worker owns query rerun and transition delivery in one
+    backend worker path, so there is no separate HTTP claim failure response.
+- `crates/sync/src/state.rs`
+  - client-visible transitions are only emitted after backend state has enough
+    information to update or fail a query.
+
+Flarex differences:
+
+- Flarex has an executor-owned durable delivery claim endpoint and a
+  Cloudflare-owned `DeliveryDO` fanout loop. Claim failure is therefore a
+  backend-internal maintenance failure, not a Convex client protocol message.
+- Because no rows are claimed, `DeliveryDO` reports the failed drain without
+  calling the executor failure-report endpoint.
+
+Known limitations:
+
+- This remains response-level observability; durable metrics and alerting hooks
+  are still future work.
+- Wake failures still return external HTTP `500` for compatibility even when
+  the structured internal failure status is more specific.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "records DeliveryDO claim failures|records DeliveryDO fanout failures|records DeliveryDO ack failures|keeps pending delivery deployment cursor when a wake fails" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery Drain Failure Summaries
 
 Previous completed checkpoint: `ed5c4dd` Report live query delivery skip reasons.
@@ -60,9 +118,6 @@ Known limitations:
 
 - These summaries are response-level observability only; no durable metrics
   sink or alerting hook consumes them yet.
-- Claim failure summaries are supported by the implementation but not covered
-  by direct DeliveryDO tests. They are covered through SchedulerDO failed wake
-  propagation.
 - Wake failures still use HTTP `500` for compatibility even when the internal
   failure detail records a more specific status.
 

@@ -2241,6 +2241,88 @@ describe("sync protocol", () => {
       .toBe("string");
   });
 
+  it("records DeliveryDO claim failures", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-claim-failure-deployment";
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({ error: "temporary claim failure" }, { status: 503 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(500);
+    const responseBody: unknown = await response.json();
+    expect(responseBody).toMatchObject({
+      deploymentId,
+      error: "Live query delivery claim failed with status 503.",
+      failure: {
+        stage: "claim",
+        status: 502,
+        error: "Live query delivery claim failed with status 503.",
+      },
+      summary: {
+        batches: 0,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+        failure: {
+          stage: "claim",
+          status: 502,
+          error: "Live query delivery claim failed with status 503.",
+        },
+      },
+    });
+    expect(executorRequests).toHaveLength(1);
+    expect(executorRequests[0]).toEqual({
+      path: "/maintenance/live-queries/claim",
+      authorization: "Bearer executor-secret",
+      body: {
+        deploymentId,
+        limit: 10,
+        leaseDurationMs: 30000,
+        claimOwner: expect.stringMatching(/^delivery:sync-delivery-claim-failure-deployment:/),
+      },
+    });
+  });
+
   it("records DeliveryDO ack failures after successful fanout", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
