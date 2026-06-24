@@ -59,6 +59,7 @@ describe("backend sync with local executor runtime", () => {
     const projectId = "project-backend-runtime-live";
     const sessionId = "runtime-live-session";
     const connectionId = `connection:${deploymentId}:${sessionId}`;
+    const teamId = "2:team_alpha";
     const generatedDeployment = await createGeneratedMessageDeployment();
 
     const runtime = await createLocalPGliteExecutorHttpRuntime({
@@ -143,7 +144,8 @@ describe("backend sync with local executor runtime", () => {
         type: "Mutation",
         requestId: 1,
         udfPath: "messages:seed",
-        args: [{ text: "initial" }],
+        args: [{ teamId, text: "initial" }],
+        partitionKey: teamId,
       });
       const created = mutationResponseFromUnknown(await nextJsonMessage(ws));
       expect(created).toMatchObject({
@@ -166,37 +168,41 @@ describe("backend sync with local executor runtime", () => {
             type: "Add",
             queryId: 1,
             udfPath: "messages:get",
-            args: [{ messageId }],
-            partitionKey: messageId,
+            args: [{ teamId, messageId }],
+            partitionKey: teamId,
           },
-        ],
-      });
-      await expect(nextJsonMessage(ws)).resolves.toMatchObject({
-        type: "Transition",
-        modifications: [
           {
-            type: "QueryUpdated",
-            queryId: 1,
-            value: { _id: messageId, text: "initial" },
+            type: "Add",
+            queryId: 2,
+            udfPath: "messages:listByTeam",
+            args: [{ teamId }],
+            partitionKey: teamId,
           },
         ],
       });
+      const initialTransition = await nextJsonMessage(ws);
+      const initialUpdates = transitionUpdatesByQueryId(
+        initialTransition,
+        "initial transition",
+      );
+      expect([...initialUpdates.keys()]).toEqual([1, 2]);
+      expect(initialUpdates.get(1)).toEqual({ _id: messageId, teamId, text: "initial" });
+      expect(initialUpdates.get(2)).toEqual([{ _id: messageId, teamId, text: "initial" }]);
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(2);
+      expect(storeGetCount).toBe(3);
 
-      await expect(
-        runtime.executor.findStaleLiveQuerySubscriptions({
-          deploymentId,
-          freshnessStore: runtime.freshnessStore,
-        }),
-      ).resolves.toMatchObject({ stale: [] });
+      const initiallyStale = await runtime.executor.findStaleLiveQuerySubscriptions({
+        deploymentId,
+        freshnessStore: runtime.freshnessStore,
+      });
+      expect(initiallyStale.stale).toEqual([]);
 
       sendMutation(ws, {
         type: "Mutation",
         requestId: 2,
         udfPath: "messages:update",
-        args: [{ messageId, text: "fresh" }],
-        partitionKey: messageId,
+        args: [{ teamId, messageId, text: "fresh" }],
+        partitionKey: teamId,
       });
       await expect(nextJsonMessage(ws)).resolves.toMatchObject({
         type: "MutationResponse",
@@ -206,22 +212,31 @@ describe("backend sync with local executor runtime", () => {
         ts: expect.any(Number),
       });
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(3);
-      await expect(
-        runtime.executor.findStaleLiveQuerySubscriptions({
+      expect(storeGetCount).toBe(4);
+      const stale = await runtime.executor.findStaleLiveQuerySubscriptions({
           deploymentId,
           freshnessStore: runtime.freshnessStore,
-        }),
-      ).resolves.toMatchObject({
-        stale: [
-          {
-            subscription: {
+      });
+      expect(stale.fresh).toEqual([]);
+      expect(stale.unsupported).toEqual([]);
+      expect(stale.stale.map(entry => entry.subscription.queryId).sort()).toEqual([1, 2]);
+      expect(stale).toMatchObject({
+        stale: expect.arrayContaining([
+          expect.objectContaining({
+            subscription: expect.objectContaining({
               deploymentId,
               connectionId,
               queryId: 1,
-            },
-          },
-        ],
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId,
+              queryId: 2,
+            }),
+          }),
+        ]),
       });
 
       const delivered = nextJsonMessage(ws);
@@ -236,8 +251,8 @@ describe("backend sync with local executor runtime", () => {
           body: JSON.stringify({
             deploymentId,
             projectId,
-            limit: 1,
-            deliveryLimit: 1,
+            limit: 10,
+            deliveryLimit: 10,
             maxBatches: 1,
           }),
         },
@@ -246,7 +261,7 @@ describe("backend sync with local executor runtime", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
         deploymentId,
-        changed: 1,
+        changed: 2,
         unchanged: 0,
         unsupported: 0,
         hasMoreStale: false,
@@ -255,25 +270,23 @@ describe("backend sync with local executor runtime", () => {
           status: 200,
           result: {
             deploymentId,
-            claimed: 1,
-            acked: 1,
-            delivered: 1,
+            claimed: 2,
+            acked: 2,
+            delivered: 2,
             skipped: 0,
             hasMore: false,
           },
         },
       });
 
-      await expect(delivered).resolves.toMatchObject({
-        type: "Transition",
-        modifications: [
-          {
-            type: "QueryUpdated",
-            queryId: 1,
-            value: { _id: messageId, text: "fresh" },
-          },
-        ],
-      });
+      const deliveredTransition = await delivered;
+      const deliveredUpdates = transitionUpdatesByQueryId(
+        deliveredTransition,
+        "delivered transition",
+      );
+      expect([...deliveredUpdates.keys()]).toEqual([1, 2]);
+      expect(deliveredUpdates.get(1)).toEqual({ _id: messageId, teamId, text: "fresh" });
+      expect(deliveredUpdates.get(2)).toEqual([{ _id: messageId, teamId, text: "fresh" }]);
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
           deploymentId,
@@ -307,13 +320,17 @@ async function createMessageProject(): Promise<string> {
   await mkdir(path.join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     path.join(root, "flarex/schema.ts"),
-    `import { definePartitionTable, defineSchema } from "flarex/server";
+    `import { defineColocatedTable, definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
 
 export default defineSchema({
-  messages: definePartitionTable({
-    text: v.string(),
+  teams: definePartitionTable({
+    name: v.string(),
   }),
+  messages: defineColocatedTable("teams", "teamId", {
+    teamId: v.id("teams"),
+    text: v.string(),
+  }).index("by_team", ["teamId"]),
 });
 `,
   );
@@ -323,26 +340,46 @@ export default defineSchema({
 import { v } from "flarex/values";
 
 export const get = query({
-  partition: model.messages,
-  args: { messageId: v.id("messages") },
-  returns: v.union(v.null(), v.object({ _id: v.id("messages"), text: v.string() })),
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams"), messageId: v.id("messages") },
+  returns: v.union(v.null(), v.object({
+    _id: v.id("messages"),
+    teamId: v.id("teams"),
+    text: v.string(),
+  })),
   handler: async (ctx, args) => {
     return await ctx.db.get(args.messageId);
   },
 });
 
+export const listByTeam = query({
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams") },
+  returns: v.array(v.object({
+    _id: v.id("messages"),
+    teamId: v.id("teams"),
+    text: v.string(),
+  })),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_team", q => q.eq("teamId", args.teamId))
+      .collect();
+  },
+});
+
 export const seed = mutation({
-  partition: model.messages,
-  args: { text: v.string() },
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams"), text: v.string() },
   returns: v.id("messages"),
   handler: async (ctx, args) => {
-    return await ctx.db.insert("messages", { text: args.text });
+    return await ctx.db.insert("messages", { teamId: args.teamId, text: args.text });
   },
 });
 
 export const update = mutation({
-  partition: model.messages,
-  args: { messageId: v.id("messages"), text: v.string() },
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams"), messageId: v.id("messages"), text: v.string() },
   returns: v.id("messages"),
   handler: async (ctx, args) => {
     await ctx.db.patch(args.messageId, { text: args.text });
@@ -528,6 +565,38 @@ function jsonStringArray(value: unknown, name: string): string[] {
     return value.map(item => jsonString(item, name));
   }
   throw new Error(`${name} must be a string array.`);
+}
+
+function transitionUpdatesByQueryId(value: unknown, name: string): Map<number, Json> {
+  const record = jsonRecord(value, name);
+  if (record.type !== "Transition") {
+    throw new Error(`${name}.type must be Transition.`);
+  }
+  if (!Array.isArray(record.modifications)) {
+    throw new Error(`${name}.modifications must be an array.`);
+  }
+  const updates = new Map<number, Json>();
+  for (const [index, modification] of record.modifications.entries()) {
+    const modificationRecord = jsonRecord(
+      modification,
+      `${name}.modifications[${index}]`,
+    );
+    if (modificationRecord.type !== "QueryUpdated") {
+      throw new Error(`${name}.modifications[${index}].type must be QueryUpdated.`);
+    }
+    const queryId = jsonInteger(
+      modificationRecord.queryId,
+      `${name}.modifications[${index}].queryId`,
+    );
+    if (updates.has(queryId)) {
+      throw new Error(`${name}.modifications has duplicate queryId ${queryId}.`);
+    }
+    updates.set(
+      queryId,
+      assertJson(modificationRecord.value, `${name}.modifications[${index}].value`),
+    );
+  }
+  return new Map([...updates].sort(([left], [right]) => left - right));
 }
 
 function assertJson(value: unknown, name: string): Json {

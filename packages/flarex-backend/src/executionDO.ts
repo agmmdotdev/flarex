@@ -190,6 +190,7 @@ export class ExecutionDO extends DurableObject<Env> {
         return {
           value: request.value,
           readSet: session.tx.currentReadSet(),
+          readTs: session.tx.beginTs,
         };
       }
 

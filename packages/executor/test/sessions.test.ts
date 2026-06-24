@@ -591,6 +591,7 @@ describe("executor invoke sessions", () => {
       }),
     ).resolves.toEqual({
       value: [{ _id: "1:message", text: "old" }],
+      readTs: 1781913600123,
       readSet: {
         documents: [
           { tableId: 1, id: "1:message", observedTs: 10 },

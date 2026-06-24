@@ -370,7 +370,7 @@ export async function runLiveQuerySubscriptionWithInvoke(
   return {
     value: result.value,
     beginTs: result.beginTs,
-    readSet: result.readSet ?? {},
+    readSet: result.readSet,
   };
 }
 

@@ -389,6 +389,90 @@ Verification:
 git diff --check
 ```
 
+## Query Finish Read Timestamp For Indexed Live Queries
+
+Previous completed checkpoint: `07b0e38` Harden invoke write-shape
+invalidation.
+
+What changed:
+
+- Added `readTs` to `FinishInvokeSessionResult`.
+- Query `finishInvokeSession(...)` now returns `readTs: session.beginTs`
+  alongside `value` and `readSet`.
+- Tightened `FinishInvokeSessionResult` into query and mutation result arms so
+  query results must carry `readSet` and `readTs`.
+- Re-exported the query and mutation result arm types from `@flarex/executor`.
+- Made `ConnectionDO` fail closed when a query response has a `readSet` but no
+  `readTs`, and removed the old live-query registration fallback to `0`.
+- Made `ConnectionDO` require query responses to include both `readSet` and
+  `readTs` before updating active-query metadata, preventing malformed reruns
+  from reusing stale dependency state.
+- Added local query-response validation in `ConnectionDO` so executor transport
+  responses are checked before being narrowed to the query-specific shape.
+- Updated the retained Cloudflare `ExecutionDO` query finish path to return
+  `readTs: session.tx.beginTs`, matching the newer trusted executor contract
+  while the legacy worker-session route remains in the repo.
+- Updated the executor query-session finish unit test to assert the returned
+  `readTs`.
+- Added a `/sync` regression proving artifact-runtime query responses with a
+  `readSet` but no `readTs` become `QueryFailed` transitions.
+- Added a `/sync` rerun regression proving a previously registered query fails
+  closed when the next executor response omits read metadata entirely.
+- Added query/mutation-specific `runInvokeWithRetries(...)` overloads on both
+  the standalone helper and public executor interface so live-query rerun code
+  receives a typed query result with required `readSet` instead of falling back
+  to an empty dependency set.
+- The hosted generated sync integration now depends on that timestamp when
+  registering indexed live-query subscriptions through the Cloudflare
+  `ConnectionDO`.
+
+Why it changed:
+
+Postgres executor query sessions already have a logical snapshot timestamp at
+`beginTs`. Direct document reads carry observed document timestamps in the read
+set, but indexed range reads are registered as range dependencies and use the
+subscription begin timestamp when converted to freshness metadata. Without
+returning `readTs`, the Cloudflare connection layer fell back to `0`, making a
+fresh indexed subscription appear stale immediately.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - query execution is tied to a transaction/snapshot timestamp.
+- `crates/database/src/committer.rs`
+  - read-set validation compares read timestamps against later committed
+    writes.
+- `crates/sync/src/worker.rs`
+  - sync query reruns depend on preserving the backend's query read timestamp.
+
+Flarex differences:
+
+- Convex does not cross an HTTP executor boundary for query finish. Flarex must
+  explicitly return the query snapshot timestamp from the trusted executor to
+  Cloudflare so live-query freshness rows are durable and correct.
+
+Known limitations:
+
+- This records the timestamp for the PGlite/Postgres executor session path.
+  Real Postgres concurrency and planner behavior remain covered by the separate
+  optional real-Postgres lanes.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionDO.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Invoke Finish Live-Query Trigger Integration
 
 Previous completed checkpoint: `b5b82f4` Add artifact OCC retry boundary.

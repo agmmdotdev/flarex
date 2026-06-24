@@ -30,6 +30,12 @@ import {
   type RunInvokeSessionMaintenanceInput,
   type RerunStaleLiveQuerySubscriptionsInput,
   type RunLiveQueryDeliveryBatchInput,
+  type RunInvokeWithRetriesInput,
+  type RunInvokeWithRetriesResult,
+  type RunMutationInvokeWithRetriesInput,
+  type RunMutationInvokeWithRetriesResult,
+  type RunQueryInvokeWithRetriesInput,
+  type RunQueryInvokeWithRetriesResult,
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
 
@@ -476,6 +482,7 @@ describe("createFlarexHttpApp", () => {
           return {
             value: input.value,
             readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+            readTs: 1781913600123,
           };
         },
       }),
@@ -502,6 +509,7 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       value: [{ _id: "1:message", text: "hello" }],
       readSet: { documents: [{ tableId: 1, id: "1:message" }] },
+      readTs: 1781913600123,
     });
   });
 
@@ -2812,6 +2820,49 @@ describe("createFlarexHttpApp", () => {
 function fakeExecutor(
   overrides: Partial<FlarexExecutor> = {},
 ): FlarexExecutor {
+  async function runInvokeWithRetriesFake(
+    input: RunQueryInvokeWithRetriesInput,
+  ): Promise<RunQueryInvokeWithRetriesResult>;
+  async function runInvokeWithRetriesFake(
+    input: RunMutationInvokeWithRetriesInput,
+  ): Promise<RunMutationInvokeWithRetriesResult>;
+  async function runInvokeWithRetriesFake(
+    input: RunInvokeWithRetriesInput,
+  ): Promise<RunInvokeWithRetriesResult>;
+  async function runInvokeWithRetriesFake(
+    input: RunInvokeWithRetriesInput,
+  ): Promise<RunInvokeWithRetriesResult> {
+    const value = await input.runAttempt({
+      attempt: 1,
+      maxAttempts: input.maxAttempts ?? 1,
+      session: beginInvokeSessionResult({
+        sessionId: "session_active",
+        beginTs: 1781913600123,
+        path: input.path,
+        kind: input.kind ?? "query",
+        schemaVersion: 12,
+        executionModule: "_flarex/execution.js",
+      }),
+      syscall: async () => invokeSyscallResult(null),
+    });
+    if (input.kind === "mutation") {
+      return {
+        value,
+        committedTs: 1781913600124,
+        writes: [],
+        attempts: 1,
+        beginTs: 1781913600123,
+      };
+    }
+    return {
+      value,
+      readSet: {},
+      readTs: 1781913600123,
+      attempts: 1,
+      beginTs: 1781913600123,
+    };
+  }
+
   return {
     async activateDeploymentPackage() {
       throw new Error("activateDeploymentPackage is not implemented by test fake");
@@ -2841,6 +2892,7 @@ function fakeExecutor(
       return {
         value: input.value,
         readSet: {},
+        readTs: 1781913600123,
       };
     },
     async abortInvokeSession() {
@@ -2975,25 +3027,7 @@ function fakeExecutor(
         hasMoreDeployments: false,
       };
     },
-    async runInvokeWithRetries(input) {
-      return {
-        value: await input.runAttempt({
-          attempt: 1,
-          maxAttempts: input.maxAttempts ?? 1,
-          session: beginInvokeSessionResult({
-            sessionId: "session_active",
-            beginTs: 1781913600123,
-            path: input.path,
-            kind: input.kind ?? "query",
-            schemaVersion: 12,
-            executionModule: "_flarex/execution.js",
-          }),
-          syscall: async () => invokeSyscallResult(null),
-        }),
-        attempts: 1,
-        beginTs: 1781913600123,
-      };
-    },
+    runInvokeWithRetries: runInvokeWithRetriesFake,
     async invokeSyscall() {
       return invokeSyscallResult(null);
     },

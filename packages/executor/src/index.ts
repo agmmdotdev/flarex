@@ -41,7 +41,7 @@ import {
   runInvokeSessionMaintenance,
   runMaintenanceSweep,
 } from "./maintenance";
-import { runInvokeWithRetries } from "./retry";
+import { runInvokeWithRetries as runInvokeWithRetriesInternal } from "./retry";
 import {
   abortInvokeSession,
   abortStaleInvokeSessions,
@@ -50,7 +50,16 @@ import {
   finishInvokeSession,
   invokeSyscall,
 } from "./sessions";
-import type { FlarexExecutor, FlarexExecutorConfig } from "./types";
+import type {
+  FlarexExecutor,
+  FlarexExecutorConfig,
+  RunInvokeWithRetriesInput,
+  RunInvokeWithRetriesResult,
+  RunMutationInvokeWithRetriesInput,
+  RunMutationInvokeWithRetriesResult,
+  RunQueryInvokeWithRetriesInput,
+  RunQueryInvokeWithRetriesResult,
+} from "./types";
 
 export {
   InvokeDeleteDocumentNotFoundError,
@@ -126,7 +135,9 @@ export type {
   FlarexExecutorPersistence,
   FlarexHealth,
   FinishInvokeSessionInput,
+  FinishMutationInvokeSessionResult,
   FinishInvokeSessionResult,
+  FinishQueryInvokeSessionResult,
   IdGenerator,
   FunctionVisibility,
   FunctionExecutionScope,
@@ -199,6 +210,10 @@ export type {
   TouchLiveQueryConnectionResult,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
+  RunMutationInvokeWithRetriesInput,
+  RunMutationInvokeWithRetriesResult,
+  RunQueryInvokeWithRetriesInput,
+  RunQueryInvokeWithRetriesResult,
   SchemaIndexMetadata,
   SchemaTableMetadata,
   TablePlacement,
@@ -214,6 +229,21 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
   const liveQueryInvalidation = config.liveQueryInvalidation;
+
+  function runInvokeWithRetriesForExecutor(
+    input: RunQueryInvokeWithRetriesInput,
+  ): Promise<RunQueryInvokeWithRetriesResult>;
+  function runInvokeWithRetriesForExecutor(
+    input: RunMutationInvokeWithRetriesInput,
+  ): Promise<RunMutationInvokeWithRetriesResult>;
+  function runInvokeWithRetriesForExecutor(
+    input: RunInvokeWithRetriesInput,
+  ): Promise<RunInvokeWithRetriesResult>;
+  function runInvokeWithRetriesForExecutor(
+    input: RunInvokeWithRetriesInput,
+  ): Promise<RunInvokeWithRetriesResult> {
+    return runInvokeWithRetriesInternal(persistence, clock, ids, liveQueryInvalidation, input);
+  }
 
   return {
     activateDeploymentPackage: (input) =>
@@ -285,8 +315,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
       runLiveQuerySubscriptionWithInvoke(persistence, clock, ids, input),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
-    runInvokeWithRetries: (input) =>
-      runInvokeWithRetries(persistence, clock, ids, liveQueryInvalidation, input),
+    runInvokeWithRetries: runInvokeWithRetriesForExecutor,
     invokeSyscall: (input) => invokeSyscall(persistence, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>

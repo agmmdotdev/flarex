@@ -338,6 +338,7 @@ describe("ExecutionDO sessions", () => {
         },
       ],
     });
+    expect(finish.readTs).toBe(start.beginTs);
   });
 
   it("resolves function metadata from the active deployment", async () => {
@@ -552,10 +553,10 @@ function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStar
 async function startExecution(
   deploymentId: string,
   body: { path: string; kind: string; partitionKey?: string; args: unknown },
-): Promise<{ sessionId: string }> {
+): Promise<{ sessionId: string; beginTs: number }> {
   const response = await startExecutionResponse(deploymentId, body);
   expect(response.ok).toBe(true);
-  return response.json() as Promise<{ sessionId: string }>;
+  return startExecutionResult(await response.json());
 }
 
 async function startExecutionResponse(
@@ -609,4 +610,21 @@ async function finishExecution(
   );
   expect(response.ok).toBe(true);
   return response.json() as Promise<InvokeResponse>;
+}
+
+function startExecutionResult(value: unknown): { sessionId: string; beginTs: number } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Execution start response must be an object.");
+  }
+  const result = value as Record<string, unknown>;
+  if (typeof result.sessionId !== "string") {
+    throw new Error("Execution start response sessionId must be a string.");
+  }
+  if (typeof result.beginTs !== "number") {
+    throw new Error("Execution start response beginTs must be a number.");
+  }
+  return {
+    sessionId: result.sessionId,
+    beginTs: result.beginTs,
+  };
 }

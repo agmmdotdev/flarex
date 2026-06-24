@@ -19,12 +19,37 @@ import type {
   FlarexExecutorPersistence,
   IdGenerator,
   LiveQueryInvalidationConfig,
+  RunMutationInvokeWithRetriesInput,
+  RunMutationInvokeWithRetriesResult,
+  RunQueryInvokeWithRetriesInput,
+  RunQueryInvokeWithRetriesResult,
   RunInvokeWithRetriesInput,
   RunInvokeWithRetriesResult,
 } from "./types";
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 
+export async function runInvokeWithRetries(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  ids: IdGenerator,
+  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  input: RunQueryInvokeWithRetriesInput,
+): Promise<RunQueryInvokeWithRetriesResult>;
+export async function runInvokeWithRetries(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  ids: IdGenerator,
+  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  input: RunMutationInvokeWithRetriesInput,
+): Promise<RunMutationInvokeWithRetriesResult>;
+export async function runInvokeWithRetries(
+  persistence: FlarexExecutorPersistence,
+  clock: Clock,
+  ids: IdGenerator,
+  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  input: RunInvokeWithRetriesInput,
+): Promise<RunInvokeWithRetriesResult>;
 export async function runInvokeWithRetries(
   persistence: FlarexExecutorPersistence,
   clock: Clock,

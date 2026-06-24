@@ -47,6 +47,11 @@ type ActiveQuery = {
   rerunQueued?: boolean;
 };
 
+type QueryInvokeResponse = InvokeResponse & {
+  readSet: ReadSet;
+  readTs: number;
+};
+
 type ConnectionState = {
   deploymentId: string | null;
   connectionName: string | null;
@@ -294,19 +299,19 @@ export class ConnectionDO extends DurableObject<Env> {
         throw new Error("Add.partitionKey is required until Flarex routing inference is implemented.");
       }
       const deploymentId = requireDeploymentId(this.state.deploymentId);
-      const response = await executeSyncInvoke(this.env, deploymentId, {
+      const response = requireQueryInvokeResponse(await executeSyncInvoke(this.env, deploymentId, {
         path: query.udfPath,
         kind: "query",
         partitionKey: query.partitionKey,
         args: argsObjectForInvoke(query.args),
-      });
-      if (response.readSet !== undefined) query.readSet = response.readSet;
-      if (response.readTs !== undefined) query.readTs = response.readTs;
+      }));
+      query.readSet = response.readSet;
+      query.readTs = response.readTs;
       query.resultJson = response.value;
       const resultHash = fingerprintJson(response.value);
       const isUnchanged = query.resultHash === resultHash;
       query.resultHash = resultHash;
-      this.state.ts = Math.max(this.state.ts + 1, response.readTs ?? 0);
+      this.state.ts = Math.max(this.state.ts + 1, response.readTs);
       if (isUnchanged && !options.emitUnchanged) return null;
       return {
         type: "QueryUpdated",
@@ -549,6 +554,9 @@ export class ConnectionDO extends DurableObject<Env> {
     connectionName: string,
   ): Promise<void> {
     if (query.readSet === undefined || query.resultJson === undefined) return;
+    if (query.readTs === undefined) {
+      throw new Error("Cannot register executor live query without readTs.");
+    }
     await postExecutor(this.env, "/live-query-subscriptions/record", {
       deploymentId,
       projectId: requireProjectId(this.env),
@@ -557,7 +565,7 @@ export class ConnectionDO extends DurableObject<Env> {
       functionPath: query.udfPath,
       argsJson: argsObjectForInvoke(query.args),
       partitionKey: query.partitionKey.length === 0 ? null : query.partitionKey,
-      beginTs: query.readTs ?? 0,
+      beginTs: query.readTs,
       readSet: query.readSet,
       resultJson: query.resultJson,
     });
@@ -728,6 +736,30 @@ function argsObjectForInvoke(args: Json[]): Json {
   if (args.length === 0) return null;
   if (args.length === 1) return args[0];
   return args;
+}
+
+function requireQueryInvokeResponse(response: InvokeResponse): QueryInvokeResponse {
+  if (response.readSet === undefined) {
+    throw new Error("Query response must include readSet.");
+  }
+  if (!isReadSet(response.readSet)) {
+    throw new Error("Query response readSet must be an object.");
+  }
+  if (response.readTs === undefined) {
+    throw new Error("Query response with readSet must include readTs.");
+  }
+  if (!Number.isFinite(response.readTs)) {
+    throw new Error("Query response readTs must be a finite number.");
+  }
+  return {
+    ...response,
+    readSet: response.readSet,
+    readTs: response.readTs,
+  };
+}
+
+function isReadSet(value: unknown): value is ReadSet {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function postExecutor(

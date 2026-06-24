@@ -64,6 +64,111 @@ corepack pnpm --filter flarex-backend build
 corepack pnpm --filter @flarex/backend build
 ```
 
+## Generated Indexed Sync Fanout Integration
+
+Previous completed checkpoint: `2e2fd8d` Exercise generated sync mutations in
+hosted runtime.
+
+What changed:
+
+- Extended the hosted generated-app sync integration from a single document
+  query to two active queries on one WebSocket connection:
+  - `messages:get`, a direct document query, and
+  - `messages:listByTeam`, an indexed list query using
+    `ctx.db.query("messages").withIndex("by_team", ...)`.
+- Changed the generated fixture to model the current Flarex partition rules:
+  `teams` is a `definePartitionTable(...)` root and `messages` is
+  `defineColocatedTable("teams", "teamId", ...)` with a `by_team` index.
+- The test now seeds and updates through generated `/sync` mutations routed by
+  `model.teams.byId("teamId")`, then verifies both the document subscription
+  and indexed list subscription become stale and are delivered through
+  `SchedulerDO -> DeliveryDO -> ConnectionDO`.
+- Fixed the trusted executor query finish response to include `readTs` so
+  `ConnectionDO` records durable live-query subscriptions with the query
+  session timestamp instead of falling back to `0`.
+- Fixed the retained legacy `ExecutionDO` query finish path to return the
+  transaction `beginTs` as `readTs`, keeping the old worker-session transport
+  compatible with the same live-query freshness contract.
+- Made `ConnectionDO` fail closed if an executor query response includes a
+  read set without `readTs`.
+- Added a focused `/sync` regression that returns `value + readSet` without
+  `readTs` from the artifact runtime and asserts the client receives a
+  `QueryFailed` transition instead of an unsafe live-query subscription.
+- Tightened query response handling so `ConnectionDO` requires both `readSet`
+  and `readTs` atomically before mutating active query metadata.
+- Added local query-response shape validation at the Cloudflare connection
+  boundary so malformed executor responses fail before query state is updated.
+- Added a rerun regression proving a previously registered query fails closed
+  when a later invalidation rerun returns only `value` and omits read metadata.
+- Tightened the hosted sync integration assertions so the initial and delivered
+  transitions must contain exactly the two expected `QueryUpdated` entries and
+  the indexed list result must exactly match the expected row list.
+
+Why it changed:
+
+The previous checkpoint proved generated mutation-over-`/sync` with one direct
+document query. Convex-style apps commonly subscribe to indexed lists, so the
+next correctness boundary is proving that generated indexed query read sets
+survive the full hosted path: generated code, Dynamic Worker artifact,
+Postgres/PGlite executor syscalls, freshness classification, durable delivery,
+and WebSocket fanout.
+
+The implementation uncovered a freshness bug: indexed reads record range
+dependencies without per-read observed timestamps, so live-query registration
+must pass the query session timestamp. Without `readTs`, the subscription was
+recorded at `beginTs: 0` and the indexed range was immediately stale after the
+initial subscription.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex reruns invalidated queries and sends changed query results through
+    the same sync worker path.
+- `crates/sync/src/state.rs`
+  - active query state tracks query IDs and transitions for multiple active
+    queries on a client connection.
+- `crates/database/src/transaction.rs`
+  - indexed query reads participate in the transaction read set used for OCC
+    and subscription invalidation.
+
+Flarex differences:
+
+- Convex keeps query execution, timestamping, invalidation, and client fanout
+  inside its backend runtime. Flarex must preserve the query timestamp across
+  the trusted executor HTTP/session boundary so Cloudflare `ConnectionDO` can
+  persist correct freshness metadata.
+- This slice still runs in the local PGlite executor lane. It proves the
+  Postgres-authoritative design shape but not real Postgres planner, lock, or
+  latency behavior.
+
+Known limitations:
+
+- The integration covers one WebSocket connection with two active queries. It
+  does not yet cover multiple WebSocket connections or repeated scheduler
+  continuation over more stale subscriptions than the configured limit.
+- Indexed coverage is an equality-prefix list query. Range pagination,
+  ordering, cursors, and multi-index query sets remain follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionDO.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev build
+```
+
 ## DeliveryDO Executor Contract Ready
 
 Previous completed checkpoint: `e4ddeca` Plan DeliveryDO live query fanout.

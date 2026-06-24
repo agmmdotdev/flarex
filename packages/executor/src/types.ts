@@ -237,6 +237,12 @@ export interface FlarexExecutor {
     input: RunMaintenanceSweepInput,
   ): Promise<RunMaintenanceSweepResult>;
   runInvokeWithRetries(
+    input: RunQueryInvokeWithRetriesInput,
+  ): Promise<RunQueryInvokeWithRetriesResult>;
+  runInvokeWithRetries(
+    input: RunMutationInvokeWithRetriesInput,
+  ): Promise<RunMutationInvokeWithRetriesResult>;
+  runInvokeWithRetries(
     input: RunInvokeWithRetriesInput,
   ): Promise<RunInvokeWithRetriesResult>;
   invokeSyscall(input: InvokeSyscallInput): Promise<InvokeSyscallResult>;
@@ -849,10 +855,28 @@ export interface RunInvokeWithRetriesInput extends BeginInvokeSessionInput {
   runAttempt(attempt: InvokeAttemptContext): Promise<Json>;
 }
 
-export interface RunInvokeWithRetriesResult extends FinishInvokeSessionResult {
+export interface RunQueryInvokeWithRetriesInput extends RunInvokeWithRetriesInput {
+  kind: "query";
+}
+
+export interface RunMutationInvokeWithRetriesInput extends RunInvokeWithRetriesInput {
+  kind: "mutation";
+}
+
+export type RunQueryInvokeWithRetriesResult = FinishQueryInvokeSessionResult & {
   attempts: number;
   beginTs: number;
-}
+};
+
+export type RunMutationInvokeWithRetriesResult = FinishMutationInvokeSessionResult & {
+  attempts: number;
+  beginTs: number;
+};
+
+export type RunInvokeWithRetriesResult = FinishInvokeSessionResult & {
+  attempts: number;
+  beginTs: number;
+};
 
 export interface FinishInvokeSessionInput {
   deploymentId: string;
@@ -861,11 +885,24 @@ export interface FinishInvokeSessionInput {
   value: Json;
 }
 
-export interface FinishInvokeSessionResult {
+export type FinishInvokeSessionResult =
+  | FinishQueryInvokeSessionResult
+  | FinishMutationInvokeSessionResult;
+
+export interface FinishQueryInvokeSessionResult {
   value: Json;
-  readSet?: InvokeReadSet;
-  committedTs?: number;
-  writes?: CommittedDocumentWrite[];
+  readSet: InvokeReadSet;
+  readTs: number;
+  committedTs?: never;
+  writes?: never;
+}
+
+export interface FinishMutationInvokeSessionResult {
+  value: Json;
+  committedTs: number;
+  writes: CommittedDocumentWrite[];
+  readSet?: never;
+  readTs?: never;
 }
 
 export interface AbortInvokeSessionInput {

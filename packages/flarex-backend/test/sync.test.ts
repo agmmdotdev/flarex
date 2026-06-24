@@ -3978,6 +3978,125 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("fails closed when executor query responses include read sets without read timestamps", async () => {
+    const harness = await createSyncHarness(
+      [],
+      undefined,
+      async () => ({
+        value: { user: "Ada" },
+        readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
+      }),
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-query-readts-failure-deployment");
+
+    const ws = await openSync(harness, "sync-query-readts-failure-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 1,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [
+        {
+          type: "QueryFailed",
+          queryId: 1,
+          errorMessage: "Query response with readSet must include readTs.",
+          logLines: [],
+          errorData: null,
+          journal: null,
+        },
+      ],
+    });
+    ws.close();
+  });
+
+  it("fails closed when query reruns omit read metadata after a prior registration", async () => {
+    let invocationCount = 0;
+    const deploymentId = "sync-query-readset-rerun-failure-deployment";
+    const harness = await createSyncHarness(
+      [],
+      undefined,
+      async () => {
+        invocationCount += 1;
+        if (invocationCount === 1) {
+          return {
+            value: { user: "Ada" },
+            readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
+            readTs: 3,
+          };
+        }
+        return { value: { user: "Grace" } };
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "query-readset-rerun-failure-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 2,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", queryId: 2, value: { user: "Ada" } }],
+    });
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      `connection:${deploymentId}:query-readset-rerun-failure-session`,
+    );
+    const transition = nextJsonMessage(ws);
+    const invalidation = await connection.fetch("https://flarex.internal/invalidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queryId: 2, invalidatedTs: 4 }),
+    });
+
+    expect(invalidation.status).toBe(200);
+    await expect(invalidation.json()).resolves.toEqual({ invalidated: true });
+    await expect(transition).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 0 },
+      endVersion: { querySet: 1, ts: 4, identity: 0 },
+      modifications: [
+        {
+          type: "QueryFailed",
+          queryId: 2,
+          errorMessage: "Query response must include readSet.",
+          logLines: [],
+          errorData: null,
+          journal: null,
+        },
+      ],
+    });
+    expect(invocationCount).toBe(2);
+    ws.close();
+  });
+
   it("rejects stale query-set base versions", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);

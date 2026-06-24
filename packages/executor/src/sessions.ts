@@ -434,6 +434,7 @@ export async function finishInvokeSession(
     return {
       value: input.value,
       readSet: readSetFromReads(documentReads, tableReads, indexReads),
+      readTs: session.beginTs,
     };
   }
 
