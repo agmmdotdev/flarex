@@ -16,6 +16,7 @@ type CliDependencies = {
 
 export type FlarexDevCliOptions = {
   argv?: string[];
+  projectRoot?: string;
   stdout?: CliWriter;
   stderr?: CliWriter;
   dependencies?: Partial<CliDependencies>;
@@ -23,6 +24,7 @@ export type FlarexDevCliOptions = {
 
 export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promise<number> {
   const argv = options.argv ?? process.argv.slice(2);
+  const projectRoot = options.projectRoot ?? process.cwd();
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const dependencies: CliDependencies = {
@@ -40,12 +42,13 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
     return 1;
   }
 
-  return await runCodegenCommand(commandArgs, { stdout, stderr, dependencies });
+  return await runCodegenCommand(commandArgs, { projectRoot, stdout, stderr, dependencies });
 }
 
 async function runCodegenCommand(
   argv: string[],
   options: {
+    projectRoot: string;
     stdout: CliWriter;
     stderr: CliWriter;
     dependencies: CliDependencies;
@@ -72,9 +75,9 @@ async function runCodegenCommand(
       return 0;
     }
 
-    const root = parsed.values.root;
-    if (typeof root !== "string" || root.length === 0) {
-      options.stderr.write("flarex-dev codegen requires --root <path>.\n\n");
+    const root = rootFromArgs(parsed.values.root, options.projectRoot);
+    if (root === undefined) {
+      options.stderr.write("--root must be a non-empty path when provided.\n\n");
       options.stderr.write(codegenHelpText());
       return 1;
     }
@@ -127,6 +130,16 @@ function codegenCommandConfig(
   };
 }
 
+function rootFromArgs(value: unknown, projectRoot: string): string | undefined {
+  if (value === undefined) {
+    return projectRoot;
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  return undefined;
+}
+
 function pathMappings(values: string | string[]): Record<string, string[]> {
   const entries = Array.isArray(values) ? values : [values];
   const paths: Record<string, string[]> = {};
@@ -158,7 +171,7 @@ function cliErrorMessage(error: unknown): string {
 
 function helpText(): string {
   return `Usage:
-  flarex-dev codegen --root <path> [--typecheck]
+  flarex-dev codegen [--root <path>] [--typecheck]
 
 Commands:
   codegen   Generate Flarex _generated files.
@@ -168,10 +181,10 @@ Commands:
 
 function codegenHelpText(): string {
   return `Usage:
-  flarex-dev codegen --root <path> [options]
+  flarex-dev codegen [--root <path>] [options]
 
 Options:
-  --root <path>             Application root.
+  --root <path>             Application root. Defaults to the current directory.
   --app-dir <dir>           Flarex app directory. Defaults to "flarex".
   --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
   --typecheck               Typecheck generated output after codegen.

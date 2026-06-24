@@ -1,5 +1,50 @@
 # Local Dev Server
 
+## Project-Root CLI Script Shape
+
+Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.
+
+What changed:
+
+- The example app's generated-output command now invokes `codegen --typecheck`
+  without `--root`.
+- `runFlarexDevCli(...)` uses the current project directory as the default app
+  root, with explicit `--root` still available as an override.
+- Help text now describes `--root` as optional.
+
+Why it changed:
+
+The local development script should look like a command run from an app, not a
+wrapper around an internal helper. This is closer to Convex's `npx convex ...`
+style where the project directory is implicit.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev workflow runs from project context.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is part of the command workflow.
+
+Flarex differences:
+
+- The command is still invoked through an app-local `tsx` script because no
+  emitted CLI binary exists.
+- The script still passes workspace-specific typecheck path mappings.
+
+Known limitations:
+
+- No `flarex dev` command exists yet.
+- No published binary installation path is tested yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck:generated
+git diff --check
+```
+
 ## CLI Runner Boundary For Generated Codegen
 
 Previous completed checkpoint: `1a19708` Add example generated output

@@ -1,5 +1,58 @@
 # SDK And CLI Fork
 
+## Codegen CLI Defaults To Project Root
+
+Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.
+
+What changed:
+
+- `runFlarexDevCli(...)` now defaults `codegen` root to the current project
+  directory when `--root` is omitted.
+- Added a runner/test integration `projectRoot` option so the default-root
+  behavior is deterministic without depending on the test process cwd.
+- Empty explicit `--root ""` is rejected before codegen runs.
+- The example app's `typecheck:generated` command no longer passes `--root`;
+  it relies on the package script cwd like a normal project-level command.
+- CLI usage now documents `--root` as optional.
+
+Why it changed:
+
+Convex's developer commands are normally run from the app/project directory.
+Requiring every Flarex app script to pass `--root` kept the command shaped more
+like a low-level helper than a real CLI. This moves the runner closer to the
+Convex mental model while keeping explicit `--root` available for tests and
+nonstandard scripts.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is a project command, not only an explicit-root helper.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - developer workflows assume a project cwd and orchestrate codegen from
+    there.
+
+Flarex differences:
+
+- The package still exposes a source runner, not a published executable binary.
+- `projectRoot` is a runner/test integration option, not a CLI flag.
+- Workspace-specific `--path` mappings remain in the example script until
+  package distribution and module resolution are settled.
+
+Known limitations:
+
+- There is still no `flarex` package binary.
+- The runner still only implements `codegen`; deploy/push/dev commands remain
+  future slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck:generated
+git diff --check
+```
+
 ## Source CLI Runner For Codegen Typecheck
 
 Previous completed checkpoint: `1a19708` Add example generated output

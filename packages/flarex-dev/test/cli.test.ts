@@ -24,10 +24,9 @@ describe("runFlarexDevCli", () => {
     const root = await createMinimalFlarexProject("flarex-cli-");
     try {
       await expect(runFlarexDevCli({
+        projectRoot: root,
         argv: [
           "codegen",
-          "--root",
-          root,
           "--typecheck",
           "--cwd",
           workspaceRoot,
@@ -46,16 +45,32 @@ describe("runFlarexDevCli", () => {
     }
   }, 30000);
 
-  it("returns usage when root is missing", async () => {
+  it("rejects an empty explicit root", async () => {
     const stderr = new StringWriter();
 
     await expect(runFlarexDevCli({
-      argv: ["codegen"],
+      argv: ["codegen", "--root", ""],
       stderr,
     })).resolves.toBe(1);
 
-    expect(stderr.value).toContain("requires --root <path>");
-    expect(stderr.value).toContain("flarex-dev codegen --root <path>");
+    expect(stderr.value).toContain("--root must be a non-empty path");
+    expect(stderr.value).toContain("flarex-dev codegen [--root <path>]");
+  });
+
+  it("defaults codegen root to the project root", async () => {
+    let generateRoot: string | undefined;
+
+    await expect(runFlarexDevCli({
+      projectRoot: "/current-project",
+      argv: ["codegen"],
+      dependencies: {
+        generate: async options => {
+          generateRoot = options.root;
+        },
+      },
+    })).resolves.toBe(0);
+
+    expect(generateRoot).toBe("/current-project");
   });
 
   it("passes app paths and typecheck path mappings to dependencies", async () => {

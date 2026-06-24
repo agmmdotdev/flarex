@@ -1,5 +1,53 @@
 # Testing and Simulation Strategy
 
+## CLI Default Project Root Coverage
+
+Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.
+
+What changed:
+
+- Added CLI test coverage proving `codegen` defaults to the runner's project
+  root when `--root` is omitted.
+- Updated the real generated-output CLI test to use that default-root path.
+- Replaced the old missing-root diagnostic expectation with empty-explicit-root
+  validation.
+- The example `typecheck:generated` script now exercises the no-`--root`
+  command path.
+
+Why it changed:
+
+The previous runner tests proved explicit-root behavior. The more important
+developer workflow is project-cwd execution, matching Convex's command model.
+This test slice proves the command can be used that way while still rejecting
+bad explicit root input.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is a project-local command.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local workflows are coordinated from project context.
+
+Flarex differences:
+
+- Tests inject `projectRoot` to avoid depending on the Vitest process cwd.
+- The example command still passes workspace TypeScript path mappings because
+  this repo uses source workspace packages.
+
+Known limitations:
+
+- No installed binary test exists yet.
+- No deploy/dev command coverage exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example typecheck:generated
+git diff --check
+```
+
 ## CLI Runner Coverage For Generated Typecheck
 
 Previous completed checkpoint: `1a19708` Add example generated output
