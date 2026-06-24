@@ -1,5 +1,62 @@
 # Cloudflare Freshness Cache
 
+## DeliveryDO Ack Failure Reporting
+
+Previous completed checkpoint: `9c20c21` Cover async trigger rejection.
+
+What changed:
+
+- Added backend sync coverage for the DeliveryDO branch where:
+  - a delivery row is claimed,
+  - fanout to the target `ConnectionDO` succeeds,
+  - the executor ack endpoint fails, and
+  - DeliveryDO reports the row to `/maintenance/live-queries/failure` with
+    `stage: "ack"` before returning an error.
+- The test also proves the client still receives the `QueryUpdated`
+  transition produced by fanout even though durable ack failed.
+
+Why it changed:
+
+Fanout failure and ack failure are different reliability states. Fanout failure
+means the client did not receive the transition. Ack failure means the client
+may have received the transition, but the authoritative executor still owns an
+unacked delivery row that may be retried later. The DeliveryDO failure report
+must distinguish these cases so future retry/dead-letter policy can make
+correct decisions.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - reruns invalidated queries and produces transition state after the backend
+    query result is available.
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` dedupes result hashes and emits
+    `QueryUpdated` or `QueryFailed` state modifications.
+
+Flarex differences:
+
+- Convex does not have a separate HTTP ack boundary between sync transition
+  fanout and durable delivery-row state. Flarex does because Postgres executor
+  durability and Cloudflare `ConnectionDO` fanout are separate runtimes.
+- Ack failure is therefore reported as a delivery maintenance failure, not as a
+  query failure transition.
+
+Known limitations:
+
+- The test proves failure reporting and transition fanout, but it does not yet
+  prove a later retry is stale-suppressed by `previousResultHash`.
+- No automatic dead-letter threshold or operator metrics are attached to ack
+  failures yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "DeliveryDO ack failures" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "DeliveryDO ack failures|DeliveryDO fanout failures|DeliveryDO draining" --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```
+
 ## Durable Rerun QueryFailed Delivery
 
 Previous completed checkpoint: `351e027` Cover duplicate unique sync failure.
