@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm generate && vite build",
     "generate": "tsx scripts/generate.ts",
-    "typecheck:generated": "pnpm generate && tsx scripts/typecheck-generated.ts",
+    "typecheck:generated": "tsx scripts/typecheck-generated.ts",
     "typecheck": "pnpm generate && tsc -p tsconfig.json",
     "test": "pnpm generate && vitest run"
   },

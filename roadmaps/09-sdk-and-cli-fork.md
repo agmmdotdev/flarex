@@ -1,5 +1,72 @@
 # SDK And CLI Fork
 
+## Source CLI Runner For Codegen Typecheck
+
+Previous completed checkpoint: `1a19708` Add example generated output
+typecheck.
+
+What changed:
+
+- Added `packages/flarex-dev/src/cli.ts` with a reusable
+  `runFlarexDevCli(...)` runner.
+- Added a package subpath export, `flarex-dev/cli`, for the runner.
+- The runner supports `codegen --root <path>` and optional
+  `--typecheck`, `--cwd`, `--typescript-cli`, `--app-dir`,
+  `--generated-dir`, and repeated `--path alias=target` mappings.
+- The example app's `typecheck:generated` script now calls the runner through
+  `flarex-dev/cli`, so the app-facing command exercises the same code path
+  that can become a real CLI binary later.
+- Added `packages/flarex-dev/test/cli.test.ts` covering a real generated-output
+  typecheck path, missing-root diagnostics, option forwarding, repeated path
+  mappings, and malformed path mapping errors.
+
+Why it changed:
+
+The previous checkpoint proved an example-local generated-output check, but the
+script still called the low-level helper directly. Convex's CLI keeps codegen
+and generated TypeScript validation behind developer commands. Flarex now has a
+tested command runner boundary while deferring the package `bin` decision until
+the package emits stable JavaScript.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen and generated-output validation are developer command concerns.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev readiness flows through generated/deployed state, not app-local helper
+    scripts.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript is part of the public app contract.
+
+Flarex differences:
+
+- This is a source-level runner and subpath export, not a published executable
+  `bin` yet.
+- The runner exposes `--path alias=target` because this monorepo validates
+  TS-source workspace packages; a packaged CLI should infer normal package
+  resolution when Flarex is installed as built npm packages.
+- The command returns an exit code instead of calling `process.exit(...)`,
+  keeping it directly testable and reusable by app scripts.
+
+Known limitations:
+
+- There is still no stable `flarex` or `flarex-dev` binary.
+- The runner only implements `codegen`; future Convex-style commands still need
+  deploy/push/dev integration.
+- Diagnostics are plain stderr strings, not structured Convex-style command
+  errors yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Example Generated Output Typecheck Command
 
 Previous completed checkpoint: `a902d50` Gate dev flow on generated typecheck.

@@ -1,5 +1,52 @@
 # Local Dev Server
 
+## CLI Runner Boundary For Generated Codegen
+
+Previous completed checkpoint: `1a19708` Add example generated output
+typecheck.
+
+What changed:
+
+- `flarex-dev/cli` now exports `runFlarexDevCli(...)`.
+- The example app's `typecheck:generated` command uses the CLI runner to call
+  `codegen --typecheck`, so local app validation no longer composes the
+  lower-level helper directly.
+- The runner remains source-level and directly testable while the local dev
+  server and Vite plugin continue to use their existing lifecycle hooks.
+
+Why it changed:
+
+Local dev needs a command-shaped boundary that can later become the Convex-like
+CLI entrypoint. Keeping the runner separate from Vite avoids making the plugin
+the only way to validate generated output.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev is orchestrated through CLI/dev workflow state.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is a reusable command concern.
+
+Flarex differences:
+
+- Flarex still has no process-level CLI binary in this package.
+- The local dev runtime and Vite plugin still call shared package helpers
+  directly; the runner is for command-style app/CI use.
+
+Known limitations:
+
+- No watch mode is attached to the CLI runner.
+- No full `flarex dev` command exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Optional Generated Output Typecheck In Dev Flow
 
 Previous completed checkpoint: `7380900` Expose generated output typecheck.

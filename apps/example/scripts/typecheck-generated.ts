@@ -1,17 +1,22 @@
 import { fileURLToPath } from "node:url";
-import { typecheckGeneratedOutput } from "flarex-dev";
+import { runFlarexDevCli } from "flarex-dev/cli";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
-await typecheckGeneratedOutput({
-  root,
-  cwd: workspaceRoot,
-  typescriptCliPath: "node_modules/typescript/bin/tsc",
-  compilerOptions: {
-    paths: {
-      flarex: ["packages/flarex/src/index.ts"],
-      "flarex/*": ["packages/flarex/src/*"],
-    },
-  },
+process.exitCode = await runFlarexDevCli({
+  argv: [
+    "codegen",
+    "--root",
+    root,
+    "--typecheck",
+    "--cwd",
+    workspaceRoot,
+    "--typescript-cli",
+    "node_modules/typescript/bin/tsc",
+    "--path",
+    "flarex=packages/flarex/src/index.ts",
+    "--path",
+    "flarex/*=packages/flarex/src/*",
+  ],
 });

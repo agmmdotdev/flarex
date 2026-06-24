@@ -1,5 +1,61 @@
 # Testing and Simulation Strategy
 
+## CLI Runner Coverage For Generated Typecheck
+
+Previous completed checkpoint: `1a19708` Add example generated output
+typecheck.
+
+What changed:
+
+- Added `packages/flarex-dev/test/cli.test.ts`.
+- The test runs the new CLI runner through a real temp Flarex project and
+  generated-output typecheck.
+- Added parser coverage for missing `--root`, app/generated directory
+  forwarding, repeated `--path` mappings, and malformed path mapping
+  diagnostics.
+- The example app's generated-output command now validates the same
+  `runFlarexDevCli(...)` code path instead of duplicating helper calls.
+
+Why it changed:
+
+The previous checkpoint added an example command, but it did not create a
+command boundary that could become a Convex-style CLI. Testing the runner
+directly keeps codegen/typecheck behavior reusable across app scripts, future
+CLI binaries, and dev tooling.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated code validation belongs to command workflow logic.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - developer commands coordinate readiness around generated/deployed state.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript must remain typecheckable independently.
+
+Flarex differences:
+
+- Tests call the runner directly rather than invoking a package `bin`.
+- The runner is dependency-injectable so parser tests can assert option
+  forwarding without doing unnecessary file or compiler work.
+- Workspace path mappings remain explicit until package distribution is
+  settled.
+
+Known limitations:
+
+- This does not test an installed npm binary because no binary exists yet.
+- This does not cover deploy/push/dev CLI commands.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Example Generated Output Typecheck Script
 
 Previous completed checkpoint: `a902d50` Gate dev flow on generated typecheck.
