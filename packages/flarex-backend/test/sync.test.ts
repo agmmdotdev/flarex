@@ -2290,6 +2290,227 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("acks stale DeliveryDO retries after a previous ack failure", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    let ackAttempts = 0;
+    const deploymentId = "sync-delivery-ack-retry-deployment";
+    const connectionId = `connection:${deploymentId}:delivery-ack-retry-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...jsonRecord(body),
+                  resultHash: '{"user":"Ada"}',
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: '{"user":"Ada"}',
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: 1 });
+            }
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_ack_retry",
+                    connectionId,
+                    queryId: 19,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId,
+                      queryId: 19,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Grace" },
+                      previousResultHash: '{"user":"Ada"}',
+                      resultHash: '{"user":"Grace"}',
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              ackAttempts += 1;
+              if (ackAttempts === 1) {
+                return Response.json({ error: "temporary ack failure" }, { status: 503 });
+              }
+              return Response.json({ delivered: 1 });
+            }
+            if (url.pathname === "/maintenance/live-queries/failure") {
+              return Response.json({ failed: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(harness, deploymentId, "delivery-ack-retry-session");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 19,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 19,
+          value: { user: "Ada" },
+        },
+      ],
+    });
+    executorRequests.length = 0;
+
+    const delivered = nextJsonMessage(ws);
+    const failedAck = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 1 }),
+      },
+    );
+
+    expect(failedAck.status).toBe(500);
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 19,
+          value: { user: "Grace" },
+        },
+      ],
+    });
+
+    const retried = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 10, maxBatches: 1 }),
+      },
+    );
+
+    expect(retried.status).toBe(200);
+    const retriedBody: unknown = await retried.json();
+    expect(retriedBody).toEqual({
+      deploymentId,
+      batches: 1,
+      claimed: 1,
+      acked: 1,
+      delivered: 0,
+      skipped: 1,
+      hasMore: false,
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 0,
+        skipped: 1,
+        pendingAck: 0,
+        hasMore: false,
+      },
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-ack-retry-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_ack_retry"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-ack-retry-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/failure",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_ack_retry"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-ack-retry-deployment:/),
+          stage: "ack",
+          error: "Live query delivery ack failed with status 503.",
+          failedAt: expect.any(String),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-ack-retry-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_ack_retry"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-ack-retry-deployment:/),
+        },
+      },
+    ]);
+    ws.close();
+  });
+
   it("continues DeliveryDO draining from pending alarm state when more deliveries remain", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

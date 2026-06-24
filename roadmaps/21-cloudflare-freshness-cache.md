@@ -1,5 +1,64 @@
 # Cloudflare Freshness Cache
 
+## Stale DeliveryDO Retry Suppression
+
+Previous completed checkpoint: `08c036b` Cover delivery ack failure reporting.
+
+What changed:
+
+- Added backend sync coverage for a delivery row retried after a prior
+  DeliveryDO ack failure.
+- The test proves the first wake:
+  - claims the row,
+  - fans out `QueryUpdated`,
+  - fails ack, and
+  - reports `stage: "ack"`.
+- The second wake returns the same unacked row. `ConnectionDO` skips it because
+  the active query's result hash has already advanced past the payload's
+  `previousResultHash`, and DeliveryDO then acks the row.
+
+Why it changed:
+
+The previous checkpoint proved ack failure reporting, but not the next retry.
+In production, an ack failure leaves the executor delivery row unacked, so the
+same row can be claimed again. Retrying must not produce a duplicate WebSocket
+transition after the client already received the first fanout.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` stores result hashes and suppresses unchanged
+    query transitions.
+- `crates/sync/src/worker.rs`
+  - sync worker transitions are derived from backend query state and result
+    hashing rather than from transport retry attempts.
+
+Flarex differences:
+
+- Convex does not retry a separate durable HTTP delivery row between sync state
+  and the WebSocket connection. Flarex does, so stale retry suppression lives
+  in `ConnectionDO` using `previousResultHash`.
+- The retried delivery is still acked after being skipped. That clears the
+  durable executor row without sending a duplicate client transition.
+
+Known limitations:
+
+- This proves stale suppression for an updated result payload. Failed-query
+  retry suppression is covered separately at the direct `ConnectionDO` delivery
+  boundary.
+- No metric currently distinguishes duplicate-stale skips from other delivery
+  skips.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "stale DeliveryDO retries" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "stale DeliveryDO retries|DeliveryDO ack failures|DeliveryDO fanout failures|DeliveryDO draining" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```
+
 ## DeliveryDO Ack Failure Reporting
 
 Previous completed checkpoint: `9c20c21` Cover async trigger rejection.
