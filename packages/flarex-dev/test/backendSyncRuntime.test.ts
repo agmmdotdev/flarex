@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { BeginInvokeSessionResult } from "@flarex/executor";
 import {
@@ -16,10 +19,16 @@ import type {
   PushSourcePackage,
 } from "flarex-backend/types";
 
+import { backendAnalysisFromCodegenAnalysis } from "../src/backendPush";
 import {
   createLocalPGliteExecutorHttpRuntime,
   type LocalPGliteExecutorHttpRuntime,
 } from "../src/executorHttpRuntime";
+import { LocalMiniflareExecutionArtifactAdapter } from "../src/executionArtifact";
+import {
+  bundleFlarexSourcePackage,
+  initialCodegen,
+} from "../src/generate";
 import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMaterializer";
 
 type BackendDispatchResponse = Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>;
@@ -45,7 +54,7 @@ describe("backend sync with local executor runtime", () => {
     const projectId = "project-backend-runtime-live";
     const sessionId = "runtime-live-session";
     const connectionId = `connection:${deploymentId}:${sessionId}`;
-    const sourcePackage = messageSourcePackage();
+    const generatedDeployment = await createGeneratedMessageDeployment();
 
     const runtime = await createLocalPGliteExecutorHttpRuntime({
       projectId,
@@ -60,8 +69,8 @@ describe("backend sync with local executor runtime", () => {
     const registered = await runtime.executor.registerDeploymentPackage({
       deploymentId,
       projectId,
-      sourcePackage,
-      analysisJson: messageAnalysis(),
+      sourcePackage: generatedDeployment.sourcePackage,
+      analysisJson: generatedDeployment.analysis,
     });
     await runtime.executor.activateDeploymentPackage({
       deploymentId,
@@ -116,7 +125,12 @@ describe("backend sync with local executor runtime", () => {
       },
     });
     harnesses.push(harness);
-    await activateBackendDeployment(harness, deploymentId, sourcePackage);
+    await activateBackendDeployment(
+      harness,
+      deploymentId,
+      generatedDeployment.sourcePackage,
+      generatedDeployment.analysis,
+    );
 
     const ws = await openSync(harness, deploymentId, sessionId);
     try {
@@ -232,7 +246,7 @@ describe("backend sync with local executor runtime", () => {
     } finally {
       ws.close();
     }
-  });
+  }, 30000);
 });
 
 async function writeMessage(
@@ -269,6 +283,63 @@ async function writeMessage(
   });
 }
 
+async function createGeneratedMessageDeployment(): Promise<{
+  sourcePackage: PushSourcePackage;
+  analysis: DeploymentAnalysis;
+}> {
+  const root = await createMessageProject();
+  const context = await initialCodegen({ root });
+  const sourcePackage = await bundleFlarexSourcePackage(context);
+  const codegenAnalysis = await new LocalMiniflareExecutionArtifactAdapter()
+    .analyze(sourcePackage);
+  return {
+    sourcePackage,
+    analysis: backendAnalysisFromCodegenAnalysis(codegenAnalysis),
+  };
+}
+
+async function createMessageProject(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-hosted-sync-"));
+  await mkdir(path.join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    path.join(root, "flarex/schema.ts"),
+    `import { definePartitionTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  messages: definePartitionTable({
+    text: v.string(),
+  }),
+});
+`,
+  );
+  await writeFile(
+    path.join(root, "flarex/functions/messages.ts"),
+    `import { model, mutation, query } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const get = query({
+  partition: model.messages,
+  args: { messageId: v.id("messages") },
+  returns: v.union(v.null(), v.object({ _id: v.id("messages"), text: v.string() })),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.messageId);
+  },
+});
+
+export const seed = mutation({
+  partition: model.messages,
+  args: { messageId: v.id("messages"), text: v.string() },
+  returns: v.id("messages"),
+  handler: async () => {
+    throw new Error("seed is exercised directly through executor syscalls");
+  },
+});
+`,
+  );
+  return root;
+}
+
 async function postJson(
   runtime: LocalPGliteExecutorHttpRuntime,
   path: string,
@@ -292,10 +363,11 @@ async function activateBackendDeployment(
   harness: BackendHarness,
   deploymentId: string,
   sourcePackage: PushSourcePackage,
+  analysis: DeploymentAnalysis,
 ): Promise<void> {
   const start = await startPush(harness, deploymentId, {
     sourcePackage,
-    analysis: messageAnalysis(),
+    analysis,
   });
   const bucket = await harness.mf.getR2Bucket("ARTIFACTS");
   await new R2BackendExecutionArtifactStore(r2BucketLikeFromMiniflare(bucket))
@@ -446,97 +518,4 @@ function nextJsonMessage(ws: SyncWebSocket): Promise<unknown> {
       reject(event);
     }, { once: true });
   });
-}
-
-function messageAnalysis(): DeploymentAnalysis {
-  const partition = {
-    type: "partition",
-    table: "messages",
-    selector: "byId",
-    partitionField: "_id",
-    argField: "messageId",
-  } as const;
-  return {
-    schema: {
-      version: 1,
-      tables: [
-        {
-          tableId: 1,
-          name: "messages",
-          placement: { kind: "partitionBy", field: "_id" },
-        },
-      ],
-      indexes: [],
-    },
-    functions: {
-      functions: [
-        {
-          path: "messages:get",
-          kind: "query",
-          args: {
-            type: "object",
-            value: {
-              messageId: {
-                fieldType: { type: "id", tableName: "messages" },
-                optional: false,
-              },
-            },
-          },
-          returns: null,
-          route: { type: "args", field: "messageId" },
-          partition,
-        },
-        {
-          path: "messages:seed",
-          kind: "mutation",
-          args: {
-            type: "object",
-            value: {
-              messageId: {
-                fieldType: { type: "id", tableName: "messages" },
-                optional: false,
-              },
-              text: {
-                fieldType: { type: "string" },
-                optional: false,
-              },
-            },
-          },
-          returns: null,
-          route: { type: "args", field: "messageId" },
-          partition,
-        },
-      ],
-    },
-  };
-}
-
-function messageSourcePackage(): PushSourcePackage {
-  return {
-    modules: [
-      {
-        path: "_flarex/execution.js",
-        environment: "isolate",
-        sha256: "e".repeat(64),
-        source: `export default {
-  messages: {
-    get: {
-      isQuery: true,
-      _handler: async ({ db }, args) => {
-        return await db.get(args.messageId);
-      },
-    },
-    seed: {
-      isMutation: true,
-      _handler: async () => {
-        throw new Error("seed is exercised directly through executor syscalls");
-      },
-    },
-  },
-};`,
-      },
-    ],
-    functions: ["_flarex/execution.js"],
-    execution: "_flarex/execution.js",
-  };
 }

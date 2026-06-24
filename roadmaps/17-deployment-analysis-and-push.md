@@ -3516,3 +3516,71 @@ corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts test/inv
 corepack pnpm --filter flarex-backend exec vitest run --maxWorkers=1
 corepack pnpm --filter flarex-backend build
 ```
+
+## Typed Codegen To Backend Analysis Conversion
+
+Previous completed checkpoint: `63637f9` Harden create-root sync docs and
+tests.
+
+What changed:
+
+- Changed `backendAnalysisFromCodegenAnalysis(...)` in `flarex-dev` to return
+  backend `DeploymentAnalysis` directly.
+- Converted generated schema validators into backend validator JSON,
+  recursively rejecting unsupported BigInt literal validators instead of
+  allowing the wider developer-side validator type to leak into backend
+  metadata.
+- Converted generated function metadata into backend
+  `DeploymentFunctionMetadata`, including typed query/mutation args, returns,
+  positions, and executable partition metadata.
+- Made `partitionRoot` fail at the backend-analysis conversion boundary because
+  it is a generated model-table handle, not executable backend function
+  metadata. `partition` and `partitionCreateRoot` remain accepted.
+
+Why it changed:
+
+The hosted sync generation test needs the normal generated app analysis to feed
+the backend push and executor activation path. A shallow test-local guard would
+hide metadata drift. The shared converter is the correct boundary: once codegen
+analysis crosses into backend deployment state, TypeScript should treat it as
+backend deployment metadata.
+
+Convex references:
+
+- `crates/application/src/deploy_config.rs`
+  - deployed config validation turns analyzed modules/schema into authoritative
+    backend deployment state.
+- `crates/model/src/modules/mod.rs`
+  - function metadata is stored in backend-owned deployment records after
+    analysis.
+- `npm-packages/convex/src/server/registration.ts`
+  - developer query/mutation registrations produce metadata that backend
+    analysis must normalize before execution.
+
+Flarex differences:
+
+- Convex performs this normalization inside the integrated backend analysis and
+  deploy flow. Flarex currently performs local/dev analysis in `flarex-dev`,
+  then converts that result to backend metadata before calling the Cloudflare
+  backend push routes.
+- Flarex has model-table `partitionRoot` handles for developer ergonomics, but
+  backend executable metadata currently accepts only routed `partition` and
+  root-creating `partitionCreateRoot` functions.
+
+Known limitations:
+
+- The converter is still local/dev TypeScript code. Hosted authoritative
+  analysis should eventually run in the backend-controlled execution boundary
+  and return backend metadata directly.
+- The converter rejects BigInt literal validators because backend JSON metadata
+  cannot represent BigInt literals.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```

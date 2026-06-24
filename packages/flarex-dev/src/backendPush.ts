@@ -1,5 +1,12 @@
 import type { Miniflare } from "miniflare";
-import type { DeploymentAnalysis } from "./analyze.ts";
+import type { ValidatorJSON } from "flarex/values";
+import type {
+  DeploymentAnalysis as BackendDeploymentAnalysis,
+  DeploymentFunctionMetadata,
+  FunctionPartitionMetadata,
+  ValidatorJson as BackendValidatorJson,
+} from "flarex-backend/types";
+import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "./analyze.ts";
 import {
   ExecutionArtifactAnalysisError,
   LocalMiniflareExecutionArtifactAdapter,
@@ -11,11 +18,8 @@ import type { SourcePackage } from "./sourcePackage.ts";
 export type DevPushStatus = {
   pushId: string;
   state: "pending" | "analyzed" | "failed" | "activated" | "superseded";
-  analysis?: {
-    schema: unknown;
-    functions: { functions: unknown[] };
-  };
-  codegenAnalysis?: DeploymentAnalysis;
+  analysis?: BackendDeploymentAnalysis;
+  codegenAnalysis?: CodegenDeploymentAnalysis;
   error?: string;
   diagnostics?: AnalyzerDiagnostic[];
 };
@@ -30,7 +34,7 @@ export interface BackendSourceAnalyzer {
 }
 
 export type BackendSourceAnalysisResult = {
-  analysis: DeploymentAnalysis;
+  analysis: CodegenDeploymentAnalysis;
   diagnostics?: AnalyzerDiagnostic[];
 };
 
@@ -127,25 +131,124 @@ export function createLocalAnalyzerService(
 }
 
 export function backendAnalysisFromCodegenAnalysis(
-  analysis: DeploymentAnalysis,
-): { schema: DeploymentAnalysis["schema"]; functions: { functions: unknown[] } } {
+  analysis: CodegenDeploymentAnalysis,
+): BackendDeploymentAnalysis {
   return {
-    schema: analysis.schema,
+    schema: {
+      version: analysis.schema.version,
+      tables: analysis.schema.tables.map(table => ({
+        tableId: table.tableId,
+        name: table.name,
+        validator: backendValidatorJson(table.validator),
+        placement: table.placement,
+      })),
+      indexes: analysis.schema.indexes.map(index => ({
+        indexId: index.indexId,
+        tableId: index.tableId,
+        name: index.name,
+        fields: [...index.fields],
+      })),
+    },
     functions: {
       functions: analysis.functions.flatMap(module =>
-        module.functions.map(fn => ({
+        module.functions.map((fn): DeploymentFunctionMetadata => ({
           path: fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`,
           kind: fn.kind,
           visibility: fn.visibility,
-          args: fn.args,
-          returns: fn.returns,
+          args: backendValidatorJson(fn.args),
+          returns: backendValidatorJson(fn.returns),
           route: null,
-          partition: fn.partition ?? null,
+          partition: backendFunctionPartition(fn.partition ?? null),
           ...(fn.position === undefined ? {} : { position: fn.position }),
         })),
       ),
     },
   };
+}
+
+function backendFunctionPartition(
+  partition: CodegenDeploymentAnalysis["functions"][number]["functions"][number]["partition"] | null,
+): FunctionPartitionMetadata | null {
+  if (partition === null || partition === undefined) return null;
+  switch (partition.type) {
+    case "partition":
+      return {
+        type: "partition",
+        table: partition.table,
+        selector: partition.selector,
+        partitionField: partition.partitionField,
+        argField: partition.argField,
+      };
+    case "partitionCreateRoot":
+      return {
+        type: "partitionCreateRoot",
+        table: partition.table,
+        partitionField: partition.partitionField,
+      };
+    case "partitionRoot":
+      throw new Error(
+        `partitionRoot metadata for table ${partition.table} is not executable backend metadata.`,
+      );
+    default:
+      partition satisfies never;
+      return null;
+  }
+}
+
+function backendValidatorJson(value: ValidatorJSON | null): BackendValidatorJson | null {
+  if (value === null) return null;
+  switch (value.type) {
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any":
+      return { type: value.type };
+    case "id":
+      return { type: "id", tableName: value.tableName };
+    case "literal": {
+      if (typeof value.value === "bigint") {
+        throw new Error("BigInt literal validators are not supported by backend deployment metadata.");
+      }
+      return { type: "literal", value: value.value };
+    }
+    case "array":
+      return { type: "array", value: backendRequiredValidatorJson(value.value) };
+    case "object": {
+      const fields: Record<string, { fieldType: BackendValidatorJson; optional: boolean }> = {};
+      for (const [name, field] of Object.entries(value.value)) {
+        fields[name] = {
+          fieldType: backendRequiredValidatorJson(field.fieldType),
+          optional: field.optional,
+        };
+      }
+      return { type: "object", value: fields };
+    }
+    case "record":
+      return {
+        type: "record",
+        keys: backendRequiredValidatorJson(value.keys),
+        values: backendRequiredValidatorJson(value.values),
+      };
+    case "union":
+      return {
+        type: "union",
+        value: value.value.map(member => backendRequiredValidatorJson(member)),
+      };
+    default:
+      value satisfies never;
+      throw new Error("Unsupported validator metadata.");
+  }
+}
+
+function backendRequiredValidatorJson(value: ValidatorJSON): BackendValidatorJson {
+  const validator = backendValidatorJson(value);
+  if (validator === null) {
+    throw new Error("Required backend validator cannot be null.");
+  }
+  return validator;
 }
 
 function errorMessage(error: unknown): string {
@@ -156,7 +259,7 @@ function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {
   return error instanceof ExecutionArtifactAnalysisError ? error.diagnostics : [];
 }
 
-function stableAnalysisJson(analysis: DeploymentAnalysis): string {
+function stableAnalysisJson(analysis: CodegenDeploymentAnalysis): string {
   return JSON.stringify(analysis);
 }
 

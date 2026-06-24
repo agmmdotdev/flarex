@@ -928,8 +928,85 @@ Known limitations:
 - The integration covers one document read/query and one delivery row. It does
   not yet cover indexed/range reads, multi-query sets, multiple connections, or
   repeated scheduler continuation in the same hosted-runtime path.
-- The test fixture uses a hand-written source package. A later generation-path
-  integration should build the package from a real `flarex/` app folder.
+- Superseded by the next checkpoint: at the time of `ea5f103`, the test fixture
+  still used a hand-written source package instead of a real `flarex/` app
+  folder.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
+## Generated App Hosted Sync Integration
+
+Previous completed checkpoint: `ea5f103` Use real artifact runtime for initial
+sync query.
+
+What changed:
+
+- Replaced the hosted sync integration test's hand-written `PushSourcePackage`
+  and manual backend analysis with a real temporary `flarex/` app folder.
+- The test now runs the Convex-style local developer flow before activating the
+  backend deployment:
+  `initialCodegen -> bundleFlarexSourcePackage ->
+  LocalMiniflareExecutionArtifactAdapter.analyze ->
+  backendAnalysisFromCodegenAnalysis`.
+- Tightened `backendAnalysisFromCodegenAnalysis` so the generated fixture
+  consumes a backend-typed `DeploymentAnalysis` directly instead of a shallow
+  test-local analysis guard.
+- The generated app defines a partitioned `messages` table plus generated
+  `messages:get` query and `messages:seed` mutation function metadata.
+- The existing hosted sync assertions remain intact:
+  initial WebSocket subscription materializes generated user code, the source
+  package is loaded from backend artifact storage, the executor records the
+  durable live-query subscription, a direct executor write marks it stale, and
+  `SchedulerDO -> DeliveryDO -> ConnectionDO` fans out `QueryUpdated`.
+
+Why it changed:
+
+The previous checkpoint proved the hosted runtime path with a real artifact
+runtime, but the source package was still hand-written. This checkpoint proves
+the developer-facing generation path can feed the same hosted sync runtime
+without bypassing codegen, source bundling, or execution-artifact analysis.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex sync uses deployed/analyzed function metadata to execute and track
+    query subscriptions.
+- `crates/sync/src/state.rs`
+  - Convex keeps generated query identity, active result state, and transition
+    production tied together in the sync state machine.
+- `npm-packages/convex/src/server/registration.ts`
+  - Convex-style query/mutation registration remains the developer mental model
+    that Flarex generation is preserving.
+
+Flarex differences:
+
+- Convex's generated files and backend deployment flow feed an integrated Rust
+  backend. Flarex generates a source package, analyzes it in a Miniflare-backed
+  execution artifact, stores it in backend artifact storage, and executes it
+  through a Cloudflare-hosted artifact runtime that calls the trusted executor
+  syscall API.
+- The mutation write in this test still uses direct executor syscalls to create
+  a deterministic document and timestamp; the point of this slice is generated
+  query deployment and live-query sync, not mutation-over-WebSocket coverage.
+
+Known limitations:
+
+- This still uses the local PGlite executor lane, not the real Postgres
+  correctness lane.
+- The integration covers one generated document read/query and one delivery
+  row. It does not yet cover generated indexed/range queries, multi-query sets,
+  multiple WebSocket connections, or repeated scheduler continuation in the
+  same hosted-runtime path.
+- Generated mutation execution over `/sync` is not covered here; the write path
+  remains a direct executor session for deterministic setup.
 
 Verification:
 
