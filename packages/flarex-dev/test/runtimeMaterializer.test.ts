@@ -507,14 +507,14 @@ describe("runtime materializer", () => {
     }
   });
 
-  it("fails closed for unsupported nested server-side function calls", async () => {
+  it("executes nested server-side query calls in the active session", async () => {
     const calls: Array<{ path: string; body: unknown }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId: "project-nested",
       backend: async (request) => {
         const url = new URL(request.url);
-        const body = await request.json().catch(() => null);
+        const body: unknown = await request.json().catch(() => null);
         calls.push({ path: url.pathname, body });
         if (url.pathname === "/invoke/start") {
           return Response.json({
@@ -522,8 +522,18 @@ describe("runtime materializer", () => {
             function: { path: "messages:usesRunQuery", kind: "query" },
           });
         }
-        if (url.pathname === "/invoke/abort") {
-          return Response.json({ aborted: true });
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({
+            value: { _id: "2:message", text: "nested" },
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          const record = jsonRecord(body, "/invoke/finish");
+          return Response.json({
+            value: record.value,
+            readSet: { documents: [{ tableId: 2, id: "2:message", observedTs: 10 }] },
+            readTs: 20,
+          });
         }
         return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
       },
@@ -531,24 +541,58 @@ describe("runtime materializer", () => {
     const payload = nestedRunQueryPayload();
     const artifact = await materializer.materialize(payload);
     try {
-      await expect(artifact.invoke(payload)).rejects.toThrow(
-        "ctx.runQuery is not implemented in Flarex execution sessions yet.",
-      );
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: { _id: "2:message", text: "nested" },
+        readSet: { documents: [{ tableId: 2, id: "2:message", observedTs: 10 }] },
+        readTs: 20,
+      });
     } finally {
       await artifact.dispose?.();
     }
 
-    expect(calls.map(call => call.path)).toEqual(["/invoke/start", "/invoke/abort"]);
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-nested",
+          projectId: "project-nested",
+          path: "messages:usesRunQuery",
+          args: { lessonId: "1:lesson" },
+          kind: "query",
+          visibility: "public",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-nested",
+          projectId: "project-nested",
+          sessionId: "session-nested",
+          op: "get",
+          id: "2:message",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-nested",
+          projectId: "project-nested",
+          sessionId: "session-nested",
+          value: { _id: "2:message", text: "nested" },
+        },
+      },
+    ]);
   });
 
-  it("fails closed for unsupported nested mutation calls", async () => {
+  it("executes nested server-side mutation calls in the active session", async () => {
     const calls: Array<{ path: string; body: unknown }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId: "project-nested-mutation",
       backend: async (request) => {
         const url = new URL(request.url);
-        const body = await request.json().catch(() => null);
+        const body: unknown = await request.json().catch(() => null);
         calls.push({ path: url.pathname, body });
         if (url.pathname === "/invoke/start") {
           return Response.json({
@@ -556,8 +600,16 @@ describe("runtime materializer", () => {
             function: { path: "messages:usesRunMutation", kind: "mutation" },
           });
         }
-        if (url.pathname === "/invoke/abort") {
-          return Response.json({ aborted: true });
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({ value: "2:created" });
+        }
+        if (url.pathname === "/invoke/finish") {
+          const record = jsonRecord(body, "/invoke/finish");
+          return Response.json({
+            value: record.value,
+            committedTs: 30,
+            writes: [{ tableId: 2, id: "2:created", prevTs: null, ts: 30, value: { text: "nested" } }],
+          });
         }
         return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
       },
@@ -565,24 +617,66 @@ describe("runtime materializer", () => {
     const payload = nestedRunMutationPayload();
     const artifact = await materializer.materialize(payload);
     try {
-      await expect(artifact.invoke(payload)).rejects.toThrow(
-        "ctx.runMutation is not implemented in Flarex execution sessions yet.",
-      );
+      await expect(artifact.invoke(payload)).resolves.toEqual({
+        value: "2:created",
+        committedTs: 30,
+        writes: [{ tableId: 2, id: "2:created", prevTs: null, ts: 30, value: { text: "nested" } }],
+      });
     } finally {
       await artifact.dispose?.();
     }
 
-    expect(calls.map(call => call.path)).toEqual(["/invoke/start", "/invoke/abort"]);
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-nested-mutation",
+          projectId: "project-nested-mutation",
+          path: "messages:usesRunMutation",
+          args: { lessonId: "1:lesson" },
+          kind: "mutation",
+          visibility: "public",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-nested-mutation",
+          projectId: "project-nested-mutation",
+          sessionId: "session-nested-mutation",
+          op: "insert",
+          table: "messages",
+          value: { text: "nested" },
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-nested-mutation",
+          projectId: "project-nested-mutation",
+          sessionId: "session-nested-mutation",
+          value: "2:created",
+        },
+      },
+    ]);
   });
 
-  it("fails closed for unsupported nested calls during live-query reruns", async () => {
-    const calls: string[] = [];
+  it("executes nested query calls during live-query reruns without starting a session", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId: "project-live-nested",
       backend: async (request) => {
-        calls.push(new URL(request.url).pathname);
-        return Response.json({ error: "backend should not be called" }, { status: 500 });
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({
+            value: { _id: "2:message", text: "nested" },
+          });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
       },
     });
     const payload = nestedRunQueryPayload();
@@ -630,14 +724,26 @@ describe("runtime materializer", () => {
     };
 
     try {
-      await expect(executeQuery(attempt, subscription)).rejects.toThrow(
-        "ctx.runQuery is not implemented in Flarex execution sessions yet.",
-      );
+      await expect(executeQuery(attempt, subscription)).resolves.toEqual({
+        _id: "2:message",
+        text: "nested",
+      });
     } finally {
       await artifact.dispose?.();
     }
 
-    expect(calls).toEqual([]);
+    expect(calls).toEqual([
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-nested",
+          projectId: "project-live-nested",
+          sessionId: "session-live-nested",
+          op: "get",
+          id: "2:message",
+        },
+      },
+    ]);
   });
 
   it("executes live-query reruns against an existing Postgres invoke session", async () => {
@@ -1007,6 +1113,13 @@ function finishValue(body: unknown): unknown {
   return body.value;
 }
 
+function jsonRecord(value: unknown, pathName: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${pathName} request body is not a JSON object.`);
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
 function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
   const sourcePackage: PushSourcePackage = {
     modules: [
@@ -1185,7 +1298,14 @@ function nestedRunQueryPayload(): MaterializedExecutionArtifactPayload {
       isQuery: true,
       isPublic: true,
       _handler: async (ctx) => {
-        return await ctx.runQuery({ _path: "messages:helper" }, {});
+        return await ctx.runQuery({ _path: "messages:helper" }, { id: "2:message" });
+      },
+    },
+    helper: {
+      isQuery: true,
+      isInternal: true,
+      _handler: async ({ db }, args) => {
+        return await db.get(args.id);
       },
     },
   },
@@ -1226,7 +1346,14 @@ function nestedRunMutationPayload(): MaterializedExecutionArtifactPayload {
       isMutation: true,
       isPublic: true,
       _handler: async (ctx) => {
-        return await ctx.runMutation({ _path: "messages:helper" }, {});
+        return await ctx.runMutation({ _path: "messages:create" }, { text: "nested" });
+      },
+    },
+    create: {
+      isMutation: true,
+      isInternal: true,
+      _handler: async ({ db }, args) => {
+        return await db.insert("messages", { text: args.text });
       },
     },
   },

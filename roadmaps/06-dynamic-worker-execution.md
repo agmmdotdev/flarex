@@ -1,5 +1,80 @@
 # Dynamic Worker Execution
 
+## Same-Artifact Nested Function Calls
+
+Previous completed checkpoint: `4428c8d` Add fail-closed server context calls.
+
+What changed:
+
+- Generated Worker execution now implements `ctx.runQuery` and
+  `ctx.runMutation` for functions bundled in the same Flarex execution
+  artifact.
+- Local materialized execution artifacts implement the same nested-call path.
+- Nested calls reuse the active backend invoke session and the existing
+  `/invoke/syscall` bridge. They do not call `/invoke/start`,
+  `/invoke/finish`, or `/invoke/abort` for the nested function.
+- Nested queries execute with a read-only DB facade, even when called from a
+  mutation. Nested mutations are only allowed from mutation execution.
+- Generated Worker nested calls validate nested args and returns against the
+  generated analysis metadata.
+- Runtime tests now prove:
+  - generated nested internal query calls finish through the outer session,
+  - generated nested internal mutation calls write through the outer session,
+  - materialized nested query calls reuse the outer query session,
+  - materialized nested mutation calls reuse the outer mutation session, and
+  - live-query reruns execute nested queries with only `/invoke/syscall`.
+
+Why it changed:
+
+The previous checkpoint exposed the Convex-style API but deliberately failed
+closed. This checkpoint makes the common same-bundle case work without
+changing the trusted executor transaction boundary: user code still cannot see
+raw DB connections, and all reads/writes still go through backend-owned
+syscalls for the active session.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - `ctx.runQuery` and `ctx.runMutation` are server-side calls available from
+    Convex function contexts.
+- `npm-packages/convex/src/server/api.ts`
+  - function references carry path, kind, args, and return type information at
+    the SDK boundary.
+- `crates/function_runner/src/lib.rs`
+  - Convex executes nested calls inside the integrated runner. Flarex mirrors
+    the developer mental model but routes DB effects through the active
+    backend invoke session.
+
+Flarex differences:
+
+- This is same-artifact nested execution only. It does not yet support calling
+  functions from another deployment/package artifact.
+- There is no independent nested transaction or nested retry loop. Nested
+  reads and writes are part of the outer invoke session and commit together
+  with the outer mutation.
+- Local materialized runtime does not have generated validator metadata, so it
+  can check function kind but not nested args/returns yet. Generated Worker
+  output does validate nested args/returns and uses the SDK `getFunctionName`
+  helper; the materialized runtime keeps a local resolver because its Worker
+  source is assembled directly for Miniflare without bundling `flarex/server`.
+
+Known limitations:
+
+- No nested `ctx.runAction` support.
+- No recursion/depth guard yet.
+- No backend route exists for a host-owned nested call. The current path is an
+  in-artifact dispatch.
+- Nested mutations rely on the outer mutation session. Calling a mutation from
+  a query still fails at runtime and is blocked by TypeScript.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "nested server-side|derives Postgres invoke visibility" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "nested|Postgres executor invoke routes" --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Fail-Closed Nested Function Calls
 
 Previous completed checkpoint: `0fef4db` Guard public client visibility

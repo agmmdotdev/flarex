@@ -387,6 +387,7 @@ function workerSource(): string {
 import { DurableObject } from "cloudflare:workers";
 import {
   createQueryInitializer,
+  getFunctionName,
   parseFlarexId,
   validateValue,
   type DatabaseQueryRequest,
@@ -543,16 +544,15 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
     });
     const startedKind = executionKind(start);
     try {
-      const db = databaseForSession(
-        env.FLAREX_BACKEND,
+      const ctx = executionContextForSession({
+        backend: env.FLAREX_BACKEND,
         deploymentId,
-        start.sessionId,
-        startedKind,
+        sessionId: start.sessionId,
+        kind: startedKind,
         transport,
-        projectId,
-        env.FLAREX_EXECUTOR_TOKEN,
-      );
-      const ctx = executionContextForSession(db);
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
+      });
       const value = normalizeReturnValue(await fn._handler(ctx as never, body.args as never));
       validateFunctionReturn(metadata.returns, value);
       return await finishExecution(env.FLAREX_BACKEND, {
@@ -797,22 +797,84 @@ function databaseForSession(
   };
 }
 
-function executionContextForSession(db: DatabaseWriter): {
+function executionContextForSession(input: {
+  backend: Fetcher;
+  deploymentId: string;
+  sessionId: string;
+  kind: "query" | "mutation";
+  transport: ExecutorTransport;
+  projectId?: string;
+  executorToken?: string;
+}): {
   db: DatabaseWriter;
-  runQuery: () => Promise<never>;
-  runMutation: () => Promise<never>;
+  runQuery: (reference: Parameters<typeof getFunctionName>[0], args?: unknown) => Promise<unknown>;
+  runMutation: (reference: Parameters<typeof getFunctionName>[0], args?: unknown) => Promise<unknown>;
 } {
+  const db = databaseForSession(
+    input.backend,
+    input.deploymentId,
+    input.sessionId,
+    input.kind,
+    input.transport,
+    input.projectId,
+    input.executorToken,
+  );
   return {
     db,
-    runQuery: () => unsupportedNestedExecution("ctx.runQuery"),
-    runMutation: () => unsupportedNestedExecution("ctx.runMutation"),
+    runQuery: (reference, args) =>
+      executeNestedFunction({
+        ...input,
+        expectedKind: "query",
+        args: args === undefined ? {} : args,
+        path: getFunctionName(reference),
+      }),
+    runMutation: (reference, args) => {
+      if (input.kind !== "mutation") {
+        throw new Error("Cannot run mutation during a query.");
+      }
+      return executeNestedFunction({
+        ...input,
+        expectedKind: "mutation",
+        args: args === undefined ? {} : args,
+        path: getFunctionName(reference),
+      });
+    },
   };
 }
 
-function unsupportedNestedExecution(method: string): Promise<never> {
-  throw new Error(
-    \`\${method} is not implemented in Flarex execution sessions yet. Extract shared logic into a helper or call the function from an internal-capable host boundary.\`,
-  );
+async function executeNestedFunction(input: {
+  backend: Fetcher;
+  deploymentId: string;
+  sessionId: string;
+  kind: "query" | "mutation";
+  transport: ExecutorTransport;
+  projectId?: string;
+  executorToken?: string;
+  expectedKind: "query" | "mutation";
+  path: string;
+  args: unknown;
+}): Promise<unknown> {
+  const fn = functions[input.path];
+  if (!fn) throw new Error(\`Unknown Flarex function: \${input.path}\`);
+  const metadata = functionMetadataByPath.get(input.path);
+  if (!metadata) throw new Error(\`Missing analyzed metadata for Flarex function: \${input.path}\`);
+  if (metadata.kind !== input.expectedKind) {
+    throw new Error(\`ctx.run\${input.expectedKind === "query" ? "Query" : "Mutation"} expected a \${input.expectedKind}, got \${metadata.kind}.\`);
+  }
+  validateValue(metadata.args, input.args, "$args", { validateId: validateTableNameId });
+  const nestedKind = input.expectedKind === "query" ? "query" : input.kind;
+  const nestedCtx = executionContextForSession({
+    backend: input.backend,
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    kind: nestedKind,
+    transport: input.transport,
+    ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+    ...(input.executorToken === undefined ? {} : { executorToken: input.executorToken }),
+  });
+  const value = normalizeReturnValue(await fn._handler(nestedCtx as never, input.args as never));
+  validateFunctionReturn(metadata.returns, value);
+  return value;
 }
 
 function executorHeaders(executorToken: string | undefined): Record<string, string> {

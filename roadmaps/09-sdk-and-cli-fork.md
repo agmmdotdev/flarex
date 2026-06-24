@@ -1,5 +1,57 @@
 # SDK And CLI Fork
 
+## Server Context Same-Artifact Execution
+
+Previous completed checkpoint: `4428c8d` Add fail-closed server context calls.
+
+What changed:
+
+- The previously typed `ctx.runQuery` and `ctx.runMutation` API now has a
+  first runtime implementation in generated Worker and local materialized
+  execution artifacts.
+- The API remains Convex-style at the developer boundary: functions pass a
+  generated function reference plus optional args for no-arg functions.
+- Generated Worker execution validates nested function args and return values
+  using the same generated validator metadata as top-level invokes.
+
+Why it changed:
+
+The SDK surface should not remain a typed dead end. Same-artifact nested
+execution is the smallest useful step toward Convex parity while preserving
+the Flarex backend-owned transaction/session model.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - server contexts expose `ctx.runQuery` and `ctx.runMutation`.
+- `npm-packages/convex/src/server/api.ts`
+  - function references and optional rest args shape the callable API.
+
+Flarex differences:
+
+- Convex can execute nested functions through its integrated function runner.
+  Flarex currently supports same-artifact dispatch only; the active invoke
+  session remains owned by the trusted executor.
+- The local materialized runtime lacks generated validator metadata, so its
+  nested calls check function kind only. Generated Worker output performs
+  nested arg and return validation and reuses the SDK `getFunctionName`
+  helper. The materialized runtime keeps a local reference resolver because it
+  builds an unbundled Miniflare Worker source string.
+
+Known limitations:
+
+- No `ctx.runAction` API or runtime path yet.
+- No cross-artifact nested function calls yet.
+- No recursion depth guard yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "nested server-side|derives Postgres invoke visibility" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "nested|Postgres executor invoke routes" --testTimeout=30000 --hookTimeout=30000
+```
+
 ## Server Context Internal Call Contract
 
 Previous completed checkpoint: `0fef4db` Guard public client visibility

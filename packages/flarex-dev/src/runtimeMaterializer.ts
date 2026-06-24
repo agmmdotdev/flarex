@@ -250,16 +250,15 @@ async function invokeWithBackend(body, env, request) {
     const startedKind = executionKind(start);
     try {
       const handler = handlerFor(fn);
-      const db = databaseForSession(
-        env.FLAREX_BACKEND,
+      const ctx = executionContextForSession({
+        backend: env.FLAREX_BACKEND,
         deploymentId,
-        start.sessionId,
-        startedKind,
+        sessionId: start.sessionId,
+        kind: startedKind,
         transport,
         projectId,
-        env.FLAREX_EXECUTOR_TOKEN,
-      );
-      const ctx = executionContextForSession(db);
+        executorToken: env.FLAREX_EXECUTOR_TOKEN,
+      });
       const value = normalizeReturnValue(await handler(ctx, body.args ?? null));
       return await finishExecution(env.FLAREX_BACKEND, {
         transport,
@@ -307,16 +306,15 @@ async function executeQuerySession(body, env, request) {
   }
   const projectId = projectIdForTransport(transport, body, env, request);
   const handler = handlerFor(fn);
-  const db = databaseForSession(
-    env.FLAREX_BACKEND,
+  const ctx = executionContextForSession({
+    backend: env.FLAREX_BACKEND,
     deploymentId,
-    body.sessionId,
-    "query",
+    sessionId: body.sessionId,
+    kind: "query",
     transport,
     projectId,
-    env.FLAREX_EXECUTOR_TOKEN,
-  );
-  const ctx = executionContextForSession(db);
+    executorToken: env.FLAREX_EXECUTOR_TOKEN,
+  });
   return await handler(ctx, body.args ?? null);
 }
 
@@ -470,6 +468,20 @@ function functionVisibility(value) {
   return publicFunction ? "public" : "internal";
 }
 
+function getFunctionName(reference) {
+  if (typeof reference === "string" && reference.length > 0) {
+    return reference;
+  }
+  if (
+    isRecord(reference) &&
+    typeof reference._path === "string" &&
+    reference._path.length > 0
+  ) {
+    return reference._path;
+  }
+  throw new Error("ctx.runQuery and ctx.runMutation require a Flarex function reference.");
+}
+
 function handlerFor(value) {
   if (isRecord(value) && "_handler" in value && typeof value._handler === "function") {
     return value._handler;
@@ -515,18 +527,57 @@ function databaseForSession(backend, deploymentId, sessionId, kind, transport, p
   };
 }
 
-function executionContextForSession(db) {
+function executionContextForSession(input) {
+  const db = databaseForSession(
+    input.backend,
+    input.deploymentId,
+    input.sessionId,
+    input.kind,
+    input.transport,
+    input.projectId,
+    input.executorToken,
+  );
   return {
     db,
-    runQuery: () => unsupportedNestedExecution("ctx.runQuery"),
-    runMutation: () => unsupportedNestedExecution("ctx.runMutation"),
+    runQuery: (reference, args) =>
+      executeNestedFunction({
+        ...input,
+        expectedKind: "query",
+        args: args === undefined ? {} : args,
+        path: getFunctionName(reference),
+      }),
+    runMutation: (reference, args) => {
+      if (input.kind !== "mutation") {
+        throw new Error("Cannot run mutation during a query.");
+      }
+      return executeNestedFunction({
+        ...input,
+        expectedKind: "mutation",
+        args: args === undefined ? {} : args,
+        path: getFunctionName(reference),
+      });
+    },
   };
 }
 
-function unsupportedNestedExecution(method) {
-  throw new Error(
-    \`\${method} is not implemented in Flarex execution sessions yet. Extract shared logic into a helper or call the function from an internal-capable host boundary.\`,
-  );
+async function executeNestedFunction(input) {
+  const fn = await resolveFunction(input.path);
+  const kind = functionKind(fn);
+  if (kind !== input.expectedKind) {
+    throw new Error(\`ctx.run\${input.expectedKind === "query" ? "Query" : "Mutation"} expected a \${input.expectedKind}, got \${kind ?? "unknown"}.\`);
+  }
+  const nestedKind = input.expectedKind === "query" ? "query" : input.kind;
+  const ctx = executionContextForSession({
+    backend: input.backend,
+    deploymentId: input.deploymentId,
+    sessionId: input.sessionId,
+    kind: nestedKind,
+    transport: input.transport,
+    projectId: input.projectId,
+    executorToken: input.executorToken,
+  });
+  const handler = handlerFor(fn);
+  return normalizeReturnValue(await handler(ctx, input.args));
 }
 
 function createQueryInitializer(table, query, index, range, limit, cursor, order) {

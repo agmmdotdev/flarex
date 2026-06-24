@@ -526,21 +526,26 @@ export const hidden = internalQuery({ args: {}, handler: async () => "secret" })
     ]);
   });
 
-  it("fails closed for generated nested server-side function calls", async () => {
+  it("executes generated nested server-side function calls in the active session", async () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/functions/messages.ts"),
-      `import { query } from "../_generated/server";
+      `import { internalQuery, query } from "../_generated/server";
 import type { FunctionReference } from "flarex/server";
 
-const helper: FunctionReference<"query", "internal", {}, unknown> = {
+const helperRef: FunctionReference<"query", "internal", {}, string> = {
   _path: "messages:helper",
 };
+
+export const helper = internalQuery({
+  args: {},
+  handler: async () => "nested ok",
+});
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.runQuery(helper);
+    return await ctx.runQuery(helperRef);
   },
 });
 `,
@@ -548,6 +553,7 @@ export const list = query({
     await generateFlarex({ root });
 
     const backendCalls: string[] = [];
+    const finishedValues: unknown[] = [];
     const worker = new Miniflare({
       modules: [
         {
@@ -572,8 +578,14 @@ export const list = query({
               function: { kind: "query" },
             });
           }
-          if (url.pathname === "/invoke/abort") {
-            return Response.json({ aborted: true });
+          if (url.pathname === "/invoke/finish") {
+            const body = jsonRecord(await request.json(), "/invoke/finish");
+            finishedValues.push(body.value);
+            return Response.json({
+              value: body.value,
+              readSet: {},
+              readTs: 1,
+            });
           }
           return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
         },
@@ -588,17 +600,168 @@ export const list = query({
         method: "POST",
         body: JSON.stringify({ path: "messages:list", args: {} }),
       });
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
-        error: expect.stringContaining(
-          "ctx.runQuery is not implemented in Flarex execution sessions yet.",
-        ),
+        value: "nested ok",
+        readSet: {},
+        readTs: 1,
       });
     } finally {
       await worker.dispose();
     }
 
-    expect(backendCalls).toEqual(["/invoke/start", "/invoke/abort"]);
+    expect(backendCalls).toEqual(["/invoke/start", "/invoke/finish"]);
+    expect(finishedValues).toEqual(["nested ok"]);
+  });
+
+  it("executes generated nested server-side mutation calls in the active session", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { internalMutation, mutation } from "../_generated/server";
+import type { FunctionReference } from "flarex/server";
+import { v } from "flarex/values";
+
+const createRef: FunctionReference<"mutation", "internal", { text: string }, string> = {
+  _path: "messages:create",
+};
+
+export const create = internalMutation({
+  args: { text: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("messages", { text: args.text });
+  },
+});
+
+export const send = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.runMutation(createRef, { text: "nested" });
+  },
+});
+`,
+    );
+    await writeFile(
+      path.join(root, "flarex/schema.ts"),
+      `import { defineSchema, defineTable } from "flarex/server";
+import { v } from "flarex/values";
+
+export default defineSchema({
+  messages: defineTable({ text: v.string() }),
+});
+`,
+    );
+    await generateFlarex({ root });
+
+    const backendCalls: Array<{ path: string; body: unknown }> = [];
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: "deployment-generated-nested-mutation",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_PROJECT_ID: "project-generated-nested-mutation",
+      },
+      serviceBindings: {
+        FLAREX_BACKEND: async (request: Request) => {
+          const url = new URL(request.url);
+          const body: unknown = await request.json().catch(() => null);
+          backendCalls.push({ path: url.pathname, body });
+          if (url.pathname === "/invoke/start") {
+            return Response.json({
+              sessionId: "session-generated-nested-mutation",
+              function: { kind: "mutation" },
+            });
+          }
+          if (url.pathname === "/invoke/syscall") {
+            return Response.json({ value: "1:created" });
+          }
+          if (url.pathname === "/invoke/finish") {
+            const record = jsonRecord(body, "/invoke/finish");
+            return Response.json({
+              value: record.value,
+              committedTs: 30,
+              writes: [
+                {
+                  tableId: 1,
+                  id: "1:created",
+                  prevTs: null,
+                  ts: 30,
+                  value: { text: "nested" },
+                },
+              ],
+            });
+          }
+          return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+        },
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const response = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "messages:send", args: {} }),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        value: "1:created",
+        committedTs: 30,
+        writes: [
+          {
+            tableId: 1,
+            id: "1:created",
+            prevTs: null,
+            ts: 30,
+            value: { text: "nested" },
+          },
+        ],
+      });
+    } finally {
+      await worker.dispose();
+    }
+
+    expect(backendCalls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-nested-mutation",
+          projectId: "project-generated-nested-mutation",
+          path: "messages:send",
+          args: {},
+          kind: "mutation",
+          visibility: "public",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-generated-nested-mutation",
+          projectId: "project-generated-nested-mutation",
+          sessionId: "session-generated-nested-mutation",
+          op: "insert",
+          table: "messages",
+          value: { text: "nested" },
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-generated-nested-mutation",
+          projectId: "project-generated-nested-mutation",
+          sessionId: "session-generated-nested-mutation",
+          value: "1:created",
+        },
+      },
+    ]);
   });
 });
 
