@@ -17,11 +17,12 @@ import type {
 } from "./dataModel";
 import type { QueryInitializer } from "./query";
 import type {
-  AnyFunctionReference,
+  FunctionArgs,
   FunctionPartitionInputPolicy,
   FunctionPartitionPolicy,
   FunctionPartitionRootPolicy,
   FunctionReference,
+  FunctionReturnType,
   FunctionType,
   FunctionVisibility,
 } from "./api";
@@ -101,11 +102,30 @@ type WritableTablesForPartition<
     : TableNamesInDataModel<DataModel>
   : TableNamesInDataModel<DataModel>;
 
+type OptionalFunctionArgs<Reference extends FunctionReference<FunctionType, FunctionVisibility>> =
+  FunctionArgs<Reference> extends EmptyObject
+    ? [args?: EmptyObject]
+    : [args: FunctionArgs<Reference>];
+
+export type RunQuery = <Query extends FunctionReference<"query", "public" | "internal">>(
+  reference: Query,
+  ...args: OptionalFunctionArgs<Query>
+) => Promise<FunctionReturnType<Query>>;
+export type RunMutation = <
+  Mutation extends FunctionReference<"mutation", "public" | "internal">,
+>(
+  reference: Mutation,
+  ...args: OptionalFunctionArgs<Mutation>
+) => Promise<FunctionReturnType<Mutation>>;
+
 export type QueryCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseReader<DataModel>;
+  runQuery: RunQuery;
 };
 export type MutationCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseWriter<DataModel>;
+  runQuery: RunQuery;
+  runMutation: RunMutation;
 };
 export type MutationCtxForTables<
   DataModel extends GenericDataModel = AnyDataModel,
@@ -113,6 +133,8 @@ export type MutationCtxForTables<
     TableNamesInDataModel<DataModel>,
 > = {
   db: DatabaseWriterForTables<DataModel, WritableTables>;
+  runQuery: RunQuery;
+  runMutation: RunMutation;
 };
 export type MutationCtxForPartition<
   DataModel extends GenericDataModel,
@@ -123,8 +145,8 @@ export type MutationCtxForPartition<
   WritableTablesForPartition<DataModel, Scopes, Partition>
 >;
 export type ActionCtx<DataModel extends GenericDataModel = AnyDataModel> = {
-  runQuery: (reference: AnyFunctionReference, args: unknown) => Promise<unknown>;
-  runMutation: (reference: AnyFunctionReference, args: unknown) => Promise<unknown>;
+  runQuery: RunQuery;
+  runMutation: RunMutation;
 };
 
 export type RegisteredFunction<

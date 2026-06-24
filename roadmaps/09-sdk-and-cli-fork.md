@@ -1,5 +1,66 @@
 # SDK And CLI Fork
 
+## Server Context Internal Call Contract
+
+Previous completed checkpoint: `0fef4db` Guard public client visibility
+types.
+
+What changed:
+
+- `QueryCtx` now exposes a typed `runQuery`.
+- `MutationCtx` and partition-scoped mutation contexts now expose typed
+  `runQuery` and `runMutation`.
+- `ActionCtx` now exposes typed `runQuery` and `runMutation` instead of
+  untyped `unknown` argument/return shapes.
+- Server-side `runQuery` and `runMutation` use Convex-style optional argument
+  tuples, so no-arg functions can be called without passing `{}` while argful
+  functions still require an argument object.
+- Registration type tests prove internal query and mutation references are
+  accepted in server-side contexts, no-arg references allow omitted args, and
+  invalid function-kind or missing-arg calls are rejected at compile time.
+
+Why it changed:
+
+Generated public clients now reject internal references, so internal references
+need the Convex-style server-side home. This checkpoint establishes the typed
+contract before wiring the real nested execution bridge. That keeps developer
+code pointed at the correct API while the runtime still fails closed.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - `GenericQueryCtx`, `GenericMutationCtx`, and `GenericActionCtx` expose
+    typed `runQuery`/`runMutation` using public or internal function
+    references.
+- `npm-packages/convex/src/server/api.ts`
+  - `FunctionReference`, `FunctionArgs`, `FunctionReturnType`, and
+    `OptionalRestArgs` provide the type plumbing for server-side calls.
+
+Flarex differences:
+
+- Convex runs nested functions in its integrated function runner and database
+  transaction model. Flarex only adds the typed contract in this checkpoint;
+  generated/runtime execution stubs throw a clear unsupported error.
+- Flarex still has no server-side `ctx.runAction`, matching the currently
+  implemented context surface.
+
+Known limitations:
+
+- `ctx.runQuery` and `ctx.runMutation` are fail-closed in generated execution
+  sessions until the trusted executor supports nested same-session execution.
+- No sub-transaction semantics are implemented yet for nested mutations.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/registration.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Public Client Visibility Guards
 
 Previous completed checkpoint: `7e4955b` Split generated public and internal

@@ -552,7 +552,8 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
         projectId,
         env.FLAREX_EXECUTOR_TOKEN,
       );
-      const value = normalizeReturnValue(await fn._handler({ db } as never, body.args as never));
+      const ctx = executionContextForSession(db);
+      const value = normalizeReturnValue(await fn._handler(ctx as never, body.args as never));
       validateFunctionReturn(metadata.returns, value);
       return await finishExecution(env.FLAREX_BACKEND, {
         transport,
@@ -794,6 +795,24 @@ function databaseForSession(
       await syscall({ op: "delete", id });
     },
   };
+}
+
+function executionContextForSession(db: DatabaseWriter): {
+  db: DatabaseWriter;
+  runQuery: () => Promise<never>;
+  runMutation: () => Promise<never>;
+} {
+  return {
+    db,
+    runQuery: () => unsupportedNestedExecution("ctx.runQuery"),
+    runMutation: () => unsupportedNestedExecution("ctx.runMutation"),
+  };
+}
+
+function unsupportedNestedExecution(method: string): Promise<never> {
+  throw new Error(
+    \`\${method} is not implemented in Flarex execution sessions yet. Extract shared logic into a helper or call the function from an internal-capable host boundary.\`,
+  );
 }
 
 function executorHeaders(executorToken: string | undefined): Record<string, string> {

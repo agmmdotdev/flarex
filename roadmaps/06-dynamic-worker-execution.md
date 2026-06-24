@@ -1,5 +1,64 @@
 # Dynamic Worker Execution
 
+## Fail-Closed Nested Function Calls
+
+Previous completed checkpoint: `0fef4db` Guard public client visibility
+types.
+
+What changed:
+
+- Generated Worker execution contexts now include `ctx.runQuery` and
+  `ctx.runMutation` stubs alongside `ctx.db`.
+- Local materialized execution artifacts use the same fail-closed context
+  shape for top-level invoke execution and live-query query-session reruns.
+- Unsupported nested server-side calls throw a Flarex-specific error explaining
+  that nested execution sessions are not implemented yet.
+- Added generated-worker and materialized-runtime tests proving nested calls
+  abort the active session instead of failing with an undefined method.
+- Added materialized-runtime coverage for `ctx.runMutation` and for
+  live-query reruns, where no new backend session is started.
+
+Why it changed:
+
+The SDK now exposes Convex-style server-side internal reference types. Runtime
+execution must therefore fail clearly until the trusted executor has a real
+nested same-session execution protocol. A clear stub is safer than letting user
+code discover `ctx.runQuery` as `undefined` at runtime.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/registration.ts`
+  - documents `ctx.runQuery` and `ctx.runMutation` as same-transaction
+    server-side calls.
+- `crates/function_runner/src/lib.rs`
+  - Convex owns function execution inside an integrated runner; Flarex
+    deliberately keeps the executor/session boundary explicit.
+
+Flarex differences:
+
+- Convex supports nested function execution. Flarex currently starts one
+  executor session per top-level query/mutation, so nested function calls need
+  a future backend protocol before they can be safe.
+- The stub exists in generated/runtime execution only; public clients remain
+  blocked from internal references by TypeScript and backend visibility checks.
+
+Known limitations:
+
+- No nested read-set/write-set merging is implemented.
+- No nested mutation sub-transaction rollback is implemented.
+- `ctx.runQuery`/`ctx.runMutation` are currently developer-facing errors, not
+  working nested execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "nested server-side|derives Postgres invoke visibility" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts -t "nested|Postgres executor invoke routes" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Current Decision
 
 Developer modules should run in Flarex-managed dynamic execution isolates and

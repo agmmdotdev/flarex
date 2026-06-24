@@ -259,7 +259,8 @@ async function invokeWithBackend(body, env, request) {
         projectId,
         env.FLAREX_EXECUTOR_TOKEN,
       );
-      const value = normalizeReturnValue(await handler({ db }, body.args ?? null));
+      const ctx = executionContextForSession(db);
+      const value = normalizeReturnValue(await handler(ctx, body.args ?? null));
       return await finishExecution(env.FLAREX_BACKEND, {
         transport,
         deploymentId,
@@ -315,7 +316,8 @@ async function executeQuerySession(body, env, request) {
     projectId,
     env.FLAREX_EXECUTOR_TOKEN,
   );
-  return await handler({ db }, body.args ?? null);
+  const ctx = executionContextForSession(db);
+  return await handler(ctx, body.args ?? null);
 }
 
 function executorTransport(request, env) {
@@ -511,6 +513,20 @@ function databaseForSession(backend, deploymentId, sessionId, kind, transport, p
       await syscall({ op: "delete", id });
     },
   };
+}
+
+function executionContextForSession(db) {
+  return {
+    db,
+    runQuery: () => unsupportedNestedExecution("ctx.runQuery"),
+    runMutation: () => unsupportedNestedExecution("ctx.runMutation"),
+  };
+}
+
+function unsupportedNestedExecution(method) {
+  throw new Error(
+    \`\${method} is not implemented in Flarex execution sessions yet. Extract shared logic into a helper or call the function from an internal-capable host boundary.\`,
+  );
 }
 
 function createQueryInitializer(table, query, index, range, limit, cursor, order) {

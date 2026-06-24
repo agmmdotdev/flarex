@@ -525,6 +525,81 @@ export const hidden = internalQuery({ args: {}, handler: async () => "secret" })
       },
     ]);
   });
+
+  it("fails closed for generated nested server-side function calls", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+import type { FunctionReference } from "flarex/server";
+
+const helper: FunctionReference<"query", "internal", {}, unknown> = {
+  _path: "messages:helper",
+};
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.runQuery(helper);
+  },
+});
+`,
+    );
+    await generateFlarex({ root });
+
+    const backendCalls: string[] = [];
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: "deployment-generated-nested",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_PROJECT_ID: "project-generated-nested",
+      },
+      serviceBindings: {
+        FLAREX_BACKEND: async (request: Request) => {
+          const url = new URL(request.url);
+          backendCalls.push(url.pathname);
+          if (url.pathname === "/invoke/start") {
+            return Response.json({
+              sessionId: "session-generated-nested",
+              function: { kind: "query" },
+            });
+          }
+          if (url.pathname === "/invoke/abort") {
+            return Response.json({ aborted: true });
+          }
+          return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+        },
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const response = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "messages:list", args: {} }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: expect.stringContaining(
+          "ctx.runQuery is not implemented in Flarex execution sessions yet.",
+        ),
+      });
+    } finally {
+      await worker.dispose();
+    }
+
+    expect(backendCalls).toEqual(["/invoke/start", "/invoke/abort"]);
+  });
 });
 
 async function createProject(): Promise<string> {

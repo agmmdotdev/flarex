@@ -8,6 +8,7 @@ import {
   query,
   workflowMutation,
   type DefaultFunctionArgs,
+  type FunctionReference,
   type MutationBuilder,
 } from "../src/server";
 import { v, type Id } from "../src/values";
@@ -68,6 +69,27 @@ const userPartitionRoot = {
   table: "users",
   partitionField: "_id",
 } as const;
+
+declare const internalUserQuery: FunctionReference<
+  "query",
+  "internal",
+  { userId: Id<"users"> },
+  { name: string }
+>;
+declare const internalNoArgsQuery: FunctionReference<"query", "internal", {}, number>;
+declare const internalUserMutation: FunctionReference<
+  "mutation",
+  "internal",
+  { userId: Id<"users">; name: string },
+  null
+>;
+declare const internalNoArgsMutation: FunctionReference<"mutation", "internal", {}, null>;
+declare const internalUserAction: FunctionReference<
+  "action",
+  "internal",
+  { userId: Id<"users"> },
+  null
+>;
 
 describe("Convex-style function registration", () => {
   it("attaches exclusive function kind and visibility markers", () => {
@@ -135,6 +157,52 @@ describe("Convex-style function registration", () => {
       type: "object",
       value: {
         ok: { fieldType: { type: "boolean" }, optional: false },
+      },
+    });
+  });
+
+  it("types server-side function calls like Convex contexts", () => {
+    query({
+      args: { userId: v.id("users") },
+      handler: async (ctx, args) => {
+        const user = await ctx.runQuery(internalUserQuery, { userId: args.userId });
+        const count = await ctx.runQuery(internalNoArgsQuery);
+        expectTypeOf(user).toEqualTypeOf<{ name: string }>();
+        expectTypeOf(count).toEqualTypeOf<number>();
+        // @ts-expect-error Argful queries require an args object.
+        await ctx.runQuery(internalUserQuery);
+        // @ts-expect-error Query contexts cannot run mutations.
+        await ctx.runMutation(internalUserMutation, {
+          userId: args.userId,
+          name: user.name,
+        });
+        return user;
+      },
+    });
+
+    mutation({
+      args: { userId: v.id("users"), name: v.string() },
+      handler: async (ctx, args) => {
+        await ctx.runQuery(internalUserQuery, { userId: args.userId });
+        await ctx.runQuery(internalNoArgsQuery);
+        await ctx.runMutation(internalUserMutation, args);
+        await ctx.runMutation(internalNoArgsMutation);
+        // @ts-expect-error Argful mutations require an args object.
+        await ctx.runMutation(internalUserMutation);
+        // @ts-expect-error runMutation only accepts mutation references.
+        await ctx.runMutation(internalUserAction, { userId: args.userId });
+      },
+    });
+
+    action({
+      args: { userId: v.id("users"), name: v.string() },
+      handler: async (ctx, args) => {
+        await ctx.runQuery(internalUserQuery, { userId: args.userId });
+        await ctx.runQuery(internalNoArgsQuery);
+        await ctx.runMutation(internalUserMutation, args);
+        await ctx.runMutation(internalNoArgsMutation);
+        // @ts-expect-error runQuery only accepts query references.
+        await ctx.runQuery(internalUserMutation, args);
       },
     });
   });
