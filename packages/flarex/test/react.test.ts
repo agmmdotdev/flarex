@@ -79,6 +79,30 @@ const completeLesson = {
   { completed: boolean }
 >;
 
+declare const internalListLessons: FunctionReference<
+  "query",
+  "internal",
+  { userId: string },
+  string[]
+>;
+declare const internalCompleteLesson: FunctionReference<
+  "mutation",
+  "internal",
+  { userId: string },
+  { completed: boolean }
+>;
+
+function assertPublicReactReferences(): void {
+  // @ts-expect-error Public React query hook must not accept internal references.
+  void useQuery(internalListLessons, { userId: "user-1" });
+  // @ts-expect-error Public React experimental query hook must not accept internal references.
+  void useQuery_experimental({ query: internalListLessons, args: { userId: "user-1" } });
+  // @ts-expect-error Public React mutation hook must not accept internal references.
+  void useMutation(internalCompleteLesson);
+}
+
+void assertPublicReactReferences;
+
 describe("flarex/react", () => {
   it("subscribes to queries through FlarexProvider", async () => {
     FakeWebSocket.instances = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FlarexClient } from "../src/client";
+import type { FunctionReference } from "../src/api";
 
 const userPartition = {
   type: "partition" as const,
@@ -8,6 +9,32 @@ const userPartition = {
   partitionField: "_id",
   argField: "userId",
 };
+
+declare const internalListLessons: FunctionReference<
+  "query",
+  "internal",
+  { userId: string },
+  string[]
+>;
+declare const internalCompleteLesson: FunctionReference<
+  "mutation",
+  "internal",
+  { userId: string },
+  { completed: boolean }
+>;
+
+function assertPublicClientReferences(client: FlarexClient): void {
+  // @ts-expect-error Public client queries must not accept internal references.
+  void client.query(internalListLessons, { userId: "user-1" });
+  // @ts-expect-error Public client live queries must not accept internal references.
+  void client.watchQuery(internalListLessons, { userId: "user-1" });
+  // @ts-expect-error Public client subscriptions must not accept internal references.
+  void client.onUpdate(internalListLessons, { userId: "user-1" }, () => undefined);
+  // @ts-expect-error Public client mutations must not accept internal references.
+  void client.mutation(internalCompleteLesson, { userId: "user-1" });
+}
+
+void assertPublicClientReferences;
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];

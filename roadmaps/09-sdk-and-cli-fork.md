@@ -1,5 +1,72 @@
 # SDK And CLI Fork
 
+## Public Client Visibility Guards
+
+Previous completed checkpoint: `7e4955b` Split generated public and internal
+APIs.
+
+What changed:
+
+- Added compile-time guards proving `FlarexClient.query`,
+  `FlarexClient.watchQuery`, `FlarexClient.onUpdate`, and
+  `FlarexClient.mutation` reject internal function references.
+- Added compile-time guards proving React `useQuery`,
+  `useQuery_experimental`, and `useMutation` reject internal function
+  references.
+- Added `flarex-test` type coverage and a type-only fixture proving convenience
+  `t.query`/`t.mutation`/`t.action` mirror public client visibility, while
+  `t.invokeRaw` remains the explicit test escape hatch for internal
+  references.
+- Included `packages/flarex-test/test` in the package typecheck scope.
+
+Why it changed:
+
+After generated `_generated/api.ts` began exporting separate public `api` and
+internal `internal` trees, the public client surfaces needed a proof that they
+do not accidentally accept internal references through generic widening. This
+keeps the Convex-style mental model: public clients use `api.*`; server/test
+orchestration uses `internal.*` only through deliberate internal-capable APIs.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/react/client.ts`
+  - public React/client methods are typed around `FunctionReference<"query">`
+    and `FunctionReference<"mutation">`.
+- `npm-packages/convex/src/react/queries_observer.ts`
+  - query observation accepts public query references through the client layer.
+- `npm-packages/convex/src/server/registration.ts`
+  - server-side execution APIs accept public or internal references separately
+    from public client APIs.
+
+Flarex differences:
+
+- Flarex does not yet have Convex's server-side `ctx.runQuery` /
+  `ctx.runMutation` implementation. `flarex-test.invokeRaw` is kept as the
+  explicit internal-capable testing boundary until that server-side execution
+  API exists.
+- Runtime enforcement still lives in the trusted executor visibility check;
+  these tests protect TypeScript DX and accidental public-surface widening.
+
+Known limitations:
+
+- `flarex-test.action` is now covered by the public visibility guard, but
+  action runtime execution is still not implemented as part of the current
+  `/invoke` path.
+- This checkpoint adds type guards only; it does not introduce server-side
+  internal execution helpers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex exec vitest run test/client.test.ts test/react.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-test test
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-test build
+git diff --check
+```
+
 ## Current Decision
 
 Fork the Convex npm package as the starting point for Flarex's developer SDK,
