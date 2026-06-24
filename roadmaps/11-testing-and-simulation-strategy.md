@@ -1,5 +1,54 @@
 # Testing and Simulation Strategy
 
+## CLI Typecheck Mode Coverage
+
+Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.
+
+What changed:
+
+- Added CLI tests for `--typecheck disable`, `--typecheck try`, and invalid
+  mode prevalidation.
+- Existing tests continue to cover bare `--typecheck` as the enable shorthand.
+- The example generated-output command now exercises explicit
+  `--typecheck enable`.
+- CLI help validation now shows `--typecheck <mode>`.
+
+Why it changed:
+
+Mode coverage is needed before the CLI grows more commands. Typecheck behavior
+is a command contract, and invalid values must not write generated files before
+failing.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex typecheck behavior is a mode option, not only a boolean.
+- `npm-packages/convex/src/cli/program.ts`
+  - CLI command behavior belongs behind the process command boundary.
+
+Flarex differences:
+
+- Tests call the runner directly for error and mode behavior rather than a
+  built binary.
+- Flarex defaults typecheck mode to disabled for now.
+
+Known limitations:
+
+- There is no installed binary test yet.
+- `try` mode is only covered for generated-output typecheck failure.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Source CLI Entrypoint Validation
 
 Previous completed checkpoint: `24fcc04` Route example generate through CLI

@@ -1,5 +1,64 @@
 # SDK And CLI Fork
 
+## Codegen Typecheck Modes
+
+Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.
+
+What changed:
+
+- `flarex-dev codegen` now accepts Convex-style generated-output typecheck
+  modes: `--typecheck enable`, `--typecheck try`, and `--typecheck disable`.
+- Existing bare `--typecheck` remains supported as shorthand for
+  `--typecheck enable`.
+- `--typecheck try` runs generated-output typecheck but warns and keeps exit
+  code `0` if typechecking fails.
+- `--typecheck disable` skips generated-output typecheck.
+- Invalid typecheck modes fail before codegen runs.
+- The example app's `typecheck:generated` script now passes
+  `--typecheck enable` explicitly.
+
+Why it changed:
+
+Convex's `codegen` command exposes `--typecheck <mode>` rather than a pure
+boolean. Flarex should follow that shape so future CI/dev commands can express
+strict, best-effort, and disabled typecheck behavior without adding more flags.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex defines `--typecheck <mode>` with `enable`, `try`, and `disable`.
+- `npm-packages/convex/src/cli/program.ts`
+  - command behavior is registered centrally through the CLI entrypoint.
+
+Flarex differences:
+
+- Convex defaults typecheck mode to `try`; Flarex currently defaults to
+  `disable` because workspace examples still require explicit TypeScript path
+  mappings for source packages.
+- Flarex keeps bare `--typecheck` as `enable` for backward compatibility with
+  the existing runner script.
+- Flarex still uses a small hand-rolled parser instead of Commander.
+
+Known limitations:
+
+- `try` mode only controls generated-output typecheck, not a full app
+  typecheck.
+- The CLI still only has `codegen`.
+- Defaulting to Convex's `try` mode should wait until normal package
+  resolution is stable without workspace-specific path flags.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Source CLI Entrypoint Script
 
 Previous completed checkpoint: `24fcc04` Route example generate through CLI

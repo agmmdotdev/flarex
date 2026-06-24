@@ -139,12 +139,86 @@ describe("runFlarexDevCli", () => {
     });
   });
 
+  it("skips generated-output typecheck when mode is disable", async () => {
+    let typecheckCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--typecheck", "disable"],
+      dependencies: {
+        generate: async () => {},
+        typecheckGenerated: async () => {
+          typecheckCalls += 1;
+        },
+      },
+    })).resolves.toBe(0);
+
+    expect(typecheckCalls).toBe(0);
+  });
+
+  it("continues when generated-output typecheck fails in try mode", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--typecheck", "try"],
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+        typecheckGenerated: async () => {
+          throw new Error("tsc failed");
+        },
+      },
+      stderr,
+    })).resolves.toBe(0);
+
+    expect(generateCalls).toBe(1);
+    expect(stderr.value).toContain("--typecheck try");
+    expect(stderr.value).toContain("tsc failed");
+  });
+
+  it("rejects invalid typecheck modes before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--typecheck", "maybe"],
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+      stderr,
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain('Invalid --typecheck value "maybe"');
+  });
+
   it("rejects malformed typecheck path mappings", async () => {
     const stderr = new StringWriter();
     let generateCalls = 0;
 
     await expect(runFlarexDevCli({
       argv: ["codegen", "--root", "/app", "--typecheck", "--path", "flarex"],
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+      stderr,
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain('Invalid --path value "flarex"');
+  });
+
+  it("rejects malformed typecheck path mappings before codegen even when typecheck is disabled", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--typecheck", "disable", "--path", "flarex"],
       dependencies: {
         generate: async () => {
           generateCalls += 1;

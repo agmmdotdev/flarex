@@ -14,6 +14,8 @@ type CliDependencies = {
   typecheckGenerated: (options: FlarexGeneratedOutputTypecheckOptions) => Promise<void>;
 };
 
+type CodegenTypecheckMode = "enable" | "try" | "disable";
+
 export type FlarexDevCliOptions = {
   argv?: string[];
   projectRoot?: string;
@@ -46,7 +48,18 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
 }
 
 function commandArgv(argv: string[]): string[] {
-  return argv[0] === "--" ? argv.slice(1) : argv;
+  const commandArgs = argv[0] === "--" ? argv.slice(1) : argv;
+  return normalizeBooleanTypecheckFlag(commandArgs);
+}
+
+function normalizeBooleanTypecheckFlag(argv: string[]): string[] {
+  return argv.map((arg, index) => {
+    if (arg !== "--typecheck") {
+      return arg;
+    }
+    const nextArg = argv[index + 1];
+    return nextArg === undefined || nextArg.startsWith("-") ? "--typecheck=enable" : arg;
+  });
 }
 
 async function runCodegenCommand(
@@ -70,7 +83,7 @@ async function runCodegenCommand(
         path: { type: "string", multiple: true },
         root: { type: "string" },
         "typescript-cli": { type: "string" },
-        typecheck: { type: "boolean" },
+        typecheck: { type: "string" },
       },
     });
 
@@ -90,7 +103,17 @@ async function runCodegenCommand(
     await options.dependencies.generate(commandConfig.generateOptions);
 
     if (commandConfig.typecheckOptions !== undefined) {
-      await options.dependencies.typecheckGenerated(commandConfig.typecheckOptions);
+      try {
+        await options.dependencies.typecheckGenerated(commandConfig.typecheckOptions);
+      } catch (error) {
+        if (commandConfig.typecheckMode === "try") {
+          options.stderr.write(
+            `Generated output typecheck failed, continuing because --typecheck try was used.\n${cliErrorMessage(error)}\n`,
+          );
+        } else {
+          throw error;
+        }
+      }
     }
 
     return 0;
@@ -103,6 +126,7 @@ async function runCodegenCommand(
 
 type CodegenCommandConfig = {
   generateOptions: FlarexGenerateOptions;
+  typecheckMode: CodegenTypecheckMode;
   typecheckOptions?: FlarexGeneratedOutputTypecheckOptions;
 };
 
@@ -110,6 +134,10 @@ function codegenCommandConfig(
   values: ReturnType<typeof parseArgs>["values"],
   root: string,
 ): CodegenCommandConfig {
+  const typecheckMode = typecheckModeFromArgs(values.typecheck);
+  const compilerPaths = values.path === undefined
+    ? undefined
+    : pathMappings(stringValues(values.path, "--path"));
   const generateOptions: FlarexGenerateOptions = {
     root,
     ...(typeof values["app-dir"] === "string" ? { appDir: values["app-dir"] } : {}),
@@ -117,7 +145,8 @@ function codegenCommandConfig(
   };
   return {
     generateOptions,
-    ...(values.typecheck === true
+    typecheckMode,
+    ...(typecheckMode === "enable" || typecheckMode === "try"
       ? {
           typecheckOptions: {
             ...generateOptions,
@@ -125,13 +154,25 @@ function codegenCommandConfig(
             ...(typeof values["typescript-cli"] === "string"
               ? { typescriptCliPath: values["typescript-cli"] }
               : {}),
-            ...(values.path === undefined
+            ...(compilerPaths === undefined
               ? {}
-              : { compilerOptions: { paths: pathMappings(stringValues(values.path, "--path")) } }),
+              : { compilerOptions: { paths: compilerPaths } }),
           },
         }
       : {}),
   };
+}
+
+function typecheckModeFromArgs(value: unknown): CodegenTypecheckMode {
+  if (value === undefined) {
+    return "disable";
+  }
+  if (value === "enable" || value === "try" || value === "disable") {
+    return value;
+  }
+  throw new Error(
+    `Invalid --typecheck value "${String(value)}". Expected enable, try, or disable.`,
+  );
 }
 
 function rootFromArgs(value: unknown, projectRoot: string): string | undefined {
@@ -175,7 +216,7 @@ function cliErrorMessage(error: unknown): string {
 
 function helpText(): string {
   return `Usage:
-  flarex-dev codegen [--root <path>] [--typecheck]
+  flarex-dev codegen [--root <path>] [--typecheck <mode>]
 
 Commands:
   codegen   Generate Flarex _generated files.
@@ -191,7 +232,7 @@ Options:
   --root <path>             Application root. Defaults to the current directory.
   --app-dir <dir>           Flarex app directory. Defaults to "flarex".
   --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
-  --typecheck               Typecheck generated output after codegen.
+  --typecheck <mode>        Typecheck generated output after codegen. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.
   --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.
   --path <alias=target>     TypeScript path mapping for generated-output typecheck.

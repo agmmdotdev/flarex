@@ -1,5 +1,52 @@
 # Local Dev Server
 
+## Codegen Typecheck Mode For Local Commands
+
+Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.
+
+What changed:
+
+- Local command help now exposes `--typecheck <mode>` for codegen.
+- The example generated-output command uses `--typecheck enable`.
+- The source CLI runner supports `try` mode for best-effort generated-output
+  validation.
+
+Why it changed:
+
+Local workflows need the same shape as the eventual CLI. Convex exposes
+typecheck policy as a codegen mode, which lets CI fail strictly while local/dev
+flows can choose best-effort behavior.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - `--typecheck <mode>` supports explicit codegen typecheck policy.
+- `npm-packages/convex/src/cli/dev.ts`
+  - local workflow readiness is tied to generated code and typechecking.
+
+Flarex differences:
+
+- Flarex defaults to no generated-output typecheck unless a mode is provided.
+- `try` mode emits a plain stderr warning instead of Convex's richer CLI
+  diagnostics.
+
+Known limitations:
+
+- No `flarex dev` command uses these modes yet.
+- No global CLI binary exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Source CLI Entrypoint For Local Workflow
 
 Previous completed checkpoint: `24fcc04` Route example generate through CLI

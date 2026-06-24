@@ -7,6 +7,7 @@ process.exitCode = await runFlarexDevCli({
   argv: [
     "codegen",
     "--typecheck",
+    "enable",
     "--cwd",
     workspaceRoot,
     "--typescript-cli",
