@@ -147,12 +147,12 @@ describe("backend sync with local executor runtime", () => {
       const thirdMessageId = await seedMessage(firstWs, 3, teamId, "third");
       expect(materializeCount).toBe(1);
 
-      const initialMessages = [
+      const initialMessages: ExpectedMessage[] = [
         { _id: firstMessageId, teamId, text: "first" },
         { _id: secondMessageId, teamId, text: "second" },
         { _id: thirdMessageId, teamId, text: "third" },
       ];
-      const initialRecentMessages = [
+      const initialRecentMessages: ExpectedMessage[] = [
         { _id: thirdMessageId, teamId, text: "third" },
         { _id: secondMessageId, teamId, text: "second" },
       ];
@@ -160,6 +160,8 @@ describe("backend sync with local executor runtime", () => {
         page: initialRecentMessages,
         isDone: false,
       };
+      const initialFirstMessage = { _id: thirdMessageId, teamId, text: "third" };
+      const uniqueSecondMessage = { _id: secondMessageId, teamId, text: "second" };
       sendMessageSubscriptions(firstWs, teamId, thirdMessageId);
       sendMessageSubscriptions(secondWs, teamId, thirdMessageId);
       const [firstInitialTransition, secondInitialTransition] = await Promise.all([
@@ -173,6 +175,8 @@ describe("backend sync with local executor runtime", () => {
         initialMessages,
         initialRecentMessages,
         initialPaginatedMessages,
+        initialFirstMessage,
+        uniqueSecondMessage,
       );
       expectMessageSubscriptionTransition(
         secondInitialTransition,
@@ -181,6 +185,8 @@ describe("backend sync with local executor runtime", () => {
         initialMessages,
         initialRecentMessages,
         initialPaginatedMessages,
+        initialFirstMessage,
+        uniqueSecondMessage,
       );
       expect(materializeCount).toBe(1);
 
@@ -209,7 +215,12 @@ describe("backend sync with local executor runtime", () => {
         deploymentId,
         freshnessStore: runtime.freshnessStore,
       });
-      expect(stale.fresh).toEqual([]);
+      expect(stale.fresh.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:6`,
+        `${secondConnectionId}:6`,
+      ]);
       expect(stale.unsupported).toEqual([]);
       expect(stale.stale.map(entry =>
         `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
@@ -218,10 +229,12 @@ describe("backend sync with local executor runtime", () => {
         `${firstConnectionId}:2`,
         `${firstConnectionId}:3`,
         `${firstConnectionId}:4`,
+        `${firstConnectionId}:5`,
         `${secondConnectionId}:1`,
         `${secondConnectionId}:2`,
         `${secondConnectionId}:3`,
         `${secondConnectionId}:4`,
+        `${secondConnectionId}:5`,
       ]);
       expect(stale).toMatchObject({
         stale: expect.arrayContaining([
@@ -256,6 +269,13 @@ describe("backend sync with local executor runtime", () => {
           expect.objectContaining({
             subscription: expect.objectContaining({
               deploymentId,
+              connectionId: firstConnectionId,
+              queryId: 5,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
               connectionId: secondConnectionId,
               queryId: 1,
             }),
@@ -279,6 +299,13 @@ describe("backend sync with local executor runtime", () => {
               deploymentId,
               connectionId: secondConnectionId,
               queryId: 4,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId: secondConnectionId,
+              queryId: 5,
             }),
           }),
         ]),
@@ -307,10 +334,10 @@ describe("backend sync with local executor runtime", () => {
       expect(response.status).toBe(200);
       expectSchedulerTriggerResponse(await response.json(), {
         deploymentId,
-        changed: 8,
-        claimed: 8,
-        acked: 8,
-        delivered: 8,
+        changed: 10,
+        claimed: 10,
+        acked: 10,
+        delivered: 10,
       });
 
       expectMessageSubscriptionTransition(
@@ -333,6 +360,7 @@ describe("backend sync with local executor runtime", () => {
           ],
           isDone: false,
         },
+        { _id: thirdMessageId, teamId, text: "updated" },
       );
       expectMessageSubscriptionTransition(
         await secondDelivered,
@@ -354,6 +382,7 @@ describe("backend sync with local executor runtime", () => {
           ],
           isDone: false,
         },
+        { _id: thirdMessageId, teamId, text: "updated" },
       );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
@@ -386,7 +415,9 @@ describe("backend sync with local executor runtime", () => {
         `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
       ).sort()).toEqual([
         `${firstConnectionId}:1`,
+        `${firstConnectionId}:6`,
         `${secondConnectionId}:1`,
+        `${secondConnectionId}:6`,
       ]);
       expect(staleAfterLimitedMembershipChange.unsupported).toEqual([]);
       expect(staleAfterLimitedMembershipChange.stale.map(entry =>
@@ -395,9 +426,11 @@ describe("backend sync with local executor runtime", () => {
         `${firstConnectionId}:2`,
         `${firstConnectionId}:3`,
         `${firstConnectionId}:4`,
+        `${firstConnectionId}:5`,
         `${secondConnectionId}:2`,
         `${secondConnectionId}:3`,
         `${secondConnectionId}:4`,
+        `${secondConnectionId}:5`,
       ]);
 
       const firstLimitedBoundaryDelivered = nextJsonMessage(firstWs);
@@ -423,10 +456,10 @@ describe("backend sync with local executor runtime", () => {
       expect(limitedBoundaryResponse.status).toBe(200);
       expectSchedulerTriggerResponse(await limitedBoundaryResponse.json(), {
         deploymentId,
-        changed: 6,
-        claimed: 6,
-        acked: 6,
-        delivered: 6,
+        changed: 8,
+        claimed: 8,
+        acked: 8,
+        delivered: 8,
       });
       expectListSubscriptionTransition(
         await firstLimitedBoundaryDelivered,
@@ -447,6 +480,7 @@ describe("backend sync with local executor runtime", () => {
           ],
           isDone: false,
         },
+        { _id: firstMessageId, teamId, text: "z-last" },
       );
       expectListSubscriptionTransition(
         await secondLimitedBoundaryDelivered,
@@ -467,6 +501,128 @@ describe("backend sync with local executor runtime", () => {
           ],
           isDone: false,
         },
+        { _id: firstMessageId, teamId, text: "z-last" },
+      );
+      await expect(
+        runtime.persistence.listUndeliveredLiveQueryDeliveries({
+          deploymentId,
+          limit: 10,
+        }),
+      ).resolves.toMatchObject({ deliveries: [], hasMore: false });
+
+      sendMutation(firstWs, {
+        type: "Mutation",
+        requestId: 6,
+        udfPath: "messages:update",
+        args: [{ teamId, messageId: secondMessageId, text: "zz-top" }],
+        partitionKey: teamId,
+      });
+      await expect(nextJsonMessage(firstWs)).resolves.toMatchObject({
+        type: "MutationResponse",
+        requestId: 6,
+        success: true,
+        result: secondMessageId,
+        ts: expect.any(Number),
+      });
+
+      const staleAfterUniqueMembershipChange =
+        await runtime.executor.findStaleLiveQuerySubscriptions({
+          deploymentId,
+          freshnessStore: runtime.freshnessStore,
+        });
+      expect(staleAfterUniqueMembershipChange.fresh.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:1`,
+        `${secondConnectionId}:1`,
+      ]);
+      expect(staleAfterUniqueMembershipChange.unsupported).toEqual([]);
+      expect(staleAfterUniqueMembershipChange.stale.map(entry =>
+        `${entry.subscription.connectionId}:${entry.subscription.queryId}`,
+      ).sort()).toEqual([
+        `${firstConnectionId}:2`,
+        `${firstConnectionId}:3`,
+        `${firstConnectionId}:4`,
+        `${firstConnectionId}:5`,
+        `${firstConnectionId}:6`,
+        `${secondConnectionId}:2`,
+        `${secondConnectionId}:3`,
+        `${secondConnectionId}:4`,
+        `${secondConnectionId}:5`,
+        `${secondConnectionId}:6`,
+      ]);
+
+      const firstUniqueBoundaryDelivered = nextJsonMessage(firstWs);
+      const secondUniqueBoundaryDelivered = nextJsonMessage(secondWs);
+      const uniqueBoundaryResponse = await harness.mf.dispatchFetch(
+        "http://flarex.test/scheduler/live-query-subscriptions/trigger",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer delivery-secret",
+          },
+          body: JSON.stringify({
+            deploymentId,
+            projectId,
+            limit: 10,
+            deliveryLimit: 10,
+            maxBatches: 1,
+          }),
+        },
+      );
+
+      expect(uniqueBoundaryResponse.status).toBe(200);
+      expectSchedulerTriggerResponse(await uniqueBoundaryResponse.json(), {
+        deploymentId,
+        changed: 10,
+        claimed: 10,
+        acked: 10,
+        delivered: 10,
+      });
+      expectListSubscriptionTransition(
+        await firstUniqueBoundaryDelivered,
+        "first unique-boundary delivered transition",
+        [
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+          { _id: secondMessageId, teamId, text: "zz-top" },
+        ],
+        [
+          { _id: secondMessageId, teamId, text: "zz-top" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+        ],
+        {
+          page: [
+            { _id: secondMessageId, teamId, text: "zz-top" },
+            { _id: firstMessageId, teamId, text: "z-last" },
+          ],
+          isDone: false,
+        },
+        { _id: secondMessageId, teamId, text: "zz-top" },
+        null,
+      );
+      expectListSubscriptionTransition(
+        await secondUniqueBoundaryDelivered,
+        "second unique-boundary delivered transition",
+        [
+          { _id: thirdMessageId, teamId, text: "updated" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+          { _id: secondMessageId, teamId, text: "zz-top" },
+        ],
+        [
+          { _id: secondMessageId, teamId, text: "zz-top" },
+          { _id: firstMessageId, teamId, text: "z-last" },
+        ],
+        {
+          page: [
+            { _id: secondMessageId, teamId, text: "zz-top" },
+            { _id: firstMessageId, teamId, text: "z-last" },
+          ],
+          isDone: false,
+        },
+        { _id: secondMessageId, teamId, text: "zz-top" },
+        null,
       );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
@@ -586,6 +742,39 @@ export const pageByTeam = query({
       .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
       .order("desc")
       .paginate(args.paginationOpts);
+  },
+});
+
+export const firstByTeam = query({
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams") },
+  returns: v.union(v.null(), v.object({
+    _id: v.id("messages"),
+    teamId: v.id("teams"),
+    text: v.string(),
+  })),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
+      .order("desc")
+      .first();
+  },
+});
+
+export const uniqueByText = query({
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams"), text: v.string() },
+  returns: v.union(v.null(), v.object({
+    _id: v.id("messages"),
+    teamId: v.id("teams"),
+    text: v.string(),
+  })),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_team_text", q => q.eq("teamId", args.teamId).eq("text", args.text))
+      .unique();
   },
 });
 
@@ -883,43 +1072,78 @@ function sendMessageSubscriptions(
         args: [{ teamId, paginationOpts: { numItems: 2, cursor: null } }],
         partitionKey: teamId,
       },
+      {
+        type: "Add",
+        queryId: 5,
+        udfPath: "messages:firstByTeam",
+        args: [{ teamId }],
+        partitionKey: teamId,
+      },
+      {
+        type: "Add",
+        queryId: 6,
+        udfPath: "messages:uniqueByText",
+        args: [{ teamId, text: "second" }],
+        partitionKey: teamId,
+      },
     ],
   });
 }
 
-type ExpectedPaginatedMessages = {
-  page: PaginationResult<Json>["page"];
-  isDone: PaginationResult<Json>["isDone"];
+type ExpectedMessage = {
+  _id: string;
+  teamId: string;
+  text: string;
 };
+
+type ExpectedMaybeMessage = ExpectedMessage | null;
+
+type ExpectedPaginatedMessages = Pick<PaginationResult<ExpectedMessage>, "page" | "isDone">;
 
 function expectMessageSubscriptionTransition(
   transition: unknown,
   name: string,
-  message: Json,
-  messages: Json,
-  recentMessages: Json,
+  message: ExpectedMaybeMessage,
+  messages: ExpectedMessage[],
+  recentMessages: ExpectedMessage[],
   paginatedMessages: ExpectedPaginatedMessages,
+  firstMessage: ExpectedMaybeMessage,
+  uniqueMessage?: ExpectedMaybeMessage,
 ): void {
   const updates = transitionUpdatesByQueryId(transition, name);
-  expect([...updates.keys()]).toEqual([1, 2, 3, 4]);
+  expect([...updates.keys()]).toEqual(uniqueMessage === undefined
+    ? [1, 2, 3, 4, 5]
+    : [1, 2, 3, 4, 5, 6]);
   expect(updates.get(1)).toEqual(message);
   expect(updates.get(2)).toEqual(messages);
   expect(updates.get(3)).toEqual(recentMessages);
   expectPaginatedMessagesResult(updates.get(4), `${name} paginated result`, paginatedMessages);
+  expect(updates.get(5)).toEqual(firstMessage);
+  if (uniqueMessage !== undefined) {
+    expect(updates.get(6)).toEqual(uniqueMessage);
+  }
 }
 
 function expectListSubscriptionTransition(
   transition: unknown,
   name: string,
-  messages: Json,
-  recentMessages: Json,
+  messages: ExpectedMessage[],
+  recentMessages: ExpectedMessage[],
   paginatedMessages: ExpectedPaginatedMessages,
+  firstMessage: ExpectedMaybeMessage,
+  uniqueMessage?: ExpectedMaybeMessage,
 ): void {
   const updates = transitionUpdatesByQueryId(transition, name);
-  expect([...updates.keys()]).toEqual([2, 3, 4]);
+  expect([...updates.keys()]).toEqual(uniqueMessage === undefined
+    ? [2, 3, 4, 5]
+    : [2, 3, 4, 5, 6]);
   expect(updates.get(2)).toEqual(messages);
   expect(updates.get(3)).toEqual(recentMessages);
   expectPaginatedMessagesResult(updates.get(4), `${name} paginated result`, paginatedMessages);
+  expect(updates.get(5)).toEqual(firstMessage);
+  if (uniqueMessage !== undefined) {
+    expect(updates.get(6)).toEqual(uniqueMessage);
+  }
 }
 
 function expectPaginatedMessagesResult(

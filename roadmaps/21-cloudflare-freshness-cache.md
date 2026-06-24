@@ -1,5 +1,94 @@
 # Cloudflare Freshness Cache
 
+## Generated First And Unique Sync
+
+Previous completed checkpoint: `ac41661` Cover indexed paginated sync.
+
+What changed:
+
+- Extended the hosted generated-app sync integration with two additional
+  generated queries:
+  - `messages:firstByTeam`, using `.withIndex(...).order("desc").first()`.
+  - `messages:uniqueByText`, using an equality range over
+    `["teamId", "text"]` and `.unique()`.
+- Both active WebSocket sessions now subscribe to direct document, indexed
+  collect, ordered limited, paginated first-page, first-result, and unique
+  equality-range queries.
+- The first mutation updates the current top message. The integration proves
+  direct, collect, limited, paginated, and `first()` subscriptions become stale
+  and deliver changed results, while the `uniqueByText("second")` subscription
+  stays fresh.
+- The second mutation changes a previously excluded row so it becomes the
+  descending first row. The integration proves collect, limited, paginated, and
+  `first()` subscriptions rerun while direct document and unique equality-range
+  subscriptions remain fresh.
+- The third mutation changes the row matched by `uniqueByText("second")` out
+  of that equality range. The integration proves the unique subscription
+  becomes stale, reruns through the scheduler/delivery path, and fans out
+  `null` to both WebSocket sessions.
+
+Why it changed:
+
+Convex encourages developers to avoid unbounded `collect()` when they only need
+one result. `first()` and `unique()` are therefore core query consumers, not
+edge APIs. The previous generated hosted coverage proved collect, ordered
+limit, and pagination, but not the one-result consumers that are common for
+lookup and existence checks. This slice proves those consumers work through the
+generated source package, Dynamic Worker syscall boundary, trusted executor
+read-set capture, stale classification, durable delivery, and Cloudflare
+WebSocket fanout. It also proves the important inverse case: a narrow
+`unique()` equality-range subscription is not invalidated by unrelated writes,
+but is invalidated when its matching row leaves the range.
+
+Convex references:
+
+- `npm-packages/convex/src/server/query.ts`
+  - documents `first()` as returning the first result or `null`, and
+    `unique()` as returning the single result or throwing when more than one
+    document matches.
+- `npm-packages/convex/src/server/impl/query_impl.ts`
+  - implements `first()` as `take(1)` and `unique()` as `take(2)` plus a
+    multiple-result error.
+- `npm-packages/version/convex/util/oldCursorRules.ts`
+  - records the public guidance that `.unique()` is for a single matching
+    document and throws if multiple documents match.
+- `crates/sync/src/worker.rs`
+  - reruns invalidated query subscriptions and emits transitions for changed
+    query results.
+
+Flarex differences:
+
+- Convex executes `first()` and `unique()` inside the integrated backend query
+  runtime. Flarex proves the same generated API shape through the Dynamic
+  Worker and trusted executor query syscall boundary.
+- This slice covers successful `unique()` with a single row and the transition
+  from one matching row to no matching rows. It does not yet prove sync error
+  delivery for the Convex-style duplicate-result failure.
+- The `uniqueByText("second")` query is intentionally used as a stable
+  equality-range read so the test can prove unrelated writes do not over-stale
+  a narrow unique subscription.
+
+Known limitations:
+
+- Generated hosted `/sync` does not yet cover duplicate-result `unique()`
+  errors as `QueryFailed` transitions.
+- The test still exercises one generated fixture. Broader query consumer
+  coverage should eventually move into a more table-driven integration shape if
+  this file keeps growing.
+- Real Postgres query-plan behavior remains a separate correctness lane from
+  the current local PGlite executor lane.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Generated Indexed Pagination Sync
 
 Previous completed checkpoint: `dda3efb` Cover ordered limited indexed sync.
