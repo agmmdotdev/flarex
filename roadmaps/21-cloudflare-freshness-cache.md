@@ -1,5 +1,101 @@
 # Cloudflare Freshness Cache
 
+## Delivery Continuation Cursor Persistence
+
+Previous completed checkpoint: `f632a11` Cover delivery continue failure summaries.
+
+What changed:
+
+- `DeliveryDO` now persists the last claimed delivery cursor in pending drain
+  state whenever a bounded drain returns `hasMore: true`.
+- Wake and continue responses still expose the same public drain result shape;
+  the persisted cursor is internal continuation state, not response metadata.
+- Executor claim responses now reject `hasMore: true` unless `nextCursor` is a
+  concrete cursor, so continuation state cannot silently fall back to a
+  no-cursor retry.
+- The shared executor claim result type and Postgres persistence claim result
+  now encode the same rule: `hasMore: true` requires a concrete `nextCursor`.
+- Postgres delivery claiming derives the continuation cursor from the last
+  candidate row, not from the rows successfully updated, so a concurrent claim
+  race can still advance the scan instead of returning an invalid
+  `hasMore: true`/`nextCursor: null` page.
+- The in-memory executor test persistence mirrors the same cursor invariant.
+- Pending delivery drain state is parsed after reading Durable Object storage
+  instead of being trusted through a generic type.
+- DeliveryDO normalizes claim and stored cursor timestamps through `Date`
+  parsing before persisting or reusing them.
+- Existing continuation success coverage now asserts the second claim includes
+  the cursor from the first page.
+- Continue-failure coverage now asserts the failed second claim also includes
+  the persisted cursor.
+- Added malformed executor response coverage for `hasMore: true` with
+  `nextCursor: null`.
+- Added empty-page continuation coverage so `{ deliveries: [], hasMore: true,
+  nextCursor }` still persists and reuses the returned cursor.
+- Added Postgres persistence coverage for delivery claim pages with more rows
+  to prove they expose a concrete continuation cursor.
+
+Why it changed:
+
+The previous checkpoint documented that continuation state preserved only the
+drain parameters. That was compatible with the executor claim contract, but it
+left long backlogs dependent on the executor filtering out already-acked rows.
+Persisting the cursor keeps the Cloudflare `DeliveryDO` continuation model
+closer to the scheduler cursor model and reduces redundant scans. Requiring a
+cursor when the executor reports more rows mirrors `SchedulerDO` continuation
+contracts and makes malformed executor responses fail before state is written.
+The review pass found the important production edge case: Postgres can see
+claimable candidates while another worker claims them first. In that case the
+cursor must come from the candidate page so `DeliveryDO` can continue bounded
+maintenance work without treating a normal race as a corrupt executor response.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex's sync worker keeps delivery/rerun progress inside a backend worker
+    loop instead of exposing a separate continuation cursor.
+- `crates/sync/src/state.rs`
+  - sync state updates advance backend-owned state before client transitions
+    are emitted.
+
+Flarex differences:
+
+- Flarex needs explicit Durable Object continuation state because bounded
+  Cloudflare work may split one delivery backlog across multiple wake,
+  continue, or alarm invocations.
+- Flarex's executor contract is stricter than a generic list page: claim pages
+  with `hasMore: true` must be restartable from `nextCursor`, even when the
+  claimed delivery list is empty after concurrency filtering.
+- The continuation cursor is backend-internal; it does not change the
+  Convex-style client sync protocol.
+
+Known limitations:
+
+- This remains a single cursor per deployment `DeliveryDO` pending drain.
+- Alarm failures still swallow the response after scheduling retry state; this
+  checkpoint only preserves cursor state for the retry/continue path.
+- Storage parsing primitives now exist in both `DeliveryDO` and `SchedulerDO`;
+  a future cleanup should extract shared backend-local storage validators.
+- Durable metrics and alerting hooks are still future work.
+- A future real-Postgres concurrency regression should simulate candidates
+  being selected while another claimer wins the update, proving the
+  candidate-derived cursor still advances when the returned delivery list is
+  shorter than the selected candidate page.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO draining|DeliveryDO continue failures|claim pages with hasMore but no cursor|empty hasMore pages|records DeliveryDO claim failures|records DeliveryDO fanout failures|records DeliveryDO ack failures" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "live query delivery" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts -t "delivery" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery Continue Failure Coverage
 
 Previous completed checkpoint: `7ccff51` Cover delivery claim failure summaries.
@@ -49,10 +145,6 @@ Known limitations:
   are still future work.
 - The alarm path swallows continuation failures after scheduling retry state;
   this test covers direct `/continue` response shape, not alarm observability.
-- `DeliveryDO` continuation state currently preserves the drain parameters but
-  not the last page cursor. This is compatible with the executor claim contract
-  because already-acked rows should no longer be returned as pending delivery
-  work, but explicit cursor persistence may become useful for large backlogs.
 
 Verification:
 

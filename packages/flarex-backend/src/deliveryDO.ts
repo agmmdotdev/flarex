@@ -25,6 +25,7 @@ type PendingDeliveryDrain = {
   leaseDurationMs: number;
   claimOwner: string;
   retryAttempt: number;
+  cursor?: LiveQueryDeliveryCursor;
 };
 
 type LiveQueryDeliveryRecord = {
@@ -42,9 +43,10 @@ type LiveQueryDeliveryCursor = {
 
 type ClaimLiveQueryDeliveryBatchResult = {
   deliveries: LiveQueryDeliveryRecord[];
-  nextCursor: LiveQueryDeliveryCursor | null;
-  hasMore: boolean;
-};
+} & (
+  | { hasMore: true; nextCursor: LiveQueryDeliveryCursor }
+  | { hasMore: false; nextCursor: LiveQueryDeliveryCursor | null }
+);
 
 type DeliveryDrainResult = LiveQueryDeliveryResult & {
   deploymentId: string;
@@ -54,6 +56,11 @@ type DeliveryDrainResult = LiveQueryDeliveryResult & {
   hasMore: boolean;
   summary: DeliveryDrainSummary;
 };
+
+type DeliveryDrainRunResult = DeliveryDrainResult & (
+  | { hasMore: true; continuationCursor: LiveQueryDeliveryCursor }
+  | { hasMore: false; continuationCursor?: never }
+);
 
 type DeliveryFailureStage = "fanout" | "ack";
 
@@ -129,15 +136,14 @@ export class DeliveryDO extends DurableObject<Env> {
   }
 
   private async continuePendingDrain(): Promise<DeliveryDrainResult | { skipped: true }> {
-    const pending = await this.ctx.storage.get<PendingDeliveryDrain>(
-      PENDING_DRAIN_KEY,
-    );
-    if (pending === undefined) return { skipped: true };
+    const storedPending = await this.ctx.storage.get(PENDING_DRAIN_KEY);
+    if (storedPending === undefined) return { skipped: true };
+    const pending = pendingDeliveryDrainFromStorage(storedPending);
 
     try {
       const result = await this.drain(pending);
       await this.persistDrainContinuation(pending, result);
-      return result;
+      return publicDrainResult(result);
     } catch (error) {
       await this.scheduleDrainRetry(pending);
       throw error;
@@ -151,7 +157,7 @@ export class DeliveryDO extends DurableObject<Env> {
     const pending = pendingDrainFromWake(body);
     const drain = this.drain(pending).then(async result => {
       await this.persistDrainContinuation(pending, result);
-      return result;
+      return publicDrainResult(result);
     }).finally(() => {
       this.drainInFlight = undefined;
     });
@@ -159,7 +165,7 @@ export class DeliveryDO extends DurableObject<Env> {
     return drain;
   }
 
-  private async drain(body: PendingDeliveryDrain): Promise<DeliveryDrainResult> {
+  private async drain(body: PendingDeliveryDrain): Promise<DeliveryDrainRunResult> {
     const deploymentId = body.deploymentId;
     const limit = body.limit;
     const maxBatches = body.maxBatches;
@@ -171,7 +177,7 @@ export class DeliveryDO extends DurableObject<Env> {
     let skipped = 0;
     const skipReasons: LiveQueryDeliverySkipReasons = {};
     let hasMore = false;
-    let cursor: LiveQueryDeliveryCursor | undefined;
+    let cursor = body.cursor;
     const leaseDurationMs = body.leaseDurationMs;
     const claimOwner = body.claimOwner;
 
@@ -200,6 +206,9 @@ export class DeliveryDO extends DurableObject<Env> {
         }));
       }
       batches += 1;
+      if (page.hasMore) {
+        cursor = page.nextCursor ?? undefined;
+      }
       if (page.deliveries.length === 0) {
         hasMore = page.hasMore;
         break;
@@ -270,10 +279,9 @@ export class DeliveryDO extends DurableObject<Env> {
       acked += ack.delivered;
       hasMore = page.hasMore;
       if (!page.hasMore) break;
-      cursor = page.nextCursor ?? undefined;
     }
 
-    return {
+    const resultBase = {
       deploymentId,
       batches,
       claimed,
@@ -281,7 +289,6 @@ export class DeliveryDO extends DurableObject<Env> {
       delivered,
       skipped,
       ...liveQueryDeliverySkipMetadata(skipReasons),
-      hasMore,
       summary: {
         batches,
         claimed,
@@ -293,21 +300,48 @@ export class DeliveryDO extends DurableObject<Env> {
         hasMore,
       },
     };
+    if (hasMore && cursor !== undefined) {
+      return {
+        ...resultBase,
+        hasMore: true,
+        continuationCursor: cursor,
+        summary: {
+          ...resultBase.summary,
+          hasMore: true,
+        },
+      };
+    }
+    return {
+      ...resultBase,
+      hasMore: false,
+      summary: {
+        ...resultBase.summary,
+        hasMore: false,
+      },
+    };
   }
 
   private async persistDrainContinuation(
     pending: PendingDeliveryDrain,
-    result: DeliveryDrainResult,
+    result: DeliveryDrainRunResult,
   ): Promise<void> {
     if (!result.hasMore) {
       await this.ctx.storage.delete(PENDING_DRAIN_KEY);
       await this.ctx.storage.deleteAlarm();
       return;
     }
-    await this.ctx.storage.put(PENDING_DRAIN_KEY, {
-      ...pending,
+    const nextPending = {
+      deploymentId: pending.deploymentId,
+      limit: pending.limit,
+      maxBatches: pending.maxBatches,
+      leaseDurationMs: pending.leaseDurationMs,
+      claimOwner: pending.claimOwner,
+      ...(result.continuationCursor === undefined
+        ? {}
+        : { cursor: result.continuationCursor }),
       retryAttempt: 0,
-    });
+    } satisfies PendingDeliveryDrain;
+    await this.ctx.storage.put(PENDING_DRAIN_KEY, nextPending);
     await this.ctx.storage.setAlarm(Date.now() + CONTINUE_ALARM_DELAY_MS);
   }
 
@@ -459,6 +493,35 @@ function deliveryDrainFailureResult(input: {
   };
 }
 
+function publicDrainResult(result: DeliveryDrainRunResult): DeliveryDrainResult {
+  const { continuationCursor: _continuationCursor, ...publicResult } = result;
+  return publicResult;
+}
+
+function pendingDeliveryDrainFromStorage(value: unknown): PendingDeliveryDrain {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(500, "Pending delivery drain state must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    deploymentId: storageString(record.deploymentId, "pending delivery drain deploymentId"),
+    limit: storagePositiveInteger(record.limit, "pending delivery drain limit"),
+    maxBatches: storagePositiveInteger(record.maxBatches, "pending delivery drain maxBatches"),
+    leaseDurationMs: storagePositiveInteger(
+      record.leaseDurationMs,
+      "pending delivery drain leaseDurationMs",
+    ),
+    claimOwner: storageString(record.claimOwner, "pending delivery drain claimOwner"),
+    retryAttempt: storageNonNegativeInteger(
+      record.retryAttempt,
+      "pending delivery drain retryAttempt",
+    ),
+    ...(record.cursor === undefined
+      ? {}
+      : { cursor: storageCursor(record.cursor, "pending delivery drain cursor") }),
+  };
+}
+
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
   const deploymentId = requiredWakeString(body.deploymentId, "deploymentId");
   return {
@@ -533,12 +596,28 @@ function claimResultFromUnknown(value: unknown): ClaimLiveQueryDeliveryBatchResu
   if (!Array.isArray(record.deliveries)) {
     throw new HttpError(502, "Live query delivery claim response.deliveries must be an array.");
   }
+  const nextCursor = cursorFromUnknown(record.nextCursor);
+  const hasMore = booleanFromUnknown(record.hasMore, "hasMore");
+  if (hasMore && nextCursor === null) {
+    throw new HttpError(
+      502,
+      "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
+    );
+  }
+  const deliveries = record.deliveries.map((delivery, index) =>
+    deliveryRecordFromUnknown(delivery, `deliveries[${index}]`),
+  );
+  if (hasMore && nextCursor !== null) {
+    return {
+      deliveries,
+      nextCursor,
+      hasMore: true,
+    };
+  }
   return {
-    deliveries: record.deliveries.map((delivery, index) =>
-      deliveryRecordFromUnknown(delivery, `deliveries[${index}]`),
-    ),
-    nextCursor: cursorFromUnknown(record.nextCursor),
-    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
+    deliveries,
+    nextCursor,
+    hasMore: false,
   };
 }
 
@@ -566,14 +645,54 @@ function cursorFromUnknown(value: unknown): LiveQueryDeliveryCursor | null {
   }
   const record = value as Record<string, unknown>;
   return {
-    createdAt: stringFromUnknown(record.createdAt, "nextCursor.createdAt"),
+    createdAt: dateStringFromUnknown(record.createdAt, "nextCursor.createdAt"),
     deliveryId: stringFromUnknown(record.deliveryId, "nextCursor.deliveryId"),
   };
+}
+
+function storageCursor(value: unknown, field: string): LiveQueryDeliveryCursor {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(500, `${field} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    createdAt: dateStringFromStorage(record.createdAt, `${field}.createdAt`),
+    deliveryId: storageString(record.deliveryId, `${field}.deliveryId`),
+  };
+}
+
+function storageString(value: unknown, field: string): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new HttpError(500, `${field} must be a non-empty string.`);
+}
+
+function storagePositiveInteger(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  throw new HttpError(500, `${field} must be a positive integer.`);
+}
+
+function storageNonNegativeInteger(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  throw new HttpError(500, `${field} must be a non-negative integer.`);
 }
 
 function stringFromUnknown(value: unknown, field: string): string {
   if (typeof value === "string" && value.length > 0) return value;
   throw new HttpError(502, `${field} must be a non-empty string.`);
+}
+
+function dateStringFromUnknown(value: unknown, field: string): string {
+  const text = stringFromUnknown(value, field);
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  throw new HttpError(502, `${field} must be an ISO date string.`);
+}
+
+function dateStringFromStorage(value: unknown, field: string): string {
+  const text = storageString(value, field);
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  throw new HttpError(500, `${field} must be an ISO date string.`);
 }
 
 function integerFromUnknown(value: unknown, field: string): number {

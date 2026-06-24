@@ -52,7 +52,12 @@ export interface ClaimLiveQueryDeliveriesInput {
   claimOwner?: string;
 }
 
-export type ClaimLiveQueryDeliveriesResult = ListUndeliveredLiveQueryDeliveriesResult;
+export type ClaimLiveQueryDeliveriesResult = {
+  deliveries: LiveQueryDeliveryRecord[];
+} & (
+  | { hasMore: true; nextCursor: LiveQueryDeliveryCursor }
+  | { hasMore: false; nextCursor: LiveQueryDeliveryCursor | null }
+);
 
 export interface PendingLiveQueryDeliveryDeploymentCursor {
   oldestCreatedAt: Date;
@@ -230,6 +235,7 @@ export async function claimLiveQueryDeliveries(
   const candidates = await db
     .select({
       deliveryId: liveQueryDeliveries.deliveryId,
+      createdAt: liveQueryDeliveries.createdAt,
     })
     .from(liveQueryDeliveries)
     .where(
@@ -247,12 +253,16 @@ export async function claimLiveQueryDeliveries(
   const deliveryIds = candidates
     .slice(0, input.limit)
     .map(candidate => candidate.deliveryId);
+  const lastCandidate = candidates.slice(0, input.limit).at(-1);
+  const nextCursor =
+    hasMore && lastCandidate !== undefined
+      ? {
+          createdAt: lastCandidate.createdAt,
+          deliveryId: lastCandidate.deliveryId,
+        }
+      : null;
   if (deliveryIds.length === 0) {
-    return {
-      deliveries: [],
-      nextCursor: null,
-      hasMore,
-    };
+    return claimLiveQueryDeliveriesResult([], hasMore, nextCursor);
   }
 
   const rows = await db
@@ -271,17 +281,28 @@ export async function claimLiveQueryDeliveries(
     .returning();
 
   const deliveries = rows.sort(compareDeliveryRecords);
-  const last = deliveries.at(-1);
+  return claimLiveQueryDeliveriesResult(deliveries, hasMore, nextCursor);
+}
+
+function claimLiveQueryDeliveriesResult(
+  deliveries: LiveQueryDeliveryRecord[],
+  hasMore: boolean,
+  nextCursor: LiveQueryDeliveryCursor | null,
+): ClaimLiveQueryDeliveriesResult {
+  if (hasMore) {
+    if (nextCursor === null) {
+      throw new Error("Claimed live query delivery page with hasMore must have a cursor.");
+    }
+    return {
+      deliveries,
+      hasMore: true,
+      nextCursor,
+    };
+  }
   return {
     deliveries,
-    nextCursor:
-      hasMore && last !== undefined
-        ? {
-            createdAt: last.createdAt,
-            deliveryId: last.deliveryId,
-          }
-        : null,
-    hasMore,
+    hasMore: false,
+    nextCursor,
   };
 }
 

@@ -3213,6 +3213,76 @@ describe("createPGlitePersistence", () => {
     });
   });
 
+  it("returns a concrete cursor for live query delivery claim pages with more rows", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_claim_cursor",
+      deliveryId: "delivery_cursor_a",
+      connectionId: "connection_cursor",
+      queryId: 1,
+      payloadJson: { resultJson: "a" },
+      createdAt: new Date("2026-06-20T00:00:00.000Z"),
+    });
+    await persistence.insertLiveQueryDelivery({
+      deploymentId: "deployment_claim_cursor",
+      deliveryId: "delivery_cursor_b",
+      connectionId: "connection_cursor",
+      queryId: 2,
+      payloadJson: { resultJson: "b" },
+      createdAt: new Date("2026-06-20T00:00:01.000Z"),
+    });
+
+    const first = await persistence.claimLiveQueryDeliveries({
+      deploymentId: "deployment_claim_cursor",
+      limit: 1,
+      claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+      claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+      claimOwner: "delivery:cursor",
+    });
+    expect(first).toEqual({
+      deliveries: [
+        expect.objectContaining({
+          deliveryId: "delivery_cursor_a",
+          claimedAt: new Date("2026-06-20T00:01:00.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:02:00.000Z"),
+          claimOwner: "delivery:cursor",
+        }),
+      ],
+      nextCursor: {
+        createdAt: new Date("2026-06-20T00:00:00.000Z"),
+        deliveryId: "delivery_cursor_a",
+      },
+      hasMore: true,
+    });
+    if (!first.hasMore) {
+      throw new Error("Expected first delivery claim page to have more rows.");
+    }
+
+    await expect(
+      persistence.claimLiveQueryDeliveries({
+        deploymentId: "deployment_claim_cursor",
+        cursor: first.nextCursor,
+        limit: 10,
+        claimedAt: new Date("2026-06-20T00:01:10.000Z"),
+        claimExpiresAt: new Date("2026-06-20T00:02:10.000Z"),
+        claimOwner: "delivery:cursor",
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [
+        {
+          deliveryId: "delivery_cursor_b",
+          claimedAt: new Date("2026-06-20T00:01:10.000Z"),
+          claimExpiresAt: new Date("2026-06-20T00:02:10.000Z"),
+          claimOwner: "delivery:cursor",
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
   it("does not return the same live query delivery to concurrent claimers", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

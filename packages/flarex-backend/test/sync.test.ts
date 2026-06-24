@@ -2874,7 +2874,7 @@ describe("sync protocol", () => {
 
     expect(continued.status).toBe(200);
     const continuedBody: unknown = await continued.json();
-    if (deliveryDrainSkipped(continuedBody)) {
+    if (isSkippedResponse(continuedBody)) {
       await waitFor(() => executorRequests.length >= 4);
     } else {
       expect(continuedBody).toEqual({
@@ -2918,7 +2918,8 @@ describe("sync protocol", () => {
         ],
       },
     ]);
-    expect(executorRequests).toEqual([
+    await waitFor(() => deliveryMaintenanceRequests(executorRequests).length >= 4);
+    expect(deliveryMaintenanceRequests(executorRequests)).toEqual([
       {
         path: "/maintenance/live-queries/claim",
         authorization: "Bearer executor-secret",
@@ -2946,6 +2947,10 @@ describe("sync protocol", () => {
           limit: 1,
           leaseDurationMs: 30000,
           claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
+          cursor: {
+            createdAt: "2026-06-21T00:00:01.000Z",
+            deliveryId: "delivery_1",
+          },
         },
       },
       {
@@ -3125,7 +3130,7 @@ describe("sync protocol", () => {
         },
       ],
     });
-    expect(executorRequests).toEqual([
+    expect(deliveryMaintenanceRequests(executorRequests)).toEqual([
       {
         path: "/maintenance/live-queries/claim",
         authorization: "Bearer executor-secret",
@@ -3153,10 +3158,234 @@ describe("sync protocol", () => {
           limit: 1,
           leaseDurationMs: 30000,
           claimOwner: expect.stringMatching(/^delivery:sync-delivery-continue-failure-deployment:/),
+          cursor: {
+            createdAt: "2026-06-21T00:00:01.000Z",
+            deliveryId: "delivery_continue_1",
+          },
         },
       },
     ]);
     ws.close();
+  });
+
+  it("rejects DeliveryDO claim pages with hasMore but no cursor", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-missing-cursor-deployment";
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [],
+                nextCursor: null,
+                hasMore: true,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 1, maxBatches: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(500);
+    const responseBody: unknown = await response.json();
+    const expectedFailure = {
+      deploymentId,
+      error: "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
+      failure: {
+        stage: "claim",
+        status: 502,
+        error: "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
+      },
+      summary: {
+        batches: 0,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+        failure: {
+          stage: "claim",
+          status: 502,
+          error: "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
+        },
+      },
+    } satisfies DeliveryDrainFailureResult;
+    expect(responseBody).toEqual(expectedFailure);
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-missing-cursor-deployment:/),
+        },
+      },
+    ]);
+  });
+
+  it("continues DeliveryDO empty hasMore pages from the returned cursor", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    let claimCount = 0;
+    const deploymentId = "sync-delivery-empty-page-cursor-deployment";
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              claimCount += 1;
+              return Response.json({
+                deliveries: [],
+                nextCursor: {
+                  createdAt: "2026-06-21T00:00:02.000Z",
+                  deliveryId: "delivery_empty_page",
+                },
+                hasMore: claimCount === 1,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 1, maxBatches: 2 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId,
+      batches: 1,
+      claimed: 0,
+      acked: 0,
+      delivered: 0,
+      skipped: 0,
+      hasMore: true,
+      summary: {
+        batches: 1,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: true,
+      },
+    });
+
+    const env = await harness.mf.getBindings<Env>();
+    const delivery = env.DELIVERIES.getByName(`delivery:${deploymentId}`);
+    const continued = await delivery.fetch("https://flarex.internal/continue", {
+      method: "POST",
+    });
+
+    expect(continued.status).toBe(200);
+    const continuedBody: unknown = await continued.json();
+    if (isSkippedResponse(continuedBody)) {
+      await waitFor(() => executorRequests.length >= 2);
+    } else {
+      expect(continuedBody).toEqual({
+        deploymentId,
+        batches: 1,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        hasMore: false,
+        summary: {
+          batches: 1,
+          claimed: 0,
+          acked: 0,
+          delivered: 0,
+          skipped: 0,
+          pendingAck: 0,
+          hasMore: false,
+        },
+      });
+    }
+    await waitFor(() => deliveryMaintenanceRequests(executorRequests).length >= 2);
+    expect(deliveryMaintenanceRequests(executorRequests)).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-empty-page-cursor-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-empty-page-cursor-deployment:/),
+          cursor: {
+            createdAt: "2026-06-21T00:00:02.000Z",
+            deliveryId: "delivery_empty_page",
+          },
+        },
+      },
+    ]);
   });
 
   it("reconciles lost live query wake notifications through SchedulerDO", async () => {
@@ -5537,4 +5766,14 @@ function testSourcePackage(): PushSourcePackage {
     functions: ["users.js"],
     execution: "_flarex/execution.js",
   };
+}
+
+function deliveryMaintenanceRequests(
+  requests: Array<{ path: string; authorization: string | null; body: unknown }>,
+): Array<{ path: string; authorization: string | null; body: unknown }> {
+  return requests.filter(
+    request =>
+      request.path === "/maintenance/live-queries/claim" ||
+      request.path === "/maintenance/live-queries/ack",
+  );
 }

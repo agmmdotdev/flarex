@@ -456,11 +456,7 @@ export interface ClaimLiveQueryDeliveryBatchInput {
   claimOwner?: string;
 }
 
-export interface ClaimLiveQueryDeliveryBatchResult {
-  deliveries: LiveQueryDeliveryRecord[];
-  nextCursor: LiveQueryDeliveryCursor | null;
-  hasMore: boolean;
-}
+export type ClaimLiveQueryDeliveryBatchResult = ClaimLiveQueryDeliveriesResult;
 
 export interface AckLiveQueryDeliveriesInput {
   deploymentId: string;

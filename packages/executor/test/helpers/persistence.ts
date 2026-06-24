@@ -1160,6 +1160,7 @@ export function memoryPersistence(
         );
       const rows = sorted.slice(0, input.limit + 1);
       const claimable = rows.slice(0, input.limit);
+      const lastCandidate = claimable.at(-1);
       const deliveryKeys = new Set(claimable.map(liveQueryDeliveryKey));
       const deliveries: LiveQueryDeliveryRecord[] = [];
       for (let index = 0; index < liveQueryDeliveries.length; index += 1) {
@@ -1180,17 +1181,31 @@ export function memoryPersistence(
           left.deliveryId.localeCompare(right.deliveryId),
       );
       const hasMore = rows.length > input.limit;
-      const last = deliveries.at(-1);
+      const nextCursor =
+        hasMore && lastCandidate !== undefined
+          ? {
+              createdAt: lastCandidate.createdAt,
+              deliveryId: lastCandidate.deliveryId,
+            }
+          : null;
+      if (hasMore && nextCursor === null) {
+        throw new Error("Claimed live query delivery page with hasMore must have a cursor.");
+      }
+      if (hasMore) {
+        const concreteNextCursor = nextCursor;
+        if (concreteNextCursor === null) {
+          throw new Error("Claimed live query delivery page with hasMore must have a cursor.");
+        }
+        return {
+          deliveries,
+          hasMore: true,
+          nextCursor: concreteNextCursor,
+        };
+      }
       return {
         deliveries,
-        hasMore,
-        nextCursor:
-          hasMore && last !== undefined
-            ? {
-                createdAt: last.createdAt,
-                deliveryId: last.deliveryId,
-              }
-            : null,
+        hasMore: false,
+        nextCursor,
       };
     },
     async listPendingLiveQueryDeliveryDeployments(
