@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFlarexDevRuntime, type FlarexDevRuntime } from "../src/dev";
+import { createMinimalFlarexProject } from "./fixtures";
 
 type MiniflareWebSocket = {
   accept(): void;
@@ -24,12 +25,25 @@ type MiniflareWebSocket = {
 let runtime: FlarexDevRuntime;
 let persistDir: string;
 
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const generatedTypecheckOptions = {
+  typescriptCliPath: "node_modules/typescript/bin/tsc",
+  cwd: workspaceRoot,
+  compilerOptions: {
+    paths: {
+      flarex: ["packages/flarex/src/index.ts"],
+      "flarex/*": ["packages/flarex/src/*"],
+    },
+  },
+};
+
 beforeAll(async () => {
   persistDir = await mkdtemp(join(tmpdir(), "flarex-dev-runtime-"));
   runtime = await createFlarexDevRuntime({
     root: resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/example"),
     deploymentId: "dev-runtime-test",
     persistDir,
+    typecheckGeneratedOutput: generatedTypecheckOptions,
   });
 });
 
@@ -39,6 +53,41 @@ afterAll(async () => {
 });
 
 describe("Flarex dev runtime", () => {
+  it("fails startup before activation when generated output typecheck fails", async () => {
+    const failedPersistDir = await mkdtemp(join(tmpdir(), "flarex-dev-typecheck-failure-"));
+    try {
+      await expect(createFlarexDevRuntime({
+        root: resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/example"),
+        deploymentId: "dev-runtime-typecheck-failure",
+        persistDir: failedPersistDir,
+        typecheckGeneratedOutput: {
+          ...generatedTypecheckOptions,
+          typescriptCliPath: "node_modules/typescript/bin/not-tsc.js",
+        },
+      })).rejects.toThrow("Generated output typecheck failed.");
+    } finally {
+      await rm(failedPersistDir, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  it("cleans the default dev persist directory after startup typecheck failure", async () => {
+    const root = await createMinimalFlarexProject("flarex-dev-typecheck-cleanup-");
+    try {
+      await expect(createFlarexDevRuntime({
+        root,
+        deploymentId: "dev-runtime-typecheck-cleanup",
+        typecheckGeneratedOutput: {
+          ...generatedTypecheckOptions,
+          typescriptCliPath: "node_modules/typescript/bin/not-tsc.js",
+        },
+      })).rejects.toThrow("Generated output typecheck failed.");
+
+      await expect(pathExists(join(root, ".flarex/dev"))).resolves.toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60000);
+
   it("exposes health for the generated app and backend", async () => {
     const response = await runtime.fetch(new Request("http://localhost/__flarex_dev/health"));
     expect(response.ok).toBe(true);
@@ -140,6 +189,7 @@ describe("Flarex dev runtime", () => {
       executorToken: "executor-secret",
       liveQueryDeliveryToken: "delivery-secret",
       persistDir: postgresPersistDir,
+      typecheckGeneratedOutput: generatedTypecheckOptions,
     });
 
     try {
@@ -208,6 +258,16 @@ describe("Flarex dev runtime", () => {
     }
   }, 60000);
 });
+
+async function pathExists(path: string): Promise<boolean> {
+  return stat(path).then(
+    () => true,
+    error => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    },
+  );
+}
 
 async function openDevSync(runtime: FlarexDevRuntime): Promise<MiniflareWebSocket> {
   const response = await runtime.fetch(

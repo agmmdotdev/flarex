@@ -1,5 +1,76 @@
 # SDK And CLI Fork
 
+## Generated Output Typecheck Dev Integration
+
+Previous completed checkpoint: `7380900` Expose generated output typecheck.
+
+What changed:
+
+- `FlarexPluginOptions` now exposes
+  `typecheckGeneratedOutput?: false | FlarexGeneratedOutputTypecheckConfig`.
+- The Vite plugin invokes `typecheckGeneratedOutput(...)` after codegen when
+  the option is provided.
+- `FlarexDevRuntimeOptions` exposes the same option so direct dev-runtime
+  users can enforce generated-output typechecking without going through Vite.
+- `generatedOutputTypecheckOptions(...)` centralizes the merge from
+  root/appDir/generatedDir plus the nested typecheck config.
+- The helper applies host `root`, `appDir`, and `generatedDir` after the nested
+  config so structurally wider caller objects cannot override the authoritative
+  app paths.
+- The public nested config type forbids host codegen keys and the runtime merge
+  drops them defensively before rebuilding canonical host paths.
+- The host option merge helper remains internal to `flarex-dev`; the package
+  export surface exposes the executable typecheck helper and public option
+  types only.
+
+Why it changed:
+
+Generated code validation needs to be part of the SDK/dev API surface, not only
+an exported utility. This keeps Flarex moving toward Convex's developer model:
+codegen, analysis, final generated APIs, and typechecking are one coherent
+workflow.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen is wired into developer workflow checks.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev orchestration gates serving on generated/deployed state.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated APIs remain developer-visible TypeScript contracts.
+
+Flarex differences:
+
+- This is an opt-in SDK option, not the default CLI behavior yet.
+- The typecheck scope is generated output only, which is narrower than a full
+  app typecheck.
+- In serve mode with local dev enabled, the dev runtime owns authoritative
+  final-codegen typechecking instead of the plugin running an extra startup
+  gate.
+- In serve mode with `dev: false`, plugin-owned codegen/typecheck runs once
+  even if Vite invokes both configure-server and build-start paths.
+
+Known limitations:
+
+- There is still no `flarex codegen --typecheck` command.
+- Vite watcher failure reporting is still logger-only when reload fails after
+  startup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generatedTypecheck.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/devDispose.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/vite.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Output Typecheck API
 
 Previous completed checkpoint: `f7634e1` Typecheck generated output tree.

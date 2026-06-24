@@ -1,5 +1,96 @@
 # Local Dev Server
 
+## Optional Generated Output Typecheck In Dev Flow
+
+Previous completed checkpoint: `7380900` Expose generated output typecheck.
+
+What changed:
+
+- `createFlarexDevRuntime(...)` now accepts
+  `typecheckGeneratedOutput?: false | FlarexGeneratedOutputTypecheckConfig`.
+- The dev runtime runs generated-output typecheck after authoritative final
+  codegen and before executor package activation or app replacement.
+- The Vite plugin accepts the same option and runs it after plugin-driven
+  `generateFlarex(...)` calls.
+- The Vite plugin passes the option into the local dev runtime so reloads can
+  enforce the same generated-output gate.
+- `dev.test.ts` now creates both legacy and Postgres dev runtimes with
+  generated-output typechecking enabled.
+- Dev runtime reload/typecheck startup failures now dispose local Miniflare
+  resources before rethrowing.
+- Reload/typecheck startup-failure cleanup is best-effort for each runtime
+  resource, preserves the primary startup error, and removes the default
+  `.flarex/dev` persist directory after disposals settle.
+- Public `dispose()` still reports cleanup failures, aggregating multiple
+  resource-disposal errors instead of silently swallowing them.
+- Added a dispose regression proving default persist cleanup failures are
+  reported during normal user-initiated shutdown.
+- The Vite plugin skips plugin-owned codegen/typecheck during normal dev
+  startup when the dev runtime will own authoritative final codegen.
+- The Vite plugin also avoids a second plugin-owned codegen/typecheck pass when
+  `dev: false` serve startup already ran one.
+- Added failure coverage proving dev runtime startup and Vite build codegen
+  reject when the generated-output typecheck command fails.
+- Added cleanup coverage proving the default dev persist directory is removed
+  when startup fails during generated-output typecheck.
+- Added Vite serve coverage proving `dev: false` startup does not rerun the
+  plugin-owned generated-output gate.
+- Added default Vite dev coverage proving `typecheckGeneratedOutput` is
+  forwarded into the dev runtime.
+- `dev: false` watcher generated-output failures are caught and reported
+  through the Vite logger instead of escaping the watcher callback.
+- Minimal Flarex test-project setup for lifecycle tests now lives in
+  `packages/flarex-dev/test/fixtures.ts`.
+
+Why it changed:
+
+The previous checkpoint exposed the typecheck helper but did not use it in the
+actual local dev lifecycle. Convex's dev flow treats generated code as a real
+developer-facing contract. Flarex should fail before activation when final
+codegen emits broken generated TypeScript, instead of letting the app continue
+with invalid local imports.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex codegen participates in typecheck-aware dev workflows.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local dev orchestration owns push/codegen readiness before serving a
+    deployment.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript is a first-class local import surface.
+
+Flarex differences:
+
+- Flarex keeps generated-output typecheck opt-in for now because workspace and
+  app package resolution can differ, especially in examples and tests.
+- The gate compiles `_generated/**/*.ts`, not the entire app's TypeScript
+  program.
+
+Known limitations:
+
+- Vite production builds and `dev: false` still run plugin-owned codegen and
+  optional generated-output typecheck.
+- No CLI command or diagnostic UI exists yet; errors surface as thrown
+  TypeScript stdout/stderr.
+- Backend construction failures before the dev runtime object exists are not
+  covered by this cleanup path yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generatedTypecheck.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/devDispose.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/vite.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Output Typecheck Building Block
 
 Previous completed checkpoint: `f7634e1` Typecheck generated output tree.

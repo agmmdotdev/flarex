@@ -1,5 +1,80 @@
 # Testing and Simulation Strategy
 
+## Dev Runtime Generated Output Typecheck Coverage
+
+Previous completed checkpoint: `7380900` Expose generated output typecheck.
+
+What changed:
+
+- `dev.test.ts` now enables generated-output typechecking for the local dev
+  runtime fixture.
+- The existing dev-runtime test covers the generated-output gate across the
+  local backend push lifecycle and generated app startup.
+- The Postgres executor dev-runtime path also enables the gate so both local
+  execution transports share the same generated-output validation.
+- Added a dev-runtime startup failure regression using a bad TypeScript CLI
+  path to prove the generated-output gate is actually called before activation.
+- Added a cleanup regression proving failed default-persist dev runtime startup
+  removes `.flarex/dev`.
+- Added a Vite plugin build regression proving the plugin-owned codegen path
+  runs the generated-output gate when enabled.
+- Added a Vite `dev: false` serve regression proving plugin-owned startup
+  codegen/typecheck is not duplicated across Vite lifecycle hooks.
+- Added a default Vite dev regression proving `typecheckGeneratedOutput` is
+  forwarded into the dev runtime rather than swallowed by the plugin layer.
+- Added a generated typecheck option regression proving structurally wider
+  nested configs cannot override host codegen paths.
+- Added a dev-runtime dispose regression proving normal `dispose()` reports
+  default persist cleanup failures instead of swallowing them.
+- Added a `dev: false` watcher regression proving generated-output failures
+  are logged through Vite.
+- Extracted repeated minimal Flarex project setup into
+  `packages/flarex-dev/test/fixtures.ts`.
+
+Why it changed:
+
+The previous generator-only test proved the helper in isolation. The next test
+surface must prove it is usable in the real local dev orchestration path after
+final codegen and before activation.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev orchestration coordinates generated code with served deployment state.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated code and typecheck behavior belong to the shared dev workflow.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript templates should remain valid in realistic app
+    fixtures.
+
+Flarex differences:
+
+- Tests pass workspace path mappings because the example app is a workspace
+  package without its own installed `node_modules`.
+- Failure tests use a bad TypeScript CLI path so they prove gate ownership
+  without depending on fragile generated TypeScript edits.
+
+Known limitations:
+
+- Vite watcher failure behavior is covered for `dev: false`; default dev
+  runtime watcher reload success/failure is still only indirectly covered.
+- No browser-facing diagnostic UX is tested yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generatedTypecheck.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/devDispose.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/vite.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev build
+```
+
 ## Reusable Generated Output Typecheck Helper
 
 Previous completed checkpoint: `f7634e1` Typecheck generated output tree.

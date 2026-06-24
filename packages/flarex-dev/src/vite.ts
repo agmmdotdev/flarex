@@ -1,32 +1,43 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Plugin } from "vite";
+import type { Plugin, ResolvedConfig } from "vite";
 import type { FlarexDevRuntime } from "./dev.ts";
 import { generateFlarex, type FlarexGenerateOptions } from "./generate.ts";
+import {
+  generatedOutputTypecheckOptions,
+  typecheckGeneratedOutput,
+  type FlarexGeneratedOutputTypecheckOption,
+} from "./generatedTypecheck.ts";
 
 export type FlarexPluginOptions = Omit<FlarexGenerateOptions, "root"> & {
-      dev?:
+  dev?:
     | false
     | {
         deploymentId?: string;
         persistDir?: string | false;
       };
+  typecheckGeneratedOutput?: FlarexGeneratedOutputTypecheckOption;
 };
 
 export function flarex(options: FlarexPluginOptions = {}): Plugin {
   let root = process.cwd();
+  let command: ResolvedConfig["command"] = "build";
   let devRuntime: FlarexDevRuntime | undefined;
   let reloadTimer: NodeJS.Timeout | undefined;
+  let pluginCodegenRan = false;
   return {
     name: "flarex",
     enforce: "pre",
     configResolved(config) {
       root = config.root;
+      command = config.command;
     },
     async buildStart() {
-      await generateFlarex({ ...options, root });
+      if (command === "serve" && options.dev !== false) return;
+      if (command === "serve" && pluginCodegenRan) return;
+      await generateAndMaybeTypecheck(options, root);
+      pluginCodegenRan = true;
     },
     async configureServer(server) {
-      await generateFlarex({ ...options, root });
       if (options.dev !== false) {
         const { createFlarexDevRuntime } = await import("./dev.ts");
         const devOptions = typeof options.dev === "object" ? options.dev : {};
@@ -36,7 +47,15 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
           ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
           ...(devOptions.deploymentId === undefined ? {} : { deploymentId: devOptions.deploymentId }),
           ...(devOptions.persistDir === undefined ? {} : { persistDir: devOptions.persistDir }),
+          ...(options.typecheckGeneratedOutput === undefined
+            ? {}
+            : { typecheckGeneratedOutput: options.typecheckGeneratedOutput }),
         });
+      } else if (!pluginCodegenRan) {
+        await generateAndMaybeTypecheck(options, root);
+        pluginCodegenRan = true;
+      }
+      if (options.dev !== false) {
         server.middlewares.use(async (request, response, next) => {
           if (!request.url?.startsWith("/__flarex_dev")) {
             next();
@@ -63,13 +82,15 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = setTimeout(() => {
               devRuntime?.reload().catch(error => {
-                server.config.logger.error(
-                  error instanceof Error ? error.stack ?? error.message : String(error),
-                );
+                logViteError(server.config.logger, error);
               });
             }, 500);
           } else {
-            await generateFlarex({ ...options, root });
+            try {
+              await generateAndMaybeTypecheck(options, root);
+            } catch (error) {
+              logViteError(server.config.logger, error);
+            }
           }
         }
       });
@@ -83,6 +104,34 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
       });
     },
   };
+}
+
+async function generateAndMaybeTypecheck(
+  options: FlarexPluginOptions,
+  root: string,
+): Promise<void> {
+  await generateFlarex({
+    root,
+    ...(options.appDir === undefined ? {} : { appDir: options.appDir }),
+    ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
+  });
+  const typecheckOptions = generatedOutputTypecheckOptions({
+    root,
+    ...(options.appDir === undefined ? {} : { appDir: options.appDir }),
+    ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
+    ...(options.typecheckGeneratedOutput === undefined
+      ? {}
+      : { typecheckGeneratedOutput: options.typecheckGeneratedOutput }),
+  });
+  if (typecheckOptions === undefined) return;
+  await typecheckGeneratedOutput(typecheckOptions);
+}
+
+function logViteError(
+  logger: { error(message: string): void },
+  error: unknown,
+): void {
+  logger.error(error instanceof Error ? error.stack ?? error.message : String(error));
 }
 
 async function nodeRequestToRequest(request: IncomingMessage): Promise<Request> {

@@ -22,6 +22,8 @@ export type {
 } from "./generate.ts";
 export { typecheckGeneratedOutput } from "./generatedTypecheck.ts";
 export type {
+  FlarexGeneratedOutputTypecheckConfig,
+  FlarexGeneratedOutputTypecheckOption,
   FlarexGeneratedOutputTypecheckOptions,
 } from "./generatedTypecheck.ts";
 export { analyzeSourcePackageLocally } from "./analyze.ts";

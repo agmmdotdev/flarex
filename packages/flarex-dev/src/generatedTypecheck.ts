@@ -18,6 +18,44 @@ export type FlarexGeneratedOutputTypecheckOptions = FlarexGenerateOptions & {
   compilerOptions?: Pick<CompilerOptions, "types" | "typeRoots" | "paths">;
 };
 
+type ForbiddenGenerateOptionKeys = {
+  [Key in keyof FlarexGenerateOptions]?: never;
+};
+
+export type FlarexGeneratedOutputTypecheckConfig =
+  Omit<FlarexGeneratedOutputTypecheckOptions, keyof FlarexGenerateOptions> &
+    ForbiddenGenerateOptionKeys;
+
+export type FlarexGeneratedOutputTypecheckOption =
+  false | FlarexGeneratedOutputTypecheckConfig;
+
+export type FlarexGeneratedOutputTypecheckHostOptions = FlarexGenerateOptions & {
+  typecheckGeneratedOutput?: FlarexGeneratedOutputTypecheckOption;
+};
+
+export function generatedOutputTypecheckOptions(
+  options: FlarexGeneratedOutputTypecheckHostOptions,
+): FlarexGeneratedOutputTypecheckOptions | undefined {
+  if (options.typecheckGeneratedOutput === undefined || options.typecheckGeneratedOutput === false) {
+    return undefined;
+  }
+  const { root: _root, appDir: _appDir, generatedDir: _generatedDir, ...typecheckConfig } =
+    options.typecheckGeneratedOutput as Omit<
+      FlarexGeneratedOutputTypecheckOptions,
+      "root" | "appDir" | "generatedDir"
+    > & {
+      root?: unknown;
+      appDir?: unknown;
+      generatedDir?: unknown;
+    };
+  return {
+    ...typecheckConfig,
+    root: options.root,
+    ...(options.appDir === undefined ? {} : { appDir: options.appDir }),
+    ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
+  };
+}
+
 type GeneratedOutputTsconfig = {
   compilerOptions: {
     allowImportingTsExtensions: true;

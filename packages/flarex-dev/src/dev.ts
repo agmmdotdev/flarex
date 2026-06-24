@@ -20,6 +20,11 @@ import {
   initialCodegen,
   type FlarexGenerateOptions,
 } from "./generate.ts";
+import {
+  generatedOutputTypecheckOptions,
+  typecheckGeneratedOutput,
+  type FlarexGeneratedOutputTypecheckOption,
+} from "./generatedTypecheck.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
@@ -30,6 +35,7 @@ export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   executorToken?: string;
   liveQueryDeliveryToken?: string;
   persistDir?: string | false;
+  typecheckGeneratedOutput?: FlarexGeneratedOutputTypecheckOption;
 };
 
 export type FlarexDevRuntime = {
@@ -140,8 +146,8 @@ export async function createFlarexDevRuntime(
     if (started.codegenAnalysis === undefined) {
       throw new Error(`Flarex push ${started.pushId} did not return codegen analysis.`);
     }
-    lastPush = started;
     await finalCodegen(context, started.codegenAnalysis);
+    await maybeTypecheckGeneratedOutput(options);
     if (backendRuntime.executorRuntime !== undefined) {
       await activateExecutorPackage(
         backendRuntime,
@@ -171,7 +177,15 @@ export async function createFlarexDevRuntime(
     return reloadChain;
   }
 
-  await reload();
+  try {
+    await reload();
+  } catch (error) {
+    await disposeDevRuntimeResources(app, backendRuntime, backend, options, persistDir, {
+      preservePrimaryError: true,
+    })
+      .catch(() => undefined);
+    throw error;
+  }
 
   return {
     deploymentId,
@@ -248,15 +262,56 @@ export async function createFlarexDevRuntime(
     },
     dispose: async () => {
       await reloadChain.catch(() => undefined);
-      await app?.dispose();
-      await backendRuntime.executorRuntime?.dispose();
-      await backendRuntime.disposeArtifactRuntime();
-      await backend.dispose();
-      if (options.persistDir === undefined && persistDir !== false) {
-        await rm(persistDir, { recursive: true, force: true });
-      }
+      await disposeDevRuntimeResources(app, backendRuntime, backend, options, persistDir, {
+        preservePrimaryError: false,
+      });
     },
   };
+}
+
+async function disposeDevRuntimeResources(
+  app: Miniflare | undefined,
+  backendRuntime: BackendRuntime,
+  backend: Miniflare,
+  options: FlarexDevRuntimeOptions,
+  persistDir: string | false,
+  mode: { preservePrimaryError: boolean },
+): Promise<void> {
+  const results = await Promise.allSettled([
+    app?.dispose(),
+    backendRuntime.executorRuntime?.dispose(),
+    backendRuntime.disposeArtifactRuntime(),
+    backend.dispose(),
+  ]);
+  if (options.persistDir === undefined && persistDir !== false) {
+    results.push(await settled(rm(persistDir, { recursive: true, force: true })));
+  }
+  if (!mode.preservePrimaryError) {
+    const failures = results.filter(isRejectedPromiseResult).map(result => result.reason);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Failed to dispose Flarex dev runtime resources.");
+    }
+  }
+}
+
+function settled<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return promise.then(
+    value => ({ status: "fulfilled", value }),
+    (reason: unknown) => ({ status: "rejected", reason }),
+  );
+}
+
+function isRejectedPromiseResult<T>(
+  result: PromiseSettledResult<T>,
+): result is PromiseRejectedResult {
+  return result.status === "rejected";
+}
+
+async function maybeTypecheckGeneratedOutput(options: FlarexDevRuntimeOptions): Promise<void> {
+  const typecheckOptions = generatedOutputTypecheckOptions(options);
+  if (typecheckOptions === undefined) return;
+  await typecheckGeneratedOutput(typecheckOptions);
 }
 
 async function devInvokeBody(request: Request): Promise<Record<string, unknown>> {
