@@ -1,5 +1,73 @@
 # Postgres Executor
 
+## Post-Commit Live-Query Invalidation Audit
+
+Previous completed checkpoint: `a1fea7f` Cover Postgres delivery claim cursor
+race.
+
+What changed:
+
+- Audited the executor mutation finish path and corrected this roadmap's stale
+  implementation note.
+- Current `finishInvokeSession(...)` already commits mutation writes, applies
+  freshness metadata through the injected `freshnessStore`, and invokes the
+  injected `notifyTrigger(...)` only after a successful commit.
+- Existing executor tests already cover:
+  - successful mutation commit updates freshness metadata and notifies,
+  - OCC failure does not notify and does not advance freshness metadata,
+  - synchronous and asynchronous trigger failures are reported through
+    `onError(...)` without failing an already committed mutation.
+- The older "Mutation-Owned Live-Query Trigger Plan" remains as historical
+  design context, but its "current mutation finish does not yet drive stale
+  subscription marking" limitation is no longer true.
+
+Why it changed:
+
+The next implementation scan found that the code had advanced beyond this
+roadmap section. Leaving the stale limitation in place would push future work
+toward reimplementing behavior that is already present and tested. Recording
+the audit keeps the Convex-style ownership boundary clear: the trusted executor
+owns post-commit freshness publication, and host adapters only provide the
+notification transport.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+  - commit validates reads and publishes committed write metadata after the
+    transaction succeeds.
+- `crates/sync/src/worker.rs`
+  - sync workers react to committed backend state rather than speculative
+    mutation attempts.
+- `crates/sync/src/state.rs`
+  - query state is updated after backend-owned invalidation/rerun work.
+
+Flarex differences:
+
+- Convex keeps commit publication and sync scheduling inside one backend
+  runtime. Flarex persists commit state in Postgres, updates an injected
+  freshness mirror, then calls an injected notifier so Nitro, local tests, or a
+  Cloudflare adapter can wake the sync scheduler.
+- A trigger failure is host-observable through `onError(...)` but does not roll
+  back committed writes. Durable recovery depends on the already persisted
+  commit/outbox/live-query state.
+
+Known limitations:
+
+- The notifier is still best-effort; durable retry/alerting for notifier
+  failures remains a host/scheduler responsibility.
+- The current freshness mirror is injected. A production Postgres-backed or
+  Cloudflare-backed mirror still needs operational hardening.
+- Range/index invalidation precision remains limited by the read-set and
+  freshness primitives already documented in the sync roadmaps.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts -t "marks live query subscriptions stale|does not notify live query invalidation|reports async live query trigger failures" --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```
+
 ## Async Live-Query Trigger Failure Coverage
 
 Previous completed checkpoint: `921a079` Deliver failed live query reruns.
@@ -7409,9 +7477,9 @@ Flarex differences:
 
 Known limitations:
 
-- Current mutation finish does not yet drive stale subscription marking.
-- Current trigger route can be called manually, but no post-commit owner calls
-  it automatically.
+- Mutation finish now drives freshness publication and calls the injected
+  trigger notifier after successful commit. This section is retained as the
+  historical plan that led to the implemented path.
 - Range/index read invalidation is not precise enough yet for all Convex query
   shapes.
 
