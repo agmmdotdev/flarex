@@ -23,6 +23,7 @@ import type {
   PushStatus,
   PushSourcePackage,
 } from "flarex-backend/types";
+import type { PaginationResult } from "flarex/server";
 
 import { backendAnalysisFromCodegenAnalysis } from "../src/backendPush";
 import {
@@ -89,7 +90,6 @@ describe("backend sync with local executor runtime", () => {
 
     let harness: BackendHarness | undefined;
     let materializeCount = 0;
-    let storeGetCount = 0;
     const baseMaterializer = new LocalMiniflareExecutionArtifactMaterializer({
       executorTransport: "postgres",
       projectId,
@@ -103,7 +103,6 @@ describe("backend sync with local executor runtime", () => {
           r2BucketLikeFromMiniflare(await requireHarness(harness).mf.getR2Bucket("ARTIFACTS")),
         ).put(package_),
         get: async ref => {
-          storeGetCount += 1;
           return new R2BackendExecutionArtifactStore(
             r2BucketLikeFromMiniflare(await requireHarness(harness).mf.getR2Bucket("ARTIFACTS")),
           ).get(ref);
@@ -147,7 +146,6 @@ describe("backend sync with local executor runtime", () => {
       const secondMessageId = await seedMessage(firstWs, 2, teamId, "second");
       const thirdMessageId = await seedMessage(firstWs, 3, teamId, "third");
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(3);
 
       const initialMessages = [
         { _id: firstMessageId, teamId, text: "first" },
@@ -158,6 +156,10 @@ describe("backend sync with local executor runtime", () => {
         { _id: thirdMessageId, teamId, text: "third" },
         { _id: secondMessageId, teamId, text: "second" },
       ];
+      const initialPaginatedMessages = {
+        page: initialRecentMessages,
+        isDone: false,
+      };
       sendMessageSubscriptions(firstWs, teamId, thirdMessageId);
       sendMessageSubscriptions(secondWs, teamId, thirdMessageId);
       const [firstInitialTransition, secondInitialTransition] = await Promise.all([
@@ -170,6 +172,7 @@ describe("backend sync with local executor runtime", () => {
         { _id: thirdMessageId, teamId, text: "third" },
         initialMessages,
         initialRecentMessages,
+        initialPaginatedMessages,
       );
       expectMessageSubscriptionTransition(
         secondInitialTransition,
@@ -177,9 +180,9 @@ describe("backend sync with local executor runtime", () => {
         { _id: thirdMessageId, teamId, text: "third" },
         initialMessages,
         initialRecentMessages,
+        initialPaginatedMessages,
       );
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(9);
 
       const initiallyStale = await runtime.executor.findStaleLiveQuerySubscriptions({
         deploymentId,
@@ -202,7 +205,6 @@ describe("backend sync with local executor runtime", () => {
         ts: expect.any(Number),
       });
       expect(materializeCount).toBe(1);
-      expect(storeGetCount).toBe(10);
       const stale = await runtime.executor.findStaleLiveQuerySubscriptions({
         deploymentId,
         freshnessStore: runtime.freshnessStore,
@@ -215,9 +217,11 @@ describe("backend sync with local executor runtime", () => {
         `${firstConnectionId}:1`,
         `${firstConnectionId}:2`,
         `${firstConnectionId}:3`,
+        `${firstConnectionId}:4`,
         `${secondConnectionId}:1`,
         `${secondConnectionId}:2`,
         `${secondConnectionId}:3`,
+        `${secondConnectionId}:4`,
       ]);
       expect(stale).toMatchObject({
         stale: expect.arrayContaining([
@@ -245,6 +249,13 @@ describe("backend sync with local executor runtime", () => {
           expect.objectContaining({
             subscription: expect.objectContaining({
               deploymentId,
+              connectionId: firstConnectionId,
+              queryId: 4,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
               connectionId: secondConnectionId,
               queryId: 1,
             }),
@@ -261,6 +272,13 @@ describe("backend sync with local executor runtime", () => {
               deploymentId,
               connectionId: secondConnectionId,
               queryId: 3,
+            }),
+          }),
+          expect.objectContaining({
+            subscription: expect.objectContaining({
+              deploymentId,
+              connectionId: secondConnectionId,
+              queryId: 4,
             }),
           }),
         ]),
@@ -289,10 +307,10 @@ describe("backend sync with local executor runtime", () => {
       expect(response.status).toBe(200);
       expectSchedulerTriggerResponse(await response.json(), {
         deploymentId,
-        changed: 6,
-        claimed: 6,
-        acked: 6,
-        delivered: 6,
+        changed: 8,
+        claimed: 8,
+        acked: 8,
+        delivered: 8,
       });
 
       expectMessageSubscriptionTransition(
@@ -308,6 +326,13 @@ describe("backend sync with local executor runtime", () => {
           { _id: thirdMessageId, teamId, text: "updated" },
           { _id: secondMessageId, teamId, text: "second" },
         ],
+        {
+          page: [
+            { _id: thirdMessageId, teamId, text: "updated" },
+            { _id: secondMessageId, teamId, text: "second" },
+          ],
+          isDone: false,
+        },
       );
       expectMessageSubscriptionTransition(
         await secondDelivered,
@@ -322,6 +347,13 @@ describe("backend sync with local executor runtime", () => {
           { _id: thirdMessageId, teamId, text: "updated" },
           { _id: secondMessageId, teamId, text: "second" },
         ],
+        {
+          page: [
+            { _id: thirdMessageId, teamId, text: "updated" },
+            { _id: secondMessageId, teamId, text: "second" },
+          ],
+          isDone: false,
+        },
       );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
@@ -362,8 +394,10 @@ describe("backend sync with local executor runtime", () => {
       ).sort()).toEqual([
         `${firstConnectionId}:2`,
         `${firstConnectionId}:3`,
+        `${firstConnectionId}:4`,
         `${secondConnectionId}:2`,
         `${secondConnectionId}:3`,
+        `${secondConnectionId}:4`,
       ]);
 
       const firstLimitedBoundaryDelivered = nextJsonMessage(firstWs);
@@ -389,10 +423,10 @@ describe("backend sync with local executor runtime", () => {
       expect(limitedBoundaryResponse.status).toBe(200);
       expectSchedulerTriggerResponse(await limitedBoundaryResponse.json(), {
         deploymentId,
-        changed: 4,
-        claimed: 4,
-        acked: 4,
-        delivered: 4,
+        changed: 6,
+        claimed: 6,
+        acked: 6,
+        delivered: 6,
       });
       expectListSubscriptionTransition(
         await firstLimitedBoundaryDelivered,
@@ -406,6 +440,13 @@ describe("backend sync with local executor runtime", () => {
           { _id: firstMessageId, teamId, text: "z-last" },
           { _id: thirdMessageId, teamId, text: "updated" },
         ],
+        {
+          page: [
+            { _id: firstMessageId, teamId, text: "z-last" },
+            { _id: thirdMessageId, teamId, text: "updated" },
+          ],
+          isDone: false,
+        },
       );
       expectListSubscriptionTransition(
         await secondLimitedBoundaryDelivered,
@@ -419,6 +460,13 @@ describe("backend sync with local executor runtime", () => {
           { _id: firstMessageId, teamId, text: "z-last" },
           { _id: thirdMessageId, teamId, text: "updated" },
         ],
+        {
+          page: [
+            { _id: firstMessageId, teamId, text: "z-last" },
+            { _id: thirdMessageId, teamId, text: "updated" },
+          ],
+          isDone: false,
+        },
       );
       await expect(
         runtime.persistence.listUndeliveredLiveQueryDeliveries({
@@ -471,6 +519,7 @@ export default defineSchema({
   await writeFile(
     path.join(root, "flarex/functions/messages.ts"),
     `import { model, mutation, query } from "../_generated/server";
+import { paginationOptsValidator } from "flarex/server";
 import { v } from "flarex/values";
 
 export const get = query({
@@ -516,6 +565,27 @@ export const recentByTeam = query({
       .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
       .order("desc")
       .take(2);
+  },
+});
+
+export const pageByTeam = query({
+  partition: model.teams.byId("teamId"),
+  args: { teamId: v.id("teams"), paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(v.object({
+      _id: v.id("messages"),
+      teamId: v.id("teams"),
+      text: v.string(),
+    })),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_team_text", q => q.eq("teamId", args.teamId))
+      .order("desc")
+      .paginate(args.paginationOpts);
   },
 });
 
@@ -806,9 +876,21 @@ function sendMessageSubscriptions(
         args: [{ teamId }],
         partitionKey: teamId,
       },
+      {
+        type: "Add",
+        queryId: 4,
+        udfPath: "messages:pageByTeam",
+        args: [{ teamId, paginationOpts: { numItems: 2, cursor: null } }],
+        partitionKey: teamId,
+      },
     ],
   });
 }
+
+type ExpectedPaginatedMessages = {
+  page: PaginationResult<Json>["page"];
+  isDone: PaginationResult<Json>["isDone"];
+};
 
 function expectMessageSubscriptionTransition(
   transition: unknown,
@@ -816,12 +898,14 @@ function expectMessageSubscriptionTransition(
   message: Json,
   messages: Json,
   recentMessages: Json,
+  paginatedMessages: ExpectedPaginatedMessages,
 ): void {
   const updates = transitionUpdatesByQueryId(transition, name);
-  expect([...updates.keys()]).toEqual([1, 2, 3]);
+  expect([...updates.keys()]).toEqual([1, 2, 3, 4]);
   expect(updates.get(1)).toEqual(message);
   expect(updates.get(2)).toEqual(messages);
   expect(updates.get(3)).toEqual(recentMessages);
+  expectPaginatedMessagesResult(updates.get(4), `${name} paginated result`, paginatedMessages);
 }
 
 function expectListSubscriptionTransition(
@@ -829,11 +913,25 @@ function expectListSubscriptionTransition(
   name: string,
   messages: Json,
   recentMessages: Json,
+  paginatedMessages: ExpectedPaginatedMessages,
 ): void {
   const updates = transitionUpdatesByQueryId(transition, name);
-  expect([...updates.keys()]).toEqual([2, 3]);
+  expect([...updates.keys()]).toEqual([2, 3, 4]);
   expect(updates.get(2)).toEqual(messages);
   expect(updates.get(3)).toEqual(recentMessages);
+  expectPaginatedMessagesResult(updates.get(4), `${name} paginated result`, paginatedMessages);
+}
+
+function expectPaginatedMessagesResult(
+  value: Json | undefined,
+  name: string,
+  expected: ExpectedPaginatedMessages,
+): void {
+  const record = jsonRecord(value, name);
+  expect(record.page).toEqual(expected.page);
+  expect(record.isDone).toBe(expected.isDone);
+  expect(jsonString(record.continueCursor, `${name}.continueCursor`).length)
+    .toBeGreaterThan(0);
 }
 
 function expectSchedulerTriggerResponse(

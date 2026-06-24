@@ -1,5 +1,88 @@
 # Cloudflare Freshness Cache
 
+## Generated Indexed Pagination Sync
+
+Previous completed checkpoint: `dda3efb` Cover ordered limited indexed sync.
+
+What changed:
+
+- Extended the hosted generated-app sync integration with a fourth generated
+  query, `messages:pageByTeam`.
+- The generated query follows the Convex-style pagination shape:
+  `args: { paginationOpts: paginationOptsValidator }` and
+  `.withIndex(...).order("desc").paginate(args.paginationOpts)`.
+- Both active WebSocket sessions now subscribe to the same direct, indexed
+  collect, ordered limited, and paginated first-page queries.
+- The test seeds three messages and subscribes with
+  `{ numItems: 2, cursor: null }`, proving the first page is ordered, bounded,
+  not done, and returns an opaque `continueCursor`.
+- The first mutation updates a returned row and proves all eight live-query
+  subscriptions become stale, rerun, persist delivery rows, and fan out through
+  `SchedulerDO -> DeliveryDO -> ConnectionDO`.
+- The second mutation updates a row that was outside the first page so it sorts
+  into the first page. The test proves the direct document subscriptions remain
+  fresh while indexed collect, ordered limit, and paginated subscriptions rerun
+  on both connections.
+
+Why it changed:
+
+Convex apps commonly expose paginated lists with
+`paginationOptsValidator` and `.paginate(...)`, and frontend clients expect the
+returned `{ page, isDone, continueCursor }` shape to remain live. The previous
+checkpoint proved ordered `take(2)` invalidation, but pagination adds a cursor
+result boundary that needs to survive generated code, Dynamic Worker syscalls,
+trusted executor read-set storage, stale classification, durable delivery, and
+Cloudflare WebSocket fanout.
+
+Convex references:
+
+- `npm-packages/convex/src/server/pagination.ts`
+  - defines `PaginationOptions`, `PaginationResult`, and
+    `paginationOptsValidator`, including the public query example that calls
+    `.withIndex(...).order("desc").paginate(args.paginationOpts)`.
+- `npm-packages/convex/src/browser/sync/paginated_query_client.ts`
+  - shows Convex client pagination as page-query subscriptions whose changed
+    base query results are composed into paginated results.
+- `crates/sync/src/worker.rs`
+  - reruns invalidated query subscriptions and emits transitions for changed
+    query results.
+- `crates/database/src/query/mod.rs`
+  - documents the database query model that includes reactive pagination.
+
+Flarex differences:
+
+- Convex's sync worker owns paginated subscription state in the backend and the
+  React client composes page subscriptions with split cursors. This slice only
+  proves the hosted backend page-query primitive: one explicit page query over
+  `/sync`.
+- Flarex currently supports the minimal cursor options shape
+  `{ numItems, cursor }`; Convex also supports `endCursor`, `id`,
+  `maximumRowsRead`, `maximumBytesRead`, `splitCursor`, and `pageStatus`.
+- Flarex treats `continueCursor` as opaque in the integration assertions. The
+  visible contract is that it is a non-empty string when `isDone` is false and
+  can be passed back to the same query in future cursor-continuation coverage.
+
+Known limitations:
+
+- The generated hosted integration does not yet subscribe to a second page with
+  the returned cursor.
+- The current client layer does not yet implement Convex's
+  `usePaginatedQuery` page composition, page splitting, or load-more state
+  machine.
+- `first()` and `unique()` are still lower-level coverage only and should get
+  generated hosted `/sync` coverage in a later small slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Generated Indexed Order And Limit Sync
 
 Previous completed checkpoint: `a485403` Prove multi-connection indexed sync
