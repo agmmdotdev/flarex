@@ -795,6 +795,80 @@ corepack pnpm --filter flarex-backend build
 git diff --check
 ```
 
+## Hosted Live-Query Rerun Bridge Integration
+
+Previous completed checkpoint: `3d5cfec` Persist live query delivery reconcile
+continuation.
+
+What changed:
+
+- Added a `flarex-dev` integration test that runs:
+  - the real Cloudflare backend Worker harness,
+  - real `ConnectionDO`, `DeliveryDO`, and `SchedulerDO` instances,
+  - the local PGlite-backed executor HTTP runtime, and
+  - materialized Dynamic Worker-style query execution for live-query reruns.
+- The test opens a WebSocket subscription through the backend sync route, records
+  the subscription in the PGlite executor through `FLAREX_EXECUTOR`, writes a
+  document through executor invoke syscalls, verifies the subscription is stale,
+  then calls the backend scheduler trigger route.
+- The scheduler path now has integration coverage for:
+  `SchedulerDO -> executor rerun -> materialized query session -> durable
+  delivery row -> DeliveryDO claim/ack -> ConnectionDO QueryUpdated -> WebSocket`.
+- The test also asserts the durable delivery row is acked and no undelivered
+  delivery remains after fanout.
+- Adjusted the existing PGlite trigger-notifier runtime test to derive
+  freshness assertions from the committed timestamp returned by invoke finish,
+  instead of hard-coding a timestamp that can drift as commit bookkeeping
+  evolves.
+
+Why it changed:
+
+The previous backend sync tests proved WebSocket fanout with a fake executor
+rerun response. The `flarex-dev` runtime tests separately proved PGlite-backed
+reruns through materialized query execution. This checkpoint connects those two
+halves so the hosted boundary is covered end to end.
+
+Convex references:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps query execution, invalidation handling, transition production,
+    and sync delivery inside the backend sync worker.
+- `crates/sync/src/state.rs`
+  - Convex tracks active queries, subscriptions, result hashes, and invalidation
+    futures in one sync state machine.
+
+Flarex differences:
+
+- Flarex intentionally splits the same lifecycle across Postgres executor
+  state, Dynamic Worker-style query execution, `SchedulerDO`, `DeliveryDO`, and
+  `ConnectionDO`.
+- Because the pieces are split, this is integration coverage rather than a
+  direct port of Convex's in-process sync worker loop.
+- The initial WebSocket query in this test still uses a narrow fake artifact
+  runtime response; the rerun path under test uses the real materialized
+  executor/runtime bridge.
+
+Known limitations:
+
+- This is a PGlite/local-runtime integration lane, not the real Postgres
+  correctness lane.
+- The test covers one document read/query and one delivery row. It does not yet
+  cover index/range freshness, multiple connections, or repeated `hasMoreStale`
+  continuation through this PGlite-backed end-to-end path.
+- The backend harness still needs a fake initial artifact response to seed the
+  live subscription before the rerun path takes over.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts -t "wires PGlite mutation commits to the Cloudflare live-query trigger notifier" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Executor Live-Query Registry Writer
 
 Previous completed checkpoint: `f32cc4f` Add durable live query registry.

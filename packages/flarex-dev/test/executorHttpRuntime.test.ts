@@ -9,6 +9,7 @@ import {
 } from "flarex/artifacts";
 import type {
   FlarexExecutor,
+  FinishInvokeSessionResult,
   GetActiveDeploymentPackageInput,
   InvokeAttemptContext,
   InvokeSyscallInput,
@@ -437,25 +438,27 @@ describe("createLocalExecutorHttpRuntime", () => {
       ));
 
       expect(finish.status).toBe(200);
-      await expect(finish.json()).resolves.toMatchObject({
+      const finished: unknown = await finish.json();
+      expect(finished).toMatchObject({
         value: "1:message",
-        committedTs: 102,
+        committedTs: expect.any(Number),
         writes: [
           {
             tableId: 1,
             id: "1:message",
             prevTs: null,
-            ts: 102,
+            ts: expect.any(Number),
             value: { text: "fresh" },
           },
         ],
       });
+      const committedTs = committedTsFromInvokeFinish(finished);
       await expect(
         runtime.freshnessStore.getDocumentVersion(
           "deployment-pglite-trigger",
           "1:message",
         ),
-      ).resolves.toMatchObject({ version: 102 });
+      ).resolves.toMatchObject({ version: committedTs });
       await expect(
         runtime.executor.findStaleLiveQuerySubscriptions({
           deploymentId: "deployment-pglite-trigger",
@@ -610,6 +613,22 @@ function liveQueryAttempt(): InvokeAttemptContext {
       throw new Error("local executor HTTP runtime should use artifact syscalls");
     },
   };
+}
+
+function committedTsFromInvokeFinish(
+  value: unknown,
+): NonNullable<FinishInvokeSessionResult["committedTs"]> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Invoke finish response must be an object.");
+  }
+  if (!("committedTs" in value)) {
+    throw new Error("Invoke finish committedTs is missing.");
+  }
+  const committedTs = value.committedTs;
+  if (typeof committedTs !== "number" || !Number.isInteger(committedTs)) {
+    throw new Error("Invoke finish committedTs must be an integer.");
+  }
+  return committedTs;
 }
 
 function emptyFreshnessStore() {
