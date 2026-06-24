@@ -1,5 +1,69 @@
 # Cloudflare Freshness Cache
 
+## Delivery Continue Failure Coverage
+
+Previous completed checkpoint: `7ccff51` Cover delivery claim failure summaries.
+
+What changed:
+
+- Added backend sync coverage for structured `DeliveryDO /continue` failures.
+- The test first wakes a delivery drain with `hasMore: true`, proving pending
+  drain state is persisted after a successful first page.
+- The direct `DeliveryDO /continue` call then fails on the next executor claim
+  and must return the same structured claim-failure contract as `/wake`:
+  - `failure.stage` is `claim`
+  - internal failure status is `502`
+  - all continuation-attempt counters are zero
+  - `pendingAck` is zero
+  - the second claim request reuses the persisted drain parameters
+
+Why it changed:
+
+The structured drain-failure wrapper applies to both public wake calls and
+internal continuation calls. Earlier coverage proved wake claim/fanout/ack
+failure bodies, but continuation failures are a separate reliability boundary:
+they happen after `DeliveryDO` has already persisted pending drain state and
+may be invoked by an alarm or maintenance caller.
+
+Convex references inspected:
+
+- `crates/sync/src/worker.rs`
+  - Convex keeps sync delivery work inside the backend worker loop; there is no
+    separately callable HTTP continuation endpoint.
+- `crates/sync/src/state.rs`
+  - query state transitions are still emitted only after successful backend
+    processing; failed maintenance continuation is not a client protocol event.
+
+Flarex differences:
+
+- Flarex splits durable delivery row draining across `DeliveryDO` wake,
+  continuation, and alarm boundaries because Cloudflare execution must remain
+  bounded.
+- A failed continuation reports backend-internal maintenance state only. The
+  client does not receive a Convex-style query failure for a delivery
+  maintenance claim error.
+
+Known limitations:
+
+- This remains response-level observability; durable metrics and alerting hooks
+  are still future work.
+- The alarm path swallows continuation failures after scheduling retry state;
+  this test covers direct `/continue` response shape, not alarm observability.
+- `DeliveryDO` continuation state currently preserves the drain parameters but
+  not the last page cursor. This is compatible with the executor claim contract
+  because already-acked rows should no longer be returned as pending delivery
+  work, but explicit cursor persistence may become useful for large backlogs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "continues DeliveryDO draining|DeliveryDO continue failures|records DeliveryDO claim failures|records DeliveryDO fanout failures|records DeliveryDO ack failures" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts test/liveQueryDelivery.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Direct Delivery Claim Failure Coverage
 
 Previous completed checkpoint: `bc2e71d` Report delivery drain failure summaries.

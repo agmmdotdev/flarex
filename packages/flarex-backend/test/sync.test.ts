@@ -2,6 +2,7 @@ import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { afterAll, describe, expect, it } from "vitest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
 import { createExecutionArtifactRuntimeService } from "../src/artifactRuntime";
+import type { DeliveryDrainFailureResult } from "../src/deliveryDO";
 import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
@@ -2954,6 +2955,204 @@ describe("sync protocol", () => {
           deploymentId,
           deliveryIds: ["delivery_2"],
           claimOwner: expect.stringMatching(/^delivery:sync-delivery-alarm-deployment:/),
+        },
+      },
+    ]);
+    ws.close();
+  });
+
+  it("returns structured DeliveryDO continue failures from pending drain state", async () => {
+    const runtimeCalls: unknown[] = [];
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    let claimCount = 0;
+    const deploymentId = "sync-delivery-continue-failure-deployment";
+    const connectionId = `connection:${deploymentId}:delivery-continue-failure-session`;
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret",
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              claimCount += 1;
+              if (claimCount > 1) {
+                return Response.json({ error: "temporary continue claim failure" }, { status: 503 });
+              }
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_continue_1",
+                    connectionId,
+                    queryId: 20,
+                    payloadJson: {
+                      deploymentId,
+                      connectionId,
+                      queryId: 20,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Grace" },
+                      previousResultHash: '{"user":"Ada"}',
+                      resultHash: '{"user":"Grace"}',
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:01.000Z",
+                  },
+                ],
+                nextCursor: {
+                  createdAt: "2026-06-21T00:00:01.000Z",
+                  deliveryId: "delivery_continue_1",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/ack") {
+              return Response.json({ delivered: 1 });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "delivery-continue-failure-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 20,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+    executorRequests.length = 0;
+
+    const delivered = nextJsonMessage(ws);
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/${deploymentId}/sync/wake-delivery`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 1, maxBatches: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId,
+      batches: 1,
+      claimed: 1,
+      acked: 1,
+      delivered: 1,
+      skipped: 0,
+      hasMore: true,
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 1,
+        delivered: 1,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: true,
+      },
+    });
+    const env = await harness.mf.getBindings<Env>();
+    const delivery = env.DELIVERIES.getByName(`delivery:${deploymentId}`);
+    const continued = await delivery.fetch("https://flarex.internal/continue", {
+      method: "POST",
+    });
+
+    expect(continued.status).toBe(500);
+    const continuedBody: unknown = await continued.json();
+    const expectedContinueFailure = {
+      deploymentId,
+      error: "Live query delivery claim failed with status 503.",
+      failure: {
+        stage: "claim",
+        status: 502,
+        error: "Live query delivery claim failed with status 503.",
+      },
+      summary: {
+        batches: 0,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+        failure: {
+          stage: "claim",
+          status: 502,
+          error: "Live query delivery claim failed with status 503.",
+        },
+      },
+    } satisfies DeliveryDrainFailureResult;
+    expect(continuedBody).toEqual(expectedContinueFailure);
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 20,
+          value: { user: "Grace" },
+        },
+      ],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-continue-failure-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/ack",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_continue_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-continue-failure-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 1,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-continue-failure-deployment:/),
         },
       },
     ]);
