@@ -1,5 +1,61 @@
 # Testing and Simulation Strategy
 
+## Source CLI Entrypoint Validation
+
+Previous completed checkpoint: `24fcc04` Route example generate through CLI
+runner.
+
+What changed:
+
+- Added `packages/flarex-dev/src/bin.ts` and validated it through
+  `corepack pnpm --filter flarex-dev cli -- codegen --help`.
+- Added CLI unit coverage proving the runner ignores the leading `--`
+  separator that package scripts pass through to `process.argv`.
+- Added `tsx` as a package-local dev dependency for the source entrypoint
+  script.
+
+Why it changed:
+
+The runner tests covered direct function calls, and the example app exercised
+the runner indirectly, but no test or command validated a process entrypoint.
+This adds the first source-mode process boundary while avoiding a fake package
+binary.
+
+Convex references inspected:
+
+- `npm-packages/convex/bin/main-dev`
+  - source-mode CLI runs through `tsx`.
+- `npm-packages/convex/bin/main.js`
+  - packaged CLI imports built JavaScript.
+- `npm-packages/convex/src/cli/program.ts`
+  - command entrypoint registers CLI behavior.
+- `npm-packages/convex/src/cli/codegen.ts`
+  - codegen is command-level behavior.
+
+Flarex differences:
+
+- Validation uses a package script, not an installed npm binary.
+- The separator normalization is needed because `pnpm run ... -- ...` forwards
+  the separator to this source script.
+- The command parser remains intentionally small until more commands exist.
+
+Known limitations:
+
+- No global binary installation is tested.
+- No deploy/dev command process entrypoints exist yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Example Generate Validates CLI Runner
 
 Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.

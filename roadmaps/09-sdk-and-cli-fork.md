@@ -1,5 +1,72 @@
 # SDK And CLI Fork
 
+## Source CLI Entrypoint Script
+
+Previous completed checkpoint: `24fcc04` Route example generate through CLI
+runner.
+
+What changed:
+
+- Added `packages/flarex-dev/src/bin.ts` as a process entrypoint that calls
+  `runFlarexDevCli()` and assigns the returned code to `process.exitCode`.
+- Added a `flarex-dev` package script, `cli`, that runs the source entrypoint
+  through `tsx`.
+- Added `tsx` as a `flarex-dev` dev dependency and refreshed
+  `pnpm-lock.yaml`.
+- `runFlarexDevCli(...)` now ignores one leading `--` separator so package
+  script invocations like `pnpm --filter flarex-dev cli -- codegen --help`
+  route to the intended command.
+- Added CLI runner test coverage for the package-script separator behavior.
+
+Why it changed:
+
+The previous checkpoints moved app scripts onto the command runner, but there
+was still no source process entrypoint for the runner itself. Convex has both a
+development entrypoint for running the CLI from source and a built packaged
+entrypoint. Flarex now has the source entrypoint side while still explicitly
+deferring a published `bin` until the package emits JavaScript.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex exposes real `bin` entries for `convex` and `convex-bundled`.
+- `npm-packages/convex/bin/main-dev`
+  - Convex's monorepo development CLI runs source through `tsx`.
+- `npm-packages/convex/bin/main.js`
+  - Convex's packaged CLI imports the built bundle.
+- `npm-packages/convex/src/cli/program.ts`
+  - Convex has a command program entrypoint that registers command handlers.
+- `npm-packages/convex/src/cli/codegen.ts`
+  - codegen is a CLI command workflow.
+
+Flarex differences:
+
+- Flarex still does not declare a published package `bin`; the package is
+  source-only with `noEmit`.
+- The `cli` package script is a development/source-mode process entrypoint,
+  not the final npm command.
+- Flarex uses a small hand-rolled parser for now instead of Convex's Commander
+  program because only `codegen` exists.
+
+Known limitations:
+
+- No installed `flarex` or `flarex-dev` binary exists yet.
+- The packaged CLI path must wait for JS emit or a deliberate runtime loader
+  strategy.
+- The CLI still only implements `codegen`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Example Generate Uses CLI Runner
 
 Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.

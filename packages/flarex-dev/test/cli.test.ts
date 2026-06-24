@@ -73,6 +73,22 @@ describe("runFlarexDevCli", () => {
     expect(generateRoot).toBe("/current-project");
   });
 
+  it("ignores a leading package-script argument separator", async () => {
+    let generateRoot: string | undefined;
+
+    await expect(runFlarexDevCli({
+      projectRoot: "/current-project",
+      argv: ["--", "codegen"],
+      dependencies: {
+        generate: async options => {
+          generateRoot = options.root;
+        },
+      },
+    })).resolves.toBe(0);
+
+    expect(generateRoot).toBe("/current-project");
+  });
+
   it("passes app paths and typecheck path mappings to dependencies", async () => {
     const seen: {
       generateRoot: string | undefined;

@@ -1,5 +1,61 @@
 # Local Dev Server
 
+## Source CLI Entrypoint For Local Workflow
+
+Previous completed checkpoint: `24fcc04` Route example generate through CLI
+runner.
+
+What changed:
+
+- `flarex-dev` now has a source-mode `cli` package script backed by
+  `packages/flarex-dev/src/bin.ts`.
+- The CLI runner accepts package-script invocation with a leading `--`, so
+  local commands can be exercised as process commands instead of only direct
+  function calls.
+- The example app still uses its app-local wrappers, but the underlying
+  command runner now has its own process entrypoint for local validation.
+
+Why it changed:
+
+Local development needs a command process boundary before a full `flarex dev`
+or installed binary exists. This mirrors Convex's split between a source
+development entrypoint and a packaged CLI entrypoint while staying honest about
+Flarex's current source-only package shape.
+
+Convex references inspected:
+
+- `npm-packages/convex/bin/main-dev`
+  - development CLI entrypoint runs from source.
+- `npm-packages/convex/bin/main.js`
+  - packaged CLI entrypoint runs built output.
+- `npm-packages/convex/src/cli/program.ts`
+  - command registration is centralized.
+
+Flarex differences:
+
+- This is a package script, not a published `bin`.
+- No `flarex dev` command exists yet.
+- The source entrypoint is only for local/dev validation while packages remain
+  `noEmit`.
+
+Known limitations:
+
+- A real installed CLI still requires a build/output strategy.
+- The local dev runtime is still invoked through Vite/dev APIs, not a CLI
+  `dev` command.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev cli -- codegen --help
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example typecheck
+git diff --check
+```
+
 ## Example App Generation Uses Command Boundary
 
 Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.

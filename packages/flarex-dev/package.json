@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/bin.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
@@ -20,6 +21,9 @@
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:"
+  },
+  "devDependencies": {
+    "tsx": "catalog:"
   },
   "peerDependencies": {
     "@cloudflare/workers-types": ">=4.0.0",

@@ -23,7 +23,7 @@ export type FlarexDevCliOptions = {
 };
 
 export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promise<number> {
-  const argv = options.argv ?? process.argv.slice(2);
+  const argv = commandArgv(options.argv ?? process.argv.slice(2));
   const projectRoot = options.projectRoot ?? process.cwd();
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
@@ -43,6 +43,10 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
   }
 
   return await runCodegenCommand(commandArgs, { projectRoot, stdout, stderr, dependencies });
+}
+
+function commandArgv(argv: string[]): string[] {
+  return argv[0] === "--" ? argv.slice(1) : argv;
 }
 
 async function runCodegenCommand(
