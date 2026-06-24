@@ -4,6 +4,7 @@ import {
   deliverLiveQueryChangesToConnections,
   liveQueryDeliveryChangesFromBody,
   type LiveQueryDeliveryChange,
+  type LiveQueryDeliveryResult,
 } from "./liveQueryDelivery";
 import type { Env } from "./types";
 
@@ -42,25 +43,21 @@ type ClaimLiveQueryDeliveryBatchResult = {
   hasMore: boolean;
 };
 
-type DeliveryDrainResult = {
+type DeliveryDrainResult = LiveQueryDeliveryResult & {
   deploymentId: string;
   batches: number;
   claimed: number;
   acked: number;
-  delivered: number;
-  skipped: number;
   hasMore: boolean;
   summary: DeliveryDrainSummary;
 };
 
 type DeliveryFailureStage = "fanout" | "ack";
 
-type DeliveryDrainSummary = {
+type DeliveryDrainSummary = LiveQueryDeliveryResult & {
   batches: number;
   claimed: number;
   acked: number;
-  delivered: number;
-  skipped: number;
   pendingAck: number;
   hasMore: boolean;
 };
@@ -136,6 +133,7 @@ export class DeliveryDO extends DurableObject<Env> {
     let acked = 0;
     let delivered = 0;
     let skipped = 0;
+    let staleSkipped = 0;
     let hasMore = false;
     let cursor: LiveQueryDeliveryCursor | undefined;
     const leaseDurationMs = body.leaseDurationMs;
@@ -176,6 +174,7 @@ export class DeliveryDO extends DurableObject<Env> {
       }
       delivered += fanout.delivered;
       skipped += fanout.skipped;
+      staleSkipped += fanout.staleSkipped ?? 0;
 
       let ack;
       try {
@@ -207,6 +206,7 @@ export class DeliveryDO extends DurableObject<Env> {
       acked,
       delivered,
       skipped,
+      ...(staleSkipped > 0 ? { staleSkipped } : {}),
       hasMore,
       summary: {
         batches,
@@ -214,6 +214,7 @@ export class DeliveryDO extends DurableObject<Env> {
         acked,
         delivered,
         skipped,
+        ...(staleSkipped > 0 ? { staleSkipped } : {}),
         pendingAck: Math.max(0, claimed - acked),
         hasMore,
       },

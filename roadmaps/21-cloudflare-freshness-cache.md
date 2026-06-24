@@ -1,5 +1,62 @@
 # Cloudflare Freshness Cache
 
+## Stale Delivery Metrics
+
+Previous completed checkpoint: `f3fb118` Cover stale delivery retry suppression.
+
+What changed:
+
+- Added an optional `staleSkipped` count to live query delivery results.
+- `ConnectionDO` increments `staleSkipped` only when a delivery's
+  `previousResultHash` no longer matches the active query result hash.
+- DeliveryDO propagates that count into both the wake response and drain
+  summary so durable retry wakeups distinguish duplicate stale suppression from
+  ordinary skipped deliveries.
+- Existing non-stale delivery responses keep the previous shape because
+  `staleSkipped` is omitted when it is zero.
+
+Why it changed:
+
+The previous checkpoint proved stale DeliveryDO retries are safely skipped and
+acked, but the response only exposed a generic `skipped` count. That made a
+stale duplicate retry indistinguishable from unrelated skips such as missing
+queries, wrong connection names, or unchanged results.
+
+Convex references inspected:
+
+- `crates/sync/src/state.rs`
+  - `SyncState::complete_fetch` computes `same_result`, logs query result
+    deduplication, and suppresses client state modifications for unchanged
+    results.
+- `crates/sync/src/worker.rs`
+  - sync transitions are driven by backend query state, while Flarex has an
+    extra durable delivery boundary that needs explicit retry observability.
+
+Flarex differences:
+
+- Convex logs query-result deduplication inside the sync worker path and does
+  not expose a DeliveryDO wake response. Flarex exposes `staleSkipped` at the
+  Cloudflare delivery boundary because durable delivery rows can be retried
+  after fanout or ack failures.
+- `staleSkipped` is not a new client protocol message. It is operational
+  metadata on backend delivery endpoints.
+
+Known limitations:
+
+- `staleSkipped` separates stale hash mismatches from other skips, but other
+  skip reasons are still grouped under `skipped`.
+- This is response-level observability only; no persistent metrics sink or
+  structured logging has been added yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "stale live query delivery rows|stale failed live query deliveries|stale DeliveryDO retries" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=30000 --hookTimeout=30000
+git diff --check
+```
+
 ## Stale DeliveryDO Retry Suppression
 
 Previous completed checkpoint: `08c036b` Cover delivery ack failure reporting.

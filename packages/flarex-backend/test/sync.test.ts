@@ -1632,6 +1632,7 @@ describe("sync protocol", () => {
     expect(staleFailedBody).toEqual({
       delivered: 0,
       skipped: 1,
+      staleSkipped: 1,
     });
     ws.close();
   });
@@ -2445,6 +2446,7 @@ describe("sync protocol", () => {
       acked: 1,
       delivered: 0,
       skipped: 1,
+      staleSkipped: 1,
       hasMore: false,
       summary: {
         batches: 1,
@@ -2452,6 +2454,7 @@ describe("sync protocol", () => {
         acked: 1,
         delivered: 0,
         skipped: 1,
+        staleSkipped: 1,
         pendingAck: 0,
         hasMore: false,
       },
@@ -4262,7 +4265,8 @@ describe("sync protocol", () => {
     });
 
     expect(stale.status).toBe(200);
-    await expect(stale.json()).resolves.toEqual({ delivered: 0, skipped: 1 });
+    const staleBody: unknown = await stale.json();
+    expect(staleBody).toEqual({ delivered: 0, skipped: 1, staleSkipped: 1 });
     const valid = nextJsonMessage(ws);
     await connection.fetch("https://flarex.internal/deliver/live-query", {
       method: "POST",

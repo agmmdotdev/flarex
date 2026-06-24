@@ -398,6 +398,7 @@ export class ConnectionDO extends DurableObject<Env> {
     const startVersion = this.currentVersion();
     const modifications: StateModification[] = [];
     let skipped = 0;
+    let staleSkipped = 0;
 
     for (const delivery of deliveries) {
       if (this.state.deploymentId !== null && delivery.deploymentId !== this.state.deploymentId) {
@@ -419,6 +420,7 @@ export class ConnectionDO extends DurableObject<Env> {
           query.resultHash !== delivery.previousResultHash
         ) {
           skipped += 1;
+          staleSkipped += 1;
           continue;
         }
         this.state.ts += 1;
@@ -433,14 +435,15 @@ export class ConnectionDO extends DurableObject<Env> {
         this.state.queries.delete(query.queryId);
         continue;
       }
-      if (query.resultHash === delivery.resultHash) {
-        skipped += 1;
-        continue;
-      }
       if (
         query.resultHash !== undefined &&
         query.resultHash !== delivery.previousResultHash
       ) {
+        skipped += 1;
+        staleSkipped += 1;
+        continue;
+      }
+      if (query.resultHash === delivery.resultHash) {
         skipped += 1;
         continue;
       }
@@ -464,6 +467,7 @@ export class ConnectionDO extends DurableObject<Env> {
     return json({
       delivered: modifications.length,
       skipped,
+      ...(staleSkipped > 0 ? { staleSkipped } : {}),
     });
   }
 

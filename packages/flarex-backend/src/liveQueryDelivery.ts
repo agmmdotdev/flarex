@@ -7,6 +7,7 @@ export type { LiveQueryDeliveryChange } from "flarex";
 export type LiveQueryDeliveryResult = {
   delivered: number;
   skipped: number;
+  staleSkipped?: number;
 };
 
 export type ConnectionLiveQueryDeliveryResult = LiveQueryDeliveryResult & {
@@ -47,6 +48,7 @@ export async function deliverLiveQueryChangesToConnections(
 
   let delivered = 0;
   let skipped = 0;
+  let staleSkipped = 0;
   for (const [connectionId, connectionDeliveries] of byConnection) {
     const response = await env.CONNECTIONS.getByName(connectionId).fetch(
       "https://flarex.internal/deliver/live-query",
@@ -68,11 +70,13 @@ export async function deliverLiveQueryChangesToConnections(
     );
     delivered += result.delivered;
     skipped += result.skipped;
+    staleSkipped += result.staleSkipped ?? 0;
   }
 
   return {
     delivered,
     skipped,
+    ...(staleSkipped > 0 ? { staleSkipped } : {}),
     connections: byConnection.size,
   };
 }
@@ -156,6 +160,7 @@ function liveQueryDeliveryResultFromUnknown(
   return {
     delivered: requiredResultInteger(record.delivered, `${connectionId}.delivered`),
     skipped: requiredResultInteger(record.skipped, `${connectionId}.skipped`),
+    ...optionalResultInteger(record.staleSkipped, `${connectionId}.staleSkipped`),
   };
 }
 
@@ -174,6 +179,17 @@ function requiredResultInteger(value: unknown, field: string): number {
     return value;
   }
   throw new HttpError(502, `${field} must be a non-negative integer.`);
+}
+
+function optionalResultInteger(
+  value: unknown,
+  field: string,
+): Pick<LiveQueryDeliveryResult, "staleSkipped"> {
+  if (value === undefined) return {};
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return { staleSkipped: value };
+  }
+  throw new HttpError(502, `${field} must be a non-negative integer when present.`);
 }
 
 function deliveryJson(value: unknown, field: string): Json {
