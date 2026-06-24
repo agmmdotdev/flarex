@@ -1,5 +1,75 @@
 # Function Routing And Shard Policy
 
+## Generated Api Internal Separation
+
+Previous completed checkpoint: `fc4431e` Enforce invoke function visibility.
+
+What changed:
+
+- `flarex/server` now exports Convex-style API filtering helpers:
+  `filterApi`, `justPublic`, and `justInternal`.
+- `ApiFromModules` now prunes empty directory/module nodes while preserving all
+  generated function references before visibility filtering.
+- Generated `_generated/api.ts` now creates a `fullApi` reference tree and
+  exports:
+  - `api = justPublic(fullApi)`
+  - `internal = justInternal(fullApi)`
+- SDK type tests prove public generated references exclude internal functions
+  while `internal` exposes them.
+- Codegen tests now assert generated files include both public and internal API
+  exports.
+- The generated worker template now derives invoke visibility types from
+  generated `functionMetadata`, so example app typecheck covers the emitted
+  worker source instead of only the generator implementation.
+
+Why it changed:
+
+The prior checkpoint made the Postgres executor reject visibility mismatches,
+but generated public API typing could still name internal functions. That was
+not Convex-compatible developer ergonomics. Convex developers use public
+`api.*` references from clients and `internal.*` references from scheduler,
+actions, and server-side orchestration. Flarex now follows that type-level
+shape while keeping backend enforcement as the real security boundary.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/api.ts`
+  - defines `FilterApi`, `justPublic`, and `justInternal`.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+  - emits `fullApi`, public `api`, and internal `internal` exports.
+- `npm-packages/convex/src/server/registration.ts`
+  - documents server-side use of `internal` references for `ctx.runQuery`,
+    `ctx.runMutation`, and scheduler calls.
+
+Flarex differences:
+
+- Convex generated JS uses `anyApi` at runtime and relies on types for
+  filtering. Flarex keeps `createApi(metadata)` so generated references still
+  carry Flarex partition metadata such as `_partition`.
+- The split is a TypeScript/DX boundary. Runtime security still comes from the
+  Postgres executor visibility check added in `fc4431e`.
+
+Known limitations:
+
+- Generated `api/internal` splitting now covers query, mutation,
+  workflowMutation, and action references at the type level, but action and
+  workflowMutation runtime execution are still outside `/invoke`.
+- `anyApi` remains intentionally unfiltered for manual references, matching the
+  current escape-hatch behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex exec vitest run test/api.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Invoke Visibility Boundary
 
 Previous completed checkpoint: `d3aacfd` Audit post-commit live query
@@ -57,10 +127,6 @@ Known limitations:
 - This checkpoint is a Postgres trusted-executor boundary. The legacy Durable
   Object invoke transport remains prototype behavior and does not enforce the
   new visibility expectation.
-- Generated public API separation is not complete yet: the generated public
-  `api` surface can still name internal functions. The next Convex-style slice
-  should split generated `api` and `internal` references instead of relying only
-  on runtime rejection.
 - Action and workflowMutation execution remain outside `/invoke`; this
   checkpoint only covers query/mutation preparation.
 

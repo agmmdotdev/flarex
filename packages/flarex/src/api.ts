@@ -110,11 +110,44 @@ type UnionToIntersection<Union> = (
   : never;
 
 export type ApiFromModules<Modules extends Record<string, Record<string, unknown>>> =
-  UnionToIntersection<
-    {
-      [Path in keyof Modules]: ApiForModule<Path & string, Modules[Path]>;
-    }[keyof Modules]
+  FilterApi<
+    UnionToIntersection<
+      {
+        [Path in keyof Modules]: ApiForModule<Path & string, Modules[Path]>;
+      }[keyof Modules]
+    >,
+    AnyFunctionReference
   >;
+
+type FilterKeysInApi<Key, API, Predicate> =
+  API extends Predicate
+    ? Key
+    : API extends AnyFunctionReference
+      ? never
+      : FilterApi<API, Predicate> extends Record<string, never>
+        ? never
+        : Key;
+
+export type FilterApi<API, Predicate> = {
+  [Key in keyof API as FilterKeysInApi<Key, API[Key], Predicate>]:
+    API[Key] extends Predicate ? API[Key] : FilterApi<API[Key], Predicate>;
+};
+
+export function filterApi<API, Predicate>(api: API): FilterApi<API, Predicate> {
+  return api as FilterApi<API, Predicate>;
+}
+
+export function justPublic<API>(
+  api: API,
+): FilterApi<API, FunctionReference<FunctionType, "public">> {
+  return filterApi(api);
+}
+
+export function justInternal<API>(
+  api: API,
+): FilterApi<API, FunctionReference<FunctionType, "internal">> {
+  return filterApi(api);
+}
 
 type AnyApiNode = { [name: string]: AnyApiNode } & AnyFunctionReference;
 export type AnyApi = Record<string, AnyApiNode>;

@@ -58,7 +58,9 @@ export const helper = "not a function";
 
     expect(api).toContain('import type * as module0 from "../functions/messages"');
     expect(api).toContain('import type * as module1 from "../functions/reexports"');
-    expect(api).toContain('createApi({');
+    expect(api).toContain("const fullApi = createApi({");
+    expect(api).toContain("export const api = justPublic(fullApi);");
+    expect(api).toContain("export const internal = justInternal(fullApi);");
     expect(api).toContain('createApi({})');
     expect(dataModel).toContain("DataModelFromSchemaDefinition<typeof schema>");
     expect(server).toContain('QueryBuilder<DataModel, "public">');

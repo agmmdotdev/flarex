@@ -433,8 +433,11 @@ export const internalAction = internalActionGeneric;
 export {
   anyApi,
   createApi,
+  filterApi,
   functionName,
   getFunctionName,
+  justInternal,
+  justPublic,
   makeFunctionReference,
 } from "./api";
 export {
@@ -460,6 +463,7 @@ export type {
   AnyApi,
   AnyFunctionReference,
   ApiFromModules,
+  FilterApi,
   FunctionReference,
   FunctionReferenceFromExport,
   FunctionArgs,
