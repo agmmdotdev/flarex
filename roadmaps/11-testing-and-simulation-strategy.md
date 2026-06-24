@@ -1,5 +1,58 @@
 # Testing and Simulation Strategy
 
+## Generated Directory Typecheck Coverage
+
+Previous completed checkpoint: `53eda56` Typecheck generated Worker output.
+
+What changed:
+
+- The generated-source Vitest gate now compiles
+  `flarex/_generated/**/*.ts`.
+- The coverage includes generated runtime files and generated developer API
+  files in the same TypeScript program.
+- The helper and temporary tsconfig names now use generated-output wording
+  instead of Worker-only wording.
+
+Why it changed:
+
+Generated files are authored as templates and do not get checked by the
+package's own `tsconfig` unless tests compile emitted output. The prior
+worker-only test closed the most urgent runtime hole; this extends the same
+testing strategy to the complete generated directory.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex uses typecheck-aware codegen flows.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - Convex generated files are stable TypeScript contracts, so template output
+    must remain type-correct.
+
+Flarex differences:
+
+- Flarex currently proves generated output through package tests only, not a
+  public CLI command.
+- The representative fixture is intentionally small to keep generator tests
+  fast while still forcing imports through user functions and schema.
+
+Known limitations:
+
+- This is not exhaustive over every schema placement, validator, or partition
+  API shape.
+- Future slices should either add more generated-output fixtures or expose a
+  reusable generated typecheck command for dev/plugin use.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Runtime Typecheck Coverage
 
 Previous completed checkpoint: `90df37a` Guard nested function execution.

@@ -16,7 +16,7 @@ const workspaceRoot = path.resolve(
 );
 const TYPECHECK_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
-type GeneratedWorkerTsconfig = {
+type GeneratedOutputTsconfig = {
   extends: string;
   compilerOptions: {
     typeRoots: string[];
@@ -120,7 +120,7 @@ export const helper = "not a function";
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });
 
-  it("typechecks generated Worker output", async () => {
+  it("typechecks generated output", async () => {
     const root = await createProject();
     await writeFile(
       path.join(root, "flarex/functions/messages.ts"),
@@ -147,7 +147,7 @@ export const list = query({
 
     await generateFlarex({ root });
 
-    await expect(typecheckGeneratedWorker(root)).resolves.toBeUndefined();
+    await expect(typecheckGeneratedOutput(root)).resolves.toBeUndefined();
   });
 
   it("removes stale generated files after final codegen", async () => {
@@ -1018,11 +1018,11 @@ function jsonRecord(value: unknown, pathName: string): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value));
 }
 
-async function typecheckGeneratedWorker(root: string): Promise<void> {
-  const configPath = path.join(root, "tsconfig.generated-worker.json");
+async function typecheckGeneratedOutput(root: string): Promise<void> {
+  const configPath = path.join(root, "tsconfig.generated-output.json");
   await writeFile(
     configPath,
-    `${JSON.stringify(generatedWorkerTsconfig(root), null, 2)}\n`,
+    `${JSON.stringify(generatedOutputTsconfig(root), null, 2)}\n`,
   );
   const tsc = path.join(workspaceRoot, "node_modules/typescript/bin/tsc");
   try {
@@ -1033,7 +1033,7 @@ async function typecheckGeneratedWorker(root: string): Promise<void> {
   } catch (error) {
     throw new Error(
       [
-        "Generated Worker typecheck failed.",
+        "Generated output typecheck failed.",
         childProcessErrorMessage(error),
         childProcessOutput(error, "stdout"),
         childProcessOutput(error, "stderr"),
@@ -1044,7 +1044,7 @@ async function typecheckGeneratedWorker(root: string): Promise<void> {
   }
 }
 
-function generatedWorkerTsconfig(root: string): GeneratedWorkerTsconfig {
+function generatedOutputTsconfig(root: string): GeneratedOutputTsconfig {
   return {
     extends: workspacePath("tsconfig.base.json"),
     compilerOptions: {
@@ -1057,7 +1057,7 @@ function generatedWorkerTsconfig(root: string): GeneratedWorkerTsconfig {
         "flarex/*": [workspacePath("packages/flarex/src/*")],
       },
     },
-    include: [slashPath(path.join(root, "flarex/_generated/worker.ts"))],
+    include: [slashPath(path.join(root, "flarex/_generated/**/*.ts"))],
   };
 }
 

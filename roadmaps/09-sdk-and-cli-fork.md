@@ -1,5 +1,60 @@
 # SDK And CLI Fork
 
+## Generated Output Typecheck Gate
+
+Previous completed checkpoint: `53eda56` Typecheck generated Worker output.
+
+What changed:
+
+- The `generateFlarex` generated-source typecheck now includes the whole
+  emitted `_generated` TypeScript tree.
+- The test now proves `_generated/api.ts`, `_generated/server.ts`,
+  `_generated/dataModel.ts`, `_generated/functionRegistry.ts`,
+  `_generated/functionMetadata.ts`, `_generated/deploymentSchema.ts`, and
+  `_generated/worker.ts` typecheck together.
+- The helper names now describe generated output generally, not only Worker
+  output.
+
+Why it changed:
+
+Flarex wants Convex-style generated APIs where the generated files are the
+developer's stable import surface. Only compiling `worker.ts` left a gap for
+API/server/dataModel template drift. The generator test should catch that drift
+before app developers do.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex treats codegen and typechecking as coupled developer workflow.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript templates define the public function-reference,
+    server-builder, and data-model surfaces.
+
+Flarex differences:
+
+- Flarex compiles generated output inside one focused generator test for now.
+- The temp config uses workspace source path mappings instead of installed
+  package resolution because test apps live in temporary directories.
+
+Known limitations:
+
+- There is still no user-facing `flarex codegen --typecheck` or equivalent
+  command.
+- The representative fixture exercises nested query references, but broader
+  generated API shape coverage should grow as more Convex-style APIs are
+  ported.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+```
+
 ## Generated Worker Typecheck Gate
 
 Previous completed checkpoint: `90df37a` Guard nested function execution.
