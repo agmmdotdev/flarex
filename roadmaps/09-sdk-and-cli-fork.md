@@ -1,5 +1,65 @@
 # SDK And CLI Fork
 
+## Example Generated Output Typecheck Command
+
+Previous completed checkpoint: `a902d50` Gate dev flow on generated typecheck.
+
+What changed:
+
+- The example app now has a `typecheck:generated` script that runs
+  `pnpm generate` and then checks `flarex/_generated/**/*.ts` through the
+  public `typecheckGeneratedOutput(...)` helper from `flarex-dev`.
+- Added `apps/example/scripts/typecheck-generated.ts` as the first app-facing
+  command path for the generated-output gate.
+- The script uses the same workspace TypeScript path mappings already covered
+  by the dev-runtime and Vite tests, so manual and CI validation exercise the
+  same generated-output checker.
+
+Why it changed:
+
+The previous checkpoint made generated-output typechecking part of the dev
+runtime and Vite plugin lifecycle, but there was still no direct app command to
+run the same gate outside Vite. Convex exposes codegen/typecheck behavior as a
+developer workflow, not just an internal dev-server detail. Flarex needs that
+same direction before a full CLI fork/port is introduced.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex keeps generated API output tied to developer commands.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev orchestration gates serving on generated/deployed state.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript remains a stable app import contract.
+
+Flarex differences:
+
+- This is an example-app script, not a published `flarex codegen --typecheck`
+  command yet.
+- The script passes workspace path mappings because this repo runs the example
+  against TS-source workspace packages.
+- The command checks generated output only; full app typechecking remains the
+  existing `typecheck` script.
+
+Known limitations:
+
+- There is still no stable CLI binary because `flarex-dev` currently publishes
+  TS-source exports and does not emit a built JS command entry.
+- The app script is workspace-specific; the future CLI should infer package
+  resolution from the project environment instead of hardcoding monorepo path
+  mappings.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Generated Output Typecheck Dev Integration
 
 Previous completed checkpoint: `7380900` Expose generated output typecheck.

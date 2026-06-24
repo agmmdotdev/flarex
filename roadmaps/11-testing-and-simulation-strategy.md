@@ -1,5 +1,56 @@
 # Testing and Simulation Strategy
 
+## Example Generated Output Typecheck Script
+
+Previous completed checkpoint: `a902d50` Gate dev flow on generated typecheck.
+
+What changed:
+
+- Added an example-app `typecheck:generated` script that regenerates Flarex
+  output and runs the reusable generated-output TypeScript gate.
+- Added `apps/example/scripts/typecheck-generated.ts` so the manual validation
+  path uses the same `flarex-dev` helper as the unit and dev-runtime tests.
+
+Why it changed:
+
+The generated-output gate had coverage inside `flarex-dev`, but the example app
+did not yet prove that an application can call the helper as a real CI/manual
+check. This makes the example closer to Convex's workflow where generated API
+contracts are part of everyday developer validation.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files are validated through developer commands.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - local workflow readiness depends on generated/deployed state.
+- `npm-packages/convex/src/cli/codegen_templates/api.ts`
+- `npm-packages/convex/src/cli/codegen_templates/server.ts`
+- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
+  - generated TypeScript should stay directly typecheckable.
+
+Flarex differences:
+
+- This is not a new Vitest case. It is an example-app script validation path
+  that can run in CI or manually.
+- Workspace path mappings are explicit until Flarex has a real published CLI
+  and package-resolution story.
+
+Known limitations:
+
+- The command does not replace full app `tsc`; it only checks the generated
+  tree.
+- A future CLI should remove the need for each app to carry this helper script.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/example typecheck:generated
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Dev Runtime Generated Output Typecheck Coverage
 
 Previous completed checkpoint: `7380900` Expose generated output typecheck.
