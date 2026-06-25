@@ -12,7 +12,10 @@ import {
   type DeploymentAnalysis,
   type FunctionModule,
 } from "./analyze.ts";
-import { LocalMiniflareExecutionArtifactAdapter } from "./executionArtifact.ts";
+import {
+  LocalExecutionArtifactBackendAnalyzer,
+  type BackendSourceAnalyzer,
+} from "./backendPush.ts";
 import {
   bundleSourcePackage,
   type SourcePackage,
@@ -22,6 +25,10 @@ export type FlarexGenerateOptions = {
   root: string;
   appDir?: string;
   generatedDir?: string;
+};
+
+export type FlarexCodegenOptions = FlarexGenerateOptions & {
+  sourceAnalyzer?: BackendSourceAnalyzer;
 };
 
 export type FlarexGenerationContext = {
@@ -1026,15 +1033,15 @@ export default {
 `;
 }
 
-export async function generateFlarex(options: FlarexGenerateOptions): Promise<void> {
+export async function generateFlarex(options: FlarexCodegenOptions): Promise<void> {
   const context = await initialCodegen(options);
   const sourcePackage = await bundleFlarexSourcePackage(context);
-  const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+  const analysis = await analyzeFlarexSourcePackage(sourcePackage, options.sourceAnalyzer);
   await finalCodegen(context, analysis);
 }
 
 export async function dryRunFlarexCodegen(
-  options: FlarexGenerateOptions,
+  options: FlarexCodegenOptions,
 ): Promise<FlarexCodegenDryRun> {
   const appDirOption = options.appDir ?? "flarex";
   const generatedDirOption = options.generatedDir ?? "_generated";
@@ -1054,7 +1061,7 @@ export async function dryRunFlarexCodegen(
       generatedDir: generatedDirOption,
     });
     const sourcePackage = await bundleFlarexSourcePackage(context);
-    const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+    const analysis = await analyzeFlarexSourcePackage(sourcePackage, options.sourceAnalyzer);
     const files = finalGeneratedFiles(analysis);
     return {
       writes: await generatedFileWrites(generatedDir, files),
@@ -1063,6 +1070,13 @@ export async function dryRunFlarexCodegen(
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+}
+
+export async function analyzeFlarexSourcePackage(
+  sourcePackage: SourcePackage,
+  sourceAnalyzer: BackendSourceAnalyzer = new LocalExecutionArtifactBackendAnalyzer(),
+): Promise<DeploymentAnalysis> {
+  return (await sourceAnalyzer.analyze(sourcePackage)).analysis;
 }
 
 export async function initialCodegen(

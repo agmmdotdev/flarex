@@ -1,5 +1,54 @@
 # Testing and Simulation Strategy
 
+## Codegen Backend Analysis Seam Coverage
+
+Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.
+
+What changed:
+
+- Added generator tests that inject a `BackendSourceAnalyzer` into
+  `generateFlarex(...)` and `dryRunFlarexCodegen(...)`.
+- The tests prove generated metadata comes from the injected backend analysis
+  result and that dry-run still does not write final generated metadata.
+
+Why it changed:
+
+The codegen path is moving toward Convex's backend-authoritative analysis
+model. Before wiring hosted push, tests need to prove the generator is no
+longer hard-coded to direct local artifact analysis.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - push/start owns backend analysis.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - response carries analyzed metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final codegen consumes backend-provided analysis.
+
+Flarex differences:
+
+- Tests inject a local fake `BackendSourceAnalyzer`; they do not run a hosted
+  backend push.
+- The default local analyzer still uses Miniflare execution artifacts behind
+  the backend-shaped seam.
+
+Known limitations:
+
+- No hosted backend codegen test exists yet.
+- This coverage does not prove persistence of authoritative analysis across
+  deployments.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "injected backend source analysis" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Codegen Dry-Run Coverage
 
 Previous completed checkpoint: `b40fb92` Preserve generated extension entries.

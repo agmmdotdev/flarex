@@ -7,6 +7,8 @@ import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import {
   bundleFlarexSourcePackage,
+  type BackendSourceAnalyzer,
+  type DeploymentAnalysis,
   dryRunFlarexCodegen,
   finalCodegen,
   finalGeneratedFiles,
@@ -142,6 +144,49 @@ export const list = query({ args: {}, handler: async () => [] });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("uses injected backend source analysis for final codegen", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const calls: string[][] = [];
+    const sourceAnalyzer: BackendSourceAnalyzer = {
+      analyze: async sourcePackage => {
+        calls.push(sourcePackage.functions);
+        return { analysis: backendCodegenAnalysis("mutation") };
+      },
+    };
+
+    await generateFlarex({ root, sourceAnalyzer });
+
+    expect(calls).toEqual([["messages.js"]]);
+    await expect(readGenerated(root, "functionMetadata.ts"))
+      .resolves.toContain('"kind": "mutation"');
+  });
+
+  it("uses injected backend source analysis for dry-run codegen", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const sourceAnalyzer: BackendSourceAnalyzer = {
+      analyze: async () => ({ analysis: backendCodegenAnalysis("action") }),
+    };
+
+    const report = await dryRunFlarexCodegen({ root, sourceAnalyzer });
+    const metadataWrite = report.writes.find(write => write.name === "functionMetadata.ts");
+
+    expect(metadataWrite?.contents).toContain('"kind": "action"');
+    await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
+      .resolves.toBe(false);
   });
 
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {
@@ -1124,6 +1169,31 @@ async function createProject(): Promise<string> {
 
 function readGenerated(root: string, file: string): Promise<string> {
   return readFile(path.join(root, "flarex/_generated", file), "utf8");
+}
+
+function backendCodegenAnalysis(kind: DeploymentAnalysis["functions"][number]["functions"][number]["kind"]): DeploymentAnalysis {
+  return {
+    schema: {
+      version: 1,
+      tables: [],
+      indexes: [],
+    },
+    functions: [
+      {
+        moduleName: "messages",
+        functions: [
+          {
+            moduleName: "messages",
+            exportName: "list",
+            kind,
+            visibility: "public",
+            args: { type: "object", value: {} },
+            returns: null,
+          },
+        ],
+      },
+    ],
+  };
 }
 
 async function fileExists(file: string): Promise<boolean> {

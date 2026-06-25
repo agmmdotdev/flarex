@@ -1,5 +1,61 @@
 # Deployment Analysis And Push
 
+## Codegen Uses Backend Source Analyzer Seam
+
+Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.
+
+What changed:
+
+- Codegen orchestration now calls `analyzeFlarexSourcePackage(...)`, which
+  accepts a `BackendSourceAnalyzer`.
+- The default analyzer is `LocalExecutionArtifactBackendAnalyzer`, matching the
+  backend push analysis seam already used by local dev.
+- `generateFlarex(...)` and `dryRunFlarexCodegen(...)` accept
+  `FlarexCodegenOptions.sourceAnalyzer`, so tests and future hosted flows can
+  supply backend-owned analysis without changing final codegen.
+
+Why it changed:
+
+The deployment model requires backend-controlled analysis to be authoritative.
+Convex's `startPush` response carries analyzed module/schema metadata into
+codegen. Flarex is not yet calling hosted push from CLI codegen, but this
+checkpoint removes direct local artifact analysis from generator orchestration
+and makes backend source analysis the codegen boundary.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - constructs and sends the push/start request with bundled modules.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - defines `StartPushResponse`, the backend analysis response consumed by
+    later codegen steps.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final codegen reads analysis from `StartPushResponse`.
+
+Flarex differences:
+
+- The default analyzer is still local and deterministic-checking, not hosted.
+- `BackendSourceAnalyzer` currently returns the codegen analysis shape directly;
+  hosted deployment metadata persistence remains separate.
+- Local dev already uses `LocalBackendPushCoordinator`; this checkpoint brings
+  standalone codegen closer to that boundary without requiring a backend server.
+
+Known limitations:
+
+- Hosted `/push/start` is not yet the source of CLI codegen analysis.
+- Codegen analysis is not yet reconstructed from persisted active deployment
+  metadata for standalone CLI commands.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "injected backend source analysis" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Decision
 
 Flarex developers write ordinary TypeScript modules. They do not write or

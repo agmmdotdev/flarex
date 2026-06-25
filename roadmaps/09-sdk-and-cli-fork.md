@@ -1,5 +1,66 @@
 # SDK And CLI Fork
 
+## Codegen Backend Analysis Seam
+
+Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.
+
+What changed:
+
+- Added `analyzeFlarexSourcePackage(...)` as the shared codegen analysis seam.
+- `generateFlarex(...)` and `dryRunFlarexCodegen(...)` now consume
+  `BackendSourceAnalyzer` through `FlarexCodegenOptions`.
+- The default analyzer is `LocalExecutionArtifactBackendAnalyzer`, so local
+  codegen uses the same backend-style source-package analysis boundary and
+  nondeterminism guard as local backend push.
+- Added tests proving normal final codegen and dry-run codegen use injected
+  backend source analysis instead of reading analysis directly from the
+  execution artifact adapter.
+
+Why it changed:
+
+Convex final codegen is driven by backend analysis from the push/start flow.
+Flarex CLI codegen still runs locally, but this checkpoint removes the direct
+artifact-analysis dependency from generator orchestration and replaces it with
+a backend source analyzer seam. Hosted codegen can later supply a remote
+analyzer without changing generated-file planning.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - builds the source-package request and calls `startPush(...)`.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - defines the request/response boundary for backend push analysis.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final component codegen consumes `StartPushResponse` analysis rather than
+    independently re-analyzing local files.
+
+Flarex differences:
+
+- The default analyzer remains local and Miniflare-backed; it is backend-shaped
+  but not hosted.
+- `FlarexCodegenOptions.sourceAnalyzer` is a tooling seam, not a developer app
+  API.
+- Dry-run still uses a temporary app directory before analysis to avoid
+  mutating the real generated directory.
+
+Known limitations:
+
+- CLI codegen does not yet call a hosted Flarex backend for authoritative
+  analysis.
+- Backend source analysis still returns the codegen `DeploymentAnalysis` shape;
+  long term, hosted push should persist backend deployment metadata and return
+  codegen-safe analysis from that authoritative state.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "injected backend source analysis" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Codegen Dry-Run Command
 
 Previous completed checkpoint: `b40fb92` Preserve generated extension entries.

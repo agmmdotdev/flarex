@@ -11,6 +11,7 @@ export type {
   LocalPGliteExecutorHttpRuntimeOptions,
 } from "./executorHttpRuntime.ts";
 export {
+  analyzeFlarexSourcePackage,
   bundleFlarexSourcePackage,
   dryRunFlarexCodegen,
   finalCodegen,
@@ -24,6 +25,7 @@ export {
 export type {
   FinalGeneratedFileName,
   FlarexCodegenDryRun,
+  FlarexCodegenOptions,
   FlarexGenerateOptions,
   FlarexGenerationContext,
   GeneratedFile,
