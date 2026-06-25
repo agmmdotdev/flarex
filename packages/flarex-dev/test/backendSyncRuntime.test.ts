@@ -20,6 +20,7 @@ import type {
 import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
+  FinishPushResponse,
   Json,
   PushStatus,
   PushSourcePackage,
@@ -40,6 +41,10 @@ import { LocalMiniflareExecutionArtifactMaterializer } from "../src/runtimeMater
 
 type BackendDispatchResponse = Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>;
 type SyncWebSocket = NonNullable<BackendDispatchResponse["webSocket"]>;
+type ActivatedFinishPushSummary =
+  Pick<Extract<FinishPushResponse, { result: "activated" }>, "result"> & {
+    push: Pick<PushStatus, "pushId" | "state">;
+  };
 
 describe("backend sync with local executor runtime", () => {
   const harnesses: BackendHarness[] = [];
@@ -939,7 +944,7 @@ async function finishPush(
   if (!response.ok) {
     expect(response.ok, await response.text()).toBe(true);
   }
-  return pushStatusFromUnknown(await response.json());
+  return finishPushResponseFromUnknown(await response.json()).push;
 }
 
 async function openSync(
@@ -999,6 +1004,17 @@ function pushStatusFromUnknown(value: unknown): Pick<PushStatus, "pushId" | "sta
   return {
     pushId: record.pushId,
     state: record.state,
+  };
+}
+
+function finishPushResponseFromUnknown(value: unknown): ActivatedFinishPushSummary {
+  const record = jsonRecord(value, "finish push response");
+  if (record.result !== "activated") {
+    throw new Error("finish push response.result must be activated.");
+  }
+  return {
+    result: "activated",
+    push: pushStatusFromUnknown(record.push),
   };
 }
 

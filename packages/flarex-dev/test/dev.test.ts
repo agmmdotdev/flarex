@@ -105,8 +105,12 @@ describe("Flarex dev runtime", () => {
               start: sourcePackage => real.start(sourcePackage),
               abandon: (pushId, request) => real.abandon(pushId, request),
               finish: async pushId => ({
-                pushId,
-                state: "failed",
+                result: "rejected",
+                push: {
+                  pushId,
+                  state: "failed",
+                  error: "activation failed",
+                },
                 error: "activation failed",
                 diagnostics: [{ level: "error", message: "schema rejected" }],
               }),

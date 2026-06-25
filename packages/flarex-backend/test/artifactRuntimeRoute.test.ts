@@ -9,6 +9,7 @@ import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
   Env,
+  FinishPushResponse,
   PushSourcePackage,
   PushStatus,
 } from "../src/types";
@@ -169,7 +170,9 @@ async function finishPush(
     },
   );
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  const finish = await response.json() as FinishPushResponse;
+  expect(finish.result).toBe("activated");
+  return finish.push;
 }
 
 function testAnalysis(): DeploymentAnalysis {

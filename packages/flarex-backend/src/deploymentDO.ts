@@ -21,6 +21,7 @@ import type {
   DeploymentSchema,
   Env,
   ExecutionArtifactRef,
+  FinishPushResponse,
   FinishPushRequest,
   FunctionVisibility,
   Json,
@@ -112,7 +113,8 @@ export class DeploymentDO extends DurableObject<Env> {
           return json(status);
         }
         if (action === "finish" && request.method === "POST") {
-          return json(await this.finishPush(pushId, await readJson<FinishPushRequest>(request)));
+          const response = await this.finishPush(pushId, await readJson<FinishPushRequest>(request));
+          return json(response, { status: response.result === "rejected" ? 409 : 200 });
         }
         if (action === "abandon" && request.method === "POST") {
           return json(await this.abandonPush(pushId, abandonPushRequest(await readJson(request))));
@@ -181,7 +183,7 @@ export class DeploymentDO extends DurableObject<Env> {
     });
   }
 
-  private async finishPush(pushId: string, _request: FinishPushRequest): Promise<PushStatus> {
+  private async finishPush(pushId: string, _request: FinishPushRequest): Promise<FinishPushResponse> {
     const preflight = this.getPush(pushId);
     if (!preflight) throw new HttpError(404, `Unknown push: ${pushId}`);
     const executionArtifactRef = await executionArtifactRefForSourcePackage(preflight.sourcePackage);
@@ -190,10 +192,13 @@ export class DeploymentDO extends DurableObject<Env> {
       const status = this.getPush(pushId);
       if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
       if (status.state !== "analyzed") {
-        throw new HttpError(409, `Cannot finish push ${pushId} in state ${status.state}.`);
+        return rejectedFinishPushResponse(
+          status,
+          `Cannot finish push ${pushId} in state ${status.state}.`,
+        );
       }
       if (status.analysis === undefined) {
-        throw new HttpError(409, `Push ${pushId} has no analysis to activate.`);
+        return rejectedFinishPushResponse(status, `Push ${pushId} has no analysis to activate.`);
       }
       this.applySchema(status.analysis.schema);
       this.applyFunctions(status.analysis.functions);
@@ -208,7 +213,7 @@ export class DeploymentDO extends DurableObject<Env> {
       this.setMeta("active_execution_artifact_ref", JSON.stringify(executionArtifactRef));
       const activated = this.getPush(pushId);
       if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
-      return activated;
+      return { result: "activated", push: activated };
     });
   }
 
@@ -448,6 +453,15 @@ function pushStatusFromRow(row: {
     ...(diagnostics.length === 0 ? {} : { diagnostics }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function rejectedFinishPushResponse(status: PushStatus, error: string): FinishPushResponse {
+  return {
+    result: "rejected",
+    push: status,
+    error,
+    ...(status.diagnostics === undefined ? {} : { diagnostics: status.diagnostics }),
   };
 }
 

@@ -7,6 +7,7 @@ import type { R2BucketLike } from "flarex-backend/artifact-store";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import {
   createLocalAnalyzerService,
+  devFinishPushErrorMessage,
   devPushStatusErrorMessage,
   LocalBackendPushCoordinator,
   type BackendPushCoordinator,
@@ -164,15 +165,15 @@ export async function createFlarexDevRuntime(
     const nextApp = await createApp();
     try {
       const finished = await pushCoordinator.finish(started.pushId);
-      if (finished.state !== "activated") {
+      if (finished.result !== "activated") {
         throw new Error(
-          devPushStatusErrorMessage(
+          devFinishPushErrorMessage(
             finished,
             `Flarex push ${started.pushId} did not activate`,
           ),
         );
       }
-      lastPush = finished;
+      lastPush = finished.push;
       const previousApp = app;
       app = nextApp;
       await previousApp?.dispose();

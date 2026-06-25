@@ -298,6 +298,18 @@ export type PushStatus = {
 
 export type StartPushResponse = PushStatus;
 
+export type FinishPushResponse =
+  | {
+      result: "activated";
+      push: PushStatus;
+    }
+  | {
+      result: "rejected";
+      push: PushStatus;
+      error: string;
+      diagnostics?: PushDiagnostic[];
+    };
+
 export type ActiveDeploymentStatus = {
   activePushId: string;
   activatedAt: number;

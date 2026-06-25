@@ -8,6 +8,8 @@ import type {
   DeploymentCodegenAnalysis as BackendDeploymentCodegenAnalysis,
   DeploymentFunctionMetadata,
   FinishPushRequest,
+  FinishPushResponse,
+  FunctionVisibility,
   FunctionPartitionMetadata,
   PushState,
   StartPushRequest,
@@ -32,6 +34,15 @@ export type DevPushStatus = {
   diagnostics?: AnalyzerDiagnostic[];
 };
 
+export type DevFinishPushResponse =
+  | (Omit<Extract<FinishPushResponse, { result: "activated" }>, "push"> & {
+      push: DevPushStatus & { state: "activated" };
+    })
+  | (Omit<Extract<FinishPushResponse, { result: "rejected" }>, "push" | "diagnostics"> & {
+      push: DevPushStatus;
+      diagnostics?: AnalyzerDiagnostic[];
+    });
+
 export function devPushStatusErrorMessage(status: DevPushStatus, message: string): string {
   const details = [
     ...(status.error === undefined ? [] : [`Backend error: ${status.error}`]),
@@ -43,9 +54,23 @@ export function devPushStatusErrorMessage(status: DevPushStatus, message: string
   return details.length === 0 ? summary : `${summary}\n${details.join("\n")}`;
 }
 
+export function devFinishPushErrorMessage(response: DevFinishPushResponse, message: string): string {
+  if (response.result === "activated") {
+    return devPushStatusErrorMessage(response.push, message);
+  }
+  return devPushStatusErrorMessage(
+    {
+      ...response.push,
+      error: response.error,
+      ...(response.diagnostics === undefined ? {} : { diagnostics: response.diagnostics }),
+    },
+    message,
+  );
+}
+
 export interface BackendPushCoordinator {
   start(sourcePackage: SourcePackage): Promise<DevPushStatus>;
-  finish(pushId: string): Promise<DevPushStatus>;
+  finish(pushId: string): Promise<DevFinishPushResponse>;
   abandon?(pushId: string, request?: AbandonPushRequest): Promise<DevPushStatus>;
 }
 
@@ -172,12 +197,18 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
     );
   }
 
-  finish(pushId: string): Promise<DevPushStatus> {
-    return postBackend<DevPushStatus>(
-      this.backend,
-      `/deployments/${this.deploymentId}/push/${pushId}/finish`,
-      {},
-    );
+  async finish(pushId: string): Promise<DevFinishPushResponse> {
+    const path = `/deployments/${this.deploymentId}/push/${pushId}/finish`;
+    const response = await this.backend.dispatchFetch(`http://flarex.backend${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushResponseBody(payload))) {
+      throw new Error(`Backend request ${path} failed with status ${response.status}: ${JSON.stringify(payload)}`);
+    }
+    return parseDevFinishPushResponse(payload);
   }
 
   abandon(pushId: string, request: AbandonPushRequest = {}): Promise<DevPushStatus> {
@@ -211,9 +242,9 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     });
   }
 
-  async finish(pushId: string): Promise<DevPushStatus> {
+  async finish(pushId: string): Promise<DevFinishPushResponse> {
     const body = {} satisfies FinishPushRequest;
-    return await this.post(
+    return await this.postFinish(
       `/deployments/${encodeURIComponent(this.deploymentId)}/push/${encodeURIComponent(pushId)}/finish`,
       body,
     );
@@ -242,6 +273,22 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       );
     }
     return parseDevPushStatus(payload);
+  }
+
+  private async postFinish(path: string, body: unknown): Promise<DevFinishPushResponse> {
+    const response = await this.fetcher(backendRequestUrl(this.url, path), {
+      method: "POST",
+      headers: analyzerHeaders(this.headers),
+      body: JSON.stringify(body),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushResponseBody(payload))) {
+      throw new ExecutionArtifactAnalysisError(
+        errorMessageFromBody(payload) ?? `Backend push request failed with status ${response.status}.`,
+        diagnosticsFromBody(payload),
+      );
+    }
+    return parseDevFinishPushResponse(payload);
   }
 }
 
@@ -454,6 +501,193 @@ type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
 
+function backendDeploymentAnalysis(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  const schema = backendDeploymentSchema(value.schema, `${path}.schema`);
+  if (!schema.ok) return schema;
+  const functions = backendDeploymentFunctions(value.functions, `${path}.functions`);
+  if (!functions.ok) return functions;
+  return {
+    ok: true,
+    value: {
+      schema: schema.value,
+      functions: functions.value,
+    },
+  };
+}
+
+function backendDeploymentSchema(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["schema"]> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  if (typeof value.version !== "number") return parseError(`${path}.version must be a number.`);
+  if (!Array.isArray(value.tables)) return parseError(`${path}.tables must be an array.`);
+  if (!Array.isArray(value.indexes)) return parseError(`${path}.indexes must be an array.`);
+  const tables = parseArray(value.tables, backendSchemaTable, `${path}.tables`);
+  if (!tables.ok) return tables;
+  const indexes = parseArray(value.indexes, backendSchemaIndex, `${path}.indexes`);
+  if (!indexes.ok) return indexes;
+  return {
+    ok: true,
+    value: {
+      version: value.version,
+      tables: tables.value,
+      indexes: indexes.value,
+    },
+  };
+}
+
+function backendSchemaTable(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["schema"]["tables"][number]> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
+  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
+  const validator = backendValidatorJsonFromUnknown(value.validator, `${path}.validator`);
+  if (!validator.ok) return validator;
+  const placement = tablePlacement(value.placement, `${path}.placement`);
+  if (!placement.ok) return placement;
+  const state = backendSchemaTableState(value.state, `${path}.state`);
+  if (!state.ok) return state;
+  const table: BackendDeploymentAnalysis["schema"]["tables"][number] = {
+    tableId: value.tableId,
+    name: value.name,
+    placement: placement.value,
+  };
+  if (validator.value !== undefined) table.validator = validator.value;
+  if (state.value !== undefined) table.state = state.value;
+  return { ok: true, value: table };
+}
+
+function backendSchemaIndex(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["schema"]["indexes"][number]> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  if (typeof value.indexId !== "number") return parseError(`${path}.indexId must be a number.`);
+  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
+  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
+  const fields = stringArray(value.fields, `${path}.fields`);
+  if (!fields.ok) return fields;
+  const state = backendSchemaIndexState(value.state, `${path}.state`);
+  if (!state.ok) return state;
+  const index: BackendDeploymentAnalysis["schema"]["indexes"][number] = {
+    indexId: value.indexId,
+    tableId: value.tableId,
+    name: value.name,
+    fields: fields.value,
+  };
+  if (state.value !== undefined) index.state = state.value;
+  return { ok: true, value: index };
+}
+
+function backendSchemaTableState(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["schema"]["tables"][number]["state"] | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  return value === "active" || value === "hidden" || value === "deleted"
+    ? { ok: true, value }
+    : parseError(`${path} must be active, hidden, or deleted.`);
+}
+
+function backendSchemaIndexState(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["schema"]["indexes"][number]["state"] | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  return value === "enabled" || value === "staged" || value === "disabled"
+    ? { ok: true, value }
+    : parseError(`${path} must be enabled, staged, or disabled.`);
+}
+
+function backendDeploymentFunctions(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["functions"]> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  if (!Array.isArray(value.functions)) return parseError(`${path}.functions must be an array.`);
+  const functions = parseArray(value.functions, backendDeploymentFunction, `${path}.functions`);
+  return functions.ok
+    ? { ok: true, value: { functions: functions.value } }
+    : functions;
+}
+
+function backendDeploymentFunction(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["functions"]["functions"][number]> {
+  if (!isRecord(value)) return parseError(`${path} must be an object.`);
+  if (typeof value.path !== "string" || !isFunctionKind(value.kind)) {
+    return parseError(`${path} has invalid function metadata.`);
+  }
+  const visibility = backendFunctionVisibility(value.visibility, `${path}.visibility`);
+  if (!visibility.ok) return visibility;
+  const args = backendValidatorJsonFromUnknown(value.args, `${path}.args`);
+  if (!args.ok) return args;
+  const returns = backendValidatorJsonFromUnknown(value.returns, `${path}.returns`);
+  if (!returns.ok) return returns;
+  const route = backendFunctionRoute(value.route, `${path}.route`);
+  if (!route.ok) return route;
+  const partition = functionPartition(value.partition, `${path}.partition`);
+  if (!partition.ok) return partition;
+  const position = sourcePosition(value.position, `${path}.position`);
+  if (!position.ok) return position;
+  const metadata: BackendDeploymentAnalysis["functions"]["functions"][number] = {
+    path: value.path,
+    kind: value.kind,
+  };
+  if (visibility.value !== null) metadata.visibility = visibility.value;
+  if (args.value !== undefined) metadata.args = args.value;
+  if (returns.value !== undefined) metadata.returns = returns.value;
+  if (route.value !== undefined) metadata.route = route.value;
+  if (partition.value !== null) metadata.partition = partition.value;
+  if (position.value !== null) metadata.position = position.value;
+  return { ok: true, value: metadata };
+}
+
+function backendFunctionVisibility(
+  value: unknown,
+  path: string,
+): ParseResult<FunctionVisibility | null> {
+  if (value === undefined) return { ok: true, value: null };
+  return isFunctionVisibility(value)
+    ? { ok: true, value }
+    : parseError(`${path} must be public or internal.`);
+}
+
+function backendValidatorJsonFromUnknown(
+  value: unknown,
+  path: string,
+): ParseResult<BackendValidatorJson | null | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  const parsed = validatorJson(value, path);
+  if (parsed === undefined || parsed === null) return parseError(`${path} is invalid.`);
+  try {
+    return { ok: true, value: backendRequiredValidatorJson(parsed) };
+  } catch (error) {
+    return parseError(`${path} is invalid: ${errorMessage(error)}`);
+  }
+}
+
+function backendFunctionRoute(
+  value: unknown,
+  path: string,
+): ParseResult<BackendDeploymentAnalysis["functions"]["functions"][number]["route"] | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  if (!isRecord(value) || value.type !== "args" || typeof value.field !== "string") {
+    return parseError(`${path} has invalid route metadata.`);
+  }
+  return { ok: true, value: { type: "args", field: value.field } };
+}
+
 function codegenDeploymentAnalysis(value: unknown, path: string): ParseResult<CodegenDeploymentAnalysis> {
   if (!isRecord(value)) return parseError(`${path} must be an object.`);
   const schema = codegenSchema(value.schema, `${path}.schema`);
@@ -636,13 +870,10 @@ function isFunctionVisibility(
   return value === "public" || value === "internal";
 }
 
-type ParsedCodegenFunctionPartition =
-  NonNullable<CodegenDeploymentAnalysis["functions"][number]["functions"][number]["partition"]> | null;
-
 function functionPartition(
   value: unknown,
   path: string,
-): ParseResult<ParsedCodegenFunctionPartition> {
+): ParseResult<FunctionPartitionMetadata | null> {
   if (value === undefined || value === null) return { ok: true, value: null };
   if (!isRecord(value)) return parseError(`${path} must be an object.`);
   if (typeof value.type !== "string") return parseError(`${path}.type must be a string.`);
@@ -744,13 +975,94 @@ function parseDevPushStatus(value: unknown): DevPushStatus {
       diagnosticsFromBody(value),
     );
   }
+  const backendAnalysis = "analysis" in value
+    ? backendDeploymentAnalysis(value.analysis, "analysis")
+    : undefined;
+  if (backendAnalysis !== undefined && !backendAnalysis.ok) {
+    throw new ExecutionArtifactAnalysisError(
+      backendAnalysis.message,
+      diagnosticsFromBody(value),
+    );
+  }
   return {
     pushId: value.pushId,
     state: value.state,
+    ...(backendAnalysis?.ok === true ? { analysis: backendAnalysis.value } : {}),
     ...(codegenAnalysis?.ok === true ? { codegenAnalysis: codegenAnalysis.analysis } : {}),
     ...(typeof value.error === "string" ? { error: value.error } : {}),
     ...(diagnosticsFromBody(value).length === 0 ? {} : { diagnostics: diagnosticsFromBody(value) }),
   };
+}
+
+function parseDevFinishPushResponse(value: unknown): DevFinishPushResponse {
+  if (isFinishPushResponseBody(value)) {
+    const push = parseDevPushStatus(value.push);
+    if (value.result === "activated") {
+      if (push.state !== "activated") {
+        throw new ExecutionArtifactAnalysisError(
+          "Backend finish response activated result must include an activated push.",
+          diagnosticsFromBody(value),
+        );
+      }
+      const activatedPush: DevPushStatus & { state: "activated" } = {
+        ...push,
+        state: "activated",
+      };
+      return { result: "activated", push: activatedPush };
+    }
+    const diagnostics = diagnosticsFromBody(value);
+    if (typeof value.error !== "string") {
+      throw new ExecutionArtifactAnalysisError(
+        "Backend rejected finish response must include an error.",
+        diagnostics,
+      );
+    }
+    return {
+      result: "rejected",
+      push,
+      error: value.error,
+      ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    };
+  }
+
+  const push = parseDevPushStatus(value);
+  if (push.state === "activated") {
+    const activatedPush: DevPushStatus & { state: "activated" } = {
+      ...push,
+      state: "activated",
+    };
+    return { result: "activated", push: activatedPush };
+  }
+  throw new ExecutionArtifactAnalysisError(
+    "Legacy raw finish push status responses must be activated.",
+    push.diagnostics ?? [],
+  );
+}
+
+function isFinishPushResponseBody(value: unknown): value is {
+  result: "activated" | "rejected";
+  push: unknown;
+  error?: unknown;
+  diagnostics?: unknown;
+} {
+  return (
+    isRecord(value) &&
+    (value.result === "activated" || value.result === "rejected") &&
+    isRecord(value.push)
+  );
+}
+
+function isRejectedFinishPushResponseBody(value: unknown): value is {
+  result: "rejected";
+  push: unknown;
+  error: string;
+  diagnostics?: unknown;
+} {
+  return (
+    isFinishPushResponseBody(value) &&
+    value.result === "rejected" &&
+    typeof value.error === "string"
+  );
 }
 
 function isPushState(value: unknown): value is DevPushStatus["state"] {

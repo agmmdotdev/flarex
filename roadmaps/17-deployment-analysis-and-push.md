@@ -1,5 +1,82 @@
 # Deployment Analysis And Push
 
+## Finish Push Uses A Dedicated Response Shape
+
+Previous completed checkpoint: `51cc7ba` Surface deploy finish diagnostics.
+
+What changed:
+
+- Added a backend `FinishPushResponse` union for activation success and
+  rejected finish attempts.
+- `DeploymentDO` now returns `{ result: "activated", push }` for successful
+  finish and `{ result: "rejected", push, error, diagnostics? }` with HTTP 409
+  for rejected finish attempts.
+- The dev push coordinators now return `DevFinishPushResponse` from `finish`,
+  parse the dedicated response shape, and keep compatibility with legacy raw
+  `PushStatus` finish responses.
+- `DevFinishPushResponse` now derives its discriminated contract from the
+  backend `FinishPushResponse` type and narrows successful pushes to
+  `state: "activated"`.
+- HTTP and local finish coordinators now treat only HTTP 409 wrapper bodies as
+  domain finish rejections; other non-OK wrapper-shaped responses remain
+  transport/API failures.
+- Rejected finish wrappers must include an explicit `error` string, and legacy
+  raw finish compatibility only accepts activated statuses instead of
+  synthesizing rejected finish responses from raw failed statuses.
+- The dev push-status parser now validates stored backend `analysis` metadata
+  instead of preserving it through a direct cast.
+- Deploy generation and dev-runtime reload now consume the finish wrapper
+  before checking activation state, so finish-stage failures no longer overload
+  generic push status as the public contract.
+
+Why it changed:
+
+The previous checkpoint surfaced backend diagnostics but still represented a
+failed finish as a generic `PushStatus`. Finish is the activation boundary, so
+the API should say whether activation happened and carry the rejected push plus
+the finish error explicitly.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - `finishPush` is treated as its own deploy phase.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - push orchestration separates start, validation/typecheck, and finish.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response handling is a distinct deployment API contract.
+
+Flarex differences:
+
+- Flarex still has a smaller finish response than Convex's richer hosted
+  deployment/config-error model.
+- The dev parser intentionally accepts legacy raw `PushStatus` responses so
+  local and HTTP callers can move through the transition without breaking
+  older backend mocks or temporary adapters.
+- Flarex separates domain finish rejection (`409` wrapper) from generic
+  transport failures, while Convex's hosted deploy client has a larger
+  deployment API/error model.
+
+Known limitations:
+
+- Errors that happen before the request reaches `DeploymentDO.finish`, such as
+  artifact storage verification in the public worker route, can still use a
+  generic `{ error }` HTTP response.
+- Finish rejection does not yet expose stable machine-readable error codes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Deploy Finish Failures Include Backend Diagnostics
 
 Previous completed checkpoint: `f29a231` Abandon failed deploy pushes.

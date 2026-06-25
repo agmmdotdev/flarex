@@ -13,10 +13,12 @@ import {
   type FunctionModule,
 } from "./analyze.ts";
 import {
+  devFinishPushErrorMessage,
   devPushStatusErrorMessage,
   LocalExecutionArtifactBackendAnalyzer,
   type BackendPushCoordinator,
   type BackendSourceAnalyzer,
+  type DevFinishPushResponse,
   type DevPushStatus,
 } from "./backendPush.ts";
 import {
@@ -1146,18 +1148,17 @@ function analyzedPushStatus(started: DevPushStatus): FlarexAnalyzedPushStatus {
   };
 }
 
-function activatedPushStatus(finished: DevPushStatus): FlarexActivatedPushStatus {
-  if (finished.state !== "activated") {
+function activatedPushStatus(finished: DevFinishPushResponse): FlarexActivatedPushStatus {
+  if (finished.result !== "activated") {
     throw new Error(
-      devPushStatusErrorMessage(
+      devFinishPushErrorMessage(
         finished,
-        `Flarex push ${finished.pushId} did not activate`,
+        `Flarex push ${finished.push.pushId} did not activate`,
       ),
     );
   }
   return {
-    ...finished,
-    state: "activated",
+    ...finished.push,
   };
 }
 

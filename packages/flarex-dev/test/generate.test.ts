@@ -247,7 +247,7 @@ export const list = query({ args: {}, handler: async () => [] });
       },
       finish: async pushId => {
         events.push(`finish:${pushId}`);
-        return { pushId, state: "activated" };
+        return { result: "activated", push: { pushId, state: "activated" } };
       },
     };
 
@@ -290,7 +290,7 @@ export const list = query({ args: {}, handler: async () => [] });
       },
       finish: async () => {
         events.push("finish");
-        return { pushId: "push1", state: "activated" };
+        return { result: "activated", push: { pushId: "push1", state: "activated" } };
       },
       abandon: async (pushId, request) => {
         events.push(`abandon:${pushId}:${request?.reason ?? ""}`);
@@ -334,7 +334,7 @@ export const list = query({ args: {}, handler: async () => [] });
       },
       finish: async () => {
         events.push("finish");
-        return { pushId: "push1", state: "activated" };
+        return { result: "activated", push: { pushId: "push1", state: "activated" } };
       },
       abandon: async () => {
         events.push("abandon");
@@ -363,8 +363,12 @@ export const list = query({ args: {}, handler: async () => [] });
         codegenAnalysis: backendCodegenAnalysis("query"),
       }),
       finish: async () => ({
-        pushId: "push1",
-        state: "failed",
+        result: "rejected",
+        push: {
+          pushId: "push1",
+          state: "failed",
+          error: "activation failed",
+        },
         error: "activation failed",
         diagnostics: [{ level: "error", message: "schema rejected" }],
       }),

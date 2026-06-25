@@ -1,5 +1,72 @@
 # Testing and Simulation Strategy
 
+## Finish Push Response Contract Coverage
+
+Previous completed checkpoint: `51cc7ba` Surface deploy finish diagnostics.
+
+What changed:
+
+- Backend push lifecycle tests now assert rejected finish attempts return the
+  dedicated `{ result: "rejected", push, error, diagnostics? }` response shape.
+- Backend sync and artifact-runtime activation helpers now unwrap successful
+  `{ result: "activated", push }` finish responses.
+- Dev push coordinator tests now cover HTTP finish wrappers and legacy raw
+  finish status compatibility.
+- Dev push coordinator tests now prove HTTP 409 finish wrappers parse as
+  domain rejections and non-409 wrapper-shaped failures remain transport
+  failures.
+- Dev push coordinator tests now prove rejected finish wrappers require an
+  explicit error and legacy raw finish compatibility only accepts activated
+  statuses.
+- Generator and dev-runtime tests now use rejected finish wrappers when
+  asserting backend finish diagnostics in developer-facing errors.
+- The backend sync runtime integration helper validates the finish wrapper at
+  the cross-package boundary before continuing with live-query tests.
+
+Why it changed:
+
+The previous diagnostics tests proved useful text reached the developer, but
+they did not protect the actual finish API contract. These tests pin finish as
+an explicit success/rejection wrapper while keeping legacy compatibility
+covered in the dev parser.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy flow treats finish errors separately from earlier validation.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - component deploy orchestration keeps finish as a separate phase.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push has its own client-side response handling.
+
+Flarex differences:
+
+- Tests cover Flarex's compact activation/rejection wrapper, not Convex's full
+  hosted deployment response surface.
+- Compatibility tests intentionally allow old raw finish statuses in dev
+  clients during the transition.
+
+Known limitations:
+
+- Pre-finish public route failures can still return generic HTTP error bodies,
+  so those are documented but not converted by this test slice.
+- No stable error-code assertions exist yet because finish responses only carry
+  strings and diagnostics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Deploy Finish Diagnostics Coverage
 
 Previous completed checkpoint: `f29a231` Abandon failed deploy pushes.

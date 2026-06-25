@@ -10,6 +10,7 @@ import type {
   DeploymentFunctions,
   DeploymentSchema,
   Env,
+  FinishPushResponse,
   PushStatus,
   StartPushRequest,
 } from "../src/types";
@@ -316,8 +317,13 @@ describe("deployment push lifecycle", () => {
 
     const response = await finishPushResponse("push-supersede", first.pushId);
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
+      result: "rejected",
       error: `Cannot finish push ${first.pushId} in state superseded.`,
+      push: {
+        pushId: first.pushId,
+        state: "superseded",
+      },
     });
     await expect(getActiveDeployment("push-supersede")).resolves.toMatchObject({
       activePushId: activated.pushId,
@@ -480,8 +486,15 @@ describe("deployment push lifecycle", () => {
 
     const failedFinish = await finishPushResponse("push-failed", failed.pushId);
     expect(failedFinish.status).toBe(409);
-    await expect(failedFinish.json()).resolves.toEqual({
+    await expect(failedFinish.json()).resolves.toMatchObject({
+      result: "rejected",
       error: `Cannot finish push ${failed.pushId} in state failed.`,
+      push: {
+        pushId: failed.pushId,
+        state: "failed",
+        error: "analysis failed",
+      },
+      diagnostics: [{ level: "error", message: "import failed" }],
     });
 
     const unknownFinish = await finishPushResponse("push-failed", "missing-push");
@@ -518,8 +531,14 @@ describe("deployment push lifecycle", () => {
 
     const finish = await finishPushResponse("push-abandon", start.pushId);
     expect(finish.status).toBe(409);
-    await expect(finish.json()).resolves.toEqual({
+    await expect(finish.json()).resolves.toMatchObject({
+      result: "rejected",
       error: `Cannot finish push ${start.pushId} in state abandoned.`,
+      push: {
+        pushId: start.pushId,
+        state: "abandoned",
+        error: "generated output typecheck failed",
+      },
     });
   });
 
@@ -1010,7 +1029,9 @@ async function finishPushWithHarness(
 ): Promise<PushStatus> {
   const response = await finishPushResponseWithHarness(target, deploymentId, pushId);
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  const body = await response.json() as FinishPushResponse;
+  expect(body.result).toBe("activated");
+  return body.push;
 }
 
 async function finishPushResponse(

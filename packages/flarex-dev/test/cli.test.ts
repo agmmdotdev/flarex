@@ -461,12 +461,19 @@ describe("runFlarexDevCli", () => {
         });
       }
       if (url.pathname.endsWith("/push/push1/finish")) {
-        return Response.json({
-          pushId: "push1",
-          state: "failed",
-          error: "activation failed",
-          diagnostics: [{ level: "error", message: "schema rejected" }],
-        });
+        return Response.json(
+          {
+            result: "rejected",
+            push: {
+              pushId: "push1",
+              state: "failed",
+              error: "activation failed",
+            },
+            error: "activation failed",
+            diagnostics: [{ level: "error", message: "schema rejected" }],
+          },
+          { status: 409 },
+        );
       }
       return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
     });

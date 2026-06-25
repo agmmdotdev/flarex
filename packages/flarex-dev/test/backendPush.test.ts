@@ -83,9 +83,10 @@ describe("backend push coordinator", () => {
       fetch: fetcher,
     }).start(sourcePackage);
 
-    expect(status).toEqual({
+    expect(status).toMatchObject({
       pushId: "push1",
       state: "analyzed",
+      analysis: { schema: analysis.schema, functions: { functions: [] } },
       codegenAnalysis: analysis,
       diagnostics: [{ level: "log", message: "backend analyzed source" }],
     });
@@ -165,23 +166,29 @@ describe("backend push coordinator", () => {
         body: init?.body === undefined ? null : JSON.parse(String(init.body)),
       });
       return Response.json({
-        pushId: "push/with space",
-        state: "activated",
-        createdAt: 1,
-        updatedAt: 2,
+        result: "activated",
+        push: {
+          pushId: "push/with space",
+          state: "activated",
+          createdAt: 1,
+          updatedAt: 2,
+        },
       });
     };
 
-    const status = await new HttpBackendPushCoordinator({
+    const result = await new HttpBackendPushCoordinator({
       url: "https://flarex.example/api",
       deploymentId: "deployment/with space",
       headers: { authorization: "Bearer token" },
       fetch: fetcher,
     }).finish("push/with space");
 
-    expect(status).toEqual({
-      pushId: "push/with space",
-      state: "activated",
+    expect(result).toEqual({
+      result: "activated",
+      push: {
+        pushId: "push/with space",
+        state: "activated",
+      },
     });
     expect(requests).toEqual([{
       url: "https://flarex.example/api/deployments/deployment%2Fwith%20space/push/push%2Fwith%20space/finish",
@@ -191,6 +198,116 @@ describe("backend push coordinator", () => {
       },
       body: {},
     }]);
+  });
+
+  it("parses legacy raw finish push status responses", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        pushId: "push1",
+        state: "activated",
+      });
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).resolves.toEqual({
+      result: "activated",
+      push: {
+        pushId: "push1",
+        state: "activated",
+      },
+    });
+  });
+
+  it("rejects legacy raw finish statuses that did not activate", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        pushId: "push1",
+        state: "failed",
+        error: "activation failed",
+      });
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toThrow("Legacy raw finish push status responses must be activated.");
+  });
+
+  it("parses HTTP 409 finish rejection wrappers", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          result: "rejected",
+          push: {
+            pushId: "push1",
+            state: "failed",
+            error: "activation failed",
+          },
+          error: "activation failed",
+          diagnostics: [{ level: "error", message: "bad deployment" }],
+        },
+        { status: 409 },
+      );
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).resolves.toEqual({
+      result: "rejected",
+      push: {
+        pushId: "push1",
+        state: "failed",
+        error: "activation failed",
+      },
+      error: "activation failed",
+      diagnostics: [{ level: "error", message: "bad deployment" }],
+    });
+  });
+
+  it("rejects HTTP 409 finish wrappers without explicit errors", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          result: "rejected",
+          push: {
+            pushId: "push1",
+            state: "failed",
+            error: "activation failed",
+          },
+        },
+        { status: 409 },
+      );
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toThrow(ExecutionArtifactAnalysisError);
+  });
+
+  it("treats non-409 finish wrapper responses as transport failures", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          result: "rejected",
+          push: {
+            pushId: "push1",
+            state: "failed",
+            error: "server failed",
+          },
+          error: "server failed",
+        },
+        { status: 500 },
+      );
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toThrow(ExecutionArtifactAnalysisError);
   });
 
   it("abandons HTTP backend pushes with encoded IDs and configured path prefixes", async () => {

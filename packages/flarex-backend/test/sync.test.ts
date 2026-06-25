@@ -7,6 +7,7 @@ import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,
   Env,
+  FinishPushResponse,
   InvokeResponse,
   Json,
   PushSourcePackage,
@@ -5683,7 +5684,9 @@ async function finishPush(
     },
   );
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  const finish = await response.json() as FinishPushResponse;
+  expect(finish.result).toBe("activated");
+  return finish.push;
 }
 
 function testAnalysis(): DeploymentAnalysis {
