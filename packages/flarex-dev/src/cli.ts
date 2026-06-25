@@ -1,9 +1,13 @@
 import { parseArgs } from "node:util";
 import {
+  deployFlarex,
   dryRunFlarexCodegen,
   generateFlarex,
   type FlarexCodegenOptions,
   type FlarexCodegenDryRun,
+  type FlarexDeployOptions,
+  type FlarexDeployResult,
+  type FlarexGenerateOptions,
   type StaleGeneratedEntry,
 } from "./generate.ts";
 import {
@@ -20,12 +24,14 @@ type CliWriter = {
 };
 
 type CliDependencies = {
+  deploy: (options: FlarexDeployOptions) => Promise<FlarexDeployResult>;
   generate: (options: FlarexCodegenOptions) => Promise<void>;
   dryRun: (options: FlarexCodegenOptions) => Promise<FlarexCodegenDryRun>;
   typecheckGenerated: (options: FlarexGeneratedOutputTypecheckOptions) => Promise<void>;
 };
 
 type CodegenTypecheckMode = "enable" | "try" | "disable";
+type ParsedArgValues = ReturnType<typeof parseArgs>["values"];
 
 export type FlarexDevCliOptions = {
   argv?: string[];
@@ -41,6 +47,7 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const dependencies: CliDependencies = {
+    deploy: options.dependencies?.deploy ?? deployFlarex,
     generate: options.dependencies?.generate ?? generateFlarex,
     dryRun: options.dependencies?.dryRun ?? dryRunFlarexCodegen,
     typecheckGenerated: options.dependencies?.typecheckGenerated ?? typecheckGeneratedOutput,
@@ -51,12 +58,73 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
     stdout.write(helpText());
     return 0;
   }
+  if (command === "deploy") {
+    return await runDeployCommand(commandArgs, { projectRoot, stdout, stderr, dependencies });
+  }
   if (command !== "codegen") {
     stderr.write(`Unknown flarex-dev command: ${command}\n\n${helpText()}`);
     return 1;
   }
 
   return await runCodegenCommand(commandArgs, { projectRoot, stdout, stderr, dependencies });
+}
+
+async function runDeployCommand(
+  argv: string[],
+  options: {
+    projectRoot: string;
+    stdout: CliWriter;
+    stderr: CliWriter;
+    dependencies: CliDependencies;
+  },
+): Promise<number> {
+  try {
+    const parsed = parseArgs({
+      args: argv,
+      allowPositionals: false,
+      options: {
+        "app-dir": { type: "string" },
+        cwd: { type: "string" },
+        "generated-dir": { type: "string" },
+        help: { type: "boolean", short: "h" },
+        "backend-header": { type: "string", multiple: true },
+        "backend-url": { type: "string" },
+        "deployment-id": { type: "string" },
+        path: { type: "string", multiple: true },
+        root: { type: "string" },
+        "typescript-cli": { type: "string" },
+        typecheck: { type: "string" },
+      },
+    });
+
+    if (parsed.values.help === true) {
+      options.stdout.write(deployHelpText());
+      return 0;
+    }
+
+    const root = rootFromArgs(parsed.values.root, options.projectRoot);
+    if (root === undefined) {
+      options.stderr.write("--root must be a non-empty path when provided.\n\n");
+      options.stderr.write(deployHelpText());
+      return 1;
+    }
+
+    const commandConfig = deployCommandConfig(parsed.values, root);
+    const deployOptions = commandConfig.typecheckOptions === undefined
+      ? commandConfig.deployOptions
+      : {
+          ...commandConfig.deployOptions,
+          beforeFinish: async () => {
+            await maybeTypecheckGenerated(commandConfig, options);
+          },
+        };
+    await options.dependencies.deploy(deployOptions);
+    return 0;
+  } catch (error) {
+    options.stderr.write(cliErrorMessage(error));
+    options.stderr.write("\n");
+    return 1;
+  }
 }
 
 function commandArgv(argv: string[]): string[] {
@@ -126,19 +194,7 @@ async function runCodegenCommand(
 
     await options.dependencies.generate(commandConfig.generateOptions);
 
-    if (commandConfig.typecheckOptions !== undefined) {
-      try {
-        await options.dependencies.typecheckGenerated(commandConfig.typecheckOptions);
-      } catch (error) {
-        if (commandConfig.typecheckMode === "try") {
-          options.stderr.write(
-            `Generated output typecheck failed, continuing because --typecheck try was used.\n${cliErrorMessage(error)}\n`,
-          );
-        } else {
-          throw error;
-        }
-      }
-    }
+    await maybeTypecheckGenerated(commandConfig, options);
 
     return 0;
   } catch (error) {
@@ -148,26 +204,46 @@ async function runCodegenCommand(
   }
 }
 
-type CodegenCommandConfig = {
-  generateOptions: FlarexCodegenOptions;
-  dryRun: boolean;
+async function maybeTypecheckGenerated(
+  commandConfig: GeneratedTypecheckCommandConfig,
+  options: {
+    stderr: CliWriter;
+    dependencies: Pick<CliDependencies, "typecheckGenerated">;
+  },
+): Promise<void> {
+  if (commandConfig.typecheckOptions === undefined) return;
+  try {
+    await options.dependencies.typecheckGenerated(commandConfig.typecheckOptions);
+  } catch (error) {
+    if (commandConfig.typecheckMode === "try") {
+      options.stderr.write(
+        `Generated output typecheck failed, continuing because --typecheck try was used.\n${cliErrorMessage(error)}\n`,
+      );
+      return;
+    }
+    throw error;
+  }
+}
+
+type GeneratedTypecheckCommandConfig = {
   typecheckMode: CodegenTypecheckMode;
   typecheckOptions?: FlarexGeneratedOutputTypecheckOptions;
 };
 
+type CodegenCommandConfig = {
+  generateOptions: FlarexCodegenOptions;
+  dryRun: boolean;
+} & GeneratedTypecheckCommandConfig;
+
+type DeployCommandConfig = {
+  deployOptions: FlarexDeployOptions;
+} & GeneratedTypecheckCommandConfig;
+
 function codegenCommandConfig(
-  values: ReturnType<typeof parseArgs>["values"],
+  values: ParsedArgValues,
   root: string,
 ): CodegenCommandConfig {
-  const typecheckMode = typecheckModeFromArgs(values.typecheck);
-  const compilerPaths = values.path === undefined
-    ? undefined
-    : pathMappings(stringValues(values.path, "--path"));
-  const baseGenerateOptions = {
-    root,
-    ...(typeof values["app-dir"] === "string" ? { appDir: values["app-dir"] } : {}),
-    ...(typeof values["generated-dir"] === "string" ? { generatedDir: values["generated-dir"] } : {}),
-  };
+  const baseGenerateOptions = baseGenerateOptionsFromArgs(values, root);
   const generateOptions: FlarexCodegenOptions = {
     ...baseGenerateOptions,
     ...sourceAnalyzerOptions(values),
@@ -175,26 +251,97 @@ function codegenCommandConfig(
   return {
     generateOptions,
     dryRun: values["dry-run"] === true,
-    typecheckMode,
-    ...(typecheckMode === "enable" || typecheckMode === "try"
-        ? {
-          typecheckOptions: {
-            ...baseGenerateOptions,
-            ...(typeof values.cwd === "string" ? { cwd: values.cwd } : {}),
-            ...(typeof values["typescript-cli"] === "string"
-              ? { typescriptCliPath: values["typescript-cli"] }
-              : {}),
-            ...(compilerPaths === undefined
-              ? {}
-              : { compilerOptions: { paths: compilerPaths } }),
-          },
-        }
-      : {}),
+    ...generatedTypecheckCommandConfig(values, baseGenerateOptions),
   };
 }
 
+function deployCommandConfig(
+  values: ParsedArgValues,
+  root: string,
+): DeployCommandConfig {
+  const baseGenerateOptions = baseGenerateOptionsFromArgs(values, root);
+  const pushCoordinator = requiredPushCoordinator(values);
+  return {
+    deployOptions: {
+      ...baseGenerateOptions,
+      pushCoordinator,
+    },
+    ...generatedTypecheckCommandConfig(values, baseGenerateOptions),
+  };
+}
+
+function baseGenerateOptionsFromArgs(
+  values: ParsedArgValues,
+  root: string,
+): FlarexGenerateOptions {
+  return {
+    root,
+    ...(typeof values["app-dir"] === "string" ? { appDir: values["app-dir"] } : {}),
+    ...(typeof values["generated-dir"] === "string" ? { generatedDir: values["generated-dir"] } : {}),
+  };
+}
+
+function generatedTypecheckCommandConfig(
+  values: ParsedArgValues,
+  baseGenerateOptions: FlarexGenerateOptions,
+): GeneratedTypecheckCommandConfig {
+  const typecheckMode = typecheckModeFromArgs(values.typecheck);
+  const compilerPaths = values.path === undefined
+    ? undefined
+    : pathMappings(stringValues(values.path, "--path"));
+  if (typecheckMode !== "enable" && typecheckMode !== "try") {
+    return { typecheckMode };
+  }
+  return {
+    typecheckMode,
+    typecheckOptions: {
+      ...baseGenerateOptions,
+      ...(typeof values.cwd === "string" ? { cwd: values.cwd } : {}),
+      ...(typeof values["typescript-cli"] === "string"
+        ? { typescriptCliPath: values["typescript-cli"] }
+        : {}),
+      ...(compilerPaths === undefined
+        ? {}
+        : { compilerOptions: { paths: compilerPaths } }),
+    },
+  };
+}
+
+function requiredPushCoordinator(
+  values: ParsedArgValues,
+): HttpBackendPushCoordinator {
+  return backendPushCoordinatorFromArgs(values, {
+    missingBackendUrl: "--backend-url must be provided when deploying.",
+    missingDeploymentId: "--deployment-id must be provided when deploying.",
+  });
+}
+
+function backendPushCoordinatorFromArgs(
+  values: ParsedArgValues,
+  errors: {
+    missingBackendUrl: string;
+    missingDeploymentId: string;
+  },
+): HttpBackendPushCoordinator {
+  const backendUrl = values["backend-url"];
+  const deploymentId = values["deployment-id"];
+  const backendHeaders = values["backend-header"];
+  if (typeof backendUrl !== "string" || backendUrl.length === 0) {
+    throw new Error(errors.missingBackendUrl);
+  }
+  if (typeof deploymentId !== "string" || deploymentId.length === 0) {
+    throw new Error(errors.missingDeploymentId);
+  }
+  const parsedHeaders = parsedHeadersFlag(backendHeaders, "--backend-header");
+  return new HttpBackendPushCoordinator({
+    url: backendUrl,
+    deploymentId,
+    ...(parsedHeaders === undefined ? {} : { headers: parsedHeaders }),
+  });
+}
+
 function sourceAnalyzerOptions(
-  values: ReturnType<typeof parseArgs>["values"],
+  values: ParsedArgValues,
 ): Pick<FlarexCodegenOptions, "pushCoordinator" | "sourceAnalyzer"> {
   const analyzerUrl = values["analyzer-url"];
   const backendUrl = values["backend-url"];
@@ -209,18 +356,10 @@ function sourceAnalyzerOptions(
     throw new Error("Backend push options cannot be used with analyzer-only options.");
   }
   if (backendFlagsPresent) {
-    if (typeof backendUrl !== "string" || backendUrl.length === 0) {
-      throw new Error("--backend-url must be provided when using backend push options.");
-    }
-    if (typeof deploymentId !== "string" || deploymentId.length === 0) {
-      throw new Error("--deployment-id must be provided when using backend push options.");
-    }
-    const parsedHeaders = parsedHeadersFlag(backendHeaders, "--backend-header");
     return {
-      pushCoordinator: new HttpBackendPushCoordinator({
-        url: backendUrl,
-        deploymentId,
-        ...(parsedHeaders === undefined ? {} : { headers: parsedHeaders }),
+      pushCoordinator: backendPushCoordinatorFromArgs(values, {
+        missingBackendUrl: "--backend-url must be provided when using backend push options.",
+        missingDeploymentId: "--deployment-id must be provided when using backend push options.",
       }),
     };
   }
@@ -329,10 +468,11 @@ function cliErrorMessage(error: unknown): string {
 
 function helpText(): string {
   return `Usage:
-  flarex-dev codegen [--root <path>] [--typecheck <mode>]
+  flarex-dev <command> [options]
 
 Commands:
   codegen   Generate Flarex _generated files.
+  deploy    Push source, generate from backend analysis, typecheck, and activate.
   help      Show this help.
 `;
 }
@@ -352,6 +492,25 @@ Options:
   --deployment-id <id>      Deployment ID sent to the HTTP backend or analyzer.
   --analyzer-header <n=v>   Header sent to the HTTP backend analyzer. Can be repeated.
   --typecheck <mode>        Typecheck generated output after codegen. One of enable, try, disable.
+  --cwd <path>              Working directory for generated-output typecheck.
+  --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.
+  --path <alias=target>     TypeScript path mapping for generated-output typecheck.
+  -h, --help                Show this help.
+`;
+}
+
+function deployHelpText(): string {
+  return `Usage:
+  flarex-dev deploy --backend-url <url> --deployment-id <id> [options]
+
+Options:
+  --root <path>             Application root. Defaults to the current directory.
+  --app-dir <dir>           Flarex app directory. Defaults to "flarex".
+  --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
+  --backend-url <url>       Backend base URL for source-package push.
+  --backend-header <n=v>    Header sent to the backend push endpoint. Can be repeated.
+  --deployment-id <id>      Deployment ID to push and activate.
+  --typecheck <mode>        Typecheck generated output before activation. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.
   --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.
   --path <alias=target>     TypeScript path mapping for generated-output typecheck.

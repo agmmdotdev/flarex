@@ -13,6 +13,7 @@ export type {
 export {
   analyzeFlarexSourcePackage,
   bundleFlarexSourcePackage,
+  deployFlarex,
   dryRunFlarexCodegen,
   finalCodegen,
   finalGeneratedFiles,
@@ -24,8 +25,12 @@ export {
 } from "./generate.ts";
 export type {
   FinalGeneratedFileName,
+  FlarexActivatedPushStatus,
+  FlarexAnalyzedPushStatus,
   FlarexCodegenDryRun,
   FlarexCodegenOptions,
+  FlarexDeployOptions,
+  FlarexDeployResult,
   FlarexGenerateOptions,
   FlarexGenerationContext,
   GeneratedFile,

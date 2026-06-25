@@ -252,6 +252,217 @@ describe("runFlarexDevCli", () => {
     }
   });
 
+  it("deploys through backend push, generated typecheck, and finish", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-");
+    const analysis = cliAnalysis();
+    const requests: Array<{
+      path: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    const events: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body: unknown = init?.body === undefined ? null : JSON.parse(String(init.body));
+      requests.push({
+        path: url.pathname,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body,
+      });
+      if (url.pathname === "/api/deployments/deployment1/push/start") {
+        events.push("start");
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: analysis,
+        });
+      }
+      if (url.pathname === "/api/deployments/deployment1/push/push1/finish") {
+        events.push("finish");
+        return Response.json({
+          pushId: "push1",
+          state: "activated",
+        });
+      }
+      return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+    });
+    try {
+      let typecheckOptions: FlarexGeneratedOutputTypecheckOptions | undefined;
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example/api",
+          "--deployment-id",
+          "deployment1",
+          "--backend-header",
+          "authorization=Bearer token",
+          "--typecheck",
+          "enable",
+        ],
+        dependencies: {
+          typecheckGenerated: async options => {
+            events.push("typecheck");
+            typecheckOptions = options;
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(events).toEqual(["start", "typecheck", "finish"]);
+      expect(typecheckOptions).toEqual({ root });
+      expect(requests).toEqual([
+        {
+          path: "/api/deployments/deployment1/push/start",
+          headers: {
+            authorization: "Bearer token",
+            "content-type": "application/json",
+          },
+          body: expect.objectContaining({ sourcePackage: expect.any(Object) }),
+        },
+        {
+          path: "/api/deployments/deployment1/push/push1/finish",
+          headers: {
+            authorization: "Bearer token",
+            "content-type": "application/json",
+          },
+          body: {},
+        },
+      ]);
+      await expect(stat(path.join(root, "flarex/_generated/functionMetadata.ts")))
+        .resolves.toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("does not finish deploy pushes when generated-output typecheck fails", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-fail-");
+    const stderr = new StringWriter();
+    const analysis = cliAnalysis();
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+      if (url.pathname.endsWith("/push/start")) {
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: analysis,
+        });
+      }
+      return Response.json({
+        pushId: "push1",
+        state: "activated",
+      });
+    });
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+          "--typecheck",
+          "enable",
+        ],
+        stderr,
+        dependencies: {
+          typecheckGenerated: async () => {
+            throw new Error("tsc failed");
+          },
+        },
+      })).resolves.toBe(1);
+
+      expect(stderr.value).toContain("tsc failed");
+      expect(paths).toEqual(["/deployments/deployment1/push/start"]);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("finishes deploy pushes when generated-output typecheck fails in try mode", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-try-");
+    const stderr = new StringWriter();
+    const analysis = cliAnalysis();
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+      if (url.pathname.endsWith("/push/start")) {
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: analysis,
+        });
+      }
+      return Response.json({
+        pushId: "push1",
+        state: "activated",
+      });
+    });
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+          "--typecheck",
+          "try",
+        ],
+        stderr,
+        dependencies: {
+          typecheckGenerated: async () => {
+            throw new Error("tsc failed");
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(stderr.value).toContain("--typecheck try");
+      expect(stderr.value).toContain("tsc failed");
+      expect(paths).toEqual([
+        "/deployments/deployment1/push/start",
+        "/deployments/deployment1/push/push1/finish",
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("rejects deploy without backend push options before codegen", async () => {
+    const stderr = new StringWriter();
+    let deployCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["deploy", "--root", "/app"],
+      stderr,
+      dependencies: {
+        deploy: async options => {
+          deployCalls += 1;
+          return {
+            started: {
+              pushId: "push1",
+              state: "analyzed",
+              codegenAnalysis: cliAnalysis(),
+            },
+            finished: { pushId: "push1", state: "activated" },
+          };
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(deployCalls).toBe(0);
+    expect(stderr.value).toContain("--backend-url must be provided when deploying.");
+  });
+
   it("keeps HTTP backend analyzer options out of generated-output typecheck", async () => {
     const analysis = cliAnalysis();
     const sourcePackage = cliSourcePackage();

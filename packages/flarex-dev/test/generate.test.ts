@@ -11,6 +11,7 @@ import {
   type BackendPushCoordinator,
   type BackendSourceAnalyzer,
   type DeploymentAnalysis,
+  deployFlarex,
   dryRunFlarexCodegen,
   finalCodegen,
   finalGeneratedFiles,
@@ -224,6 +225,103 @@ export const list = query({ args: {}, handler: async () => [] });
     expect(pushedPackages).toEqual([["messages.js"]]);
     await expect(readGenerated(root, "functionMetadata.ts"))
       .resolves.toContain('"kind": "workflowMutation"');
+  });
+
+  it("deploys by generating from backend push analysis before finishing", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const events: string[] = [];
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async sourcePackage => {
+        events.push(`start:${sourcePackage.functions.join(",")}`);
+        return {
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+        };
+      },
+      finish: async pushId => {
+        events.push(`finish:${pushId}`);
+        return { pushId, state: "activated" };
+      },
+    };
+
+    const result = await deployFlarex({
+      root,
+      pushCoordinator,
+      beforeFinish: async started => {
+        events.push(`beforeFinish:${started.pushId}`);
+        await expect(readGenerated(root, "functionMetadata.ts"))
+          .resolves.toContain('"kind": "workflowMutation"');
+      },
+    });
+
+    expect(result).toEqual({
+      started: {
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+      },
+      finished: { pushId: "push1", state: "activated" },
+    });
+    expect(events).toEqual([
+      "start:messages.js",
+      "beforeFinish:push1",
+      "finish:push1",
+    ]);
+  });
+
+  it("does not finish deploy pushes when validation fails after codegen", async () => {
+    const root = await createProject();
+    const events: string[] = [];
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => {
+        events.push("start");
+        return {
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: backendCodegenAnalysis("query"),
+        };
+      },
+      finish: async () => {
+        events.push("finish");
+        return { pushId: "push1", state: "activated" };
+      },
+    };
+
+    await expect(deployFlarex({
+      root,
+      pushCoordinator,
+      beforeFinish: async () => {
+        events.push("beforeFinish");
+        throw new Error("validation failed");
+      },
+    })).rejects.toThrow("validation failed");
+
+    expect(events).toEqual(["start", "beforeFinish"]);
+    await expect(readGenerated(root, "functionMetadata.ts"))
+      .resolves.toContain('"path": "messages:list"');
+  });
+
+  it("rejects deploy pushes that fail to activate", async () => {
+    const root = await createProject();
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => ({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: backendCodegenAnalysis("query"),
+      }),
+      finish: async () => ({ pushId: "push1", state: "failed", error: "activation failed" }),
+    };
+
+    await expect(deployFlarex({ root, pushCoordinator })).rejects.toThrow(
+      "Flarex push push1 did not activate: failed.",
+    );
   });
 
   it("requires backend push codegen analysis before writing final generated files", async () => {

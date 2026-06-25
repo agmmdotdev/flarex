@@ -1,5 +1,73 @@
 # Testing and Simulation Strategy
 
+## Backend Push Deploy CLI Coverage
+
+Previous completed checkpoint: `f9d1484` Route codegen through backend push analysis.
+
+What changed:
+
+- Added generator tests proving `deployFlarex(...)` writes final generated
+  files from backend push `codegenAnalysis` before calling finish.
+- Added generator coverage proving deploy does not call finish if pre-finish
+  validation fails after codegen.
+- Added generator coverage proving deploy rejects pushes whose finish response
+  does not activate.
+- Added CLI coverage proving `flarex-dev deploy` sends a source package to the
+  backend push start endpoint, runs generated-output typecheck, then calls
+  finish.
+- Added CLI coverage proving generated-output typecheck failures prevent
+  finish in enable mode.
+- Added CLI coverage proving `--typecheck try` logs the failure but still
+  finishes the push.
+- Added CLI coverage proving deploy rejects missing backend push options before
+  invoking deploy/codegen work.
+- Existing malformed `--path` coverage continues to prove config validation
+  happens before codegen work even when generated-output typecheck is disabled.
+- Typecheck coverage now enforces the narrowed deploy result contract by
+  requiring fake analyzed deploy statuses to include `codegenAnalysis`.
+
+Why it changed:
+
+The deployment lifecycle now has a user-facing command. The tests need to
+protect the most important correctness boundary: no backend activation after a
+failed generated-output validation step.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - tests in this slice mirror the start/codegen/validate/finish ordering used
+    by Convex's push orchestration.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy is a phased lifecycle, not a single request.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - start-push is the backend analysis boundary.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish is the activation boundary.
+
+Flarex differences:
+
+- Tests use fake `fetch` and direct dependency injection instead of hosted auth
+  and deployment selection.
+- There is no schema/index waiting test yet because that phase does not exist
+  in Flarex.
+- `--typecheck try` is intentionally allowed to finish, matching the existing
+  Flarex codegen try-mode behavior rather than claiming a production-safe
+  hosted policy.
+
+Known limitations:
+
+- No end-to-end running backend deploy test exists.
+- No failed-finish diagnostic test beyond non-activated state exists.
+- No abandon/cleanup behavior exists for failed local validation after push
+  start.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Backend Push Codegen CLI Coverage
 
 Previous completed checkpoint: `3a27b91` Preserve analyzer codegen analysis in pushes.

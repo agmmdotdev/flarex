@@ -1,5 +1,81 @@
 # Deployment Analysis And Push
 
+## CLI Deploy Finishes Backend Push After Generated Validation
+
+Previous completed checkpoint: `f9d1484` Route codegen through backend push analysis.
+
+What changed:
+
+- Added `deployFlarex(...)` to the dev package as the first full push lifecycle:
+  initial local scaffolding, source package bundle, backend push start,
+  final codegen from backend `codegenAnalysis`, optional pre-finish validation,
+  backend push finish, and activation-state verification.
+- Added `flarex-dev deploy` with required `--backend-url` and
+  `--deployment-id`, plus repeatable `--backend-header`.
+- Deploy now runs generated-output typecheck before calling push finish when
+  `--typecheck enable` is used.
+- Deploy does not call finish if generated-output validation fails.
+- `--typecheck try` records the typecheck failure to stderr but still allows
+  push finish, matching the existing codegen try-mode behavior.
+- Reused the backend-push analysis guard so deploy refuses pushes that are not
+  in `analyzed` state or do not return `codegenAnalysis`.
+- Exported state-specific deploy status types so successful deploy results
+  expose `started.state === "analyzed"` with `codegenAnalysis` and
+  `finished.state === "activated"`.
+- Exported deploy options/results from `flarex-dev` so tests and future
+  adapters can reuse the same lifecycle instead of duplicating CLI logic.
+- Shared CLI helpers now build base generate options, generated-output
+  typecheck options, and backend push coordinators for both codegen and deploy
+  so flag behavior does not drift between commands.
+
+Why it changed:
+
+Codegen could already consume backend push analysis, but there was no command
+that owned the Convex-style "push, codegen from backend analysis, validate,
+then finish" lifecycle. This checkpoint makes activation depend on successful
+generated output validation instead of treating push start as deployment.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - `startComponentsPushAndCodegen` starts a push and performs final codegen
+    from backend analysis before downstream completion.
+  - `push` coordinates start, generated validation/typecheck, and finish.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - `startPush`, validation waiting, and `finishPush` are separate lifecycle
+    phases.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend start-push is the authoritative analysis boundary.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish is an explicit backend activation step after client-side work.
+
+Flarex differences:
+
+- Flarex currently requires explicit `--backend-url` and `--deployment-id`
+  because hosted auth, project selection, and deployment selection do not exist
+  yet.
+- Flarex deploy only validates generated output locally for now. It does not
+  yet wait for schema/index backfill, auth config, environment variable checks,
+  component pushes, or hosted deployment state transitions.
+- Push finish currently only checks that the returned state is `activated`;
+  richer backend finish diagnostics are future work.
+
+Known limitations:
+
+- No hosted deploy/login/project-selection flow exists.
+- No schema/index wait phase exists between push start and finish.
+- No rollback or abandon endpoint exists for failed local validation after
+  push start.
+- The temporary analyzer-only codegen route still exists for direct analyzer
+  testing.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## CLI Codegen Can Use Backend Push Codegen Analysis
 
 Previous completed checkpoint: `3a27b91` Preserve analyzer codegen analysis in pushes.
