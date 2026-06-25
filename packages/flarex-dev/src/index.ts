@@ -12,8 +12,10 @@ export type {
 } from "./executorHttpRuntime.ts";
 export {
   bundleFlarexSourcePackage,
+  dryRunFlarexCodegen,
   finalCodegen,
   finalGeneratedFiles,
+  generatedFileWrites,
   generateFlarex,
   initialCodegen,
   isPreservedGeneratedEntry,
@@ -21,9 +23,11 @@ export {
 } from "./generate.ts";
 export type {
   FinalGeneratedFileName,
+  FlarexCodegenDryRun,
   FlarexGenerateOptions,
   FlarexGenerationContext,
   GeneratedFile,
+  GeneratedFileWrite,
   StaleGeneratedEntry,
 } from "./generate.ts";
 export { typecheckGeneratedOutput } from "./generatedTypecheck.ts";

@@ -1,5 +1,6 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   listFunctionModules,
@@ -54,10 +55,19 @@ export type GeneratedFile = {
   contents: string;
 };
 
+export type GeneratedFileWrite = GeneratedFile & {
+  path: string;
+};
+
 export type StaleGeneratedEntry = {
   name: string;
   path: string;
   kind: "file" | "directory" | "other";
+};
+
+export type FlarexCodegenDryRun = {
+  writes: readonly GeneratedFileWrite[];
+  deletes: readonly StaleGeneratedEntry[];
 };
 
 function typedApi(modules: string[], metadataByPath: Record<string, unknown> = {}): string {
@@ -1023,6 +1033,38 @@ export async function generateFlarex(options: FlarexGenerateOptions): Promise<vo
   await finalCodegen(context, analysis);
 }
 
+export async function dryRunFlarexCodegen(
+  options: FlarexGenerateOptions,
+): Promise<FlarexCodegenDryRun> {
+  const appDirOption = options.appDir ?? "flarex";
+  const generatedDirOption = options.generatedDir ?? "_generated";
+  if (path.isAbsolute(generatedDirOption)) {
+    throw new Error("Dry-run codegen requires --generated-dir to be relative to the Flarex app directory.");
+  }
+
+  const appDir = path.resolve(options.root, appDirOption);
+  const generatedDir = path.resolve(appDir, generatedDirOption);
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "flarex-codegen-dry-run-"));
+  try {
+    const tempAppDir = path.join(tempRoot, "flarex");
+    await copyAppDirIfExists(appDir, tempAppDir);
+    const context = await initialCodegen({
+      root: tempRoot,
+      appDir: "flarex",
+      generatedDir: generatedDirOption,
+    });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+    const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+    const files = finalGeneratedFiles(analysis);
+    return {
+      writes: await generatedFileWrites(generatedDir, files),
+      deletes: await staleGeneratedEntries(generatedDir, files.map(file => file.name)),
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
 export async function initialCodegen(
   options: FlarexGenerateOptions,
 ): Promise<FlarexGenerationContext> {
@@ -1079,6 +1121,20 @@ export function finalGeneratedFiles(analysis: DeploymentAnalysis): readonly Gene
   ];
 }
 
+export async function generatedFileWrites(
+  generatedDir: string,
+  files: readonly GeneratedFile[],
+): Promise<readonly GeneratedFileWrite[]> {
+  const writes = await Promise.all(
+    files.map(async file => {
+      const filePath = path.join(generatedDir, file.name);
+      const existing = await readFileIfExists(filePath);
+      return existing === file.contents ? undefined : { ...file, path: filePath };
+    }),
+  );
+  return writes.filter((write): write is GeneratedFileWrite => write !== undefined);
+}
+
 function functionPath(fn: AnalyzedFunction): string {
   return fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`;
 }
@@ -1123,7 +1179,7 @@ export async function staleGeneratedEntries(
   generatedDir: string,
   writtenFiles: readonly string[],
 ): Promise<readonly StaleGeneratedEntry[]> {
-  const entries = await readdir(generatedDir, { withFileTypes: true });
+  const entries = await readdirIfExists(generatedDir);
   return entries
     .filter(entry => !isPreservedGeneratedEntry(entry.name))
     .filter(entry => !writtenFiles.includes(entry.name))
@@ -1138,4 +1194,42 @@ function generatedEntryKind(entry: Dirent): StaleGeneratedEntry["kind"] {
   if (entry.isFile()) return "file";
   if (entry.isDirectory()) return "directory";
   return "other";
+}
+
+async function readFileIfExists(filePath: string): Promise<string | undefined> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+async function readdirIfExists(dirPath: string): Promise<Dirent[]> {
+  try {
+    return await readdir(dirPath, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingPathError(error)) return [];
+    throw error;
+  }
+}
+
+async function copyAppDirIfExists(sourceDir: string, targetDir: string): Promise<void> {
+  try {
+    await cp(sourceDir, targetDir, { recursive: true });
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      await mkdir(targetDir, { recursive: true });
+      return;
+    }
+    throw error;
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return isErrorWithCode(error) && error.code === "ENOENT";
+}
+
+function isErrorWithCode(error: unknown): error is Error & { code: unknown } {
+  return error instanceof Error && "code" in error;
 }

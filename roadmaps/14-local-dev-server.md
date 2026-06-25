@@ -1,5 +1,60 @@
 # Local Dev Server
 
+## Local Codegen Dry-Run
+
+Previous completed checkpoint: `b40fb92` Preserve generated extension entries.
+
+What changed:
+
+- `flarex-dev codegen --dry-run` now computes local generated writes and stale
+  deletions without writing final generated files into the project.
+- Dry-run output uses Convex-style `Command would write file: ...` and
+  `Command would delete file/directory: ...` lines.
+- The command uses the same preserved-entry policy as normal local cleanup, so
+  `_generated/ai` is not reported as stale.
+- Fresh projects without a `flarex/` app directory are supported by creating an
+  empty temp app directory for analysis instead of touching the real project.
+
+Why it changed:
+
+Local development needs a safe codegen check before CI or editor workflows can
+ask whether checked-in generated output is current. Convex exposes this as a
+normal `codegen --dry-run` flag, so Flarex should match that mental model.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - First-class `--dry-run` command option.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Dry-run write reporting.
+- `npm-packages/convex/src/cli/lib/fsUtils.ts`
+  - Dry-run delete reporting.
+
+Flarex differences:
+
+- Local dry-run analyzes a temporary app directory to avoid mutating the real
+  `_generated` directory while still satisfying generated imports during
+  bundling.
+- Generated-output typecheck does not run in dry-run mode because the generated
+  files are not written into the real project.
+
+Known limitations:
+
+- No `flarex dev` watcher uses dry-run yet.
+- Imports that intentionally reach outside the Flarex app directory are not
+  part of the dry-run contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts -t "dry-run" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "dry-runs" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Preserved Generated Entry Policy For Local Codegen
 
 Previous completed checkpoint: `6dda926` Plan stale generated cleanup.

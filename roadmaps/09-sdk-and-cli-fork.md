@@ -1,5 +1,69 @@
 # SDK And CLI Fork
 
+## Codegen Dry-Run Command
+
+Previous completed checkpoint: `b40fb92` Preserve generated extension entries.
+
+What changed:
+
+- Added `dryRunFlarexCodegen(...)` to compute final generated writes and stale
+  deletions without mutating the real project.
+- Added `generatedFileWrites(...)` so dry-run reports only generated files whose
+  current on-disk contents are missing or different.
+- Added `flarex-dev codegen --dry-run`, which prints Convex-style
+  `Command would write file: ...` and `Command would delete ...` lines.
+- Dry-run skips normal final codegen writes, stale deletion, and generated
+  output typecheck.
+- The dry-run temp app input copies the real Flarex app when it exists and
+  creates an empty temp app directory when it does not, preserving normal
+  initial-codegen compatibility for fresh projects.
+
+Why it changed:
+
+Convex exposes `codegen --dry-run` for checking generated output without
+writing it. Flarex now has the same command-level shape, using the previously
+split final write plan, stale-entry plan, and preserved-entry policy.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Defines the `--dry-run` flag on the `codegen` command.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - `writeFormattedFile(...)` prints `Command would write file: ...` when
+    dry-run is enabled.
+  - Cleanup receives the same dry-run option used by writes.
+- `npm-packages/convex/src/cli/lib/fsUtils.ts`
+  - `recursivelyDelete(...)` prints `Command would delete file/directory: ...`
+    during dry-run.
+
+Flarex differences:
+
+- Flarex local analysis still needs `_generated` bootstrap files to exist while
+  bundling developer modules, so dry-run analyzes a temporary copy of the
+  Flarex app directory instead of writing bootstrap files into the real project.
+- The first dry-run output reports the final generated write/delete plan. It
+  does not print generated file contents.
+- Generated-output typecheck is skipped in dry-run because final generated
+  files are intentionally not written to the real project.
+
+Known limitations:
+
+- Dry-run uses local Miniflare analysis; deployed push still needs
+  backend-authoritative analysis before final production codegen.
+- Dry-run copies the Flarex app directory when present, so source imports that
+  escape the app directory are not a supported contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts -t "dry-run" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "dry-runs" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Preserved Generated Entries
 
 Previous completed checkpoint: `6dda926` Plan stale generated cleanup.

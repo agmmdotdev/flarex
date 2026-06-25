@@ -139,6 +139,72 @@ describe("runFlarexDevCli", () => {
     });
   });
 
+  it("prints dry-run writes and deletes without normal codegen or typecheck", async () => {
+    const stdout = new StringWriter();
+    let generateCalls = 0;
+    let typecheckCalls = 0;
+    let dryRunRoot: string | undefined;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--dry-run", "--typecheck", "enable"],
+      stdout,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+        dryRun: async options => {
+          dryRunRoot = options.root;
+          return {
+            writes: [{
+              name: "server.ts",
+              path: "/app/flarex/_generated/server.ts",
+              contents: "server",
+            }],
+            deletes: [{
+              name: "old.ts",
+              path: "/app/flarex/_generated/old.ts",
+              kind: "file",
+            }, {
+              name: "oldDir",
+              path: "/app/flarex/_generated/oldDir",
+              kind: "directory",
+            }],
+          };
+        },
+        typecheckGenerated: async () => {
+          typecheckCalls += 1;
+        },
+      },
+    })).resolves.toBe(0);
+
+    expect(dryRunRoot).toBe("/app");
+    expect(generateCalls).toBe(0);
+    expect(typecheckCalls).toBe(0);
+    expect(stdout.value).toContain("Command would write file: /app/flarex/_generated/server.ts");
+    expect(stdout.value).toContain("Command would delete file: /app/flarex/_generated/old.ts");
+    expect(stdout.value).toContain("Command would delete directory: /app/flarex/_generated/oldDir");
+  });
+
+  it("dry-runs real codegen without writing generated files", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-dry-run-");
+    const stdout = new StringWriter();
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: ["codegen", "--dry-run"],
+        stdout,
+      })).resolves.toBe(0);
+
+      expect(stdout.value).toContain("Command would write file:");
+      expect(stdout.value).toContain("server.ts");
+      await expect(stat(path.join(root, "flarex/_generated/server.ts"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("skips generated-output typecheck when mode is disable", async () => {
     let typecheckCalls = 0;
 

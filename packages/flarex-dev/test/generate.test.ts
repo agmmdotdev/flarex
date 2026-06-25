@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import {
   bundleFlarexSourcePackage,
+  dryRunFlarexCodegen,
   finalCodegen,
   finalGeneratedFiles,
   generateFlarex,
@@ -84,6 +85,63 @@ export const list = query({ args: {}, handler: async () => [] });
     await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(false);
     await expect(fileExists(path.join(generatedDir, "staleDir"))).resolves.toBe(false);
     await expect(fileExists(path.join(generatedDir, "ai/index.d.ts"))).resolves.toBe(true);
+  });
+
+  it("dry-runs final generated writes and stale deletes without mutating the project", async () => {
+    const root = await createProject();
+    const generatedDir = path.join(root, "flarex/_generated");
+    await mkdir(path.join(generatedDir, "ai"), { recursive: true });
+    await writeFile(path.join(generatedDir, "ai/index.d.ts"), "preserve");
+    await writeFile(path.join(generatedDir, "stale.ts"), "remove");
+
+    const report = await dryRunFlarexCodegen({ root });
+
+    expect(report.writes.map(write => write.name).sort()).toEqual([
+      "api.ts",
+      "dataModel.ts",
+      "deploymentSchema.ts",
+      "functionMetadata.ts",
+      "functionRegistry.ts",
+      "server.ts",
+      "worker.ts",
+    ]);
+    expect(report.deletes.map(entry => entry.name)).toEqual(["stale.ts"]);
+    await expect(fileExists(path.join(generatedDir, "server.ts"))).resolves.toBe(false);
+    await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(true);
+    await expect(fileExists(path.join(generatedDir, "ai/index.d.ts"))).resolves.toBe(true);
+  });
+
+  it("omits unchanged generated files from dry-run writes", async () => {
+    const root = await createProject();
+    await generateFlarex({ root });
+    await writeFile(path.join(root, "flarex/_generated/stale.ts"), "remove");
+
+    const report = await dryRunFlarexCodegen({ root });
+
+    expect(report.writes).toEqual([]);
+    expect(report.deletes.map(entry => entry.name)).toEqual(["stale.ts"]);
+    await expect(fileExists(path.join(root, "flarex/_generated/stale.ts"))).resolves.toBe(true);
+  });
+
+  it("dry-runs codegen for a project without an app directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "flarex-dry-run-missing-app-"));
+    try {
+      const report = await dryRunFlarexCodegen({ root });
+
+      expect(report.writes.map(write => write.name).sort()).toEqual([
+        "api.ts",
+        "dataModel.ts",
+        "deploymentSchema.ts",
+        "functionMetadata.ts",
+        "functionRegistry.ts",
+        "server.ts",
+        "worker.ts",
+      ]);
+      expect(report.deletes).toEqual([]);
+      await expect(fileExists(path.join(root, "flarex"))).resolves.toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {

@@ -1,5 +1,62 @@
 # Testing and Simulation Strategy
 
+## Codegen Dry-Run Coverage
+
+Previous completed checkpoint: `b40fb92` Preserve generated extension entries.
+
+What changed:
+
+- Added CLI dependency-boundary coverage proving `codegen --dry-run` calls the
+  dry-run planner, prints write/delete lines, and skips normal generate and
+  generated-output typecheck dependencies.
+- Added CLI integration coverage proving real dry-run codegen does not create
+  `_generated/server.ts` in the project.
+- Added generator coverage proving `dryRunFlarexCodegen(...)` reports final
+  writes and stale deletes while preserving real stale files and `_generated/ai`
+  on disk.
+- Added generator coverage for a project without a `flarex/` app directory so
+  dry-run preserves normal initial-codegen compatibility without creating real
+  project files.
+
+Why it changed:
+
+The previous checkpoints made dry-run pieces testable independently. This
+checkpoint verifies the user-facing command and the non-mutating lower-level
+planner together before more CLI behavior is layered on top.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex has a first-class `--dry-run` flag on codegen.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Dry-run write reporting is part of shared codegen write behavior.
+- `npm-packages/convex/src/cli/lib/fsUtils.ts`
+  - Dry-run delete reporting is part of shared recursive delete behavior.
+
+Flarex differences:
+
+- Tests assert Flarex's temp-copy dry-run contract because local analysis needs
+  generated imports to exist while bundling.
+- Tests do not assert exact ordering of every dry-run line beyond the focused
+  dependency-boundary output.
+
+Known limitations:
+
+- No hosted/backend-authoritative dry-run test exists yet.
+- Dry-run typecheck behavior is intentionally skipped for now because the real
+  generated files are not written.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts -t "dry-run" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "dry-runs" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Preserved Generated Entry Coverage
 
 Previous completed checkpoint: `6dda926` Plan stale generated cleanup.

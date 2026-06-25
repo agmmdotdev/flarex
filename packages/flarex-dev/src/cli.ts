@@ -1,5 +1,11 @@
 import { parseArgs } from "node:util";
-import { generateFlarex, type FlarexGenerateOptions } from "./generate.ts";
+import {
+  dryRunFlarexCodegen,
+  generateFlarex,
+  type FlarexCodegenDryRun,
+  type FlarexGenerateOptions,
+  type StaleGeneratedEntry,
+} from "./generate.ts";
 import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOptions,
@@ -11,6 +17,7 @@ type CliWriter = {
 
 type CliDependencies = {
   generate: (options: FlarexGenerateOptions) => Promise<void>;
+  dryRun: (options: FlarexGenerateOptions) => Promise<FlarexCodegenDryRun>;
   typecheckGenerated: (options: FlarexGeneratedOutputTypecheckOptions) => Promise<void>;
 };
 
@@ -31,6 +38,7 @@ export async function runFlarexDevCli(options: FlarexDevCliOptions = {}): Promis
   const stderr = options.stderr ?? process.stderr;
   const dependencies: CliDependencies = {
     generate: options.dependencies?.generate ?? generateFlarex,
+    dryRun: options.dependencies?.dryRun ?? dryRunFlarexCodegen,
     typecheckGenerated: options.dependencies?.typecheckGenerated ?? typecheckGeneratedOutput,
   };
   const [command, ...commandArgs] = argv;
@@ -84,6 +92,7 @@ async function runCodegenCommand(
         root: { type: "string" },
         "typescript-cli": { type: "string" },
         typecheck: { type: "string" },
+        "dry-run": { type: "boolean" },
       },
     });
 
@@ -100,6 +109,12 @@ async function runCodegenCommand(
     }
 
     const commandConfig = codegenCommandConfig(parsed.values, root);
+    if (commandConfig.dryRun) {
+      const report = await options.dependencies.dryRun(commandConfig.generateOptions);
+      writeDryRunReport(report, options.stdout);
+      return 0;
+    }
+
     await options.dependencies.generate(commandConfig.generateOptions);
 
     if (commandConfig.typecheckOptions !== undefined) {
@@ -126,6 +141,7 @@ async function runCodegenCommand(
 
 type CodegenCommandConfig = {
   generateOptions: FlarexGenerateOptions;
+  dryRun: boolean;
   typecheckMode: CodegenTypecheckMode;
   typecheckOptions?: FlarexGeneratedOutputTypecheckOptions;
 };
@@ -145,6 +161,7 @@ function codegenCommandConfig(
   };
   return {
     generateOptions,
+    dryRun: values["dry-run"] === true,
     typecheckMode,
     ...(typecheckMode === "enable" || typecheckMode === "try"
       ? {
@@ -161,6 +178,25 @@ function codegenCommandConfig(
         }
       : {}),
   };
+}
+
+function writeDryRunReport(report: FlarexCodegenDryRun, stdout: CliWriter): void {
+  for (const write of report.writes) {
+    stdout.write(`Command would write file: ${write.path}\n`);
+  }
+  for (const deleteEntry of report.deletes) {
+    stdout.write(`${dryRunDeleteMessage(deleteEntry)}\n`);
+  }
+}
+
+function dryRunDeleteMessage(entry: StaleGeneratedEntry): string {
+  if (entry.kind === "directory") {
+    return `Command would delete directory: ${entry.path}`;
+  }
+  if (entry.kind === "file") {
+    return `Command would delete file: ${entry.path}`;
+  }
+  return `Command would delete entry: ${entry.path}`;
 }
 
 function typecheckModeFromArgs(value: unknown): CodegenTypecheckMode {
@@ -232,6 +268,7 @@ Options:
   --root <path>             Application root. Defaults to the current directory.
   --app-dir <dir>           Flarex app directory. Defaults to "flarex".
   --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
+  --dry-run                 Print generated writes/deletes without writing final generated files.
   --typecheck <mode>        Typecheck generated output after codegen. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.
   --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.
