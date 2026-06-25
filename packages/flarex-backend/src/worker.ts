@@ -41,16 +41,22 @@ import {
 } from "./schedulerRoutes";
 import type {
   AnalyzedStartPushRequest,
-  AnalyzeSourcePackageResponse,
   CommitRequest,
   DeploymentSchema,
   Env,
   FinishPushRequest,
   InvokeRequest,
   Json,
+  PushDiagnostic,
   PushStatus,
   StartPushRequest,
 } from "./types";
+
+type RawAnalyzerSuccessResponse = {
+  analysis: unknown;
+  codegenAnalysis: unknown;
+  diagnostics?: unknown;
+};
 
 export { ConnectionDO, DeliveryDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
 export { ExecutionDO };
@@ -334,34 +340,70 @@ async function analyzeSourcePackage(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ deploymentId, sourcePackage: request.sourcePackage }),
   });
-  const body = await response.json().catch(() => null) as AnalyzeSourcePackageResponse | null;
-  if (
-    response.ok &&
-    body !== null &&
-    typeof body === "object" &&
-    "analysis" in body &&
-    body.analysis !== undefined
-  ) {
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok && isAnalyzerSuccessResponse(body)) {
+    const diagnostics = analyzerDiagnostics(body);
     return {
       sourcePackage: request.sourcePackage,
       analysis: body.analysis,
-      ...(body.diagnostics === undefined ? {} : { diagnostics: body.diagnostics }),
+      codegenAnalysis: body.codegenAnalysis,
+      ...(diagnostics === undefined ? {} : { diagnostics }),
     };
   }
   const error =
     body !== null && typeof body === "object" && "error" in body
       ? String(body.error)
+      : response.ok &&
+        body !== null &&
+        typeof body === "object" &&
+        "analysis" in body &&
+        !("codegenAnalysis" in body)
+        ? "Backend analyzer response did not include codegenAnalysis."
       : `Analyzer request failed with status ${response.status}`;
+  const diagnostics = analyzerDiagnostics(body);
   return {
     sourcePackage: request.sourcePackage,
     error,
-    ...(body !== null &&
-    typeof body === "object" &&
-    "diagnostics" in body &&
-    body.diagnostics !== undefined
-      ? { diagnostics: body.diagnostics }
-      : {}),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
   };
+}
+
+function analyzerDiagnostics(body: unknown): PushDiagnostic[] | undefined {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    !("diagnostics" in body) ||
+    body.diagnostics === undefined
+  ) {
+    return undefined;
+  }
+  if (!Array.isArray(body.diagnostics)) return undefined;
+  return body.diagnostics.slice(-100).flatMap((diagnostic): PushDiagnostic[] => {
+    if (diagnostic === null || typeof diagnostic !== "object" || Array.isArray(diagnostic)) {
+      return [];
+    }
+    if (!("level" in diagnostic) || !("message" in diagnostic)) return [];
+    const level = diagnostic.level;
+    const message = diagnostic.message;
+    if (level !== "log" && level !== "warn" && level !== "error") return [];
+    if (typeof message !== "string") return [];
+    return [{ level, message }];
+  });
+}
+
+function isAnalyzerSuccessResponse(body: unknown): body is RawAnalyzerSuccessResponse {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    "analysis" in body &&
+    body.analysis !== undefined &&
+    "codegenAnalysis" in body &&
+    body.codegenAnalysis !== undefined &&
+    body.codegenAnalysis !== null &&
+    !("error" in body)
+  );
 }
 
 async function routeExecution(

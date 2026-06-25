@@ -1,5 +1,86 @@
 # Deployment Analysis And Push
 
+## Push Stores Analyzer Codegen Analysis
+
+Previous completed checkpoint: `a09a2b8` Wire codegen CLI to HTTP analyzer.
+
+What changed:
+
+- `AnalyzedStartPushRequest` success payloads can carry `codegenAnalysis`.
+- The public source-only push route now forwards analyzer `codegenAnalysis`
+  into `DeploymentDO` instead of dropping it after analysis.
+- `DeploymentDO` stores `codegen_analysis_json` on push rows and returns it
+  through push status and active deployment status.
+- Existing direct analyzed-push callers remain compatible: if
+  `codegenAnalysis` is absent, `DeploymentDO` reconstructs it from flattened
+  deployment analysis as a fallback.
+- Stored codegen analysis is validated against normalized deployment analysis
+  before it is persisted.
+- The source-only push route now treats an OK analyzer response without
+  `codegenAnalysis` as a failed push, keeping fallback reconstruction limited
+  to internal/direct analyzed-push compatibility.
+- The source-only push route treats `codegenAnalysis: null` as a failed
+  source-only push; fallback is reserved for truly absent codegen metadata on
+  internal/direct callers.
+- Stored `codegen_analysis_json` is revalidated from unknown JSON when push
+  status is read, and schema/function comparisons use canonical JSON so key
+  insertion order does not affect equality.
+- Analyzer and stored analysis payloads remain `unknown` until `DeploymentDO`
+  validates schema/functions metadata, so malformed OK analyzer responses fail
+  with explicit validation errors instead of worker/runtime 500s.
+- Codegen function metadata must match flattened deployment metadata including
+  source position, not only kind/validators/partition metadata.
+- Codegen analysis rejects duplicate module entries so the preserved shape
+  matches generated API assumptions.
+
+Why it changed:
+
+The analyzer response contract now carries both flattened deployment analysis
+and final codegen analysis. Dropping `codegenAnalysis` in the backend push path
+would make final deployment status depend on lossy reconstruction, which is the
+opposite of the Convex-style rule that backend analysis is authoritative.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - `StartPushResponse` is the backend analysis boundary.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated files consume analysis from the backend response.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - push/start analysis metadata flows downstream into codegen.
+
+Flarex differences:
+
+- Flarex still keeps flattened `DeploymentAnalysis` for backend invocation and
+  runtime metadata, while `DeploymentCodegenAnalysis` is preserved for
+  generated files.
+- Direct internal `/push/start-analyzed` requests can omit `codegenAnalysis`
+  during migration; the fallback reconstruction path remains for prototype
+  tests and older callers.
+- The schema change is a Durable Object SQLite additive column rather than a
+  Postgres migration because this is still the backend DO deployment metadata
+  prototype.
+
+Known limitations:
+
+- Stored codegen analysis validation checks consistency with flattened
+  deployment metadata, but the hosted Dynamic Worker analyzer service itself is
+  still future work.
+- Existing push rows without `codegen_analysis_json` still reconstruct codegen
+  metadata on read.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## CLI Codegen Selects HTTP Analyzer
 
 Previous completed checkpoint: `5aff422` Add HTTP backend source analyzer.

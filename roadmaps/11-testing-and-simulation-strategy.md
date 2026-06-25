@@ -1,5 +1,77 @@
 # Testing and Simulation Strategy
 
+## Analyzer Codegen Analysis Persistence Coverage
+
+Previous completed checkpoint: `a09a2b8` Wire codegen CLI to HTTP analyzer.
+
+What changed:
+
+- Added backend push coverage for a configured `FLAREX_ANALYZER` service
+  binding on the public source-only push route.
+- The test proves the backend sends `{ deploymentId, sourcePackage }` to the
+  analyzer service.
+- The test returns analyzer `codegenAnalysis` with a function order that would
+  differ from reconstruction, then verifies push status and active deployment
+  status preserve the analyzer-provided order.
+- Added negative coverage proving mismatched `codegenAnalysis` is rejected
+  instead of storing inconsistent generated metadata.
+- Added coverage proving an OK analyzer response that omits `codegenAnalysis`
+  becomes a failed source-only push instead of silently falling back to
+  reconstruction.
+- Added coverage proving `codegenAnalysis: null` also fails the source-only
+  analyzer path, while absent codegen metadata remains an internal/direct
+  compatibility fallback.
+- Added coverage proving malformed analyzer `analysis` payloads return explicit
+  validation errors instead of worker/runtime 500s.
+- Added coverage proving codegen analysis source positions must match
+  flattened deployment function metadata.
+- Added coverage proving analyzer codegen metadata cannot split one module name
+  across duplicate module entries.
+- Existing analyzed-push tests continue to exercise the compatibility fallback
+  where direct internal requests omit `codegenAnalysis`.
+
+Why it changed:
+
+The HTTP analyzer adapter and CLI flags are only useful if backend push storage
+preserves the analyzer's authoritative codegen metadata. This test closes the
+gap between "analyzer response has codegenAnalysis" and "activated deployment
+still exposes that codegenAnalysis."
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend push response carries analysis metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated files depend on backend analysis.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - analysis metadata flows from push/start into downstream codegen.
+
+Flarex differences:
+
+- The test uses a Miniflare service binding for `FLAREX_ANALYZER`; hosted
+  Dynamic Worker analyzer coverage is still future work.
+- The ordering assertion is a persistence signal, not a user-facing ordering
+  guarantee.
+
+Known limitations:
+
+- No end-to-end hosted Dynamic Worker analyzer test exists yet.
+- The test does not cover legacy rows created before `codegen_analysis_json`;
+  existing push tests continue to cover fallback reconstruction through direct
+  analyzed pushes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## HTTP Backend Source Analyzer Coverage
 
 Previous completed checkpoint: `2560e38` Route codegen through backend analysis seam.

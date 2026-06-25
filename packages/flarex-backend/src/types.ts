@@ -250,8 +250,18 @@ export type StartPushRequest = {
 
 export type AnalyzedStartPushRequest = StartPushRequest &
   (
-    | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
-    | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] }
+    | {
+        analysis: unknown;
+        codegenAnalysis?: unknown;
+        error?: never;
+        diagnostics?: PushDiagnostic[];
+      }
+    | {
+        analysis?: never;
+        codegenAnalysis?: never;
+        error: string;
+        diagnostics?: PushDiagnostic[];
+      }
   );
 
 export type AnalyzeSourcePackageRequest = {

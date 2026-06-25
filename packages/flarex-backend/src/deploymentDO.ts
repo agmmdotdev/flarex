@@ -72,6 +72,7 @@ export class DeploymentDO extends DurableObject<Env> {
         source_package_json TEXT NOT NULL,
         schema_json TEXT,
         functions_json TEXT,
+        codegen_analysis_json TEXT,
         error TEXT,
         diagnostics_json TEXT,
         created_at INTEGER NOT NULL,
@@ -81,6 +82,7 @@ export class DeploymentDO extends DurableObject<Env> {
     this.ensureFunctionPositionColumn();
     this.ensureFunctionRouteColumn();
     this.ensureFunctionPartitionColumn();
+    this.ensurePushCodegenAnalysisColumn();
     this.ensurePushDiagnosticsColumn();
     this.setMetaIfMissing("schema_version", "0");
   }
@@ -124,6 +126,13 @@ export class DeploymentDO extends DurableObject<Env> {
     const pushId = crypto.randomUUID();
     const error = request.error;
     const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
+    const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
+    const codegenAnalysis = analysis === undefined
+      ? undefined
+      : validateCodegenAnalysis(
+        hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
+        analysis,
+      );
     const diagnostics = validateDiagnostics(request.diagnostics);
     const state = analysis === undefined ? "failed" : "analyzed";
     if (analysis === undefined && (typeof error !== "string" || error.length === 0)) {
@@ -143,18 +152,20 @@ export class DeploymentDO extends DurableObject<Env> {
           source_package_json,
           schema_json,
           functions_json,
+          codegen_analysis_json,
           error,
           diagnostics_json,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         pushId,
         state,
         JSON.stringify(sourcePackage),
         analysis === undefined ? null : JSON.stringify(analysis.schema),
         analysis === undefined ? null : JSON.stringify(analysis.functions),
+        codegenAnalysis === undefined ? null : JSON.stringify(codegenAnalysis),
         error ?? null,
         diagnostics.length === 0 ? null : JSON.stringify(diagnostics),
         now,
@@ -235,13 +246,14 @@ export class DeploymentDO extends DurableObject<Env> {
         source_package_json: string;
         schema_json: string | null;
         functions_json: string | null;
+        codegen_analysis_json: string | null;
         error: string | null;
         diagnostics_json: string | null;
         created_at: number;
         updated_at: number;
       }>(
         `
-        SELECT push_id, state, source_package_json, schema_json, functions_json, error, diagnostics_json, created_at, updated_at
+        SELECT push_id, state, source_package_json, schema_json, functions_json, codegen_analysis_json, error, diagnostics_json, created_at, updated_at
         FROM pushes
         WHERE push_id = ?
         `,
@@ -335,6 +347,15 @@ export class DeploymentDO extends DurableObject<Env> {
     }
   }
 
+  private ensurePushCodegenAnalysisColumn(): void {
+    try {
+      this.sql.exec("ALTER TABLE pushes ADD COLUMN codegen_analysis_json TEXT");
+    } catch {
+      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN. Existing
+      // deployments created after the column was added will raise here.
+    }
+  }
+
   private ensureFunctionPositionColumn(): void {
     try {
       this.sql.exec("ALTER TABLE functions ADD COLUMN position_json TEXT");
@@ -366,15 +387,21 @@ function pushStatusFromRow(row: {
   source_package_json: string;
   schema_json: string | null;
   functions_json: string | null;
+  codegen_analysis_json: string | null;
   error: string | null;
   diagnostics_json: string | null;
   created_at: number;
   updated_at: number;
 }): PushStatus {
-  const schema = row.schema_json === null ? undefined : JSON.parse(row.schema_json) as DeploymentSchema;
-  const functions = row.functions_json === null
+  const storedAnalysis = row.schema_json === null || row.functions_json === null
     ? undefined
-    : JSON.parse(row.functions_json) as DeploymentFunctions;
+    : validateAnalysis({
+      schema: JSON.parse(row.schema_json),
+      functions: JSON.parse(row.functions_json),
+    });
+  const storedCodegenAnalysis: unknown = row.codegen_analysis_json === null
+    ? undefined
+    : JSON.parse(row.codegen_analysis_json);
   const diagnostics = row.diagnostics_json === null
     ? []
     : JSON.parse(row.diagnostics_json) as PushDiagnostic[];
@@ -382,10 +409,12 @@ function pushStatusFromRow(row: {
     pushId: row.push_id,
     state: parsePushState(row.state),
     sourcePackage: JSON.parse(row.source_package_json) as PushSourcePackage,
-    ...(schema !== undefined && functions !== undefined
+    ...(storedAnalysis !== undefined
       ? {
-          analysis: { schema, functions },
-          codegenAnalysis: codegenAnalysisFromDeploymentAnalysis({ schema, functions }),
+          analysis: storedAnalysis,
+          codegenAnalysis: storedCodegenAnalysis === undefined
+            ? codegenAnalysisFromDeploymentAnalysis(storedAnalysis)
+            : validateCodegenAnalysis(storedCodegenAnalysis, storedAnalysis),
         }
       : {}),
     ...(row.error === null ? {} : { error: row.error }),
@@ -449,7 +478,10 @@ function parsePushState(value: string): PushStatus["state"] {
   throw new Error(`Unknown stored push state ${value}.`);
 }
 
-function validateAnalysis(analysis: DeploymentAnalysis): DeploymentAnalysis {
+function validateAnalysis(analysis: unknown): DeploymentAnalysis {
+  if (!isRecord(analysis)) {
+    throw new HttpError(400, "Deployment analysis must be an object.");
+  }
   const schema = validateSchema(analysis.schema);
   const functions = validateFunctions(analysis.functions);
   validateFunctionPartitions(functions, schema);
@@ -459,7 +491,160 @@ function validateAnalysis(analysis: DeploymentAnalysis): DeploymentAnalysis {
   };
 }
 
-function validateSchema(schema: DeploymentSchema): DeploymentSchema {
+function validateCodegenAnalysis(
+  codegenAnalysis: unknown,
+  analysis: DeploymentAnalysis,
+): DeploymentCodegenAnalysis {
+  if (!isRecord(codegenAnalysis)) {
+    throw new HttpError(400, "Codegen analysis must be an object.");
+  }
+  const schema = validateSchema(codegenAnalysis.schema);
+  if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
+    throw new HttpError(400, "Codegen analysis schema must match deployment analysis schema.");
+  }
+  if (!Array.isArray(codegenAnalysis.functions)) {
+    throw new HttpError(400, "Codegen analysis functions must be an array.");
+  }
+
+  const metadataByPath = new Map(analysis.functions.functions.map(metadata => [metadata.path, metadata]));
+  const seenModuleNames = new Set<string>();
+  const seenPaths = new Set<string>();
+  const modules = codegenAnalysis.functions.map((module, moduleIndex) => {
+    if (!isRecord(module)) {
+      throw new HttpError(400, `Codegen module at index ${moduleIndex} must be an object.`);
+    }
+    if (typeof module.moduleName !== "string" || module.moduleName.length === 0) {
+      throw new HttpError(400, `Codegen module at index ${moduleIndex} has an invalid moduleName.`);
+    }
+    if (!Array.isArray(module.functions)) {
+      throw new HttpError(400, `Codegen module ${module.moduleName} functions must be an array.`);
+    }
+    const moduleName = module.moduleName;
+    if (seenModuleNames.has(moduleName)) {
+      throw new HttpError(400, `Duplicate codegen module metadata: ${moduleName}.`);
+    }
+    seenModuleNames.add(moduleName);
+    return {
+      moduleName,
+      functions: module.functions.map((fn, functionIndex) => {
+        if (!isRecord(fn)) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] must be an object.`,
+          );
+        }
+        if (fn.moduleName !== moduleName) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
+          );
+        }
+        if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
+          );
+        }
+        const exportName = fn.exportName;
+        const path = functionPathFromCodegen(moduleName, exportName);
+        const metadata = metadataByPath.get(path);
+        if (metadata === undefined) {
+          throw new HttpError(400, `Codegen function ${path} has no deployment function metadata.`);
+        }
+        if (seenPaths.has(path)) {
+          throw new HttpError(400, `Duplicate codegen function metadata path: ${path}.`);
+        }
+        seenPaths.add(path);
+        const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);
+        const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
+        const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
+        if (args === null) {
+          throw new HttpError(400, `$codegen.functions.${path}.args: Validator is required.`);
+        }
+        const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
+        const partition = validateFunctionPartitionPolicy(
+          fn.partition,
+          `$codegen.functions.${path}.partition`,
+        );
+        const position = validateSourcePosition(fn.position, `$codegen.functions.${path}.position`);
+        assertCodegenFunctionMatchesMetadata(path, {
+          kind,
+          visibility,
+          args,
+          returns,
+          partition,
+          position,
+        }, metadata);
+        return {
+          moduleName,
+          exportName,
+          kind,
+          visibility,
+          args,
+          returns,
+          partition,
+          ...(position === undefined ? {} : { position }),
+        };
+      }),
+    };
+  });
+  if (seenPaths.size !== metadataByPath.size) {
+    throw new HttpError(400, "Codegen analysis functions must cover every deployment function.");
+  }
+  return { schema, functions: modules };
+}
+
+function assertCodegenFunctionMatchesMetadata(
+  path: string,
+  codegen: {
+    kind: DeploymentFunctionKind;
+    visibility: FunctionVisibility;
+    args: ValidatorJson;
+    returns: ValidatorJson | null;
+    partition: FunctionPartitionMetadata | null;
+    position: AnalyzedSourcePosition | undefined;
+  },
+  metadata: DeploymentFunctionMetadata,
+): void {
+  const expected = {
+    kind: metadata.kind,
+    visibility: metadata.visibility ?? "public",
+    args: metadata.args ?? { type: "any" },
+    returns: metadata.returns ?? null,
+    partition: metadata.partition ?? null,
+    position: metadata.position,
+  };
+  if (canonicalJson(codegen) !== canonicalJson(expected)) {
+    throw new HttpError(400, `Codegen function ${path} must match deployment function metadata.`);
+  }
+}
+
+function functionPathFromCodegen(moduleName: string, exportName: string): string {
+  return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalValue(item)]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateSchema(schema: unknown): DeploymentSchema {
+  if (!isRecord(schema)) {
+    throw new HttpError(400, "Schema must be an object.");
+  }
   if (typeof schema.version !== "number" || !Number.isInteger(schema.version) || schema.version < 0) {
     throw new HttpError(400, "Schema version must be a non-negative integer.");
   }
@@ -468,54 +653,74 @@ function validateSchema(schema: DeploymentSchema): DeploymentSchema {
 
   const tableIds = new Set<number>();
   const normalizedTables = schema.tables.map(table => {
-    if (typeof table.tableId !== "number" || !Number.isInteger(table.tableId) || table.tableId <= 0) {
+    if (!isRecord(table)) {
+      throw new HttpError(400, "Schema table entry must be an object.");
+    }
+    const tableId = table.tableId;
+    if (typeof tableId !== "number" || !Number.isInteger(tableId) || tableId <= 0) {
       throw new HttpError(400, `Invalid table id for ${table.name}.`);
     }
-    if (tableIds.has(table.tableId)) throw new HttpError(400, `Duplicate table id ${table.tableId}.`);
-    tableIds.add(table.tableId);
-    if (typeof table.name !== "string" || table.name.length === 0) {
-      throw new HttpError(400, `Table ${table.tableId} has an invalid name.`);
+    if (tableIds.has(tableId)) throw new HttpError(400, `Duplicate table id ${tableId}.`);
+    tableIds.add(tableId);
+    const tableName = table.name;
+    if (typeof tableName !== "string" || tableName.length === 0) {
+      throw new HttpError(400, `Table ${tableId} has an invalid name.`);
     }
     return {
-      ...table,
-      state: table.state ?? "active",
-      validator: safeValidator(table.validator ?? null, `$schema.tables.${table.name}.validator`),
-      placement: validatePlacement(table.placement, `$schema.tables.${table.name}.placement`),
+      tableId,
+      name: tableName,
+      state: parseTableState(table.state),
+      validator: safeValidator(table.validator ?? null, `$schema.tables.${tableName}.validator`),
+      placement: validatePlacement(table.placement, `$schema.tables.${tableName}.placement`),
     };
   });
 
   const indexIds = new Set<number>();
   const normalizedIndexes = schema.indexes.map(index => {
-    if (typeof index.indexId !== "number" || !Number.isInteger(index.indexId) || index.indexId <= 0) {
+    if (!isRecord(index)) {
+      throw new HttpError(400, "Schema index entry must be an object.");
+    }
+    const indexId = index.indexId;
+    if (typeof indexId !== "number" || !Number.isInteger(indexId) || indexId <= 0) {
       throw new HttpError(400, `Invalid index id for ${index.name}.`);
     }
-    if (indexIds.has(index.indexId)) throw new HttpError(400, `Duplicate index id ${index.indexId}.`);
-    indexIds.add(index.indexId);
-    if (!tableIds.has(index.tableId)) {
-      throw new HttpError(400, `Index ${index.name} references unknown table id ${index.tableId}.`);
+    if (indexIds.has(indexId)) throw new HttpError(400, `Duplicate index id ${indexId}.`);
+    indexIds.add(indexId);
+    const tableId = index.tableId;
+    if (typeof tableId !== "number" || !tableIds.has(tableId)) {
+      throw new HttpError(400, `Index ${index.name} references unknown table id ${String(index.tableId)}.`);
     }
-    if (typeof index.name !== "string" || index.name.length === 0) {
-      throw new HttpError(400, `Index ${index.indexId} has an invalid name.`);
+    const indexName = index.name;
+    if (typeof indexName !== "string" || indexName.length === 0) {
+      throw new HttpError(400, `Index ${indexId} has an invalid name.`);
     }
     if (!Array.isArray(index.fields) || !index.fields.every(field => typeof field === "string")) {
-      throw new HttpError(400, `Index ${index.name} has invalid fields.`);
+      throw new HttpError(400, `Index ${indexName} has invalid fields.`);
     }
     return {
-      ...index,
+      indexId,
+      tableId,
+      name: indexName,
       fields: [...index.fields],
-      state: index.state ?? "enabled",
+      state: parseIndexState(index.state),
     };
   });
 
   return { version: schema.version, tables: normalizedTables, indexes: normalizedIndexes };
 }
 
-function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions {
+function validateFunctions(functions: unknown): DeploymentFunctions {
+  if (!isRecord(functions)) {
+    throw new HttpError(400, "Function metadata must be an object.");
+  }
   if (!Array.isArray(functions.functions)) {
     throw new HttpError(400, "Function metadata must include a functions array.");
   }
   const seen = new Set<string>();
   const normalized = functions.functions.map((metadata, index) => {
+    if (!isRecord(metadata)) {
+      throw new HttpError(400, `Function metadata at index ${index} must be an object.`);
+    }
     const path = metadata.path;
     if (typeof path !== "string" || path.length === 0) {
       throw new HttpError(400, `Function metadata at index ${index} has an invalid path.`);
@@ -544,6 +749,18 @@ function validateFunctions(functions: DeploymentFunctions): DeploymentFunctions 
     };
   });
   return { functions: normalized };
+}
+
+function parseTableState(value: unknown): NonNullable<SchemaTable["state"]> {
+  if (value === undefined) return "active";
+  if (value === "active" || value === "hidden" || value === "deleted") return value;
+  throw new HttpError(400, "Schema table has invalid state.");
+}
+
+function parseIndexState(value: unknown): NonNullable<DeploymentSchema["indexes"][number]["state"]> {
+  if (value === undefined) return "enabled";
+  if (value === "enabled" || value === "staged" || value === "disabled") return value;
+  throw new HttpError(400, "Schema index has invalid state.");
 }
 
 function validateFunctionPartitions(
@@ -816,7 +1033,7 @@ function validatePlacement(value: unknown, path: string): SchemaTable["placement
   throw new HttpError(400, `${path}: Invalid placement.`);
 }
 
-function parseFunctionKind(value: string, path: string): DeploymentFunctionKind {
+function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind {
   if (
     value === "query" ||
     value === "mutation" ||
@@ -828,18 +1045,42 @@ function parseFunctionKind(value: string, path: string): DeploymentFunctionKind 
   throw new HttpError(400, `${path}: Invalid function kind ${value}.`);
 }
 
-function parseVisibility(value: string, path: string): FunctionVisibility {
+function parseVisibility(value: unknown, path: string): FunctionVisibility {
   if (value === "public" || value === "internal") return value;
   throw new HttpError(400, `${path}: Invalid function visibility ${value}.`);
 }
 
-function safeValidator(value: Json | undefined | null, path: string): ValidatorJson | null {
+function safeValidator(value: unknown, path: string): ValidatorJson | null {
   try {
-    return assertValidatorJson(value, path);
+    return assertValidatorJson(jsonValue(value, path), path);
   } catch (error) {
     if (error instanceof BackendValidationError) {
       throw new HttpError(400, `Invalid validator metadata: ${error.message}`);
     }
     throw error;
   }
+}
+
+function jsonValue(value: unknown, path: string): Json | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      const parsed = jsonValue(item, `${path}[${index}]`);
+      if (parsed === undefined) throw new HttpError(400, `${path}[${index}]: Expected JSON value.`);
+      return parsed;
+    });
+  }
+  if (isRecord(value)) {
+    const record: { [key: string]: Json } = {};
+    for (const [key, item] of Object.entries(value)) {
+      const parsed = jsonValue(item, `${path}.${key}`);
+      if (parsed === undefined) throw new HttpError(400, `${path}.${key}: Expected JSON value.`);
+      record[key] = parsed;
+    }
+    return record;
+  }
+  throw new HttpError(400, `${path}: Expected JSON value.`);
 }

@@ -5,6 +5,7 @@ import type { R2BucketLike } from "../src/artifactStore";
 import type {
   ActiveDeploymentStatus,
   AnalyzedStartPushRequest,
+  DeploymentCodegenAnalysis,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
@@ -75,6 +76,205 @@ describe("deployment push lifecycle", () => {
     await expect(response.json()).resolves.toEqual({
       error:
         "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+    });
+  });
+
+  it("preserves analyzer codegen analysis through source-only push activation", async () => {
+    const package_ = sourcePackage();
+    const analysis = {
+      schema: dualFunctionSchema(),
+      functions: dualFunctions(),
+    };
+    const codegenAnalysis = reversedDualFunctionCodegenAnalysis();
+    let analyzerRequest: unknown;
+    const analyzerHarness = await createBackendHarness({
+      serviceBindings: {
+        FLAREX_ANALYZER: async request => {
+          analyzerRequest = await request.json();
+          return Response.json({
+            analysis,
+            codegenAnalysis,
+            diagnostics: [{ level: "log", message: "analyzed source package" }],
+          });
+        },
+      },
+    });
+    try {
+      const response = await startSourceOnlyPushResponseWithHarness(
+        analyzerHarness,
+        "push-source-analyzed",
+        { sourcePackage: package_ },
+      );
+      expect(response.ok).toBe(true);
+      const started = await response.json() as PushStatus;
+
+      expect(analyzerRequest).toEqual({
+        deploymentId: "push-source-analyzed",
+        sourcePackage: package_,
+      });
+      expect(started.state).toBe("analyzed");
+      expect(started.codegenAnalysis).toEqual(codegenAnalysis);
+      expect(started.diagnostics).toEqual([{ level: "log", message: "analyzed source package" }]);
+
+      const activated = await finishPushWithHarness(
+        analyzerHarness,
+        "push-source-analyzed",
+        started.pushId,
+      );
+      expect(activated.codegenAnalysis).toEqual(codegenAnalysis);
+      await expect(getActiveDeploymentWithHarness(analyzerHarness, "push-source-analyzed"))
+        .resolves
+        .toMatchObject({ codegenAnalysis });
+    } finally {
+      await analyzerHarness.dispose();
+    }
+  });
+
+  it("fails source-only push when analyzer success omits codegen analysis", async () => {
+    const analyzerHarness = await createBackendHarness({
+      serviceBindings: {
+        FLAREX_ANALYZER: async () =>
+          Response.json({
+            analysis: {
+              schema: dualFunctionSchema(),
+              functions: dualFunctions(),
+            },
+          }),
+      },
+    });
+    try {
+      const response = await startSourceOnlyPushResponseWithHarness(
+        analyzerHarness,
+        "push-missing-codegen",
+        { sourcePackage: sourcePackage() },
+      );
+      expect(response.ok).toBe(true);
+      const started = await response.json() as PushStatus;
+
+      expect(started.state).toBe("failed");
+      expect(started.error).toBe("Backend analyzer response did not include codegenAnalysis.");
+      expect(started.codegenAnalysis).toBeUndefined();
+    } finally {
+      await analyzerHarness.dispose();
+    }
+  });
+
+  it("fails source-only push when analyzer success returns null codegen analysis", async () => {
+    const analyzerHarness = await createBackendHarness({
+      serviceBindings: {
+        FLAREX_ANALYZER: async () =>
+          Response.json({
+            analysis: {
+              schema: dualFunctionSchema(),
+              functions: dualFunctions(),
+            },
+            codegenAnalysis: null,
+          }),
+      },
+    });
+    try {
+      const response = await startSourceOnlyPushResponseWithHarness(
+        analyzerHarness,
+        "push-null-codegen",
+        { sourcePackage: sourcePackage() },
+      );
+      expect(response.ok).toBe(true);
+      const started = await response.json() as PushStatus;
+
+      expect(started.state).toBe("failed");
+      expect(started.error).toBe("Analyzer request failed with status 200");
+      expect(started.codegenAnalysis).toBeUndefined();
+    } finally {
+      await analyzerHarness.dispose();
+    }
+  });
+
+  it("rejects malformed analyzer analysis objects without a worker 500", async () => {
+    const analyzerHarness = await createBackendHarness({
+      serviceBindings: {
+        FLAREX_ANALYZER: async () =>
+          Response.json({
+            analysis: null,
+            codegenAnalysis: reversedDualFunctionCodegenAnalysis(),
+          }),
+      },
+    });
+    try {
+      const response = await startSourceOnlyPushResponseWithHarness(
+        analyzerHarness,
+        "push-null-analysis",
+        { sourcePackage: sourcePackage() },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "Deployment analysis must be an object.",
+      });
+    } finally {
+      await analyzerHarness.dispose();
+    }
+  });
+
+  it("rejects codegen analysis that disagrees with deployment metadata", async () => {
+    const badCodegenAnalysis = reversedDualFunctionCodegenAnalysis();
+    badCodegenAnalysis.functions[0]!.functions[0] = {
+      ...badCodegenAnalysis.functions[0]!.functions[0]!,
+      kind: "mutation",
+    };
+
+    const response = await startPushResponse("push-bad-codegen", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: dualFunctionSchema(), functions: dualFunctions() },
+      codegenAnalysis: badCodegenAnalysis,
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Codegen function lessons:b must match deployment function metadata.",
+    });
+  });
+
+  it("rejects codegen analysis with mismatched source positions", async () => {
+    const badCodegenAnalysis = candidateCodegenAnalysis();
+    badCodegenAnalysis.functions[0]!.functions[0] = {
+      ...badCodegenAnalysis.functions[0]!.functions[0]!,
+      position: { path: "other.ts", startLine: 3, startColumn: 1 },
+    };
+
+    const response = await startPushResponse("push-bad-codegen-position", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      codegenAnalysis: badCodegenAnalysis,
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Codegen function lessons:list must match deployment function metadata.",
+    });
+  });
+
+  it("rejects duplicate codegen module entries", async () => {
+    const badCodegenAnalysis = reversedDualFunctionCodegenAnalysis();
+    badCodegenAnalysis.functions = [
+      {
+        moduleName: "lessons",
+        functions: [badCodegenAnalysis.functions[0]!.functions[0]!],
+      },
+      {
+        moduleName: "lessons",
+        functions: [badCodegenAnalysis.functions[0]!.functions[1]!],
+      },
+    ];
+
+    const response = await startPushResponse("push-duplicate-codegen-module", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: dualFunctionSchema(), functions: dualFunctions() },
+      codegenAnalysis: badCodegenAnalysis,
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Duplicate codegen module metadata: lessons.",
     });
   });
 
@@ -429,7 +629,7 @@ function normalizedCandidateFunctions(): DeploymentFunctions {
   return candidateFunctions();
 }
 
-function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
+function candidateCodegenAnalysis(): DeploymentCodegenAnalysis {
   return {
     schema: normalizedCandidateSchema(),
     functions: [
@@ -512,7 +712,7 @@ function normalizedPartitionedTeamFunctions(): DeploymentFunctions {
   return partitionedTeamFunctions();
 }
 
-function partitionedTeamCodegenAnalysis(): PushStatus["codegenAnalysis"] {
+function partitionedTeamCodegenAnalysis(): DeploymentCodegenAnalysis {
   return {
     schema: normalizedPartitionedTeamSchema(),
     functions: [
@@ -533,6 +733,78 @@ function partitionedTeamCodegenAnalysis(): PushStatus["codegenAnalysis"] {
               partitionField: "slug",
               argField: "teamSlug",
             },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function dualFunctionSchema(): DeploymentSchema {
+  return {
+    version: 4,
+    tables: [],
+    indexes: [],
+  };
+}
+
+function normalizedDualFunctionSchema(): DeploymentSchema {
+  return {
+    version: 4,
+    tables: [],
+    indexes: [],
+  };
+}
+
+function dualFunctions(): DeploymentFunctions {
+  return {
+    functions: [
+      {
+        path: "lessons:a",
+        kind: "query",
+        visibility: "public",
+        args: { type: "object", value: {} },
+        returns: null,
+        route: null,
+        partition: null,
+      },
+      {
+        path: "lessons:b",
+        kind: "query",
+        visibility: "public",
+        args: { type: "object", value: {} },
+        returns: null,
+        route: null,
+        partition: null,
+      },
+    ],
+  };
+}
+
+function reversedDualFunctionCodegenAnalysis(): DeploymentCodegenAnalysis {
+  return {
+    schema: normalizedDualFunctionSchema(),
+    functions: [
+      {
+        moduleName: "lessons",
+        functions: [
+          {
+            moduleName: "lessons",
+            exportName: "b",
+            kind: "query",
+            visibility: "public",
+            args: { type: "object", value: {} },
+            returns: null,
+            partition: null,
+          },
+          {
+            moduleName: "lessons",
+            exportName: "a",
+            kind: "query",
+            visibility: "public",
+            args: { type: "object", value: {} },
+            returns: null,
+            partition: null,
           },
         ],
       },
@@ -580,7 +852,15 @@ async function startSourceOnlyPushResponse(
   deploymentId: string,
   body: StartPushRequest,
 ): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
-  return harness.mf.dispatchFetch(
+  return startSourceOnlyPushResponseWithHarness(harness, deploymentId, body);
+}
+
+async function startSourceOnlyPushResponseWithHarness(
+  target: BackendHarness,
+  deploymentId: string,
+  body: StartPushRequest,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/start`,
     {
       method: "POST",
