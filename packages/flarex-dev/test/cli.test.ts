@@ -1,9 +1,11 @@
 import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FlarexGeneratedOutputTypecheckOptions } from "../src/generatedTypecheck";
 import { runFlarexDevCli } from "../src/cli";
+import type { DeploymentAnalysis } from "../src/analyze";
+import type { SourcePackage } from "../src/sourcePackage";
 import { createMinimalFlarexProject } from "./fixtures";
 
 const workspaceRoot = path.resolve(
@@ -137,6 +139,182 @@ describe("runFlarexDevCli", () => {
         flarex: ["packages/flarex/src/index.ts", "packages/flarex/src/alt.ts"],
       },
     });
+  });
+
+  it("passes HTTP backend analyzer options to codegen", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+      });
+    });
+    try {
+      let analyzerResult: DeploymentAnalysis | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--analyzer-url",
+          "https://flarex.example/analyze",
+          "--deployment-id",
+          "deployment1",
+          "--analyzer-header",
+          "authorization=Bearer token",
+        ],
+        dependencies: {
+          generate: async options => {
+            analyzerResult = await options.sourceAnalyzer?.analyze(sourcePackage).then(result => result.analysis);
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(analyzerResult).toEqual(analysis);
+      expect(requests).toEqual([{
+        url: "https://flarex.example/analyze",
+        headers: {
+          authorization: "Bearer token",
+          "content-type": "application/json",
+        },
+        body: { deploymentId: "deployment1", sourcePackage },
+      }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps HTTP backend analyzer options out of generated-output typecheck", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+      }));
+    try {
+      let analyzerResult: DeploymentAnalysis | undefined;
+      let typecheckOptions: FlarexGeneratedOutputTypecheckOptions | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--typecheck",
+          "enable",
+          "--analyzer-url",
+          "https://flarex.example/analyze",
+          "--deployment-id",
+          "deployment1",
+        ],
+        dependencies: {
+          generate: async options => {
+            analyzerResult = await options.sourceAnalyzer?.analyze(sourcePackage).then(result => result.analysis);
+          },
+          typecheckGenerated: async options => {
+            typecheckOptions = options;
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(analyzerResult).toEqual(analysis);
+      expect(typecheckOptions).toEqual({ root: "/app" });
+      expect(typecheckOptions).not.toHaveProperty("sourceAnalyzer");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("passes HTTP backend analyzer options to dry-run codegen", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+      }));
+    try {
+      let analyzerResult: DeploymentAnalysis | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--dry-run",
+          "--analyzer-url",
+          "https://flarex.example/analyze",
+          "--deployment-id",
+          "deployment1",
+        ],
+        dependencies: {
+          dryRun: async options => {
+            analyzerResult = await options.sourceAnalyzer?.analyze(sourcePackage).then(result => result.analysis);
+            return { writes: [], deletes: [] };
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(analyzerResult).toEqual(analysis);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects incomplete HTTP backend analyzer options before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--analyzer-url", "https://flarex.example/analyze"],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain("--deployment-id must be provided");
+  });
+
+  it("rejects malformed HTTP backend analyzer headers before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: [
+        "codegen",
+        "--root",
+        "/app",
+        "--analyzer-url",
+        "https://flarex.example/analyze",
+        "--deployment-id",
+        "deployment1",
+        "--analyzer-header",
+        "authorization",
+      ],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain('Invalid --analyzer-header value "authorization"');
   });
 
   it("prints dry-run writes and deletes without normal codegen or typecheck", async () => {
@@ -297,3 +475,23 @@ describe("runFlarexDevCli", () => {
     expect(stderr.value).toContain('Invalid --path value "flarex"');
   });
 });
+
+function cliSourcePackage(): SourcePackage {
+  return {
+    modules: [{
+      path: "_flarex/execution.js",
+      source: "export default {};",
+      environment: "isolate",
+      sha256: "a".repeat(64),
+    }],
+    functions: [],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function cliAnalysis(): DeploymentAnalysis {
+  return {
+    schema: { version: 1, tables: [], indexes: [] },
+    functions: [],
+  };
+}

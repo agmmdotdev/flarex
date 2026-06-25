@@ -2,10 +2,11 @@ import { parseArgs } from "node:util";
 import {
   dryRunFlarexCodegen,
   generateFlarex,
+  type FlarexCodegenOptions,
   type FlarexCodegenDryRun,
-  type FlarexGenerateOptions,
   type StaleGeneratedEntry,
 } from "./generate.ts";
+import { HttpBackendSourceAnalyzer } from "./backendPush.ts";
 import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOptions,
@@ -16,8 +17,8 @@ type CliWriter = {
 };
 
 type CliDependencies = {
-  generate: (options: FlarexGenerateOptions) => Promise<void>;
-  dryRun: (options: FlarexGenerateOptions) => Promise<FlarexCodegenDryRun>;
+  generate: (options: FlarexCodegenOptions) => Promise<void>;
+  dryRun: (options: FlarexCodegenOptions) => Promise<FlarexCodegenDryRun>;
   typecheckGenerated: (options: FlarexGeneratedOutputTypecheckOptions) => Promise<void>;
 };
 
@@ -88,6 +89,9 @@ async function runCodegenCommand(
         cwd: { type: "string" },
         "generated-dir": { type: "string" },
         help: { type: "boolean", short: "h" },
+        "analyzer-header": { type: "string", multiple: true },
+        "analyzer-url": { type: "string" },
+        "deployment-id": { type: "string" },
         path: { type: "string", multiple: true },
         root: { type: "string" },
         "typescript-cli": { type: "string" },
@@ -140,7 +144,7 @@ async function runCodegenCommand(
 }
 
 type CodegenCommandConfig = {
-  generateOptions: FlarexGenerateOptions;
+  generateOptions: FlarexCodegenOptions;
   dryRun: boolean;
   typecheckMode: CodegenTypecheckMode;
   typecheckOptions?: FlarexGeneratedOutputTypecheckOptions;
@@ -154,19 +158,23 @@ function codegenCommandConfig(
   const compilerPaths = values.path === undefined
     ? undefined
     : pathMappings(stringValues(values.path, "--path"));
-  const generateOptions: FlarexGenerateOptions = {
+  const baseGenerateOptions = {
     root,
     ...(typeof values["app-dir"] === "string" ? { appDir: values["app-dir"] } : {}),
     ...(typeof values["generated-dir"] === "string" ? { generatedDir: values["generated-dir"] } : {}),
+  };
+  const generateOptions: FlarexCodegenOptions = {
+    ...baseGenerateOptions,
+    ...sourceAnalyzerOptions(values),
   };
   return {
     generateOptions,
     dryRun: values["dry-run"] === true,
     typecheckMode,
     ...(typecheckMode === "enable" || typecheckMode === "try"
-      ? {
+        ? {
           typecheckOptions: {
-            ...generateOptions,
+            ...baseGenerateOptions,
             ...(typeof values.cwd === "string" ? { cwd: values.cwd } : {}),
             ...(typeof values["typescript-cli"] === "string"
               ? { typescriptCliPath: values["typescript-cli"] }
@@ -178,6 +186,47 @@ function codegenCommandConfig(
         }
       : {}),
   };
+}
+
+function sourceAnalyzerOptions(
+  values: ReturnType<typeof parseArgs>["values"],
+): Pick<FlarexCodegenOptions, "sourceAnalyzer"> {
+  const analyzerUrl = values["analyzer-url"];
+  const deploymentId = values["deployment-id"];
+  const headers = values["analyzer-header"];
+  const analyzerFlagsPresent =
+    analyzerUrl !== undefined || deploymentId !== undefined || headers !== undefined;
+  if (!analyzerFlagsPresent) return {};
+  if (typeof analyzerUrl !== "string" || analyzerUrl.length === 0) {
+    throw new Error("--analyzer-url must be provided when using backend analyzer options.");
+  }
+  if (typeof deploymentId !== "string" || deploymentId.length === 0) {
+    throw new Error("--deployment-id must be provided when using backend analyzer options.");
+  }
+  const parsedHeaders = analyzerHeaders(headers);
+  return {
+    sourceAnalyzer: new HttpBackendSourceAnalyzer({
+      url: analyzerUrl,
+      deploymentId,
+      ...(parsedHeaders === undefined ? {} : { headers: parsedHeaders }),
+    }),
+  };
+}
+
+function analyzerHeaders(value: unknown): Headers | undefined {
+  if (value === undefined) return undefined;
+  const headers = new Headers();
+  for (const entry of Array.isArray(value) ? value : [value]) {
+    if (typeof entry !== "string") {
+      throw new Error("Invalid --analyzer-header value.");
+    }
+    const separatorIndex = entry.indexOf("=");
+    if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
+      throw new Error(`Invalid --analyzer-header value "${entry}". Expected name=value.`);
+    }
+    headers.append(entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
+  }
+  return headers;
 }
 
 function writeDryRunReport(report: FlarexCodegenDryRun, stdout: CliWriter): void {
@@ -269,6 +318,9 @@ Options:
   --app-dir <dir>           Flarex app directory. Defaults to "flarex".
   --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
   --dry-run                 Print generated writes/deletes without writing final generated files.
+  --analyzer-url <url>      Use an HTTP backend analyzer for source-package analysis.
+  --deployment-id <id>      Deployment ID sent to the HTTP backend analyzer.
+  --analyzer-header <n=v>   Header sent to the HTTP backend analyzer. Can be repeated.
   --typecheck <mode>        Typecheck generated output after codegen. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.
   --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.

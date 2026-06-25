@@ -1,5 +1,67 @@
 # SDK And CLI Fork
 
+## Codegen CLI Can Use HTTP Backend Analyzer
+
+Previous completed checkpoint: `5aff422` Add HTTP backend source analyzer.
+
+What changed:
+
+- Added `flarex-dev codegen --analyzer-url <url> --deployment-id <id>` so
+  final codegen and dry-run codegen can use `HttpBackendSourceAnalyzer`.
+- Added repeatable `--analyzer-header name=value` for the temporary hosted
+  analyzer auth/header lane.
+- CLI dependency typing now passes `FlarexCodegenOptions`, matching the real
+  generator boundary that already accepts `sourceAnalyzer`.
+- Generated-output typecheck options are built from the plain codegen paths
+  only; `sourceAnalyzer` is not leaked into the typecheck boundary.
+- CLI coverage proves both normal codegen and dry-run receive a working HTTP
+  analyzer by calling `sourceAnalyzer.analyze(...)` through a stubbed fetch.
+- CLI coverage proves generated-output typecheck does not receive runtime-only
+  analyzer options when `--typecheck` and analyzer flags are used together.
+- CLI coverage rejects incomplete analyzer options and malformed analyzer
+  headers before codegen starts.
+
+Why it changed:
+
+The previous checkpoint added the HTTP analyzer adapter but left it unreachable
+from the user-facing codegen command. Convex codegen can target a selected
+deployment and consumes backend-produced analysis. This checkpoint gives Flarex
+the equivalent development seam while the hosted push/deployment selection
+flow is still being built.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - `codegen` accepts hidden deployment URL/admin-key options and routes
+    through deployment selection before running codegen.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated output is written after backend/deployment analysis.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend push response is the analysis response boundary.
+
+Flarex differences:
+
+- Flarex exposes explicit analyzer flags for now instead of Convex's
+  deployment selection and admin-key flow.
+- `--analyzer-header` is a temporary generic header hook. The platform API key,
+  project selection, and hosted auth convention remain future work.
+- The command still defaults to local backend-style analysis when analyzer
+  flags are absent.
+
+Known limitations:
+
+- No config-file or environment-variable discovery exists for analyzer URL,
+  deployment ID, or auth headers.
+- The hosted Dynamic Worker analyzer service is still future work; these flags
+  only connect codegen to an HTTP analyzer once one is available.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## HTTP Backend Source Analyzer
 
 Previous completed checkpoint: `2560e38` Route codegen through backend analysis seam.
