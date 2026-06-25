@@ -7,6 +7,8 @@ import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import {
   bundleFlarexSourcePackage,
+  analyzeFlarexSourcePackage,
+  type BackendPushCoordinator,
   type BackendSourceAnalyzer,
   type DeploymentAnalysis,
   dryRunFlarexCodegen,
@@ -169,6 +171,83 @@ export const list = query({ args: {}, handler: async () => [] });
       .resolves.toContain('"kind": "mutation"');
   });
 
+  it("keeps explicit undefined source analyzer compatibility", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+
+    const analysis = await analyzeFlarexSourcePackage(sourcePackage, undefined);
+
+    expect(analysis.functions).toEqual([
+      {
+        moduleName: "messages",
+        functions: [expect.objectContaining({
+          moduleName: "messages",
+          exportName: "list",
+          kind: "query",
+        })],
+      },
+    ]);
+  });
+
+  it("uses backend push codegen analysis for final codegen", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const pushedPackages: string[][] = [];
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async sourcePackage => {
+        pushedPackages.push(sourcePackage.functions);
+        return {
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+        };
+      },
+      finish: async () => {
+        throw new Error("codegen should not activate pushes");
+      },
+    };
+
+    await generateFlarex({ root, pushCoordinator });
+
+    expect(pushedPackages).toEqual([["messages.js"]]);
+    await expect(readGenerated(root, "functionMetadata.ts"))
+      .resolves.toContain('"kind": "workflowMutation"');
+  });
+
+  it("requires backend push codegen analysis before writing final generated files", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => ({ pushId: "push1", state: "analyzed" }),
+      finish: async () => {
+        throw new Error("codegen should not activate pushes");
+      },
+    };
+
+    await expect(generateFlarex({ root, pushCoordinator })).rejects.toThrow(
+      "Flarex push push1 did not return codegen analysis.",
+    );
+    await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
+      .resolves.toBe(false);
+  });
+
   it("uses injected backend source analysis for dry-run codegen", async () => {
     const root = await createProject();
     await writeFile(
@@ -182,6 +261,33 @@ export const list = query({ args: {}, handler: async () => [] });
     };
 
     const report = await dryRunFlarexCodegen({ root, sourceAnalyzer });
+    const metadataWrite = report.writes.find(write => write.name === "functionMetadata.ts");
+
+    expect(metadataWrite?.contents).toContain('"kind": "action"');
+    await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
+      .resolves.toBe(false);
+  });
+
+  it("uses backend push codegen analysis for dry-run codegen", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => ({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: backendCodegenAnalysis("action"),
+      }),
+      finish: async () => {
+        throw new Error("dry-run codegen should not activate pushes");
+      },
+    };
+
+    const report = await dryRunFlarexCodegen({ root, pushCoordinator });
     const metadataWrite = report.writes.find(write => write.name === "functionMetadata.ts");
 
     expect(metadataWrite?.contents).toContain('"kind": "action"');

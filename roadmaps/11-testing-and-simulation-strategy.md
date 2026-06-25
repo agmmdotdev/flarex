@@ -1,5 +1,71 @@
 # Testing and Simulation Strategy
 
+## Backend Push Codegen CLI Coverage
+
+Previous completed checkpoint: `3a27b91` Preserve analyzer codegen analysis in pushes.
+
+What changed:
+
+- Added `HttpBackendPushCoordinator` coverage proving source packages are sent
+  to `/deployments/:deploymentId/push/start` with configured headers and the
+  returned `codegenAnalysis` is parsed.
+- Added generator coverage proving normal final codegen and dry-run codegen use
+  backend push `codegenAnalysis` and do not call `finish`.
+- Added generator failure coverage proving final generated files are not
+  written when an analyzed push omits `codegenAnalysis`.
+- Added CLI coverage for `--backend-url`, `--backend-header`,
+  `--deployment-id`, dry-run forwarding, typecheck isolation, incomplete push
+  options, malformed backend headers, and rejecting mixed analyzer/push modes.
+- Added HTTP backend push URL-prefix coverage so mounted backend adapters do
+  not lose their configured base path.
+- Added HTTP backend push finish coverage for URL/path-prefix handling, encoded
+  deployment and push IDs, headers, request body, and activated response
+  parsing.
+- Added invalid push-state coverage so inherited object property names like
+  `toString` cannot pass the backend push status guard.
+- Added compatibility coverage for explicit `undefined` handling in
+  `analyzeFlarexSourcePackage(...)`.
+
+Why it changed:
+
+Backend push codegen metadata is now preserved by the backend. The test surface
+needs to prove developer-facing codegen consumes that metadata through the
+push coordinator rather than falling back to local reconstruction.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend push/start is the CLI analysis boundary.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - codegen output is driven by deployment analysis metadata.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - generated files and deployment state are coordinated by dev/deploy flows.
+
+Flarex differences:
+
+- Tests use fake `fetch` for HTTP push instead of hosted platform auth.
+- Codegen tests assert no activation because Flarex does not have the deploy
+  command that should own push finish yet.
+- The temporary direct HTTP analyzer tests remain until backend push fully
+  replaces that seam in user-facing CLI.
+- CLI tests keep analyzer headers and backend headers separate so error
+  messages point at the flag the developer actually passed.
+
+Known limitations:
+
+- No end-to-end hosted backend push/codegen test exists yet.
+- No CLI deploy command exists to finish and activate source-package pushes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Analyzer Codegen Analysis Persistence Coverage
 
 Previous completed checkpoint: `a09a2b8` Wire codegen CLI to HTTP analyzer.

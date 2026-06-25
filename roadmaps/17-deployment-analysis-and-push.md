@@ -1,5 +1,76 @@
 # Deployment Analysis And Push
 
+## CLI Codegen Can Use Backend Push Codegen Analysis
+
+Previous completed checkpoint: `3a27b91` Preserve analyzer codegen analysis in pushes.
+
+What changed:
+
+- Added `HttpBackendPushCoordinator` in `flarex-dev` for the public backend
+  source-package push route.
+- `generateFlarex(...)` and `dryRunFlarexCodegen(...)` can now use a
+  `pushCoordinator` and consume `started.codegenAnalysis` from the backend push
+  status as the final generated-file analysis.
+- Codegen refuses an analyzed push that does not include `codegenAnalysis`,
+  keeping the backend-authoritative generated metadata contract explicit.
+- `flarex-dev codegen` now accepts `--backend-url`, `--deployment-id`, and
+  repeatable `--backend-header` to start the backend push flow for codegen.
+- The older `--analyzer-url` path remains as a temporary analyzer-only seam,
+  but CLI rejects using analyzer-only flags and backend push flags together.
+- HTTP backend push URLs preserve configured path prefixes so adapters mounted
+  below a base route can still receive `/deployments/:id/push/start`.
+- `analyzeFlarexSourcePackage(...)` remains tolerant of existing callers that
+  pass `undefined` explicitly for the previous optional analyzer parameter.
+- HTTP push request bodies are checked against backend `StartPushRequest` and
+  `FinishPushRequest` types at the dev boundary.
+- Plain codegen does not call `finish`; activation remains a future deploy/push
+  command responsibility.
+
+Why it changed:
+
+The previous checkpoint made backend push storage preserve analyzer
+`codegenAnalysis`. This checkpoint wires developer codegen to consume that
+stored/push-returned metadata directly, which is closer to Convex's model where
+generated files are downstream of backend deployment analysis.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - start-push is the deployment metadata boundary used by CLI flows.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final generated files are produced from backend-provided analysis.
+- `npm-packages/convex/src/cli/lib/dev.ts`
+  - dev/deploy orchestration keeps generated files tied to deployed metadata.
+
+Flarex differences:
+
+- Flarex currently exposes an explicit `--backend-url` because the hosted
+  platform deployment-selection/auth flow does not exist yet.
+- `HttpBackendPushCoordinator` validates and preserves `codegenAnalysis`, but
+  intentionally does not type-claim flattened backend `analysis` until a
+  reusable validator exists at this dev boundary.
+- Codegen starts but does not finish/activate pushes. Future deploy commands
+  should own finish/activation after final generated output and validation.
+
+Known limitations:
+
+- No hosted-auth or project-selection CLI flow exists yet.
+- The `--analyzer-url` temporary path still exists for direct analyzer testing.
+- HTTP push status parsing does not yet validate or return flattened
+  `DeploymentAnalysis`; codegen only requires `codegenAnalysis`.
+- This checkpoint does not yet add the deploy command that should finish and
+  activate backend pushes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Push Stores Analyzer Codegen Analysis
 
 Previous completed checkpoint: `a09a2b8` Wire codegen CLI to HTTP analyzer.

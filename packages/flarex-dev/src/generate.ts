@@ -14,6 +14,7 @@ import {
 } from "./analyze.ts";
 import {
   LocalExecutionArtifactBackendAnalyzer,
+  type BackendPushCoordinator,
   type BackendSourceAnalyzer,
 } from "./backendPush.ts";
 import {
@@ -28,6 +29,7 @@ export type FlarexGenerateOptions = {
 };
 
 export type FlarexCodegenOptions = FlarexGenerateOptions & {
+  pushCoordinator?: BackendPushCoordinator;
   sourceAnalyzer?: BackendSourceAnalyzer;
 };
 
@@ -1036,7 +1038,7 @@ export default {
 export async function generateFlarex(options: FlarexCodegenOptions): Promise<void> {
   const context = await initialCodegen(options);
   const sourcePackage = await bundleFlarexSourcePackage(context);
-  const analysis = await analyzeFlarexSourcePackage(sourcePackage, options.sourceAnalyzer);
+  const analysis = await analyzeFlarexSourcePackage(sourcePackage, options);
   await finalCodegen(context, analysis);
 }
 
@@ -1061,7 +1063,7 @@ export async function dryRunFlarexCodegen(
       generatedDir: generatedDirOption,
     });
     const sourcePackage = await bundleFlarexSourcePackage(context);
-    const analysis = await analyzeFlarexSourcePackage(sourcePackage, options.sourceAnalyzer);
+    const analysis = await analyzeFlarexSourcePackage(sourcePackage, options);
     const files = finalGeneratedFiles(analysis);
     return {
       writes: await generatedFileWrites(generatedDir, files),
@@ -1074,8 +1076,23 @@ export async function dryRunFlarexCodegen(
 
 export async function analyzeFlarexSourcePackage(
   sourcePackage: SourcePackage,
-  sourceAnalyzer: BackendSourceAnalyzer = new LocalExecutionArtifactBackendAnalyzer(),
+  options: Pick<FlarexCodegenOptions, "pushCoordinator" | "sourceAnalyzer"> | BackendSourceAnalyzer | undefined = {},
 ): Promise<DeploymentAnalysis> {
+  const analysisOptions = options ?? {};
+  if ("analyze" in analysisOptions) {
+    return (await analysisOptions.analyze(sourcePackage)).analysis;
+  }
+  if (analysisOptions.pushCoordinator !== undefined) {
+    const started = await analysisOptions.pushCoordinator.start(sourcePackage);
+    if (started.state !== "analyzed") {
+      throw new Error(`Flarex push ${started.pushId} is not ready for codegen: ${started.state}.`);
+    }
+    if (started.codegenAnalysis === undefined) {
+      throw new Error(`Flarex push ${started.pushId} did not return codegen analysis.`);
+    }
+    return started.codegenAnalysis;
+  }
+  const sourceAnalyzer = analysisOptions.sourceAnalyzer ?? new LocalExecutionArtifactBackendAnalyzer();
   return (await sourceAnalyzer.analyze(sourcePackage)).analysis;
 }
 

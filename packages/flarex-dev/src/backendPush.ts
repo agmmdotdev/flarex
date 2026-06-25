@@ -6,7 +6,10 @@ import type {
   AnalyzeSourcePackageResponse,
   DeploymentCodegenAnalysis as BackendDeploymentCodegenAnalysis,
   DeploymentFunctionMetadata,
+  FinishPushRequest,
   FunctionPartitionMetadata,
+  PushState,
+  StartPushRequest,
   ValidatorJson as BackendValidatorJson,
 } from "flarex-backend/types";
 import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "./analyze.ts";
@@ -21,7 +24,7 @@ import type { SourcePackage } from "./sourcePackage.ts";
 
 export type DevPushStatus = {
   pushId: string;
-  state: "pending" | "analyzed" | "failed" | "activated" | "superseded";
+  state: PushState;
   analysis?: BackendDeploymentAnalysis;
   codegenAnalysis?: CodegenDeploymentAnalysis;
   error?: string;
@@ -43,6 +46,13 @@ export type BackendSourceAnalysisResult = {
 };
 
 export type HttpBackendSourceAnalyzerOptions = {
+  url: string | URL;
+  deploymentId: string;
+  fetch?: typeof fetch;
+  headers?: HeadersInit;
+};
+
+export type HttpBackendPushCoordinatorOptions = {
   url: string | URL;
   deploymentId: string;
   fetch?: typeof fetch;
@@ -155,6 +165,54 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       `/deployments/${this.deploymentId}/push/${pushId}/finish`,
       {},
     );
+  }
+}
+
+export class HttpBackendPushCoordinator implements BackendPushCoordinator {
+  private readonly url: string;
+  private readonly deploymentId: string;
+  private readonly fetcher: typeof fetch;
+  private readonly headers: HeadersInit | undefined;
+
+  constructor(options: HttpBackendPushCoordinatorOptions) {
+    this.url = String(options.url);
+    this.deploymentId = options.deploymentId;
+    this.fetcher = options.fetch ?? fetch;
+    this.headers = options.headers;
+  }
+
+  async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
+    const body = {
+      sourcePackage,
+    } satisfies StartPushRequest;
+    return await this.post(`/deployments/${encodeURIComponent(this.deploymentId)}/push/start`, {
+      ...body,
+    });
+  }
+
+  async finish(pushId: string): Promise<DevPushStatus> {
+    const body = {} satisfies FinishPushRequest;
+    return await this.post(
+      `/deployments/${encodeURIComponent(this.deploymentId)}/push/${encodeURIComponent(pushId)}/finish`,
+      body,
+    );
+  }
+
+  private async post(path: string, body: unknown): Promise<DevPushStatus> {
+    const response = await this.fetcher(backendRequestUrl(this.url, path), {
+      method: "POST",
+      headers: analyzerHeaders(this.headers),
+      body: JSON.stringify(body),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    const diagnostics = diagnosticsFromBody(payload);
+    if (!response.ok) {
+      throw new ExecutionArtifactAnalysisError(
+        errorMessageFromBody(payload) ?? `Backend push request failed with status ${response.status}.`,
+        diagnostics,
+      );
+    }
+    return parseDevPushStatus(payload);
   }
 }
 
@@ -636,6 +694,53 @@ function analyzerHeaders(headers: HeadersInit | undefined): Headers {
   const result = new Headers(headers);
   result.set("content-type", "application/json");
   return result;
+}
+
+function parseDevPushStatus(value: unknown): DevPushStatus {
+  if (!isRecord(value)) {
+    throw new ExecutionArtifactAnalysisError("Backend push response body must be an object.", []);
+  }
+  if (typeof value.pushId !== "string" || value.pushId.length === 0) {
+    throw new ExecutionArtifactAnalysisError("Backend push response pushId must be a non-empty string.", []);
+  }
+  if (!isPushState(value.state)) {
+    throw new ExecutionArtifactAnalysisError("Backend push response state is invalid.", []);
+  }
+  const codegenAnalysis = "codegenAnalysis" in value
+    ? parseCodegenAnalysisFromBody(value)
+    : undefined;
+  if (codegenAnalysis !== undefined && !codegenAnalysis.ok) {
+    throw new ExecutionArtifactAnalysisError(
+      codegenAnalysis.message,
+      diagnosticsFromBody(value),
+    );
+  }
+  return {
+    pushId: value.pushId,
+    state: value.state,
+    ...(codegenAnalysis?.ok === true ? { codegenAnalysis: codegenAnalysis.analysis } : {}),
+    ...(typeof value.error === "string" ? { error: value.error } : {}),
+    ...(diagnosticsFromBody(value).length === 0 ? {} : { diagnostics: diagnosticsFromBody(value) }),
+  };
+}
+
+function isPushState(value: unknown): value is DevPushStatus["state"] {
+  return typeof value === "string" && Object.hasOwn(pushStates, value);
+}
+
+const pushStates = {
+  pending: true,
+  analyzed: true,
+  failed: true,
+  activated: true,
+  superseded: true,
+} satisfies Record<PushState, true>;
+
+function backendRequestUrl(baseUrl: string, path: string): URL {
+  const base = new URL(baseUrl);
+  const basePath = base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "");
+  base.pathname = `${basePath}${path}`;
+  return base;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

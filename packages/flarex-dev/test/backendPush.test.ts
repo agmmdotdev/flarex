@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DeploymentAnalysis } from "../src/analyze";
 import {
   createLocalAnalyzerService,
+  HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,
   LocalBackendPushCoordinator,
   LocalExecutionArtifactBackendAnalyzer,
@@ -47,6 +48,149 @@ describe("backend push coordinator", () => {
         body: { sourcePackage },
       },
     ]);
+  });
+
+  it("starts HTTP backend push and parses returned codegen analysis", async () => {
+    const sourcePackage = testSourcePackage();
+    const analysis = testAnalysis();
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        pushId: "push1",
+        state: "analyzed",
+        sourcePackage,
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+        diagnostics: [{ level: "log", message: "backend analyzed source" }],
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    };
+
+    const status = await new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      headers: { authorization: "Bearer token" },
+      fetch: fetcher,
+    }).start(sourcePackage);
+
+    expect(status).toEqual({
+      pushId: "push1",
+      state: "analyzed",
+      codegenAnalysis: analysis,
+      diagnostics: [{ level: "log", message: "backend analyzed source" }],
+    });
+    expect(requests).toEqual([{
+      url: "https://flarex.example/deployments/deployment1/push/start",
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/json",
+      },
+      body: { sourcePackage },
+    }]);
+  });
+
+  it("parses HTTP backend push responses that omit optional codegen analysis", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        pushId: "push1",
+        state: "analyzed",
+      });
+
+    const status = await new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).start(testSourcePackage());
+
+    expect(status).toEqual({ pushId: "push1", state: "analyzed" });
+  });
+
+  it("rejects inherited property names as HTTP backend push states", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        pushId: "push1",
+        state: "toString",
+      });
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).start(testSourcePackage())).rejects.toThrow(
+      "Backend push response state is invalid.",
+    );
+  });
+
+  it("preserves configured HTTP backend URL path prefixes", async () => {
+    const urls: string[] = [];
+    const fetcher: typeof fetch = async input => {
+      urls.push(String(input));
+      return Response.json({
+        pushId: "push1",
+        state: "analyzed",
+      });
+    };
+
+    await new HttpBackendPushCoordinator({
+      url: "https://flarex.example/api",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).start(testSourcePackage());
+
+    expect(urls).toEqual([
+      "https://flarex.example/api/deployments/deployment1/push/start",
+    ]);
+  });
+
+  it("finishes HTTP backend pushes with encoded IDs and configured path prefixes", async () => {
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        pushId: "push/with space",
+        state: "activated",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+    };
+
+    const status = await new HttpBackendPushCoordinator({
+      url: "https://flarex.example/api",
+      deploymentId: "deployment/with space",
+      headers: { authorization: "Bearer token" },
+      fetch: fetcher,
+    }).finish("push/with space");
+
+    expect(status).toEqual({
+      pushId: "push/with space",
+      state: "activated",
+    });
+    expect(requests).toEqual([{
+      url: "https://flarex.example/api/deployments/deployment%2Fwith%20space/push/push%2Fwith%20space/finish",
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/json",
+      },
+      body: {},
+    }]);
   });
 
   it("serves backend analysis through the local analyzer service binding", async () => {

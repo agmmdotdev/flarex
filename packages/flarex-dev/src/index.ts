@@ -48,6 +48,7 @@ export type {
 export {
   backendAnalysisFromCodegenAnalysis,
   createLocalAnalyzerService,
+  HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,
   LocalBackendPushCoordinator,
   LocalExecutionArtifactBackendAnalyzer,
@@ -56,6 +57,7 @@ export type {
   BackendPushCoordinator,
   BackendSourceAnalyzer,
   DevPushStatus,
+  HttpBackendPushCoordinatorOptions,
   HttpBackendSourceAnalyzerOptions,
 } from "./backendPush.ts";
 export {

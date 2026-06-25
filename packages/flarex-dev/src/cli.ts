@@ -6,7 +6,10 @@ import {
   type FlarexCodegenDryRun,
   type StaleGeneratedEntry,
 } from "./generate.ts";
-import { HttpBackendSourceAnalyzer } from "./backendPush.ts";
+import {
+  HttpBackendPushCoordinator,
+  HttpBackendSourceAnalyzer,
+} from "./backendPush.ts";
 import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOptions,
@@ -91,6 +94,8 @@ async function runCodegenCommand(
         help: { type: "boolean", short: "h" },
         "analyzer-header": { type: "string", multiple: true },
         "analyzer-url": { type: "string" },
+        "backend-header": { type: "string", multiple: true },
+        "backend-url": { type: "string" },
         "deployment-id": { type: "string" },
         path: { type: "string", multiple: true },
         root: { type: "string" },
@@ -190,12 +195,35 @@ function codegenCommandConfig(
 
 function sourceAnalyzerOptions(
   values: ReturnType<typeof parseArgs>["values"],
-): Pick<FlarexCodegenOptions, "sourceAnalyzer"> {
+): Pick<FlarexCodegenOptions, "pushCoordinator" | "sourceAnalyzer"> {
   const analyzerUrl = values["analyzer-url"];
+  const backendUrl = values["backend-url"];
   const deploymentId = values["deployment-id"];
   const headers = values["analyzer-header"];
+  const backendHeaders = values["backend-header"];
+  const analyzerOnlyFlagsPresent = analyzerUrl !== undefined || headers !== undefined;
+  const backendFlagsPresent = backendUrl !== undefined || backendHeaders !== undefined;
   const analyzerFlagsPresent =
     analyzerUrl !== undefined || deploymentId !== undefined || headers !== undefined;
+  if (backendFlagsPresent && analyzerOnlyFlagsPresent) {
+    throw new Error("Backend push options cannot be used with analyzer-only options.");
+  }
+  if (backendFlagsPresent) {
+    if (typeof backendUrl !== "string" || backendUrl.length === 0) {
+      throw new Error("--backend-url must be provided when using backend push options.");
+    }
+    if (typeof deploymentId !== "string" || deploymentId.length === 0) {
+      throw new Error("--deployment-id must be provided when using backend push options.");
+    }
+    const parsedHeaders = parsedHeadersFlag(backendHeaders, "--backend-header");
+    return {
+      pushCoordinator: new HttpBackendPushCoordinator({
+        url: backendUrl,
+        deploymentId,
+        ...(parsedHeaders === undefined ? {} : { headers: parsedHeaders }),
+      }),
+    };
+  }
   if (!analyzerFlagsPresent) return {};
   if (typeof analyzerUrl !== "string" || analyzerUrl.length === 0) {
     throw new Error("--analyzer-url must be provided when using backend analyzer options.");
@@ -203,7 +231,7 @@ function sourceAnalyzerOptions(
   if (typeof deploymentId !== "string" || deploymentId.length === 0) {
     throw new Error("--deployment-id must be provided when using backend analyzer options.");
   }
-  const parsedHeaders = analyzerHeaders(headers);
+  const parsedHeaders = parsedHeadersFlag(headers, "--analyzer-header");
   return {
     sourceAnalyzer: new HttpBackendSourceAnalyzer({
       url: analyzerUrl,
@@ -213,16 +241,16 @@ function sourceAnalyzerOptions(
   };
 }
 
-function analyzerHeaders(value: unknown): Headers | undefined {
+function parsedHeadersFlag(value: unknown, flagName: string): Headers | undefined {
   if (value === undefined) return undefined;
   const headers = new Headers();
   for (const entry of Array.isArray(value) ? value : [value]) {
     if (typeof entry !== "string") {
-      throw new Error("Invalid --analyzer-header value.");
+      throw new Error(`Invalid ${flagName} value.`);
     }
     const separatorIndex = entry.indexOf("=");
     if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
-      throw new Error(`Invalid --analyzer-header value "${entry}". Expected name=value.`);
+      throw new Error(`Invalid ${flagName} value "${entry}". Expected name=value.`);
     }
     headers.append(entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
   }
@@ -318,8 +346,10 @@ Options:
   --app-dir <dir>           Flarex app directory. Defaults to "flarex".
   --generated-dir <dir>     Generated directory under app dir. Defaults to "_generated".
   --dry-run                 Print generated writes/deletes without writing final generated files.
+  --backend-url <url>       Start a backend source-package push and use returned codegen analysis.
+  --backend-header <n=v>    Header sent to the backend push endpoint. Can be repeated.
   --analyzer-url <url>      Use an HTTP backend analyzer for source-package analysis.
-  --deployment-id <id>      Deployment ID sent to the HTTP backend analyzer.
+  --deployment-id <id>      Deployment ID sent to the HTTP backend or analyzer.
   --analyzer-header <n=v>   Header sent to the HTTP backend analyzer. Can be repeated.
   --typecheck <mode>        Typecheck generated output after codegen. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.

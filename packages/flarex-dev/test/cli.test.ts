@@ -195,6 +195,63 @@ describe("runFlarexDevCli", () => {
     }
   });
 
+  it("passes HTTP backend push options to codegen", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        pushId: "push1",
+        state: "analyzed",
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+      });
+    });
+    try {
+      let pushAnalysis: DeploymentAnalysis | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+          "--backend-header",
+          "authorization=Bearer token",
+        ],
+        dependencies: {
+          generate: async options => {
+            const status = await options.pushCoordinator?.start(sourcePackage);
+            pushAnalysis = status?.codegenAnalysis;
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(pushAnalysis).toEqual(analysis);
+      expect(requests).toEqual([{
+        url: "https://flarex.example/deployments/deployment1/push/start",
+        headers: {
+          authorization: "Bearer token",
+          "content-type": "application/json",
+        },
+        body: { sourcePackage },
+      }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps HTTP backend analyzer options out of generated-output typecheck", async () => {
     const analysis = cliAnalysis();
     const sourcePackage = cliSourcePackage();
@@ -236,6 +293,50 @@ describe("runFlarexDevCli", () => {
     }
   });
 
+  it("keeps HTTP backend push options out of generated-output typecheck", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: analysis,
+      }));
+    try {
+      let pushAnalysis: DeploymentAnalysis | undefined;
+      let typecheckOptions: FlarexGeneratedOutputTypecheckOptions | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--typecheck",
+          "enable",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+        ],
+        dependencies: {
+          generate: async options => {
+            const status = await options.pushCoordinator?.start(sourcePackage);
+            pushAnalysis = status?.codegenAnalysis;
+          },
+          typecheckGenerated: async options => {
+            typecheckOptions = options;
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(pushAnalysis).toEqual(analysis);
+      expect(typecheckOptions).toEqual({ root: "/app" });
+      expect(typecheckOptions).not.toHaveProperty("pushCoordinator");
+      expect(typecheckOptions).not.toHaveProperty("sourceAnalyzer");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("passes HTTP backend analyzer options to dry-run codegen", async () => {
     const analysis = cliAnalysis();
     const sourcePackage = cliSourcePackage();
@@ -269,6 +370,145 @@ describe("runFlarexDevCli", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("passes HTTP backend push options to dry-run codegen", async () => {
+    const analysis = cliAnalysis();
+    const sourcePackage = cliSourcePackage();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: analysis,
+      }));
+    try {
+      let pushAnalysis: DeploymentAnalysis | undefined;
+      await expect(runFlarexDevCli({
+        argv: [
+          "codegen",
+          "--root",
+          "/app",
+          "--dry-run",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+        ],
+        dependencies: {
+          dryRun: async options => {
+            const status = await options.pushCoordinator?.start(sourcePackage);
+            pushAnalysis = status?.codegenAnalysis;
+            return { writes: [], deletes: [] };
+          },
+        },
+      })).resolves.toBe(0);
+
+      expect(pushAnalysis).toEqual(analysis);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects mixed HTTP backend analyzer URL and push options before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: [
+        "codegen",
+        "--root",
+        "/app",
+        "--analyzer-url",
+        "https://flarex.example/analyze",
+        "--backend-url",
+        "https://flarex.example",
+        "--deployment-id",
+        "deployment1",
+      ],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain("Backend push options cannot be used with analyzer-only options.");
+  });
+
+  it("rejects mixed HTTP backend push options and analyzer headers before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: [
+        "codegen",
+        "--root",
+        "/app",
+        "--backend-url",
+        "https://flarex.example",
+        "--deployment-id",
+        "deployment1",
+        "--analyzer-header",
+        "authorization=Bearer token",
+      ],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain("Backend push options cannot be used with analyzer-only options.");
+  });
+
+  it("rejects incomplete HTTP backend push options before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["codegen", "--root", "/app", "--backend-url", "https://flarex.example"],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain("--deployment-id must be provided");
+  });
+
+  it("rejects malformed HTTP backend push headers before codegen", async () => {
+    const stderr = new StringWriter();
+    let generateCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: [
+        "codegen",
+        "--root",
+        "/app",
+        "--backend-url",
+        "https://flarex.example",
+        "--deployment-id",
+        "deployment1",
+        "--backend-header",
+        "authorization",
+      ],
+      stderr,
+      dependencies: {
+        generate: async () => {
+          generateCalls += 1;
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(generateCalls).toBe(0);
+    expect(stderr.value).toContain('Invalid --backend-header value "authorization"');
   });
 
   it("rejects incomplete HTTP backend analyzer options before codegen", async () => {
