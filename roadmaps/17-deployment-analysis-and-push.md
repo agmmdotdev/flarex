@@ -1,5 +1,68 @@
 # Deployment Analysis And Push
 
+## Finish Rejections Carry Stable Codes
+
+Previous completed checkpoint: `dbbb06f` Return finish rejection for missing
+artifacts.
+
+What changed:
+
+- Added backend `FinishPushRejectionCode` with the currently known finish
+  rejection cases:
+  - `invalid_state`
+  - `missing_analysis`
+  - `missing_artifact`
+- Rejected `FinishPushResponse` bodies now include a required `code` field in
+  addition to `error`, `push`, and optional diagnostics.
+- `DeploymentDO.finish` now returns `invalid_state` for terminal/non-analyzed
+  pushes and `missing_analysis` for analyzed pushes without activation
+  metadata.
+- The public R2 artifact preflight returns `missing_artifact` when an analyzed
+  push's execution artifact is not present in durable storage.
+- The dev push parser validates finish rejection codes and rejects unknown
+  codes instead of preserving unstructured backend drift.
+
+Why it changed:
+
+The previous checkpoint moved known finish failures into the explicit finish
+response shape, but clients still had to inspect text to distinguish failure
+classes. Convex's deploy flow parses a structured finish response, so Flarex
+should also keep known finish failures machine-readable even while the response
+surface remains smaller than Convex hosted deploy metadata.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - defines a parsed finish-push response contract.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - parses the finish response at the deploy boundary.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - treats finish-push output as structured deploy data.
+
+Flarex differences:
+
+- Convex finish responses include richer diff/config metadata. Flarex uses a
+  compact activation/rejection union with stable rejection codes for the known
+  Cloudflare/backend failure classes.
+- Codes are limited to finish-domain rejections. Generic HTTP boundary errors
+  such as malformed JSON or unknown routes still use normal HTTP error bodies.
+
+Known limitations:
+
+- Codes do not yet include remediation hints or a nested structured error
+  payload.
+- Additional hosted deploy failure classes will need new explicit codes rather
+  than overloading `invalid_state`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/dev.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Public Artifact Finish Failures Use Finish Rejections
 
 Previous completed checkpoint: `1684c24` Use dedicated finish push responses.

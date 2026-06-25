@@ -298,6 +298,11 @@ export type PushStatus = {
 
 export type StartPushResponse = PushStatus;
 
+export type FinishPushRejectionCode =
+  | "invalid_state"
+  | "missing_analysis"
+  | "missing_artifact";
+
 export type FinishPushResponse =
   | {
       result: "activated";
@@ -306,6 +311,7 @@ export type FinishPushResponse =
   | {
       result: "rejected";
       push: PushStatus;
+      code: FinishPushRejectionCode;
       error: string;
       diagnostics?: PushDiagnostic[];
     };

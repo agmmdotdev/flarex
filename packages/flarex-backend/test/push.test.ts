@@ -455,6 +455,7 @@ describe("deployment push lifecycle", () => {
         push: {
           ...start,
         },
+        code: "missing_artifact",
         error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
       } satisfies Extract<FinishPushResponse, { result: "rejected" }>;
       expect(missingArtifactBody).toEqual(expectedMissingArtifactBody);
@@ -494,6 +495,7 @@ describe("deployment push lifecycle", () => {
     expect(failedFinish.status).toBe(409);
     await expect(failedFinish.json()).resolves.toMatchObject({
       result: "rejected",
+      code: "invalid_state",
       error: `Cannot finish push ${failed.pushId} in state failed.`,
       push: {
         pushId: failed.pushId,
@@ -539,6 +541,7 @@ describe("deployment push lifecycle", () => {
     expect(finish.status).toBe(409);
     await expect(finish.json()).resolves.toMatchObject({
       result: "rejected",
+      code: "invalid_state",
       error: `Cannot finish push ${start.pushId} in state abandoned.`,
       push: {
         pushId: start.pushId,

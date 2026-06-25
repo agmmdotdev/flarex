@@ -329,7 +329,7 @@ async function verifyStoredPushArtifact(
     await artifactStore.get(ref);
   } catch {
     const error = `Execution artifact ${ref.artifactId} is not available in durable storage.`;
-    return json(rejectedFinishPushResponse(status, error), { status: 409 });
+    return json(rejectedFinishPushResponse(status, "missing_artifact", error), { status: 409 });
   }
 }
 

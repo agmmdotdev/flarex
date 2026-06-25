@@ -195,11 +195,16 @@ export class DeploymentDO extends DurableObject<Env> {
       if (status.state !== "analyzed") {
         return rejectedFinishPushResponse(
           status,
+          "invalid_state",
           `Cannot finish push ${pushId} in state ${status.state}.`,
         );
       }
       if (status.analysis === undefined) {
-        return rejectedFinishPushResponse(status, `Push ${pushId} has no analysis to activate.`);
+        return rejectedFinishPushResponse(
+          status,
+          "missing_analysis",
+          `Push ${pushId} has no analysis to activate.`,
+        );
       }
       this.applySchema(status.analysis.schema);
       this.applyFunctions(status.analysis.functions);

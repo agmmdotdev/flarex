@@ -1,5 +1,59 @@
 # Testing and Simulation Strategy
 
+## Finish Rejection Code Coverage
+
+Previous completed checkpoint: `dbbb06f` Return finish rejection for missing
+artifacts.
+
+What changed:
+
+- Backend push lifecycle coverage now asserts the R2 missing-artifact finish
+  rejection includes `code: "missing_artifact"`.
+- Existing failed and abandoned finish assertions now expect
+  `code: "invalid_state"`.
+- Dev push coordinator coverage now proves HTTP 409 finish rejection wrappers
+  preserve a valid code and reject unknown rejection codes.
+- Dev push coordinator coverage now runs a valid-code matrix for
+  `invalid_state`, `missing_analysis`, and `missing_artifact`.
+- Dev push coordinator coverage now proves malformed rejected envelopes with a
+  missing `push` object reach the finish parser and fail with a contract error.
+- Generator, dev-runtime, and CLI finish-failure fixtures now use the required
+  code field, keeping public test doubles aligned with the backend contract.
+
+Why it changed:
+
+Finish rejections are now machine-readable. Tests need to protect that clients
+can branch on a stable code instead of parsing the human error string.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push has a parsed response contract.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy parses finish-push output before continuing.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - finish output is structured deploy data.
+
+Flarex differences:
+
+- Flarex tests assert compact rejection codes, not Convex's richer hosted
+  deploy diff/config response.
+- Generic HTTP errors remain outside the finish rejection code test matrix.
+
+Known limitations:
+
+- No remediation-hint field exists yet.
+- Future hosted deploy failure classes need explicit code additions and tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/dev.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Public Artifact Finish Rejection Coverage
 
 Previous completed checkpoint: `1684c24` Use dedicated finish push responses.

@@ -1,5 +1,6 @@
 import type { Miniflare } from "miniflare";
 import { describe, expect, it } from "vitest";
+import type { FinishPushRejectionCode } from "flarex-backend/types";
 import type { DeploymentAnalysis } from "../src/analyze";
 import {
   createLocalAnalyzerService,
@@ -245,6 +246,7 @@ describe("backend push coordinator", () => {
             state: "failed",
             error: "activation failed",
           },
+          code: "invalid_state",
           error: "activation failed",
           diagnostics: [{ level: "error", message: "bad deployment" }],
         },
@@ -262,9 +264,51 @@ describe("backend push coordinator", () => {
         state: "failed",
         error: "activation failed",
       },
+      code: "invalid_state",
       error: "activation failed",
       diagnostics: [{ level: "error", message: "bad deployment" }],
     });
+  });
+
+  it("parses every stable HTTP 409 finish rejection code", async () => {
+    const codeCoverage = {
+      invalid_state: true,
+      missing_analysis: true,
+      missing_artifact: true,
+    } satisfies Record<FinishPushRejectionCode, true>;
+    const codes = Object.keys(codeCoverage) as FinishPushRejectionCode[];
+
+    for (const code of codes) {
+      const fetcher: typeof fetch = async () =>
+        Response.json(
+          {
+            result: "rejected",
+            push: {
+              pushId: `push-${code}`,
+              state: "failed",
+              error: `activation failed: ${code}`,
+            },
+            code,
+            error: `activation failed: ${code}`,
+          },
+          { status: 409 },
+        );
+
+      await expect(new HttpBackendPushCoordinator({
+        url: "https://flarex.example",
+        deploymentId: "deployment1",
+        fetch: fetcher,
+      }).finish(`push-${code}`)).resolves.toEqual({
+        result: "rejected",
+        push: {
+          pushId: `push-${code}`,
+          state: "failed",
+          error: `activation failed: ${code}`,
+        },
+        code,
+        error: `activation failed: ${code}`,
+      });
+    }
   });
 
   it("rejects HTTP 409 finish wrappers without explicit errors", async () => {
@@ -285,7 +329,48 @@ describe("backend push coordinator", () => {
       url: "https://flarex.example",
       deploymentId: "deployment1",
       fetch: fetcher,
-    }).finish("push1")).rejects.toThrow(ExecutionArtifactAnalysisError);
+    }).finish("push1")).rejects.toThrow("Backend rejected finish response must include an error.");
+  });
+
+  it("rejects HTTP 409 finish wrappers with invalid rejection codes", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          result: "rejected",
+          push: {
+            pushId: "push1",
+            state: "failed",
+            error: "activation failed",
+          },
+          code: "unknown_code",
+          error: "activation failed",
+        },
+        { status: 409 },
+      );
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toThrow("Backend rejected finish response code is invalid.");
+  });
+
+  it("rejects HTTP 409 finish wrappers with missing push objects", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          result: "rejected",
+          code: "invalid_state",
+          error: "activation failed",
+        },
+        { status: 409 },
+      );
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toThrow("Backend finish response push must be an object.");
   });
 
   it("treats non-409 finish wrapper responses as transport failures", async () => {
@@ -298,6 +383,7 @@ describe("backend push coordinator", () => {
             state: "failed",
             error: "server failed",
           },
+          code: "invalid_state",
           error: "server failed",
         },
         { status: 500 },

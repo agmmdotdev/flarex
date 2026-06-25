@@ -111,6 +111,7 @@ describe("Flarex dev runtime", () => {
                   state: "failed",
                   error: "activation failed",
                 },
+                code: "invalid_state",
                 error: "activation failed",
                 diagnostics: [{ level: "error", message: "schema rejected" }],
               }),

@@ -7,6 +7,7 @@ import type {
   AnalyzeSourcePackageResponse,
   DeploymentCodegenAnalysis as BackendDeploymentCodegenAnalysis,
   DeploymentFunctionMetadata,
+  FinishPushRejectionCode,
   FinishPushRequest,
   FinishPushResponse,
   FunctionVisibility,
@@ -205,7 +206,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       body: JSON.stringify({}),
     });
     const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushResponseBody(payload))) {
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(payload))) {
       throw new Error(`Backend request ${path} failed with status ${response.status}: ${JSON.stringify(payload)}`);
     }
     return parseDevFinishPushResponse(payload);
@@ -282,7 +283,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       body: JSON.stringify(body),
     });
     const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushResponseBody(payload))) {
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(payload))) {
       throw new ExecutionArtifactAnalysisError(
         errorMessageFromBody(payload) ?? `Backend push request failed with status ${response.status}.`,
         diagnosticsFromBody(payload),
@@ -995,7 +996,14 @@ function parseDevPushStatus(value: unknown): DevPushStatus {
 }
 
 function parseDevFinishPushResponse(value: unknown): DevFinishPushResponse {
-  if (isFinishPushResponseBody(value)) {
+  if (isFinishPushResponseEnvelope(value)) {
+    const diagnostics = diagnosticsFromBody(value);
+    if (!isRecord(value.push)) {
+      throw new ExecutionArtifactAnalysisError(
+        "Backend finish response push must be an object.",
+        diagnostics,
+      );
+    }
     const push = parseDevPushStatus(value.push);
     if (value.result === "activated") {
       if (push.state !== "activated") {
@@ -1010,16 +1018,22 @@ function parseDevFinishPushResponse(value: unknown): DevFinishPushResponse {
       };
       return { result: "activated", push: activatedPush };
     }
-    const diagnostics = diagnosticsFromBody(value);
     if (typeof value.error !== "string") {
       throw new ExecutionArtifactAnalysisError(
         "Backend rejected finish response must include an error.",
         diagnostics,
       );
     }
+    if (!isFinishPushRejectionCode(value.code)) {
+      throw new ExecutionArtifactAnalysisError(
+        "Backend rejected finish response code is invalid.",
+        diagnostics,
+      );
+    }
     return {
       result: "rejected",
       push,
+      code: value.code,
       error: value.error,
       ...(diagnostics.length === 0 ? {} : { diagnostics }),
     };
@@ -1039,31 +1053,41 @@ function parseDevFinishPushResponse(value: unknown): DevFinishPushResponse {
   );
 }
 
-function isFinishPushResponseBody(value: unknown): value is {
+function isFinishPushResponseEnvelope(value: unknown): value is {
   result: "activated" | "rejected";
   push: unknown;
+  code?: unknown;
   error?: unknown;
   diagnostics?: unknown;
 } {
   return (
     isRecord(value) &&
-    (value.result === "activated" || value.result === "rejected") &&
-    isRecord(value.push)
+    (value.result === "activated" || value.result === "rejected")
   );
 }
 
-function isRejectedFinishPushResponseBody(value: unknown): value is {
+function isRejectedFinishPushEnvelope(value: unknown): value is {
   result: "rejected";
   push: unknown;
-  error: string;
+  code?: unknown;
+  error?: unknown;
   diagnostics?: unknown;
 } {
   return (
-    isFinishPushResponseBody(value) &&
-    value.result === "rejected" &&
-    typeof value.error === "string"
+    isRecord(value) &&
+    value.result === "rejected"
   );
 }
+
+function isFinishPushRejectionCode(value: unknown): value is FinishPushRejectionCode {
+  return typeof value === "string" && Object.hasOwn(finishPushRejectionCodes, value);
+}
+
+const finishPushRejectionCodes = {
+  invalid_state: true,
+  missing_analysis: true,
+  missing_artifact: true,
+} satisfies Record<FinishPushRejectionCode, true>;
 
 function isPushState(value: unknown): value is DevPushStatus["state"] {
   return typeof value === "string" && Object.hasOwn(pushStates, value);
