@@ -32,6 +32,17 @@ export type DevPushStatus = {
   diagnostics?: AnalyzerDiagnostic[];
 };
 
+export function devPushStatusErrorMessage(status: DevPushStatus, message: string): string {
+  const details = [
+    ...(status.error === undefined ? [] : [`Backend error: ${status.error}`]),
+    ...(status.diagnostics ?? []).map(
+      diagnostic => `Backend diagnostic (${diagnostic.level}): ${diagnostic.message}`,
+    ),
+  ];
+  const summary = `${message}: ${status.state}.`;
+  return details.length === 0 ? summary : `${summary}\n${details.join("\n")}`;
+}
+
 export interface BackendPushCoordinator {
   start(sourcePackage: SourcePackage): Promise<DevPushStatus>;
   finish(pushId: string): Promise<DevPushStatus>;

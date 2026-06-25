@@ -13,6 +13,7 @@ import {
   type FunctionModule,
 } from "./analyze.ts";
 import {
+  devPushStatusErrorMessage,
   LocalExecutionArtifactBackendAnalyzer,
   type BackendPushCoordinator,
   type BackendSourceAnalyzer,
@@ -1147,7 +1148,12 @@ function analyzedPushStatus(started: DevPushStatus): FlarexAnalyzedPushStatus {
 
 function activatedPushStatus(finished: DevPushStatus): FlarexActivatedPushStatus {
   if (finished.state !== "activated") {
-    throw new Error(`Flarex push ${finished.pushId} did not activate: ${finished.state}.`);
+    throw new Error(
+      devPushStatusErrorMessage(
+        finished,
+        `Flarex push ${finished.pushId} did not activate`,
+      ),
+    );
   }
   return {
     ...finished,

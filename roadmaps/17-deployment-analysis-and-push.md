@@ -1,5 +1,63 @@
 # Deployment Analysis And Push
 
+## Deploy Finish Failures Include Backend Diagnostics
+
+Previous completed checkpoint: `f29a231` Abandon failed deploy pushes.
+
+What changed:
+
+- Added shared `devPushStatusErrorMessage(...)` formatting for backend push
+  status failures.
+- `deployFlarex(...)` now reports backend `error` and analyzer/runtime
+  diagnostics when push finish returns a non-activated state.
+- The local dev runtime reload finish path now uses the same formatter, so dev
+  reload and CLI deploy failures describe backend finish failures consistently.
+- The dev runtime accepts a push-coordinator factory dependency, keeping
+  production behavior on the local backend coordinator while allowing tests to
+  exercise finish-stage failures without mocking the entire runtime.
+- `flarex-dev deploy` stderr now includes backend finish diagnostics surfaced
+  from the push status response.
+
+Why it changed:
+
+The previous deploy command only reported `did not activate: failed`, even
+when the backend returned a stored error or diagnostics. That hid the useful
+backend reason at exactly the activation boundary developers need to debug.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - `finishPush` catches and surfaces backend deployment/push config errors.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - push orchestration treats finish as a distinct phase whose diagnostics are
+    part of the developer-facing deploy flow.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response metadata is handled separately from start-push.
+
+Flarex differences:
+
+- Flarex currently has a smaller `PushStatus` response instead of Convex's
+  richer finish diff/config-error model.
+- Diagnostics are formatted from the current backend `error` and `diagnostics`
+  fields; future hosted deploy errors can replace this with structured error
+  codes without changing the activation boundary.
+
+Known limitations:
+
+- Failed finish responses still use the generic `PushStatus` type rather than
+  a dedicated finish error shape.
+- The formatter is plain text; CLI output does not yet group diagnostics with
+  colors, spans, or remediation hints.
+- The push-coordinator factory is a dev-runtime dependency seam, not a hosted
+  deployment configuration API.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Push Abandon Cleans Up Failed Pre-Finish Deploys
 
 Previous completed checkpoint: `3c13655` Add backend push deploy command.

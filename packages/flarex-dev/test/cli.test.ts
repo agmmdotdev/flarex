@@ -447,6 +447,51 @@ describe("runFlarexDevCli", () => {
     }
   }, 30000);
 
+  it("prints backend finish diagnostics for failed deploy activation", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-finish-fail-");
+    const stderr = new StringWriter();
+    const analysis = cliAnalysis();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/push/start")) {
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: analysis,
+        });
+      }
+      if (url.pathname.endsWith("/push/push1/finish")) {
+        return Response.json({
+          pushId: "push1",
+          state: "failed",
+          error: "activation failed",
+          diagnostics: [{ level: "error", message: "schema rejected" }],
+        });
+      }
+      return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+    });
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+        ],
+        stderr,
+      })).resolves.toBe(1);
+
+      expect(stderr.value).toContain("Flarex push push1 did not activate: failed.");
+      expect(stderr.value).toContain("Backend error: activation failed");
+      expect(stderr.value).toContain("Backend diagnostic (error): schema rejected");
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("rejects deploy without backend push options before codegen", async () => {
     const stderr = new StringWriter();
     let deployCalls = 0;

@@ -362,12 +362,26 @@ export const list = query({ args: {}, handler: async () => [] });
         state: "analyzed",
         codegenAnalysis: backendCodegenAnalysis("query"),
       }),
-      finish: async () => ({ pushId: "push1", state: "failed", error: "activation failed" }),
+      finish: async () => ({
+        pushId: "push1",
+        state: "failed",
+        error: "activation failed",
+        diagnostics: [{ level: "error", message: "schema rejected" }],
+      }),
     };
 
-    await expect(deployFlarex({ root, pushCoordinator })).rejects.toThrow(
-      "Flarex push push1 did not activate: failed.",
-    );
+    let error: unknown;
+    try {
+      await deployFlarex({ root, pushCoordinator });
+    } catch (caught) {
+      error = caught;
+    }
+    if (!(error instanceof Error)) {
+      throw new Error("Expected deployFlarex to throw an Error.");
+    }
+    expect(error.message).toContain("Flarex push push1 did not activate: failed.");
+    expect(error.message).toContain("Backend error: activation failed");
+    expect(error.message).toContain("Backend diagnostic (error): schema rejected");
   });
 
   it("requires backend push codegen analysis before writing final generated files", async () => {

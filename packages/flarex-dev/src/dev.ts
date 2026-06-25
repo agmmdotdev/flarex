@@ -7,7 +7,9 @@ import type { R2BucketLike } from "flarex-backend/artifact-store";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import {
   createLocalAnalyzerService,
+  devPushStatusErrorMessage,
   LocalBackendPushCoordinator,
+  type BackendPushCoordinator,
   type DevPushStatus,
 } from "./backendPush.ts";
 import {
@@ -36,6 +38,7 @@ export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   liveQueryDeliveryToken?: string;
   persistDir?: string | false;
   typecheckGeneratedOutput?: FlarexGeneratedOutputTypecheckOption;
+  pushCoordinatorFactory?: (backend: Miniflare, deploymentId: string) => BackendPushCoordinator;
 };
 
 export type FlarexDevRuntime = {
@@ -96,7 +99,9 @@ export async function createFlarexDevRuntime(
     executorPersist,
   });
   const backend = backendRuntime.backend;
-  const pushCoordinator = new LocalBackendPushCoordinator(backend, deploymentId);
+  const pushCoordinator = options.pushCoordinatorFactory === undefined
+    ? new LocalBackendPushCoordinator(backend, deploymentId)
+    : options.pushCoordinatorFactory(backend, deploymentId);
   let app: Miniflare | undefined;
   let lastPush: DevPushStatus | undefined;
 
@@ -160,7 +165,12 @@ export async function createFlarexDevRuntime(
     try {
       const finished = await pushCoordinator.finish(started.pushId);
       if (finished.state !== "activated") {
-        throw new Error(`Flarex push ${started.pushId} did not activate: ${finished.state}`);
+        throw new Error(
+          devPushStatusErrorMessage(
+            finished,
+            `Flarex push ${started.pushId} did not activate`,
+          ),
+        );
       }
       lastPush = finished;
       const previousApp = app;

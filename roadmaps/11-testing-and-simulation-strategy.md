@@ -1,5 +1,58 @@
 # Testing and Simulation Strategy
 
+## Deploy Finish Diagnostics Coverage
+
+Previous completed checkpoint: `f29a231` Abandon failed deploy pushes.
+
+What changed:
+
+- Added generator deploy coverage proving a failed finish status includes the
+  backend state, backend error, and backend diagnostics in the thrown message.
+- Added CLI deploy coverage proving failed activation diagnostics are printed
+  to stderr.
+- Added dev-runtime startup reload coverage proving a failed backend finish
+  status surfaces backend error and diagnostics through
+  `createFlarexDevRuntime(...)`.
+- Existing focused backend push/coordinator tests continue to prove finish
+  response parsing preserves status `error` and diagnostics.
+
+Why it changed:
+
+Push finish is the activation boundary. Tests now protect the developer-facing
+failure surface so backend diagnostics do not get collapsed into a bare state
+string.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - finish-push errors are surfaced through the deploy flow.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - push orchestration reports finish-stage failures separately from start and
+    validation.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response handling is a separate API contract.
+
+Flarex differences:
+
+- Tests cover text formatting from `PushStatus.error` and diagnostics, not a
+  Convex-style finish diff/config-error object.
+- CLI output is currently plain stderr text.
+- Dev-runtime finish failure coverage uses a push-coordinator factory to wrap
+  the real local backend start path and force only the finish response.
+
+Known limitations:
+
+- No dedicated test exists for pretty-print/colorized diagnostic output because
+  the CLI does not implement it yet.
+- No hosted auth/project-selection failure diagnostics exist yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Push Abandon Cleanup Coverage
 
 Previous completed checkpoint: `3c13655` Add backend push deploy command.

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { LocalBackendPushCoordinator } from "../src/backendPush";
 import { createFlarexDevRuntime, type FlarexDevRuntime } from "../src/dev";
 import { createMinimalFlarexProject } from "./fixtures";
 
@@ -85,6 +86,45 @@ describe("Flarex dev runtime", () => {
       await expect(pathExists(join(root, ".flarex/dev"))).resolves.toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  it("surfaces backend finish diagnostics during startup reload failure", async () => {
+    const failedPersistDir = await mkdtemp(join(tmpdir(), "flarex-dev-finish-failure-"));
+    try {
+      let error: unknown;
+      try {
+        await createFlarexDevRuntime({
+          root: resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/example"),
+          deploymentId: "dev-runtime-finish-failure",
+          persistDir: failedPersistDir,
+          typecheckGeneratedOutput: generatedTypecheckOptions,
+          pushCoordinatorFactory: (backend, deploymentId) => {
+            const real = new LocalBackendPushCoordinator(backend, deploymentId);
+            return {
+              start: sourcePackage => real.start(sourcePackage),
+              abandon: (pushId, request) => real.abandon(pushId, request),
+              finish: async pushId => ({
+                pushId,
+                state: "failed",
+                error: "activation failed",
+                diagnostics: [{ level: "error", message: "schema rejected" }],
+              }),
+            };
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      if (!(error instanceof Error)) {
+        throw new Error("Expected createFlarexDevRuntime to throw an Error.");
+      }
+      expect(error.message).toContain("Flarex push");
+      expect(error.message).toContain("did not activate: failed.");
+      expect(error.message).toContain("Backend error: activation failed");
+      expect(error.message).toContain("Backend diagnostic (error): schema rejected");
+    } finally {
+      await rm(failedPersistDir, { recursive: true, force: true });
     }
   }, 60000);
 
