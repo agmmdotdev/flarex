@@ -242,6 +242,7 @@ export type PushState =
   | "analyzed"
   | "failed"
   | "activated"
+  | "abandoned"
   | "superseded";
 
 export type StartPushRequest = {
@@ -309,6 +310,10 @@ export type ActiveDeploymentStatus = {
 
 export type FinishPushRequest = {
   activate?: boolean;
+};
+
+export type AbandonPushRequest = {
+  reason?: string;
 };
 
 export type InvokeRequest = {

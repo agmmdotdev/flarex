@@ -40,6 +40,7 @@ import {
   type LiveQuerySchedulerInternalPath,
 } from "./schedulerRoutes";
 import type {
+  AbandonPushRequest,
   AnalyzedStartPushRequest,
   CommitRequest,
   DeploymentSchema,
@@ -275,7 +276,7 @@ async function routeDeploymentPush(
       body: JSON.stringify(body),
     });
   }
-  const pushId = required(parts[0], "push id");
+  const pushId = decodeURIComponent(required(parts[0], "push id"));
   if (parts.length === 1 && request.method === "GET") {
     return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}`);
   }
@@ -283,6 +284,14 @@ async function routeDeploymentPush(
     const body = await readJson<FinishPushRequest>(request);
     await verifyStoredPushArtifact(env, deployment, pushId);
     return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/finish`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+  if (parts[1] === "abandon" && request.method === "POST") {
+    const body = await readJson<AbandonPushRequest>(request);
+    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/abandon`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),

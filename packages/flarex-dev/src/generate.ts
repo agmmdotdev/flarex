@@ -1067,7 +1067,18 @@ export async function deployFlarex(options: FlarexDeployOptions): Promise<Flarex
   const sourcePackage = await bundleFlarexSourcePackage(context);
   const started = analyzedPushStatus(await options.pushCoordinator.start(sourcePackage));
   await finalCodegen(context, started.codegenAnalysis);
-  await options.beforeFinish?.(started);
+  try {
+    await options.beforeFinish?.(started);
+  } catch (error) {
+    try {
+      await options.pushCoordinator.abandon?.(started.pushId, {
+        reason: deployAbandonReason(error),
+      });
+    } catch {
+      // Preserve the developer-facing validation failure. Abandon is cleanup.
+    }
+    throw error;
+  }
   const finished = activatedPushStatus(await options.pushCoordinator.finish(started.pushId));
   return { started, finished };
 }
@@ -1142,6 +1153,13 @@ function activatedPushStatus(finished: DevPushStatus): FlarexActivatedPushStatus
     ...finished,
     state: "activated",
   };
+}
+
+function deployAbandonReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length === 0
+    ? "Generated output validation failed before activation."
+    : `Generated output validation failed before activation: ${message}`;
 }
 
 export async function initialCodegen(

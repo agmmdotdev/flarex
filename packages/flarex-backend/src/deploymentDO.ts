@@ -6,6 +6,7 @@ import {
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
   ActiveDeploymentStatus,
+  AbandonPushRequest,
   AnalyzedStartPushRequest,
   AnalyzedSourcePosition,
   DeploymentAnalysis,
@@ -113,6 +114,9 @@ export class DeploymentDO extends DurableObject<Env> {
         if (action === "finish" && request.method === "POST") {
           return json(await this.finishPush(pushId, await readJson<FinishPushRequest>(request)));
         }
+        if (action === "abandon" && request.method === "POST") {
+          return json(await this.abandonPush(pushId, abandonPushRequest(await readJson(request))));
+        }
       }
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
@@ -205,6 +209,29 @@ export class DeploymentDO extends DurableObject<Env> {
       const activated = this.getPush(pushId);
       if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
       return activated;
+    });
+  }
+
+  private async abandonPush(pushId: string, request: AbandonPushRequest): Promise<PushStatus> {
+    return this.ctx.storage.transaction(async () => {
+      const status = this.getPush(pushId);
+      if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
+      if (status.state !== "pending" && status.state !== "analyzed") {
+        throw new HttpError(409, `Cannot abandon push ${pushId} in state ${status.state}.`);
+      }
+      const now = Date.now();
+      const reason = typeof request.reason === "string" && request.reason.length > 0
+        ? request.reason.slice(0, 1000)
+        : "Push abandoned before activation.";
+      this.sql.exec(
+        "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
+        reason,
+        now,
+        pushId,
+      );
+      const abandoned = this.getPush(pushId);
+      if (!abandoned) throw new Error(`Abandoned push ${pushId} disappeared.`);
+      return abandoned;
     });
   }
 
@@ -471,6 +498,7 @@ function parsePushState(value: string): PushStatus["state"] {
     value === "analyzed" ||
     value === "failed" ||
     value === "activated" ||
+    value === "abandoned" ||
     value === "superseded"
   ) {
     return value;
@@ -1012,6 +1040,17 @@ function validateDiagnostics(value: unknown): PushDiagnostic[] {
       message: record.message,
     };
   });
+}
+
+function abandonPushRequest(value: unknown): AbandonPushRequest {
+  if (!isRecord(value)) {
+    throw new HttpError(400, "Abandon push request must be an object.");
+  }
+  if (value.reason === undefined) return {};
+  if (typeof value.reason !== "string") {
+    throw new HttpError(400, "Abandon push reason must be a string.");
+  }
+  return { reason: value.reason };
 }
 
 function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {

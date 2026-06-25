@@ -292,6 +292,14 @@ export const list = query({ args: {}, handler: async () => [] });
         events.push("finish");
         return { pushId: "push1", state: "activated" };
       },
+      abandon: async (pushId, request) => {
+        events.push(`abandon:${pushId}:${request?.reason ?? ""}`);
+        return {
+          pushId,
+          state: "abandoned",
+          ...(request?.reason === undefined ? {} : { error: request.reason }),
+        };
+      },
     };
 
     await expect(deployFlarex({
@@ -303,9 +311,47 @@ export const list = query({ args: {}, handler: async () => [] });
       },
     })).rejects.toThrow("validation failed");
 
-    expect(events).toEqual(["start", "beforeFinish"]);
+    expect(events).toEqual([
+      "start",
+      "beforeFinish",
+      "abandon:push1:Generated output validation failed before activation: validation failed",
+    ]);
     await expect(readGenerated(root, "functionMetadata.ts"))
       .resolves.toContain('"path": "messages:list"');
+  });
+
+  it("preserves deploy validation errors when abandon cleanup fails", async () => {
+    const root = await createProject();
+    const events: string[] = [];
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => {
+        events.push("start");
+        return {
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: backendCodegenAnalysis("query"),
+        };
+      },
+      finish: async () => {
+        events.push("finish");
+        return { pushId: "push1", state: "activated" };
+      },
+      abandon: async () => {
+        events.push("abandon");
+        throw new Error("abandon failed");
+      },
+    };
+
+    await expect(deployFlarex({
+      root,
+      pushCoordinator,
+      beforeFinish: async () => {
+        events.push("beforeFinish");
+        throw new Error("validation failed");
+      },
+    })).rejects.toThrow("validation failed");
+
+    expect(events).toEqual(["start", "beforeFinish", "abandon"]);
   });
 
   it("rejects deploy pushes that fail to activate", async () => {

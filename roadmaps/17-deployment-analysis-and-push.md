@@ -1,5 +1,77 @@
 # Deployment Analysis And Push
 
+## Push Abandon Cleans Up Failed Pre-Finish Deploys
+
+Previous completed checkpoint: `3c13655` Add backend push deploy command.
+
+What changed:
+
+- Added terminal push state `abandoned` for analyzed/pending candidates that
+  should not activate after local deploy validation fails.
+- Added backend `POST /deployments/:deploymentId/push/:pushId/abandon`.
+- `DeploymentDO` now marks only `pending` or `analyzed` pushes as abandoned,
+  stores a bounded reason in the push error field, and rejects abandon attempts
+  for activated, failed, superseded, or unknown pushes.
+- Abandon request bodies are validated at the deployment boundary so malformed
+  JSON gets a 400 instead of a runtime failure.
+- Public push routes decode the push ID once before forwarding to
+  `DeploymentDO`, preserving encoded push IDs.
+- Abandoned pushes cannot be finished later, so a failed pre-finish deploy
+  cannot accidentally become active from a stale retry.
+- `BackendPushCoordinator` now exposes optional `abandon(...)`; local and HTTP
+  coordinators implement it.
+- `deployFlarex(...)` best-effort abandons the started push when its
+  pre-finish validation hook fails, then rethrows the original validation
+  error so the developer sees the real failure.
+- `flarex-dev deploy --typecheck enable` now sends abandon after generated
+  output typecheck failure instead of leaving an analyzed candidate behind.
+
+Why it changed:
+
+The previous checkpoint made deploy activation depend on generated-output
+validation, but a validation failure left a valid analyzed push stored on the
+backend. Flarex persists push candidates before local validation because final
+codegen is backend-authoritative, so it needs an explicit cleanup signal when
+the client refuses to finish.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - Convex's push flow separates start, validation/typecheck, and finish.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - `finishPush` is an explicit activation boundary after validation/waiting.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - start-push carries backend analysis metadata.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push is the activation API shape Flarex mirrors.
+
+Flarex differences:
+
+- I did not find a portable Convex CLI abandon endpoint. Flarex adds one
+  because the current Cloudflare backend stores source-package candidates
+  before local generated-output validation completes.
+- Abandon is cleanup, not activation rollback. It does not modify active schema,
+  active functions, or active execution artifact metadata.
+- Abandon is best-effort from the dev CLI because masking the local typecheck
+  or validation error would make developer diagnostics worse.
+
+Known limitations:
+
+- Abandon does not delete durable source artifacts from R2 yet.
+- Abandon reason is stored in the existing push `error` field; a future push
+  event table could separate user-visible diagnostics from lifecycle reasons.
+- No hosted auth/project-selection policy exists yet around who may abandon a
+  push.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## CLI Deploy Finishes Backend Push After Generated Validation
 
 Previous completed checkpoint: `f9d1484` Route codegen through backend push analysis.

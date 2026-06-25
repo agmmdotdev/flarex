@@ -1,5 +1,70 @@
 # Testing and Simulation Strategy
 
+## Push Abandon Cleanup Coverage
+
+Previous completed checkpoint: `3c13655` Add backend push deploy command.
+
+What changed:
+
+- Added backend push lifecycle coverage proving an analyzed push can be
+  abandoned with a stored reason without changing the active deployment.
+- Added backend coverage proving abandoned pushes cannot be finished later.
+- Added backend coverage proving activated and unknown pushes cannot be
+  abandoned.
+- Added backend coverage proving malformed abandon request bodies return
+  explicit 400 errors.
+- Added backend coverage proving encoded public push IDs route to the intended
+  stored push during abandon.
+- Added HTTP backend push coordinator coverage for encoded abandon URLs,
+  configured headers, request body, and abandoned response parsing.
+- Updated generator deploy coverage so pre-finish validation failure calls
+  `abandon` and still preserves the original validation error.
+- Added generator coverage proving a failed best-effort abandon cleanup does
+  not mask the original deploy validation error or call finish.
+- Updated CLI deploy coverage so generated-output typecheck failure calls
+  backend abandon instead of leaving the push in analyzed state.
+- Updated push-state test helpers to accept the new `abandoned` terminal state.
+
+Why it changed:
+
+The deploy command introduced a new failure window after backend analysis and
+before finish. Tests now prove that this window is explicit and terminal on
+the backend, instead of depending on a later superseding push for cleanup.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - start/codegen/typecheck/finish order guides the test expectations.
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - finish is treated as the activation boundary.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - backend start-push is the persisted candidate boundary.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response is the activation boundary.
+
+Flarex differences:
+
+- Abandon coverage is Flarex-specific because the Cloudflare prototype exposes
+  a persisted candidate that can fail local generated-output validation before
+  activation.
+- Tests assert best-effort cleanup behavior through observable abandon routing,
+  while preserving the original local validation error.
+
+Known limitations:
+
+- No test yet proves artifact deletion on abandon because artifact deletion is
+  not implemented.
+- No hosted authorization coverage exists for abandon.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Backend Push Deploy CLI Coverage
 
 Previous completed checkpoint: `f9d1484` Route codegen through backend push analysis.

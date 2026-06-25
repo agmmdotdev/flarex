@@ -193,6 +193,49 @@ describe("backend push coordinator", () => {
     }]);
   });
 
+  it("abandons HTTP backend pushes with encoded IDs and configured path prefixes", async () => {
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        pushId: "push/with space",
+        state: "abandoned",
+        error: "typecheck failed",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+    };
+
+    const status = await new HttpBackendPushCoordinator({
+      url: "https://flarex.example/api",
+      deploymentId: "deployment/with space",
+      headers: { authorization: "Bearer token" },
+      fetch: fetcher,
+    }).abandon("push/with space", { reason: "typecheck failed" });
+
+    expect(status).toEqual({
+      pushId: "push/with space",
+      state: "abandoned",
+      error: "typecheck failed",
+    });
+    expect(requests).toEqual([{
+      url: "https://flarex.example/api/deployments/deployment%2Fwith%20space/push/push%2Fwith%20space/abandon",
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/json",
+      },
+      body: { reason: "typecheck failed" },
+    }]);
+  });
+
   it("serves backend analysis through the local analyzer service binding", async () => {
     const sourcePackage = testSourcePackage();
     const analysis = testAnalysis();

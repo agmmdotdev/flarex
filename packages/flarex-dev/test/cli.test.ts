@@ -352,6 +352,13 @@ describe("runFlarexDevCli", () => {
           codegenAnalysis: analysis,
         });
       }
+      if (url.pathname.endsWith("/push/push1/abandon")) {
+        return Response.json({
+          pushId: "push1",
+          state: "abandoned",
+          error: "Generated output validation failed before activation: tsc failed",
+        });
+      }
       return Response.json({
         pushId: "push1",
         state: "activated",
@@ -378,7 +385,10 @@ describe("runFlarexDevCli", () => {
       })).resolves.toBe(1);
 
       expect(stderr.value).toContain("tsc failed");
-      expect(paths).toEqual(["/deployments/deployment1/push/start"]);
+      expect(paths).toEqual([
+        "/deployments/deployment1/push/start",
+        "/deployments/deployment1/push/push1/abandon",
+      ]);
     } finally {
       vi.unstubAllGlobals();
       await rm(root, { recursive: true, force: true });

@@ -4,6 +4,7 @@ import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
   ActiveDeploymentStatus,
+  AbandonPushRequest,
   AnalyzedStartPushRequest,
   DeploymentCodegenAnalysis,
   DeploymentFunctions,
@@ -489,6 +490,98 @@ describe("deployment push lifecycle", () => {
       error: "Unknown push: missing-push",
     });
   });
+
+  it("abandons analyzed pushes without activating them", async () => {
+    await putSchema("push-abandon", activeSchema());
+    await putFunctions("push-abandon", activeFunctions());
+
+    const start = await startPush("push-abandon", analyzedPush(candidateSchema(), candidateFunctions()));
+    const abandoned = await abandonPush("push-abandon", start.pushId, {
+      reason: "generated output typecheck failed",
+    });
+
+    expect(abandoned).toMatchObject({
+      pushId: start.pushId,
+      state: "abandoned",
+      error: "generated output typecheck failed",
+    });
+    await expect(getPush("push-abandon", start.pushId)).resolves.toMatchObject({
+      state: "abandoned",
+      error: "generated output typecheck failed",
+    });
+    await expect(getSchema("push-abandon")).resolves.toEqual(normalizedActiveSchema());
+    await expect(getFunctions("push-abandon")).resolves.toEqual(normalizedActiveFunctions());
+    await expect(getActiveDeployment("push-abandon")).resolves.toMatchObject({
+      schemaVersion: 1,
+      analysis: { schema: normalizedActiveSchema(), functions: normalizedActiveFunctions() },
+    });
+
+    const finish = await finishPushResponse("push-abandon", start.pushId);
+    expect(finish.status).toBe(409);
+    await expect(finish.json()).resolves.toEqual({
+      error: `Cannot finish push ${start.pushId} in state abandoned.`,
+    });
+  });
+
+  it("rejects malformed abandon request bodies", async () => {
+    const start = await startPush("push-abandon-bad-body", analyzedPush(candidateSchema(), candidateFunctions()));
+
+    const nullBody = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-abandon-bad-body/push/${start.pushId}/abandon`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(null),
+      },
+    );
+    expect(nullBody.status).toBe(400);
+    await expect(nullBody.json()).resolves.toEqual({
+      error: "Abandon push request must be an object.",
+    });
+
+    const invalidReason = await abandonPushResponse("push-abandon-bad-body", start.pushId, {
+      reason: 123,
+    });
+    expect(invalidReason.status).toBe(400);
+    await expect(invalidReason.json()).resolves.toEqual({
+      error: "Abandon push reason must be a string.",
+    });
+  });
+
+  it("abandons public push routes with encoded push IDs", async () => {
+    const start = await startPush("push-abandon-encoded", analyzedPush(candidateSchema(), candidateFunctions()));
+    const response = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-abandon-encoded/push/${encodeURIComponent(start.pushId)}/abandon`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "encoded route" }),
+      },
+    );
+    expect(response.ok).toBe(true);
+    await expect(response.json()).resolves.toMatchObject({
+      pushId: start.pushId,
+      state: "abandoned",
+      error: "encoded route",
+    });
+  });
+
+  it("does not abandon activated or unknown pushes", async () => {
+    const start = await startPush("push-abandon-terminal", analyzedPush(candidateSchema(), candidateFunctions()));
+    await finishPush("push-abandon-terminal", start.pushId);
+
+    const activatedAbandon = await abandonPushResponse("push-abandon-terminal", start.pushId);
+    expect(activatedAbandon.status).toBe(409);
+    await expect(activatedAbandon.json()).resolves.toEqual({
+      error: `Cannot abandon push ${start.pushId} in state activated.`,
+    });
+
+    const unknownAbandon = await abandonPushResponse("push-abandon-terminal", "missing-push");
+    expect(unknownAbandon.status).toBe(404);
+    await expect(unknownAbandon.json()).resolves.toEqual({
+      error: "Unknown push: missing-push",
+    });
+  });
 });
 
 function analyzedPush(
@@ -938,6 +1031,31 @@ async function finishPushResponseWithHarness(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
+    },
+  );
+}
+
+async function abandonPush(
+  deploymentId: string,
+  pushId: string,
+  body: AbandonPushRequest = {},
+): Promise<PushStatus> {
+  const response = await abandonPushResponse(deploymentId, pushId, body);
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<PushStatus>;
+}
+
+async function abandonPushResponse(
+  deploymentId: string,
+  pushId: string,
+  body: unknown = {},
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/push/${pushId}/abandon`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     },
   );
 }

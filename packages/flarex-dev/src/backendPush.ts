@@ -3,6 +3,7 @@ import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
   DeploymentAnalysis as BackendDeploymentAnalysis,
+  AbandonPushRequest,
   AnalyzeSourcePackageResponse,
   DeploymentCodegenAnalysis as BackendDeploymentCodegenAnalysis,
   DeploymentFunctionMetadata,
@@ -34,6 +35,7 @@ export type DevPushStatus = {
 export interface BackendPushCoordinator {
   start(sourcePackage: SourcePackage): Promise<DevPushStatus>;
   finish(pushId: string): Promise<DevPushStatus>;
+  abandon?(pushId: string, request?: AbandonPushRequest): Promise<DevPushStatus>;
 }
 
 export interface BackendSourceAnalyzer {
@@ -166,6 +168,14 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       {},
     );
   }
+
+  abandon(pushId: string, request: AbandonPushRequest = {}): Promise<DevPushStatus> {
+    return postBackend<DevPushStatus>(
+      this.backend,
+      `/deployments/${this.deploymentId}/push/${pushId}/abandon`,
+      request,
+    );
+  }
 }
 
 export class HttpBackendPushCoordinator implements BackendPushCoordinator {
@@ -194,6 +204,14 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     const body = {} satisfies FinishPushRequest;
     return await this.post(
       `/deployments/${encodeURIComponent(this.deploymentId)}/push/${encodeURIComponent(pushId)}/finish`,
+      body,
+    );
+  }
+
+  async abandon(pushId: string, request: AbandonPushRequest = {}): Promise<DevPushStatus> {
+    const body = request satisfies AbandonPushRequest;
+    return await this.post(
+      `/deployments/${encodeURIComponent(this.deploymentId)}/push/${encodeURIComponent(pushId)}/abandon`,
       body,
     );
   }
@@ -733,6 +751,7 @@ const pushStates = {
   analyzed: true,
   failed: true,
   activated: true,
+  abandoned: true,
   superseded: true,
 } satisfies Record<PushState, true>;
 

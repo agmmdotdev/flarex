@@ -1390,6 +1390,7 @@ const pushStatusStates = {
   analyzed: true,
   failed: true,
   activated: true,
+  abandoned: true,
   superseded: true,
 } satisfies Record<PushStatus["state"], true>;
 
