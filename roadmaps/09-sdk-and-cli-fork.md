@@ -1,5 +1,74 @@
 # SDK And CLI Fork
 
+## HTTP Backend Source Analyzer
+
+Previous completed checkpoint: `2560e38` Route codegen through backend analysis seam.
+
+What changed:
+
+- Added `HttpBackendSourceAnalyzer` to `flarex-dev`.
+- The adapter posts `{ deploymentId, sourcePackage }` to an analyzer URL and
+  consumes `codegenAnalysis` plus diagnostics from the response.
+- The adapter validates the returned codegen analysis shape before returning it
+  to final codegen.
+- Malformed nested validator JSON is treated as an invalid analyzer response
+  and still preserves backend diagnostics.
+- Non-null legacy `route` metadata is rejected at the HTTP boundary because the
+  current codegen analysis contract preserves `partition` metadata, not route
+  policy metadata.
+- `DeploymentCodegenFunction` no longer advertises `route` as accepted wire
+  metadata, so the backend response type and HTTP parser agree.
+- Exported `HttpBackendSourceAnalyzer` and its options from the package root so
+  future CLI codegen can opt into a remote backend analyzer without changing
+  `generateFlarex(...)` or `dryRunFlarexCodegen(...)`.
+- `createLocalAnalyzerService(...)` now returns `codegenAnalysis` alongside the
+  flattened backend deployment analysis.
+
+Why it changed:
+
+The previous checkpoint made codegen depend on a `BackendSourceAnalyzer` seam.
+This checkpoint adds the first non-local implementation of that seam, moving
+Flarex toward Convex's model where codegen consumes backend-produced analysis.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - source-package push calls the backend and receives analyzed metadata.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - `StartPushResponse` is the backend response boundary for analysis.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final codegen is downstream of backend analysis.
+
+Flarex differences:
+
+- The adapter targets the Flarex analyzer endpoint directly instead of the full
+  hosted push lifecycle.
+- The response requires `codegenAnalysis` to avoid lossy reconstruction from
+  flattened backend function metadata.
+- Analyzer diagnostics are normalized through the shared last-100 diagnostics
+  helper used by local execution artifact analysis.
+- Local analyzer service responses are typed against
+  `AnalyzeSourcePackageResponse` and convert local SDK validator JSON into the
+  backend-safe validator JSON contract.
+- Invalid analyzer response messages include the failing `codegenAnalysis`
+  path instead of collapsing all parse failures into a missing-analysis error.
+- CLI flags for selecting a remote analyzer are not wired yet.
+
+Known limitations:
+
+- No authentication convention is standardized yet; the adapter accepts headers
+  but the final platform token/API-key flow is still future work.
+- The hosted analyzer service itself is not implemented in this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Codegen Backend Analysis Seam
 
 Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.

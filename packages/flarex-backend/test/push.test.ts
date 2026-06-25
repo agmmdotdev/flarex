@@ -443,7 +443,6 @@ function candidateCodegenAnalysis(): PushStatus["codegenAnalysis"] {
             visibility: "internal",
             args: { type: "object", value: {} },
             returns: { type: "array", value: { type: "string" } },
-            route: null,
             partition: null,
             position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
           },
@@ -527,7 +526,6 @@ function partitionedTeamCodegenAnalysis(): PushStatus["codegenAnalysis"] {
             visibility: "public",
             args: partitionedTeamFunctions().functions[0]!.args!,
             returns: null,
-            route: { type: "args", field: "teamSlug" },
             partition: {
               type: "partition",
               table: "teams",

@@ -409,7 +409,6 @@ function codegenAnalysisFromDeploymentAnalysis(
       visibility: metadata.visibility ?? "public",
       args: metadata.args ?? { type: "any" },
       returns: metadata.returns ?? null,
-      route: metadata.route ?? null,
       partition: metadata.partition ?? null,
       ...(metadata.position === undefined ? {} : { position: metadata.position }),
     });

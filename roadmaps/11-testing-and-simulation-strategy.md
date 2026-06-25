@@ -1,5 +1,68 @@
 # Testing and Simulation Strategy
 
+## HTTP Backend Source Analyzer Coverage
+
+Previous completed checkpoint: `2560e38` Route codegen through backend analysis seam.
+
+What changed:
+
+- Added tests for `HttpBackendSourceAnalyzer` success, remote failure
+  diagnostics, and invalid successful responses without `codegenAnalysis`.
+- Added tests for malformed nested `codegenAnalysis` and successful HTTP
+  responses that incorrectly include an `error` field.
+- Added regressions for malformed nested validator JSON preserving diagnostics
+  and unsupported non-null `route` metadata being rejected.
+- The malformed-response tests now assert path-aware contract errors for schema
+  metadata, validators, route metadata, and impossible success-with-error
+  bodies.
+- Updated local analyzer service coverage to assert it returns `codegenAnalysis`
+  alongside flattened backend analysis.
+- Kept the tests at the backend-push boundary, where analyzer request/response
+  contracts already live.
+
+Why it changed:
+
+The previous codegen seam is only useful for hosted analysis if the HTTP
+adapter is reliable and fails clearly. These tests lock down the response shape
+before CLI flags or hosted analyzer deployment are added.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - backend push response is the source of analysis truth.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - response parsing is part of the deploy API boundary.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated output depends on analyzed metadata.
+
+Flarex differences:
+
+- Tests use a fake `fetch` implementation rather than a live hosted analyzer.
+- The adapter requires `codegenAnalysis` explicitly because the current Flarex
+  analyzer response also contains flattened backend analysis for push storage.
+- Diagnostics normalization is shared with local execution artifact analysis,
+  including the same last-100 cap.
+- The fake HTTP boundary is intentionally untyped at input and typed at the
+  local service response, matching the real network boundary while keeping the
+  backend response contract enforced by TypeScript.
+- Backend push tests were updated so reconstructed codegen analysis uses
+  `partition` metadata only; executable deployment metadata can still carry
+  legacy `route` metadata where backend invocation needs it.
+
+Known limitations:
+
+- No CLI integration test for remote analyzer flags exists yet.
+- No end-to-end hosted analyzer test exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Codegen Backend Analysis Seam Coverage
 
 Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.

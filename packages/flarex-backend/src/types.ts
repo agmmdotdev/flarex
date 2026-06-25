@@ -223,7 +223,6 @@ export type DeploymentCodegenFunction = {
   visibility: FunctionVisibility;
   args: ValidatorJson;
   returns: ValidatorJson | null;
-  route?: FunctionRoutePolicy | null;
   partition?: FunctionPartitionMetadata | null;
   position?: AnalyzedSourcePosition;
 };
@@ -261,8 +260,18 @@ export type AnalyzeSourcePackageRequest = {
 };
 
 export type AnalyzeSourcePackageResponse =
-  | { analysis: DeploymentAnalysis; error?: never; diagnostics?: PushDiagnostic[] }
-  | { analysis?: never; error: string; diagnostics?: PushDiagnostic[] };
+  | {
+      analysis: DeploymentAnalysis;
+      codegenAnalysis: DeploymentCodegenAnalysis;
+      error?: never;
+      diagnostics?: PushDiagnostic[];
+    }
+  | {
+      analysis?: never;
+      codegenAnalysis?: never;
+      error: string;
+      diagnostics?: PushDiagnostic[];
+    };
 
 export type PushStatus = {
   pushId: string;

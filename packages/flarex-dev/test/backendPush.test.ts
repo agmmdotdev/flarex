@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DeploymentAnalysis } from "../src/analyze";
 import {
   createLocalAnalyzerService,
+  HttpBackendSourceAnalyzer,
   LocalBackendPushCoordinator,
   LocalExecutionArtifactBackendAnalyzer,
   type BackendSourceAnalyzer,
@@ -88,8 +89,185 @@ describe("backend push coordinator", () => {
           ],
         },
       },
+      codegenAnalysis: analysis,
       diagnostics: [{ level: "log", message: "loaded lessons.js" }],
     });
+  });
+
+  it("analyzes source packages through an HTTP backend analyzer", async () => {
+    const sourcePackage = testSourcePackage();
+    const analysis = testAnalysis();
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push({
+        url: String(input),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      });
+      return Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+        diagnostics: [{ level: "warn", message: "remote log" }],
+      });
+    };
+
+    const result = await new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      headers: { authorization: "Bearer token" },
+      fetch: fetcher,
+    }).analyze(sourcePackage);
+
+    expect(result).toEqual({
+      analysis,
+      diagnostics: [{ level: "warn", message: "remote log" }],
+    });
+    expect(requests).toEqual([{
+      url: "https://flarex.example/analyze",
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/json",
+      },
+      body: { deploymentId: "deployment1", sourcePackage },
+    }]);
+  });
+
+  it("surfaces HTTP backend analyzer errors with diagnostics", async () => {
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        error: "remote analysis failed",
+        diagnostics: [{ level: "error", message: "import failed" }],
+      }, { status: 400 });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "remote analysis failed",
+      diagnostics: [{ level: "error", message: "import failed" }],
+    });
+  });
+
+  it("rejects HTTP backend analyzer responses without codegen analysis", async () => {
+    const analysis = testAnalysis();
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        diagnostics: [{ level: "log", message: "missing codegen" }],
+      });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "Backend analyzer response did not include codegenAnalysis.",
+      diagnostics: [{ level: "log", message: "missing codegen" }],
+    });
+  });
+
+  it("rejects malformed HTTP backend codegen analysis", async () => {
+    const analysis = testAnalysis();
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: {
+          schema: {},
+          functions: [{ moduleName: "lessons", functions: [{}] }],
+        },
+        diagnostics: [{ level: "warn", message: "malformed codegen" }],
+      });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "codegenAnalysis.schema.version must be a number.",
+      diagnostics: [{ level: "warn", message: "malformed codegen" }],
+    });
+  });
+
+  it("preserves diagnostics when HTTP backend codegen validators are malformed", async () => {
+    const analysis = testAnalysis();
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: {
+          schema: {
+            version: 1,
+            tables: [{
+              tableId: 1,
+              name: "lessons",
+              validator: { type: "object", value: { title: { optional: false } } },
+              placement: { kind: "global" },
+            }],
+            indexes: [],
+          },
+          functions: analysis.functions,
+        },
+        diagnostics: [{ level: "error", message: "validator decode failed" }],
+      });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "codegenAnalysis.schema.tables[0].validator is invalid.",
+      diagnostics: [{ level: "error", message: "validator decode failed" }],
+    });
+  });
+
+  it("rejects unsupported route metadata in HTTP backend codegen analysis", async () => {
+    const analysis = testAnalysis();
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: {
+          schema: analysis.schema,
+          functions: [{
+            moduleName: "lessons",
+            functions: [{
+              ...analysis.functions[0]!.functions[0]!,
+              route: { kind: "argsField", field: "teamId" },
+            }],
+          }],
+        },
+        diagnostics: [{ level: "warn", message: "route metadata unsupported" }],
+      });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "codegenAnalysis.functions[0].functions[0].route is not supported in codegenAnalysis.",
+      diagnostics: [{ level: "warn", message: "route metadata unsupported" }],
+    });
+  });
+
+  it("rejects successful HTTP analyzer responses that also include an error", async () => {
+    const analysis = testAnalysis();
+    const fetcher: typeof fetch = async () =>
+      Response.json({
+        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        codegenAnalysis: analysis,
+        error: "should not be present",
+      });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toThrow(
+      "Backend analyzer success response must not include error.",
+    );
   });
 
   it("serves analyzer failure diagnostics through the local analyzer service binding", async () => {
@@ -206,6 +384,7 @@ function testAnalysis(): DeploymentAnalysis {
             visibility: "public",
             args: { type: "object", value: {} },
             returns: null,
+            partition: null,
             position: { path: "lessons.ts", startLine: 3, startColumn: 1 },
           },
         ],

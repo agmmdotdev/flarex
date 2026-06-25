@@ -72,7 +72,7 @@ export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifact
         method: "POST",
       });
       const body = await response.json().catch(() => null);
-      const diagnostics = normalizeDiagnostics(
+      const diagnostics = normalizeAnalyzerDiagnostics(
         typeof body === "object" && body !== null && "diagnostics" in body
           ? (body as { diagnostics: unknown }).diagnostics
           : undefined,
@@ -126,7 +126,7 @@ export class LocalMiniflareExecutionArtifactRuntime implements ExecutionArtifact
   }
 }
 
-function normalizeDiagnostics(value: unknown): AnalyzerDiagnostic[] {
+export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {
   if (!Array.isArray(value)) return [];
   return value.slice(-100).flatMap(diagnostic => {
     if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {

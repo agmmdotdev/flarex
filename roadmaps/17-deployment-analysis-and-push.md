@@ -1,5 +1,80 @@
 # Deployment Analysis And Push
 
+## HTTP Analyzer Response Carries Codegen Analysis
+
+Previous completed checkpoint: `2560e38` Route codegen through backend analysis seam.
+
+What changed:
+
+- Extended `AnalyzeSourcePackageResponse` so successful analyzer responses must
+  include `codegenAnalysis`.
+- `createLocalAnalyzerService(...)` now returns both flattened backend
+  deployment analysis and the codegen analysis used by final generated files.
+- Added `HttpBackendSourceAnalyzer` as a client-side analyzer adapter that
+  requires `codegenAnalysis` and preserves analyzer diagnostics on failures.
+- The HTTP adapter validates nested codegen schema/module/function metadata at
+  the response boundary and reuses the shared analyzer diagnostics normalizer.
+- Parser-level validator failures now return the same
+  `ExecutionArtifactAnalysisError` shape as other analyzer contract failures,
+  so diagnostics are not lost.
+- Parser failures now include the invalid `codegenAnalysis` path. This keeps
+  missing analysis, malformed schema metadata, malformed validators,
+  unsupported route metadata, and impossible success-with-error bodies
+  distinguishable.
+- Local analyzer service success responses are checked with
+  `satisfies AnalyzeSourcePackageResponse` and convert local SDK validators to
+  backend-safe validator JSON before returning `codegenAnalysis`.
+
+Why it changed:
+
+Flarex needs one backend-owned analysis result to drive both deployment state
+and generated client/server files. The flattened deployment analysis is
+sufficient for runtime invocation, but final codegen still needs module names
+and export names. Returning `codegenAnalysis` from the analyzer response keeps
+that metadata authoritative without reverse-engineering it from flattened
+function paths.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - backend push response carries the analyzed metadata used downstream.
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
+  - defines the backend response boundary for push analysis.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - final codegen consumes backend analysis from that response.
+
+Flarex differences:
+
+- Flarex's analyzer endpoint currently returns both backend deployment analysis
+  and codegen analysis; Convex's response shape is broader and component-aware.
+- The backend Worker still forwards only flattened analysis into
+  `/push/start-analyzed`; `DeploymentDO` can reconstruct codegen analysis for
+  push status.
+- Hosted analyzer authentication and deployment ownership checks are not wired
+  in this adapter.
+- Non-null `route` metadata is rejected by the HTTP adapter instead of being
+  silently erased; Flarex codegen currently treats `partition` as the supported
+  routing metadata.
+- `DeploymentCodegenFunction` no longer includes `route`, while flattened
+  executable `DeploymentFunctionMetadata` still can. That keeps codegen
+  metadata aligned with the Convex-style generated API path and leaves legacy
+  route compatibility at the backend execution metadata layer.
+
+Known limitations:
+
+- `HttpBackendSourceAnalyzer` is not yet exposed through CLI flags.
+- Hosted Dynamic Worker analysis is still future work; this adapter only
+  defines the HTTP seam that can consume it.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-backend typecheck
+git diff --check
+```
+
 ## Codegen Uses Backend Source Analyzer Seam
 
 Previous completed checkpoint: `5bdc5d9` Add codegen dry-run.
