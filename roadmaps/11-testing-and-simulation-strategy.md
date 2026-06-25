@@ -1,5 +1,51 @@
 # Testing and Simulation Strategy
 
+## Final Generated Write Plan Coverage
+
+Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.
+
+What changed:
+
+- Added generator test coverage for `finalGeneratedFiles(...)`.
+- The test runs initial codegen, bundles the source package, analyzes through
+  the local execution artifact adapter, inspects the final write plan, and
+  then verifies `finalCodegen(...)` writes the same final registry content.
+- The test proves final-only files are not written by plan construction.
+
+Why it changed:
+
+The next Convex-style CLI behavior is dry-run codegen. Before testing a command
+flag, Flarex needs coverage around a reusable generated-write planning
+boundary that does not mutate the generated directory.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - `--dry-run` is a command-level codegen behavior.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated code behavior is shared across CLI workflows.
+
+Flarex differences:
+
+- The test still runs real initial codegen because functions import
+  `_generated/server`.
+- The test covers final write planning, not a full dry-run command.
+
+Known limitations:
+
+- No CLI `--dry-run` validation exists yet.
+- Stale deletion planning is not represented.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans final generated output" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## CLI Typecheck Mode Coverage
 
 Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.

@@ -1,5 +1,50 @@
 # Local Dev Server
 
+## Dry-Run Write Foundation For Local Codegen
+
+Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.
+
+What changed:
+
+- Final generated write output can now be computed through
+  `finalGeneratedFiles(...)` without writing files.
+- Local dev and CLI codegen still call `finalCodegen(...)`, but that writer now
+  consumes the same write plan a future dry-run command can print.
+
+Why it changed:
+
+Local command behavior should move toward Convex's `codegen --dry-run` without
+inventing a second generator path. A shared final write plan lets future local
+CLI dry-run output and normal codegen stay aligned.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex exposes `--dry-run` for generated configuration output.
+- `npm-packages/convex/src/cli/dev.ts`
+  - local workflows depend on generated code staying consistent.
+
+Flarex differences:
+
+- Flarex has only the write planning foundation; no local dry-run command
+  exists yet.
+- Initial bootstrap generation still writes to disk for local analysis.
+
+Known limitations:
+
+- No `flarex dev` command uses this yet.
+- Dry-run output format and stale deletion planning are not designed yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans final generated output" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Codegen Typecheck Mode For Local Commands
 
 Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.

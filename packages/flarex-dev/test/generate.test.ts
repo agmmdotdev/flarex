@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
-import { generateFlarex } from "../src/generate";
+import {
+  bundleFlarexSourcePackage,
+  finalCodegen,
+  finalGeneratedFiles,
+  generateFlarex,
+  initialCodegen,
+  LocalMiniflareExecutionArtifactAdapter,
+} from "../src/index";
 import { typecheckGeneratedOutput } from "../src/generatedTypecheck";
 
 const workspaceRoot = path.resolve(
@@ -14,6 +21,39 @@ const workspaceRoot = path.resolve(
 );
 
 describe("generateFlarex", () => {
+  it("plans final generated output before writing final-only files", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+    const analysis = await new LocalMiniflareExecutionArtifactAdapter().analyze(sourcePackage);
+    const files = finalGeneratedFiles(analysis);
+
+    expect(files.map(file => file.name).sort()).toEqual([
+      "api.ts",
+      "dataModel.ts",
+      "deploymentSchema.ts",
+      "functionMetadata.ts",
+      "functionRegistry.ts",
+      "server.ts",
+      "worker.ts",
+    ]);
+    expect(files.find(file => file.name === "functionRegistry.ts")?.contents)
+      .toContain('"messages:list"');
+    await expect(fileExists(path.join(root, "flarex/_generated/functionRegistry.ts")))
+      .resolves.toBe(false);
+
+    await finalCodegen(context, analysis);
+    await expect(readGenerated(root, "functionRegistry.ts"))
+      .resolves.toContain('"messages:list"');
+  });
+
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {
     const root = await createProject();
     await writeFile(

@@ -13,12 +13,15 @@ export type {
 export {
   bundleFlarexSourcePackage,
   finalCodegen,
+  finalGeneratedFiles,
   generateFlarex,
   initialCodegen,
 } from "./generate.ts";
 export type {
+  FinalGeneratedFileName,
   FlarexGenerateOptions,
   FlarexGenerationContext,
+  GeneratedFile,
 } from "./generate.ts";
 export { typecheckGeneratedOutput } from "./generatedTypecheck.ts";
 export type {

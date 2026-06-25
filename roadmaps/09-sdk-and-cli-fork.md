@@ -1,5 +1,57 @@
 # SDK And CLI Fork
 
+## Final Codegen Write Plan
+
+Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.
+
+What changed:
+
+- Added `finalGeneratedFiles(analysis)` to `flarex-dev` and re-exported it
+  from the package root.
+- The helper returns the final `_generated` write plan as typed
+  `{ name, contents }` entries without writing to disk.
+- `finalCodegen(...)` now writes from that shared plan in plan order and still
+  owns stale generated-file cleanup.
+- Added generator coverage proving the plan contains final-only files and does
+  not write those files until `finalCodegen(...)` runs.
+
+Why it changed:
+
+Convex's CLI exposes `codegen --dry-run`; Flarex cannot implement that honestly
+until generated output can be computed separately from filesystem writes. This
+checkpoint creates that reusable write-output boundary before adding a CLI
+`--dry-run` flag.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex exposes `--dry-run` as codegen command behavior.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated file behavior is shared workflow logic.
+
+Flarex differences:
+
+- This is not yet a user-facing dry-run command.
+- Initial codegen still writes bootstrap files because source analysis depends
+  on `_generated` imports compiling in local fixtures.
+- Stale cleanup remains part of `finalCodegen(...)`, not this write plan.
+
+Known limitations:
+
+- CLI `--dry-run` still needs a follow-up command slice.
+- A complete dry-run must also plan stale deletions; `finalGeneratedFiles(...)`
+  intentionally models writes only.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans final generated output" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Codegen Typecheck Modes
 
 Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.

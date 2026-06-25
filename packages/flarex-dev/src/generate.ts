@@ -30,6 +30,23 @@ export type FlarexGenerationContext = {
   functionModules: FunctionModule[];
 };
 
+const FINAL_GENERATED_FILE_NAMES = [
+  "dataModel.ts",
+  "server.ts",
+  "api.ts",
+  "functionRegistry.ts",
+  "functionMetadata.ts",
+  "deploymentSchema.ts",
+  "worker.ts",
+] as const;
+
+export type FinalGeneratedFileName = (typeof FINAL_GENERATED_FILE_NAMES)[number];
+
+export type GeneratedFile = {
+  name: FinalGeneratedFileName;
+  contents: string;
+};
+
 function typedApi(modules: string[], metadataByPath: Record<string, unknown> = {}): string {
   const imports = modules
     .map(
@@ -1023,26 +1040,30 @@ export async function finalCodegen(
   analysis: DeploymentAnalysis,
 ): Promise<void> {
   const { generatedDir } = context;
+  const files = finalGeneratedFiles(analysis);
+  for (const file of files) {
+    await writeFile(path.join(generatedDir, file.name), file.contents);
+  }
+  await cleanupStaleGeneratedEntries(generatedDir, files.map(file => file.name));
+}
+
+export function finalGeneratedFiles(analysis: DeploymentAnalysis): readonly GeneratedFile[] {
   const functions = analysis.functions;
-  await writeFile(path.join(generatedDir, "dataModel.ts"), dataModelSource());
-  await writeFile(path.join(generatedDir, "server.ts"), serverSource(analysis.schema));
-  await writeFile(
-    path.join(generatedDir, "api.ts"),
-    typedApi(functions.map(module => module.moduleName), referenceMetadataMapSource(functions)),
-  );
-  await writeFile(path.join(generatedDir, "functionRegistry.ts"), functionRegistrySource(functions));
-  await writeFile(path.join(generatedDir, "functionMetadata.ts"), functionMetadataSource(functions));
-  await writeFile(path.join(generatedDir, "deploymentSchema.ts"), deploymentSchemaSource(analysis.schema));
-  await writeFile(path.join(generatedDir, "worker.ts"), workerSource());
-  await cleanupStaleGeneratedEntries(generatedDir, [
-    "api.ts",
-    "dataModel.ts",
-    "deploymentSchema.ts",
-    "functionMetadata.ts",
-    "functionRegistry.ts",
-    "server.ts",
-    "worker.ts",
-  ]);
+  return [
+    { name: "dataModel.ts", contents: dataModelSource() },
+    { name: "server.ts", contents: serverSource(analysis.schema) },
+    {
+      name: "api.ts",
+      contents: typedApi(
+        functions.map(module => module.moduleName),
+        referenceMetadataMapSource(functions),
+      ),
+    },
+    { name: "functionRegistry.ts", contents: functionRegistrySource(functions) },
+    { name: "functionMetadata.ts", contents: functionMetadataSource(functions) },
+    { name: "deploymentSchema.ts", contents: deploymentSchemaSource(analysis.schema) },
+    { name: "worker.ts", contents: workerSource() },
+  ];
 }
 
 function functionPath(fn: AnalyzedFunction): string {
