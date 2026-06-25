@@ -16,12 +16,14 @@ export {
   finalGeneratedFiles,
   generateFlarex,
   initialCodegen,
+  staleGeneratedEntries,
 } from "./generate.ts";
 export type {
   FinalGeneratedFileName,
   FlarexGenerateOptions,
   FlarexGenerationContext,
   GeneratedFile,
+  StaleGeneratedEntry,
 } from "./generate.ts";
 export { typecheckGeneratedOutput } from "./generatedTypecheck.ts";
 export type {

@@ -1,5 +1,57 @@
 # Testing and Simulation Strategy
 
+## Stale Generated Entry Plan Coverage
+
+Previous completed checkpoint: `8531b41` Extract final codegen write plan.
+
+What changed:
+
+- Added focused generator coverage for `staleGeneratedEntries(...)`.
+- The test creates a stale file and stale directory under `_generated`, verifies
+  the planner reports both without deleting them, then runs normal generation
+  and verifies stale cleanup still removes both entries.
+- The package export is covered through the same public `flarex-dev` test import
+  path used by other codegen helpers.
+
+Why it changed:
+
+A Convex-style `codegen --dry-run` test should eventually assert both files
+that would be written and stale generated entries that would be deleted. This
+coverage proves the deletion side can be tested independently before adding the
+CLI flag.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - `--dry-run` is a command-level behavior.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated file mutation behavior is centralized behind shared helpers.
+
+Flarex differences:
+
+- The test covers the helper and normal generator behavior, not the final CLI
+  dry-run surface.
+- The helper returns filesystem entry metadata rather than Convex's exact
+  command output.
+
+Known limitations:
+
+- No end-to-end dry-run command test exists yet.
+- Output formatting and exit-code behavior are still open for the CLI slice.
+- No preserved-entry test exists yet. Before generated extensions are
+  supported, stale-entry coverage must add a preserved-name case matching the
+  Convex `PRESERVED_GENERATED_ENTRIES` pattern.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Final Generated Write Plan Coverage
 
 Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.

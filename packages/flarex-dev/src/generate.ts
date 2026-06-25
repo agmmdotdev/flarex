@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -45,6 +46,12 @@ export type FinalGeneratedFileName = (typeof FINAL_GENERATED_FILE_NAMES)[number]
 export type GeneratedFile = {
   name: FinalGeneratedFileName;
   contents: string;
+};
+
+export type StaleGeneratedEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "directory" | "other";
 };
 
 function typedApi(modules: string[], metadataByPath: Record<string, unknown> = {}): string {
@@ -1100,10 +1107,28 @@ async function cleanupStaleGeneratedEntries(
   generatedDir: string,
   writtenFiles: string[],
 ): Promise<void> {
-  const entries = await readdir(generatedDir, { withFileTypes: true });
+  const entries = await staleGeneratedEntries(generatedDir, writtenFiles);
   await Promise.all(
-    entries
-      .filter(entry => !writtenFiles.includes(entry.name))
-      .map(entry => rm(path.join(generatedDir, entry.name), { recursive: true, force: true })),
+    entries.map(entry => rm(entry.path, { recursive: true, force: true })),
   );
+}
+
+export async function staleGeneratedEntries(
+  generatedDir: string,
+  writtenFiles: readonly string[],
+): Promise<readonly StaleGeneratedEntry[]> {
+  const entries = await readdir(generatedDir, { withFileTypes: true });
+  return entries
+    .filter(entry => !writtenFiles.includes(entry.name))
+    .map(entry => ({
+      name: entry.name,
+      path: path.join(generatedDir, entry.name),
+      kind: generatedEntryKind(entry),
+    }));
+}
+
+function generatedEntryKind(entry: Dirent): StaleGeneratedEntry["kind"] {
+  if (entry.isFile()) return "file";
+  if (entry.isDirectory()) return "directory";
+  return "other";
 }

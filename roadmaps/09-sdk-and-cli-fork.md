@@ -1,5 +1,60 @@
 # SDK And CLI Fork
 
+## Stale Generated Entry Plan
+
+Previous completed checkpoint: `8531b41` Extract final codegen write plan.
+
+What changed:
+
+- Added `staleGeneratedEntries(generatedDir, writtenFiles)` to `flarex-dev`
+  and re-exported its `StaleGeneratedEntry` result type from the package root.
+- `finalCodegen(...)` stale cleanup now consumes the same stale-entry plan that
+  a future dry-run command can report.
+- Added generator coverage proving stale-entry planning does not delete files,
+  while normal `generateFlarex(...)` still removes stale files and directories.
+
+Why it changed:
+
+Convex's CLI supports `codegen --dry-run`. Flarex needs dry-run output to cover
+both generated writes and stale deletions; otherwise the command would describe
+only half of what normal codegen mutates. This checkpoint creates the deletion
+planning boundary before exposing a user-facing dry-run flag.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex exposes `--dry-run` as command behavior.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - generated file writing and stale cleanup live in shared codegen workflow.
+
+Flarex differences:
+
+- This is still not a user-facing dry-run command.
+- The helper reports filesystem entries as `{ name, path, kind }`; the final
+  CLI output format is intentionally not designed in this checkpoint.
+- Initial codegen still writes bootstrap files so local analysis can compile
+  source modules that import `_generated/server`.
+
+Known limitations:
+
+- CLI `--dry-run` still needs a follow-up command slice.
+- Dry-run output still needs to merge `finalGeneratedFiles(...)` writes with
+  `staleGeneratedEntries(...)` deletions.
+- Stale planning still treats every unknown `_generated` entry as removable.
+  Before generated extensions are supported or deletion output is presented as
+  fully Convex-style, Flarex needs an explicit preserved-entry policy like
+  Convex's `PRESERVED_GENERATED_ENTRIES`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Final Codegen Write Plan
 
 Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.

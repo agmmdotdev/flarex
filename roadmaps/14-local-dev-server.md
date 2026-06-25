@@ -1,5 +1,55 @@
 # Local Dev Server
 
+## Dry-Run Deletion Foundation For Local Codegen
+
+Previous completed checkpoint: `8531b41` Extract final codegen write plan.
+
+What changed:
+
+- Local codegen can now compute stale generated entries through
+  `staleGeneratedEntries(...)` without deleting them.
+- Normal `finalCodegen(...)` reuses that plan for cleanup so future local
+  dry-run output and actual generated cleanup stay aligned.
+- Generator tests now cover the side-effect-free stale-entry plan and the
+  actual cleanup path.
+
+Why it changed:
+
+The local dev CLI should follow Convex's `codegen --dry-run` behavior. A real
+dry-run must report deletions as well as writes, so the deletion plan needs to
+exist before the command can be exposed.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/codegen.ts`
+  - Convex exposes `--dry-run` for local codegen workflows.
+- `npm-packages/convex/src/cli/dev.ts`
+  - local development depends on generated files staying current.
+
+Flarex differences:
+
+- No local `--dry-run` command exists yet.
+- This checkpoint is shared codegen plumbing only; the local server does not
+  consume dry-run output yet.
+
+Known limitations:
+
+- Dry-run CLI output still needs a combined write/delete report.
+- Initial bootstrap generation still writes to disk for local analysis.
+- Local dry-run must not claim full Convex-style deletion semantics until
+  Flarex has a preserved-entry policy for generated extensions, equivalent in
+  role to Convex's `PRESERVED_GENERATED_ENTRIES`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Dry-Run Write Foundation For Local Codegen
 
 Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.

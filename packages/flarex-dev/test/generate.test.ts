@@ -12,6 +12,7 @@ import {
   generateFlarex,
   initialCodegen,
   LocalMiniflareExecutionArtifactAdapter,
+  staleGeneratedEntries,
 } from "../src/index";
 import { typecheckGeneratedOutput } from "../src/generatedTypecheck";
 
@@ -52,6 +53,33 @@ export const list = query({ args: {}, handler: async () => [] });
     await finalCodegen(context, analysis);
     await expect(readGenerated(root, "functionRegistry.ts"))
       .resolves.toContain('"messages:list"');
+  });
+
+  it("plans stale generated entries without deleting them", async () => {
+    const root = await createProject();
+    const generatedDir = path.join(root, "flarex/_generated");
+    await mkdir(path.join(generatedDir, "staleDir"), { recursive: true });
+    await writeFile(path.join(generatedDir, "api.ts"), "keep");
+    await writeFile(path.join(generatedDir, "stale.ts"), "remove");
+    await writeFile(path.join(generatedDir, "staleDir/nested.ts"), "remove");
+
+    const entries = await staleGeneratedEntries(generatedDir, ["api.ts"]);
+
+    expect(
+      entries
+        .map(entry => ({ name: entry.name, kind: entry.kind }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    ).toEqual([
+      { name: "stale.ts", kind: "file" },
+      { name: "staleDir", kind: "directory" },
+    ]);
+    await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(true);
+    await expect(fileExists(path.join(generatedDir, "staleDir/nested.ts"))).resolves.toBe(true);
+
+    await generateFlarex({ root });
+
+    await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(false);
+    await expect(fileExists(path.join(generatedDir, "staleDir"))).resolves.toBe(false);
   });
 
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {
