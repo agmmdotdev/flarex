@@ -1,5 +1,56 @@
 # Testing and Simulation Strategy
 
+## Public Artifact Finish Rejection Coverage
+
+Previous completed checkpoint: `1684c24` Use dedicated finish push responses.
+
+What changed:
+
+- Updated backend push lifecycle coverage for the R2-backed finish path.
+- The missing-artifact case now asserts HTTP 409 plus the dedicated
+  `{ result: "rejected", push, error }` finish response shape.
+- The expected rejected body is checked against the backend `FinishPushResponse`
+  rejected variant instead of a loose partial matcher.
+- The same test still proves that writing the source package to durable R2
+  storage allows the push to activate and records the active execution artifact
+  reference.
+
+Why it changed:
+
+The finish response contract should cover public finish failures that occur
+before `DeploymentDO.finish` when the worker can still identify the analyzed
+push. The test now protects that boundary instead of accepting a generic error
+body.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - finish-stage failures are surfaced through deploy.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - package upload and finish activation are separate deploy phases.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response handling is a dedicated client contract.
+
+Flarex differences:
+
+- The missing-artifact check is Cloudflare/R2-specific. Convex's hosted deploy
+  service does not expose the same worker-side R2 preflight boundary.
+- The test asserts Flarex's compact finish rejection wrapper, not Convex's full
+  hosted deploy error model.
+
+Known limitations:
+
+- The test does not cover malformed finish requests or unknown routes because
+  those are generic HTTP boundary errors, not analyzed-push finish rejections.
+- No stable error-code field exists yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Push Response Contract Coverage
 
 Previous completed checkpoint: `51cc7ba` Surface deploy finish diagnostics.

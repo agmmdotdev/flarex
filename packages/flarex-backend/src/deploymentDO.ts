@@ -4,6 +4,7 @@ import {
   validateExecutionArtifactRef,
 } from "flarex/artifacts";
 import { errorResponse, HttpError, json, readJson } from "./http";
+import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import type {
   ActiveDeploymentStatus,
   AbandonPushRequest,
@@ -453,15 +454,6 @@ function pushStatusFromRow(row: {
     ...(diagnostics.length === 0 ? {} : { diagnostics }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
-}
-
-function rejectedFinishPushResponse(status: PushStatus, error: string): FinishPushResponse {
-  return {
-    result: "rejected",
-    push: status,
-    error,
-    ...(status.diagnostics === undefined ? {} : { diagnostics: status.diagnostics }),
   };
 }
 

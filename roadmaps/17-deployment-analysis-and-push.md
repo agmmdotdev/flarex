@@ -1,5 +1,62 @@
 # Deployment Analysis And Push
 
+## Public Artifact Finish Failures Use Finish Rejections
+
+Previous completed checkpoint: `1684c24` Use dedicated finish push responses.
+
+What changed:
+
+- The public finish route now converts missing durable execution artifacts into
+  a `FinishPushResponse` rejection instead of returning a generic `{ error }`
+  body before `DeploymentDO.finish`.
+- `DeploymentDO.finish` and the public worker route now share the same
+  backend-local rejected finish response builder, so diagnostics handling stays
+  consistent across finish rejection paths.
+- When R2 artifact storage is configured and an analyzed push's source package
+  is missing from durable storage, the worker returns HTTP 409 with
+  `{ result: "rejected", push, error, diagnostics? }`.
+- The existing push status lookup in `verifyStoredPushArtifact(...)` remains
+  the source for the rejected `push`, so non-analyzed or unknown pushes still
+  fall through to the deployment object for normal finish handling.
+
+Why it changed:
+
+The previous checkpoint made `DeploymentDO.finish` return an explicit finish
+success/rejection wrapper, but the public worker could still fail earlier
+during artifact verification with a generic HTTP error body. That left one
+activation-boundary path outside the new contract.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy treats finish as a dedicated activation phase.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - source-package upload, validation, and finish are separate deploy steps.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push errors are part of the finish API response surface.
+
+Flarex differences:
+
+- Convex's hosted deploy API owns artifact/package availability inside the
+  backend deploy service. Flarex's Cloudflare worker checks R2 before
+  forwarding to `DeploymentDO`, so this rejection is produced at the public
+  route boundary.
+- The response remains Flarex's compact `FinishPushResponse`; it does not yet
+  expose Convex-style structured deploy error codes.
+
+Known limitations:
+
+- Finish rejection still does not expose stable machine-readable error codes.
+- Generic HTTP errors can still occur for malformed JSON, unknown routes, or
+  storage/worker failures that happen before an analyzed push status is known.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Push Uses A Dedicated Response Shape
 
 Previous completed checkpoint: `51cc7ba` Surface deploy finish diagnostics.

@@ -25,6 +25,7 @@ import {
 } from "./liveQueryDelivery";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
+import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import {
   connectionObjectName,
   deliveryObjectName,
@@ -282,7 +283,8 @@ async function routeDeploymentPush(
   }
   if (parts[1] === "finish" && request.method === "POST") {
     const body = await readJson<FinishPushRequest>(request);
-    await verifyStoredPushArtifact(env, deployment, pushId);
+    const missingArtifact = await verifyStoredPushArtifact(env, deployment, pushId);
+    if (missingArtifact !== undefined) return missingArtifact;
     return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/finish`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -313,7 +315,7 @@ async function verifyStoredPushArtifact(
   env: Env,
   deployment: DurableObjectStub,
   pushId: string,
-): Promise<void> {
+): Promise<Response | undefined> {
   const artifactStore = artifactStoreFromEnv(env);
   if (artifactStore === undefined) return;
 
@@ -326,10 +328,8 @@ async function verifyStoredPushArtifact(
   try {
     await artifactStore.get(ref);
   } catch {
-    throw new HttpError(
-      409,
-      `Execution artifact ${ref.artifactId} is not available in durable storage.`,
-    );
+    const error = `Execution artifact ${ref.artifactId} is not available in durable storage.`;
+    return json(rejectedFinishPushResponse(status, error), { status: 409 });
   }
 }
 

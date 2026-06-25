@@ -449,9 +449,15 @@ describe("deployment push lifecycle", () => {
       );
       const ref = await executionArtifactRefForSourcePackage(package_);
       expect(missingArtifactFinish.status).toBe(409);
-      await expect(missingArtifactFinish.json()).resolves.toEqual({
+      const missingArtifactBody: unknown = await missingArtifactFinish.json();
+      const expectedMissingArtifactBody = {
+        result: "rejected",
+        push: {
+          ...start,
+        },
         error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
-      });
+      } satisfies Extract<FinishPushResponse, { result: "rejected" }>;
+      expect(missingArtifactBody).toEqual(expectedMissingArtifactBody);
 
       const bucket = await r2Harness.mf.getR2Bucket("ARTIFACTS");
       await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike).put(package_);
