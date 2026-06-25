@@ -1,5 +1,54 @@
 # SDK And CLI Fork
 
+## Preserved Generated Entries
+
+Previous completed checkpoint: `6dda926` Plan stale generated cleanup.
+
+What changed:
+
+- Added a module-local `PRESERVED_GENERATED_ENTRIES` policy to `flarex-dev`,
+  initially preserving the top-level `_generated/ai` entry.
+- `staleGeneratedEntries(...)` now skips preserved generated entries, so normal
+  cleanup and future dry-run deletion output share the same exclusion rule.
+- Exported `isPreservedGeneratedEntry(...)` from the package root for future CLI
+  dry-run code without exposing mutable cleanup state.
+
+Why it changed:
+
+Convex's stale generated cleanup does not delete every unknown `_generated`
+entry. It preserves `_generated/ai`, and Flarex needs the same kind of explicit
+policy before exposing deletion planning as Convex-style dry-run behavior.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Defines `PRESERVED_GENERATED_ENTRIES = new Set(["ai"])`.
+  - `cleanupStaleGeneratedEntries(...)` skips preserved entries before deleting
+    unknown generated files.
+
+Flarex differences:
+
+- Flarex exposes the policy through `isPreservedGeneratedEntry(...)` and async
+  filesystem planning because its generator already uses Node `fs/promises`.
+- Only `ai` is preserved for now. Additional generated extension directories
+  must be added deliberately instead of being implicitly preserved.
+
+Known limitations:
+
+- No user-facing `codegen --dry-run` command exists yet.
+- Preserved entries are name-based top-level `_generated` entries, matching
+  Convex's current cleanup boundary rather than a nested pattern matcher.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Stale Generated Entry Plan
 
 Previous completed checkpoint: `8531b41` Extract final codegen write plan.

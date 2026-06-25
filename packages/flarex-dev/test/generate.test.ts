@@ -58,7 +58,9 @@ export const list = query({ args: {}, handler: async () => [] });
   it("plans stale generated entries without deleting them", async () => {
     const root = await createProject();
     const generatedDir = path.join(root, "flarex/_generated");
+    await mkdir(path.join(generatedDir, "ai"), { recursive: true });
     await mkdir(path.join(generatedDir, "staleDir"), { recursive: true });
+    await writeFile(path.join(generatedDir, "ai/index.d.ts"), "preserve");
     await writeFile(path.join(generatedDir, "api.ts"), "keep");
     await writeFile(path.join(generatedDir, "stale.ts"), "remove");
     await writeFile(path.join(generatedDir, "staleDir/nested.ts"), "remove");
@@ -75,11 +77,13 @@ export const list = query({ args: {}, handler: async () => [] });
     ]);
     await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(true);
     await expect(fileExists(path.join(generatedDir, "staleDir/nested.ts"))).resolves.toBe(true);
+    await expect(fileExists(path.join(generatedDir, "ai/index.d.ts"))).resolves.toBe(true);
 
     await generateFlarex({ root });
 
     await expect(fileExists(path.join(generatedDir, "stale.ts"))).resolves.toBe(false);
     await expect(fileExists(path.join(generatedDir, "staleDir"))).resolves.toBe(false);
+    await expect(fileExists(path.join(generatedDir, "ai/index.d.ts"))).resolves.toBe(true);
   });
 
   it("analyzes actual registered exports and generates shared runtime metadata", async () => {

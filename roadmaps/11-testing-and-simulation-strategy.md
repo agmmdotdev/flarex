@@ -1,5 +1,50 @@
 # Testing and Simulation Strategy
 
+## Preserved Generated Entry Coverage
+
+Previous completed checkpoint: `6dda926` Plan stale generated cleanup.
+
+What changed:
+
+- Extended generator coverage so `_generated/ai` is not reported as stale and
+  survives normal `generateFlarex(...)` cleanup.
+- The stale-entry test now proves the same helper both plans real stale entries
+  and skips preserved generated entries.
+
+Why it changed:
+
+The previous stale-entry planner made dry-run deletion testable, but it still
+needed Convex's preserved-entry behavior before the next CLI slice could claim
+Convex-style deletion semantics.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - Convex preserves `ai` in `PRESERVED_GENERATED_ENTRIES`.
+  - Convex stale cleanup skips preserved entries before recursively deleting
+    unknown generated output.
+
+Flarex differences:
+
+- The Flarex test uses real temporary directories and async Node filesystem
+  APIs instead of Convex's CLI context filesystem abstraction.
+- Coverage currently asserts only the `ai` preserved entry.
+
+Known limitations:
+
+- No CLI `--dry-run` test exists yet.
+- Additional preserved generated extension entries will need explicit tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Stale Generated Entry Plan Coverage
 
 Previous completed checkpoint: `8531b41` Extract final codegen write plan.

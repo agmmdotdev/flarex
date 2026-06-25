@@ -16,6 +16,7 @@ export {
   finalGeneratedFiles,
   generateFlarex,
   initialCodegen,
+  isPreservedGeneratedEntry,
   staleGeneratedEntries,
 } from "./generate.ts";
 export type {

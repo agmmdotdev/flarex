@@ -1,5 +1,53 @@
 # Local Dev Server
 
+## Preserved Generated Entry Policy For Local Codegen
+
+Previous completed checkpoint: `6dda926` Plan stale generated cleanup.
+
+What changed:
+
+- Local codegen cleanup now preserves `_generated/ai`, matching the portable
+  Convex stale-cleanup policy.
+- `isPreservedGeneratedEntry(...)` is exported so a future local
+  `codegen --dry-run` implementation can report deletions with the same policy
+  as actual cleanup without exposing mutable cleanup state.
+- Generator coverage proves the preserved entry survives normal local codegen.
+
+Why it changed:
+
+Local dry-run behavior should not report `_generated/ai` as a deletion candidate
+if normal codegen would preserve it. Convex already has this rule, so Flarex
+should port it before exposing dry-run output.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - `PRESERVED_GENERATED_ENTRIES` preserves `ai`.
+  - `cleanupStaleGeneratedEntries(...)` applies the preserved-entry check before
+    stale deletion.
+
+Flarex differences:
+
+- Flarex currently preserves only by top-level generated entry name.
+- Local dev still lacks the user-facing dry-run command that will consume this
+  policy.
+
+Known limitations:
+
+- No local CLI `--dry-run` output exists yet.
+- Future generated extension directories must be added to the preserved set
+  explicitly and covered by tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter @flarex/example generate
+git diff --check
+```
+
 ## Dry-Run Deletion Foundation For Local Codegen
 
 Previous completed checkpoint: `8531b41` Extract final codegen write plan.

@@ -43,6 +43,12 @@ const FINAL_GENERATED_FILE_NAMES = [
 
 export type FinalGeneratedFileName = (typeof FINAL_GENERATED_FILE_NAMES)[number];
 
+const PRESERVED_GENERATED_ENTRIES = new Set(["ai"]);
+
+export function isPreservedGeneratedEntry(name: string): boolean {
+  return PRESERVED_GENERATED_ENTRIES.has(name);
+}
+
 export type GeneratedFile = {
   name: FinalGeneratedFileName;
   contents: string;
@@ -1119,6 +1125,7 @@ export async function staleGeneratedEntries(
 ): Promise<readonly StaleGeneratedEntry[]> {
   const entries = await readdir(generatedDir, { withFileTypes: true });
   return entries
+    .filter(entry => !isPreservedGeneratedEntry(entry.name))
     .filter(entry => !writtenFiles.includes(entry.name))
     .map(entry => ({
       name: entry.name,
