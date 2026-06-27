@@ -10,7 +10,10 @@ import {
   deploymentFailureToHttpError,
   type DeploymentServiceFailure,
 } from "./deployment/HttpBoundary";
-import { DeploymentService } from "./deployment/Service";
+import {
+  DeploymentService,
+  type DeploymentServiceApi,
+} from "./deployment/Service";
 import {
   analyzedStartPushRequest,
   startAnalyzedPushInput,
@@ -90,16 +93,12 @@ export class DeploymentDO extends DurableObject<Env> {
         return json({ service: "flarex-deployment", status: "ok" });
       }
       if (url.pathname === "/deployment" && request.method === "GET") {
-        return json(await this.runDeployment(
-          DeploymentService.use(service => service.getActiveDeployment()),
-        ));
+        return json(await this.runDeploymentService(service => service.getActiveDeployment()));
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
-        return json(await this.runDeployment(
-          DeploymentService.use(service =>
-            service.startAnalyzedPush(startAnalyzedPushInput(analyzedStartPushRequest(body)))
-          ),
+        return json(await this.runDeploymentService(service =>
+          service.startAnalyzedPush(startAnalyzedPushInput(analyzedStartPushRequest(body)))
         ));
       }
       const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
@@ -107,23 +106,17 @@ export class DeploymentDO extends DurableObject<Env> {
         const pushId = decodeURIComponent(pushMatch[1]!);
         const action = pushMatch[2];
         if (action === undefined && request.method === "GET") {
-          return json(await this.runDeployment(
-            DeploymentService.use(service => service.getPush(pushId)),
-          ));
+          return json(await this.runDeploymentService(service => service.getPush(pushId)));
         }
         if (action === "finish" && request.method === "POST") {
           await readJson<FinishPushRequest>(request);
-          const response = await this.runDeployment(
-            DeploymentService.use(service => service.finishPush(pushId)),
-          );
+          const response = await this.runDeploymentService(service => service.finishPush(pushId));
           return json(response, { status: response.result === "rejected" ? 409 : 200 });
         }
         if (action === "abandon" && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));
-          return json(await this.runDeployment(
-            DeploymentService.use(service =>
-              service.abandonPush(pushId, body.reason === undefined ? {} : { reason: body.reason })
-            ),
+          return json(await this.runDeploymentService(service =>
+            service.abandonPush(pushId, body.reason === undefined ? {} : { reason: body.reason })
           ));
         }
       }
@@ -134,6 +127,12 @@ export class DeploymentDO extends DurableObject<Env> {
       }
       return errorResponse(error);
     }
+  }
+
+  private async runDeploymentService<A>(
+    use: (service: DeploymentServiceApi) => Effect.Effect<A, DeploymentServiceFailure>,
+  ): Promise<A> {
+    return this.runDeployment(DeploymentService.use(use));
   }
 
   private async runDeployment<A>(

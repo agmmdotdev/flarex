@@ -17,7 +17,7 @@ import {
 
 export type StartAnalyzedPushInput = StartAnalyzedPushServiceInput;
 
-export class DeploymentService extends Context.Service<DeploymentService, {
+export interface DeploymentServiceApi {
   getActiveDeployment(): Effect.Effect<
     ActiveDeploymentStatus,
     DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
@@ -32,7 +32,11 @@ export class DeploymentService extends Context.Service<DeploymentService, {
     PushStatus,
     DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | HttpError
   >;
-}>()("flarex-backend/deployment/DeploymentService") {
+}
+
+export class DeploymentService extends Context.Service<DeploymentService, DeploymentServiceApi>()(
+  "flarex-backend/deployment/DeploymentService",
+) {
   static readonly layer = Layer.effect(
     DeploymentService,
     Effect.gen(function* () {

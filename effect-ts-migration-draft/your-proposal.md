@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a1f4eb4` Lock deployment deep request boundary.
-- Active checkpoint: extract deployment service failure HTTP mapping into a tested boundary helper while keeping `DeploymentDO.runDeployment()` as the runtime boundary.
+- Previous completed checkpoint: `169abc9` Extract deployment HTTP failure boundary.
+- Active checkpoint: centralize `DeploymentService.use(...)` in a private route helper without hiding JSON/protocol parsing or the `runDeployment()` runtime boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 25 slice:
+Current Goal 26 slice:
+
+1. Add a private `DeploymentDO.runDeploymentService()` helper that wraps `DeploymentService.use(...)`.
+2. Keep `DeploymentDO.fetch()` responsible for route matching, JSON reading, protocol parsing, request adaptation, and response status choices.
+3. Keep `DeploymentDO.runDeployment()` as the single `ManagedRuntime.runPromise` boundary and keep typed failure-to-HTTP mapping in the Goal 25 helper.
+4. Replace repeated route-branch `this.runDeployment(DeploymentService.use(...))` calls with `this.runDeploymentService(...)`.
+5. Do not change protocol schemas, deep request decoding, service/store orchestration, SQL behavior, route paths, response bodies, or validation messages.
+6. Validate with focused deployment boundary/service/validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 25 slice:
 
 1. Add a small deployment HTTP-boundary helper that converts typed `DeploymentService` failures into the existing `HttpError` status/message results.
 2. Keep `DeploymentDO.runDeployment()` as the single ManagedRuntime boundary and use the helper only after the Effect exits.
@@ -231,11 +240,10 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 25 should be one of:
+Next checkpoint after Goal 26 should be one of:
 
+- Review whether `DeploymentDO` storage schema initialization should move into a deployment storage initializer helper before any broader router work.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
-- Review whether the direct `DeploymentService.use(...)` calls should remain explicit or be grouped only after the deep protocol-decoding decision.
-- Decide whether to keep direct `DeploymentService.use(...)` calls explicit or add a tiny call helper that does not hide HTTP/body parsing.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

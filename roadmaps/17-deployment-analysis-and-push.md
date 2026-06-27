@@ -1,5 +1,55 @@
 # Deployment Analysis And Push
 
+## Deployment Service Use Route Helper
+
+Previous completed checkpoint: `169abc9` Extract deployment HTTP failure
+boundary.
+
+What changed:
+
+- Centralized `DeploymentService.use(...)` in a private `DeploymentDO`
+  route helper.
+- Left JSON reading, protocol parsing, analyzed start-push request adaptation,
+  finish status handling, and abandon body parsing in the route branches.
+- Preserved the existing `runDeployment()` runtime boundary and typed
+  failure-to-HTTP mapping.
+
+Why it changed:
+
+After the route bridge cleanup and HTTP-boundary extraction, repeated
+`DeploymentService.use(...)` calls were the last bit of Effect plumbing mixed
+into every deployment route branch. A tiny helper keeps the route code focused
+on HTTP behavior while preserving the service boundary explicitly.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  deployment push route boundary.
+
+Flarex differences:
+
+- This is not a protocol schema change and not a service/store orchestration
+  change.
+- Request-side deep `analysis` and `codegenAnalysis` decoding remains backend
+  validation owned.
+
+Known limitations:
+
+- Deployment storage schema initialization still lives in `DeploymentDO`.
+- This is not an HttpApi migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Service Failure HTTP Boundary
 
 Previous completed checkpoint: `a1f4eb4` Lock deployment deep request

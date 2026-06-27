@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Deployment Service Use Route Helper
+
+Previous completed checkpoint: `169abc9` Extract deployment HTTP failure
+boundary.
+
+What changed:
+
+- Added a private `DeploymentDO.runDeploymentService()` helper that wraps
+  `DeploymentService.use(...)`.
+- Replaced repeated route-branch `this.runDeployment(DeploymentService.use(...))`
+  calls with the helper.
+- Kept `DeploymentDO.runDeployment()` as the single `ManagedRuntime.runPromise`
+  boundary.
+
+Why it changed:
+
+The route branches should show HTTP work: route matching, JSON reading,
+protocol parsing, request adaptation, and response status choices. The repeated
+service-use wrapper was Effect plumbing, so centralizing it narrows the route
+surface without hiding the runtime boundary.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is a Flarex
+  Durable Object route-boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. The same ManagedRuntime bridge,
+  deployment layer, storage handle, route paths, and response bodies are used.
+
+Known limitations:
+
+- `DeploymentDO` still owns storage schema initialization and migration guards.
+- `HttpApiBuilder` remains a later RegistryDO spike, not part of this
+  checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Service Failure HTTP Boundary
 
 Previous completed checkpoint: `a1f4eb4` Lock deployment deep request
