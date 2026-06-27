@@ -1,5 +1,55 @@
 # Deployment Analysis And Push
 
+## Store Owned Deployment Metadata
+
+Previous completed checkpoint: `2d6c9c4` Move deployment schema application
+into store.
+
+What changed:
+
+- Moved active deployment metadata reads and writes into
+  `DeploymentPushStore`.
+- Removed `setMeta` and `getMeta` from the deployment layer.
+- Preserved metadata key names, serialized values, and active deployment
+  response semantics.
+- Updated direct store tests to exercise active metadata reads and finish-push
+  metadata writes through fake SQL.
+
+Why it changed:
+
+Finish-push activation already owns push state, schema/function application,
+and active deployment metadata updates. Keeping metadata SQL in the store
+completes that storage boundary without changing HTTP routes or protocol
+contracts.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's store-owned
+  deployment metadata boundary.
+
+Flarex differences:
+
+- Metadata reads and writes remain scoped to the current Durable Object SQLite
+  instance.
+
+Known limitations:
+
+- `DeploymentDO` still owns deployment table creation and migration guards.
+- Deep protocol decoding of analysis/codegen remains a later decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Store Owned Activation Application
 
 Previous completed checkpoint: `e739957` Move deployment push reads into

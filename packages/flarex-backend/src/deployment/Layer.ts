@@ -10,11 +10,9 @@ import {
 export function makeDeploymentLayer(
   storage: DeploymentTransactionStorage,
   sql: DeploymentSqlStorage,
-  setMeta: (key: string, value: string) => void,
-  getMeta: (key: string) => string | null,
 ) {
   return DeploymentService.layer.pipe(
-    Layer.provide(DeploymentPushStore.layer(storage, sql, setMeta, getMeta)),
+    Layer.provide(DeploymentPushStore.layer(storage, sql)),
     Layer.provide(DeploymentArtifacts.layer),
     Layer.provide(DeploymentClock.layer),
     Layer.provide(DeploymentIds.layer),

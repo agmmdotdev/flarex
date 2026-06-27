@@ -77,12 +77,23 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   static layer(
     storage: DeploymentTransactionStorage,
     sql: DeploymentSqlStorage,
-    setMeta: (key: string, value: string) => void,
-    getMeta: (key: string) => string | null,
   ) {
     return Layer.effect(
       DeploymentPushStore,
       Effect.gen(function* () {
+        const setMeta = (key: string, value: string): void => {
+          sql.exec(
+            "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            key,
+            value,
+          );
+        };
+
+        const getMeta = (key: string): string | null => {
+          const row = sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
+          return row?.value ?? null;
+        };
+
         const readPush = (pushId: string): PushStatus | null => {
           const row = sql
             .exec<DeploymentPushStatusRow>(

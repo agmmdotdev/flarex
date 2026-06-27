@@ -409,8 +409,6 @@ describe("DeploymentService", () => {
       DeploymentPushStore.layer(
         storage,
         sql,
-        () => undefined,
-        () => null,
       ),
     );
 
@@ -424,6 +422,51 @@ describe("DeploymentService", () => {
           }),
         ),
       )).rejects.toBe(failure);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("writes active deployment metadata from the finish transaction", async () => {
+    const status = analyzedPushStatus("push-store-metadata");
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const metadata = new Map<string, string>();
+    const ref = executionArtifactRef();
+    const sql = sqlWithPushes([status], { metadata });
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+      ),
+    );
+
+    try {
+      const result = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: status.pushId,
+            now: 2_450_000,
+            executionArtifactRef: ref,
+          }),
+        ),
+      );
+
+      expect(result).toMatchObject({
+        result: "activated",
+        push: {
+          pushId: status.pushId,
+          state: "activated",
+          updatedAt: 2_450_000,
+        },
+      });
+      expect(metadata).toEqual(new Map<string, string>([
+        ["schema_version", String(status.analysis?.schema.version)],
+        ["active_push_id", status.pushId],
+        ["active_activated_at", "2450000"],
+        ["active_execution_artifact_ref", JSON.stringify(ref)],
+      ]));
     } finally {
       await runtime.dispose();
     }
@@ -604,8 +647,6 @@ describe("DeploymentService", () => {
       DeploymentPushStore.layer(
         storage,
         sql,
-        () => undefined,
-        () => null,
       ),
     );
 
@@ -632,17 +673,15 @@ describe("DeploymentService", () => {
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
-    const sql = sqlWithPushes([status]);
     const metadata = new Map<string, string>([
       ["active_push_id", status.pushId],
       ["active_activated_at", "3200000"],
     ]);
+    const sql = sqlWithPushes([status], { metadata });
     const runtime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         storage,
         sql,
-        () => undefined,
-        key => metadata.get(key) ?? null,
       ),
     );
 
@@ -776,14 +815,38 @@ function pushStatusFromStoreInput(input: StartAnalyzedPushStoreInput): PushStatu
 
 function sqlWithPushes(
   pushes: ReadonlyArray<PushStatus>,
-  options: { readonly onExec?: (query: string) => void } = {},
+  options: {
+    readonly metadata?: Map<string, string>;
+    readonly onExec?: (query: string) => void;
+  } = {},
 ): DeploymentSqlStorage {
   const rows = new Map(pushes.map(push => [push.pushId, pushStatusRow(push)]));
+  const metadata = options.metadata ?? new Map<string, string>();
   return {
-    exec: (query: string, pushId?: string) => {
+    exec: (query: string, ...args: ReadonlyArray<unknown>) => {
       options.onExec?.(query);
+      if (query.includes("INSERT INTO meta")) {
+        const [key, value] = args;
+        if (typeof key === "string" && typeof value === "string") {
+          metadata.set(key, value);
+        }
+      }
+      if (query.includes("UPDATE pushes SET state = 'activated'")) {
+        const [updatedAt, pushId] = args;
+        if (typeof pushId === "string" && typeof updatedAt === "number") {
+          const row = rows.get(pushId);
+          if (row === undefined) return { toArray: () => [] };
+          rows.set(pushId, { ...row, state: "activated", updated_at: updatedAt });
+        }
+      }
       return {
         toArray: () => {
+          if (query.includes("SELECT value FROM meta")) {
+            const key = args[0];
+            const value = typeof key === "string" ? metadata.get(key) : undefined;
+            return value === undefined ? [] : [{ value }];
+          }
+          const pushId = args[0];
           if (typeof pushId !== "string") return [];
           const row = rows.get(pushId);
           return row === undefined ? [] : [row];

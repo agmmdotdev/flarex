@@ -38,8 +38,6 @@ export class DeploymentDO extends DurableObject<Env> {
     makeDeploymentLayer(
       this.ctx.storage,
       this.sql,
-      (key, value) => this.setMeta(key, value),
-      key => this.getMeta(key),
     ),
   );
 
@@ -238,19 +236,6 @@ export class DeploymentDO extends DurableObject<Env> {
 
   private setMetaIfMissing(key: string, value: string): void {
     this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", key, value);
-  }
-
-  private setMeta(key: string, value: string): void {
-    this.sql.exec(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      key,
-      value,
-    );
-  }
-
-  private getMeta(key: string): string | null {
-    const row = this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
-    return row?.value ?? null;
   }
 
   private ensurePushDiagnosticsColumn(): void {
