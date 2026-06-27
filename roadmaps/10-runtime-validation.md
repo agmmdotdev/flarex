@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Deployment Analysis Codegen Validation Module
+
+Previous completed checkpoint: `eb0dcc2` Extract deployment schema
+validators.
+
+What changed:
+
+- Moved `validateAnalysis`, `validateCodegenAnalysis`, and codegen metadata
+  matching helpers into `deployment/Validation.ts`.
+- Kept `DeploymentDO` responsible for HTTP handling, request routing, SQL
+  writes, row normalization, and service orchestration.
+- Reduced the temporary low-level helper exports introduced by the schema
+  validator checkpoint.
+- Added direct validator tests for analysis/codegen normalization and exact
+  HTTP 400 message preservation.
+
+Why it changed:
+
+The validation module now owns the full backend deployment metadata validation
+stack. `DeploymentDO` can call high-level validation entrypoints instead of
+carrying the cross-field analysis/codegen implementation.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal validation boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object routing and storage ownership are unchanged. The validation
+  module still throws backend `HttpError` values consumed by the existing DO
+  boundary.
+
+Known limitations:
+
+- `parseAnalyzedStartPushRequest` still decodes only the wrapper-level
+  protocol shape.
+- `analyzedStartPushRequest` remains the protocol-to-backend adapter in
+  `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Schema Function Validation Module
 
 Previous completed checkpoint: `3a257f3` Extract deployment request

@@ -1,7 +1,11 @@
 import { HttpError } from "../http";
 import type {
   AnalyzedSourcePosition,
+  DeploymentAnalysis,
+  DeploymentCodegenAnalysis,
+  DeploymentCodegenModule,
   DeploymentFunctionKind,
+  DeploymentFunctionMetadata,
   DeploymentFunctions,
   DeploymentSchema,
   FunctionPartitionMetadata,
@@ -200,7 +204,152 @@ export function validateFunctions(functions: unknown): DeploymentFunctions {
   return { functions: normalized };
 }
 
-export function validateFunctionPartitions(
+export function validateAnalysis(analysis: unknown): DeploymentAnalysis {
+  if (!isRecord(analysis)) {
+    throw new HttpError(400, "Deployment analysis must be an object.");
+  }
+  const schema = validateSchema(analysis.schema);
+  const functions = validateFunctions(analysis.functions);
+  validateFunctionPartitions(functions, schema);
+  return {
+    schema,
+    functions,
+  };
+}
+
+export function validateCodegenAnalysis(
+  codegenAnalysis: unknown,
+  analysis: DeploymentAnalysis,
+): DeploymentCodegenAnalysis {
+  if (!isRecord(codegenAnalysis)) {
+    throw new HttpError(400, "Codegen analysis must be an object.");
+  }
+  const schema = validateSchema(codegenAnalysis.schema);
+  if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
+    throw new HttpError(400, "Codegen analysis schema must match deployment analysis schema.");
+  }
+  if (!Array.isArray(codegenAnalysis.functions)) {
+    throw new HttpError(400, "Codegen analysis functions must be an array.");
+  }
+
+  const metadataByPath = new Map(analysis.functions.functions.map(metadata => [metadata.path, metadata]));
+  const seenModuleNames = new Set<string>();
+  const seenPaths = new Set<string>();
+  const modules = codegenAnalysis.functions.map((module, moduleIndex) => {
+    if (!isRecord(module)) {
+      throw new HttpError(400, `Codegen module at index ${moduleIndex} must be an object.`);
+    }
+    if (typeof module.moduleName !== "string" || module.moduleName.length === 0) {
+      throw new HttpError(400, `Codegen module at index ${moduleIndex} has an invalid moduleName.`);
+    }
+    if (!Array.isArray(module.functions)) {
+      throw new HttpError(400, `Codegen module ${module.moduleName} functions must be an array.`);
+    }
+    const moduleName = module.moduleName;
+    if (seenModuleNames.has(moduleName)) {
+      throw new HttpError(400, `Duplicate codegen module metadata: ${moduleName}.`);
+    }
+    seenModuleNames.add(moduleName);
+    return {
+      moduleName,
+      functions: module.functions.map((fn, functionIndex) => {
+        if (!isRecord(fn)) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] must be an object.`,
+          );
+        }
+        if (fn.moduleName !== moduleName) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
+          );
+        }
+        if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
+          throw new HttpError(
+            400,
+            `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
+          );
+        }
+        const exportName = fn.exportName;
+        const path = functionPathFromCodegen(moduleName, exportName);
+        const metadata = metadataByPath.get(path);
+        if (metadata === undefined) {
+          throw new HttpError(400, `Codegen function ${path} has no deployment function metadata.`);
+        }
+        if (seenPaths.has(path)) {
+          throw new HttpError(400, `Duplicate codegen function metadata path: ${path}.`);
+        }
+        seenPaths.add(path);
+        const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);
+        const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
+        const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
+        if (args === null) {
+          throw new HttpError(400, `$codegen.functions.${path}.args: Validator is required.`);
+        }
+        const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
+        const partition = validateFunctionPartitionPolicy(
+          fn.partition,
+          `$codegen.functions.${path}.partition`,
+        );
+        const position = validateSourcePosition(fn.position, `$codegen.functions.${path}.position`);
+        assertCodegenFunctionMatchesMetadata(path, {
+          kind,
+          visibility,
+          args,
+          returns,
+          partition,
+          position,
+        }, metadata);
+        return {
+          moduleName,
+          exportName,
+          kind,
+          visibility,
+          args,
+          returns,
+          partition,
+          ...(position === undefined ? {} : { position }),
+        };
+      }),
+    };
+  });
+  if (seenPaths.size !== metadataByPath.size) {
+    throw new HttpError(400, "Codegen analysis functions must cover every deployment function.");
+  }
+  return { schema, functions: modules };
+}
+
+function assertCodegenFunctionMatchesMetadata(
+  path: string,
+  codegen: {
+    kind: DeploymentFunctionKind;
+    visibility: FunctionVisibility;
+    args: ValidatorJson;
+    returns: ValidatorJson | null;
+    partition: FunctionPartitionMetadata | null;
+    position: AnalyzedSourcePosition | undefined;
+  },
+  metadata: DeploymentFunctionMetadata,
+): void {
+  const expected = {
+    kind: metadata.kind,
+    visibility: metadata.visibility ?? "public",
+    args: metadata.args ?? { type: "any" },
+    returns: metadata.returns ?? null,
+    partition: metadata.partition ?? null,
+    position: metadata.position,
+  };
+  if (canonicalJson(codegen) !== canonicalJson(expected)) {
+    throw new HttpError(400, `Codegen function ${path} must match deployment function metadata.`);
+  }
+}
+
+function functionPathFromCodegen(moduleName: string, exportName: string): string {
+  return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
+}
+
+function validateFunctionPartitions(
   functions: DeploymentFunctions,
   schema: DeploymentSchema,
 ): void {
@@ -275,7 +424,7 @@ function parseIndexState(value: unknown): NonNullable<DeploymentSchema["indexes"
   throw new HttpError(400, "Schema index has invalid state.");
 }
 
-export function validateSourcePosition(
+function validateSourcePosition(
   value: unknown,
   path: string,
 ): AnalyzedSourcePosition | undefined {
@@ -323,7 +472,7 @@ function validateFunctionRoutePolicy(
   throw new HttpError(400, `${path}: Invalid route policy.`);
 }
 
-export function validateFunctionPartitionPolicy(
+function validateFunctionPartitionPolicy(
   value: unknown,
   path: string,
 ): FunctionPartitionMetadata | null {
@@ -408,7 +557,7 @@ function validatePlacement(value: unknown, path: string): SchemaTable["placement
   throw new HttpError(400, `${path}: Invalid placement.`);
 }
 
-export function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind {
+function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind {
   if (
     value === "query" ||
     value === "mutation" ||
@@ -420,12 +569,12 @@ export function parseFunctionKind(value: unknown, path: string): DeploymentFunct
   throw new HttpError(400, `${path}: Invalid function kind ${value}.`);
 }
 
-export function parseVisibility(value: unknown, path: string): FunctionVisibility {
+function parseVisibility(value: unknown, path: string): FunctionVisibility {
   if (value === "public" || value === "internal") return value;
   throw new HttpError(400, `${path}: Invalid function visibility ${value}.`);
 }
 
-export function safeValidator(value: unknown, path: string): ValidatorJson | null {
+function safeValidator(value: unknown, path: string): ValidatorJson | null {
   try {
     return assertValidatorJson(jsonValue(value, path), path);
   } catch (error) {
@@ -460,7 +609,7 @@ function jsonValue(value: unknown, path: string): Json | undefined {
   throw new HttpError(400, `${path}: Expected JSON value.`);
 }
 
-export function canonicalJson(value: unknown): string {
+function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalValue(value));
 }
 
@@ -474,6 +623,6 @@ function canonicalValue(value: unknown): unknown {
   );
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

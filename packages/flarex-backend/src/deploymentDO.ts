@@ -15,41 +15,29 @@ import {
 import { DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import {
-  canonicalJson,
-  isRecord,
-  parseFunctionKind,
-  parseVisibility,
-  safeValidator,
+  validateAnalysis,
+  validateCodegenAnalysis,
   validateDiagnostics,
-  validateFunctionPartitionPolicy,
-  validateFunctionPartitions,
   validateFunctions,
   validateSchema,
   validateSourcePackage,
-  validateSourcePosition,
 } from "./deployment/Validation";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
   ActiveDeploymentStatus,
   AbandonPushRequest,
   AnalyzedStartPushRequest,
-  AnalyzedSourcePosition,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   DeploymentCodegenModule,
-  DeploymentFunctionKind,
-  DeploymentFunctionMetadata,
-  FunctionPartitionMetadata,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
   FinishPushResponse,
   FinishPushRequest,
-  FunctionVisibility,
   PushDiagnostic,
   PushSourcePackage,
   PushStatus,
-  ValidatorJson,
 } from "./types";
 
 export class DeploymentDO extends DurableObject<Env> {
@@ -290,7 +278,6 @@ export class DeploymentDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM indexes");
     this.sql.exec("DELETE FROM tables");
     for (const table of normalized.tables) {
-      const validator = safeValidator(table.validator ?? null, `$schema.tables.${table.name}.validator`);
       this.sql.exec(
         `
         INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
@@ -299,7 +286,7 @@ export class DeploymentDO extends DurableObject<Env> {
         table.tableId,
         table.name,
         table.state ?? "active",
-        JSON.stringify(validator),
+        JSON.stringify(table.validator ?? null),
         JSON.stringify(table.placement),
       );
     }
@@ -522,149 +509,4 @@ function analyzedStartPushRequest(request: ProtocolAnalyzedStartPushRequest): An
     ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
     ...(diagnostics === undefined ? {} : { diagnostics }),
   };
-}
-
-function validateAnalysis(analysis: unknown): DeploymentAnalysis {
-  if (!isRecord(analysis)) {
-    throw new HttpError(400, "Deployment analysis must be an object.");
-  }
-  const schema = validateSchema(analysis.schema);
-  const functions = validateFunctions(analysis.functions);
-  validateFunctionPartitions(functions, schema);
-  return {
-    schema,
-    functions,
-  };
-}
-
-function validateCodegenAnalysis(
-  codegenAnalysis: unknown,
-  analysis: DeploymentAnalysis,
-): DeploymentCodegenAnalysis {
-  if (!isRecord(codegenAnalysis)) {
-    throw new HttpError(400, "Codegen analysis must be an object.");
-  }
-  const schema = validateSchema(codegenAnalysis.schema);
-  if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
-    throw new HttpError(400, "Codegen analysis schema must match deployment analysis schema.");
-  }
-  if (!Array.isArray(codegenAnalysis.functions)) {
-    throw new HttpError(400, "Codegen analysis functions must be an array.");
-  }
-
-  const metadataByPath = new Map(analysis.functions.functions.map(metadata => [metadata.path, metadata]));
-  const seenModuleNames = new Set<string>();
-  const seenPaths = new Set<string>();
-  const modules = codegenAnalysis.functions.map((module, moduleIndex) => {
-    if (!isRecord(module)) {
-      throw new HttpError(400, `Codegen module at index ${moduleIndex} must be an object.`);
-    }
-    if (typeof module.moduleName !== "string" || module.moduleName.length === 0) {
-      throw new HttpError(400, `Codegen module at index ${moduleIndex} has an invalid moduleName.`);
-    }
-    if (!Array.isArray(module.functions)) {
-      throw new HttpError(400, `Codegen module ${module.moduleName} functions must be an array.`);
-    }
-    const moduleName = module.moduleName;
-    if (seenModuleNames.has(moduleName)) {
-      throw new HttpError(400, `Duplicate codegen module metadata: ${moduleName}.`);
-    }
-    seenModuleNames.add(moduleName);
-    return {
-      moduleName,
-      functions: module.functions.map((fn, functionIndex) => {
-        if (!isRecord(fn)) {
-          throw new HttpError(
-            400,
-            `Codegen function ${moduleName}[${functionIndex}] must be an object.`,
-          );
-        }
-        if (fn.moduleName !== moduleName) {
-          throw new HttpError(
-            400,
-            `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
-          );
-        }
-        if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
-          throw new HttpError(
-            400,
-            `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
-          );
-        }
-        const exportName = fn.exportName;
-        const path = functionPathFromCodegen(moduleName, exportName);
-        const metadata = metadataByPath.get(path);
-        if (metadata === undefined) {
-          throw new HttpError(400, `Codegen function ${path} has no deployment function metadata.`);
-        }
-        if (seenPaths.has(path)) {
-          throw new HttpError(400, `Duplicate codegen function metadata path: ${path}.`);
-        }
-        seenPaths.add(path);
-        const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);
-        const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
-        const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
-        if (args === null) {
-          throw new HttpError(400, `$codegen.functions.${path}.args: Validator is required.`);
-        }
-        const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
-        const partition = validateFunctionPartitionPolicy(
-          fn.partition,
-          `$codegen.functions.${path}.partition`,
-        );
-        const position = validateSourcePosition(fn.position, `$codegen.functions.${path}.position`);
-        assertCodegenFunctionMatchesMetadata(path, {
-          kind,
-          visibility,
-          args,
-          returns,
-          partition,
-          position,
-        }, metadata);
-        return {
-          moduleName,
-          exportName,
-          kind,
-          visibility,
-          args,
-          returns,
-          partition,
-          ...(position === undefined ? {} : { position }),
-        };
-      }),
-    };
-  });
-  if (seenPaths.size !== metadataByPath.size) {
-    throw new HttpError(400, "Codegen analysis functions must cover every deployment function.");
-  }
-  return { schema, functions: modules };
-}
-
-function assertCodegenFunctionMatchesMetadata(
-  path: string,
-  codegen: {
-    kind: DeploymentFunctionKind;
-    visibility: FunctionVisibility;
-    args: ValidatorJson;
-    returns: ValidatorJson | null;
-    partition: FunctionPartitionMetadata | null;
-    position: AnalyzedSourcePosition | undefined;
-  },
-  metadata: DeploymentFunctionMetadata,
-): void {
-  const expected = {
-    kind: metadata.kind,
-    visibility: metadata.visibility ?? "public",
-    args: metadata.args ?? { type: "any" },
-    returns: metadata.returns ?? null,
-    partition: metadata.partition ?? null,
-    position: metadata.position,
-  };
-  if (canonicalJson(codegen) !== canonicalJson(expected)) {
-    throw new HttpError(400, `Codegen function ${path} must match deployment function metadata.`);
-  }
-}
-
-function functionPathFromCodegen(moduleName: string, exportName: string): string {
-  return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
 }

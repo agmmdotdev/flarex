@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  validateAnalysis,
+  validateCodegenAnalysis,
   validateDiagnostics,
   validateFunctions,
   validateSchema,
@@ -146,6 +148,91 @@ describe("deployment validation", () => {
       } as unknown as DeploymentFunctions)
     ).toThrow(new HttpError(400, "$functions.messages:list.kind: Invalid function kind subscription."));
   });
+
+  it("normalizes deployment analysis metadata", () => {
+    const normalized = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+
+    expect(normalized.schema).toEqual(validateSchema(simpleSchema()));
+    expect(normalized.functions).toEqual(validateFunctions(simpleFunctions()));
+  });
+
+  it("preserves deployment analysis validation error messages", () => {
+    expect(() => validateAnalysis("not-analysis")).toThrow(
+      new HttpError(400, "Deployment analysis must be an object."),
+    );
+    expect(() =>
+      validateAnalysis({
+        schema: partitionedSchema(),
+        functions: {
+          functions: [{
+            path: "teams:create",
+            kind: "mutation",
+            route: { type: "args", field: "teamSlug" },
+            partition: {
+              type: "partition",
+              table: "teams",
+              selector: "byId",
+              partitionField: "_id",
+              argField: "teamSlug",
+            },
+          }],
+        },
+      })
+    ).toThrow(new HttpError(400, "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug."));
+  });
+
+  it("normalizes codegen analysis metadata", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+
+    const normalized = validateCodegenAnalysis({
+      schema: simpleSchema(),
+      functions: [{
+        moduleName: "messages",
+        functions: [{
+          moduleName: "messages",
+          exportName: "list",
+          kind: "query",
+          visibility: "public",
+          args: { type: "any" },
+          returns: null,
+          partition: null,
+        }],
+      }],
+    }, analysis);
+
+    expect(normalized.functions[0]?.functions[0]).toMatchObject({
+      moduleName: "messages",
+      exportName: "list",
+      kind: "query",
+      visibility: "public",
+      args: { type: "any" },
+      returns: null,
+      partition: null,
+    });
+  });
+
+  it("preserves codegen analysis validation error messages", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+
+    expect(() => validateCodegenAnalysis("not-codegen", analysis)).toThrow(
+      new HttpError(400, "Codegen analysis must be an object."),
+    );
+    expect(() =>
+      validateCodegenAnalysis({
+        schema: { ...simpleSchema(), version: 2 },
+        functions: [],
+      }, analysis)
+    ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
+  });
 });
 
 function sourceModule(path: string): PushSourcePackage["modules"][number] {
@@ -154,5 +241,38 @@ function sourceModule(path: string): PushSourcePackage["modules"][number] {
     environment: "isolate",
     sha256: "a".repeat(64),
     source: `export default ${JSON.stringify(path)};`,
+  };
+}
+
+function simpleSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [{
+      tableId: 1,
+      name: "messages",
+      placement: { kind: "global" },
+    }],
+    indexes: [],
+  };
+}
+
+function partitionedSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [{
+      tableId: 1,
+      name: "teams",
+      placement: { kind: "partitionBy", field: "slug" },
+    }],
+    indexes: [],
+  };
+}
+
+function simpleFunctions(): DeploymentFunctions {
+  return {
+    functions: [{
+      path: "messages:list",
+      kind: "query",
+    }],
   };
 }

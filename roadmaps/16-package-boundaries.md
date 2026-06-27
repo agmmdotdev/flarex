@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Deployment Analysis Codegen Validation Boundary
+
+Previous completed checkpoint: `eb0dcc2` Extract deployment schema
+validators.
+
+What changed:
+
+- Moved analysis/codegen validation orchestration into
+  `packages/flarex-backend/src/deployment/Validation.ts`.
+- Removed temporary low-level codegen helper imports from `DeploymentDO`.
+- Kept high-level validator entrypoints as the boundary between the Durable
+  Object and backend deployment metadata validation.
+- Extended direct unit tests for analysis/codegen behavior.
+
+Why it changed:
+
+After schema/function primitives moved, analysis/codegen validation could move
+as a unit. This keeps `DeploymentDO` focused on orchestration and prevents
+low-level parser helpers from becoming a de facto public module surface.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- The validation module remains backend-local. Shared transport schemas still
+  belong in `flarex-protocol`, and `ValidatorJson` remains the user
+  document/function validator representation.
+
+Known limitations:
+
+- The protocol-to-backend adapter `analyzedStartPushRequest` still lives in
+  `DeploymentDO`.
+- Deep protocol decoding remains intentionally separate from this backend
+  validation module.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Schema Function Validation Boundary
 
 Previous completed checkpoint: `3a257f3` Extract deployment request

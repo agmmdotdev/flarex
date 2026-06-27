@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Analysis Codegen Validation
+
+Previous completed checkpoint: `eb0dcc2` Extract deployment schema
+validators.
+
+What changed:
+
+- Extracted `validateAnalysis` and `validateCodegenAnalysis` into
+  `deployment/Validation.ts`.
+- Preserved schema/function cross-validation, codegen schema matching,
+  codegen module/function metadata validation, canonical comparison behavior,
+  and existing HTTP 400 messages.
+- Removed low-level codegen helper imports from `DeploymentDO`.
+- Added direct tests for analysis/codegen normalization and exact error
+  messages.
+
+Why it changed:
+
+The previous slice moved schema/function primitives. Moving analysis/codegen
+validation as a unit completes the backend deployment validation module
+without changing the route boundary or shared protocol parser behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's analysis/codegen
+  validation boundary.
+
+Flarex differences:
+
+- Flarex still validates backend deployment metadata with `ValidatorJson`;
+  this checkpoint does not replace it with Effect Schema.
+
+Known limitations:
+
+- `analyzedStartPushRequest` remains in `DeploymentDO` as the adapter from
+  `flarex-protocol` wrapper classes to backend request shape.
+- Row normalization still lives in `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Schema Function Validation
 
 Previous completed checkpoint: `3a257f3` Extract deployment request
