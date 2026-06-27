@@ -1,5 +1,7 @@
 import type { ExecutionArtifactRef } from "flarex/artifacts";
+import type { DeploymentRecord } from "flarex-protocol";
 export type { ExecutionArtifactRef } from "flarex/artifacts";
+export type { DeploymentRecord } from "flarex-protocol";
 
 export type Json =
   | null
@@ -63,14 +65,6 @@ export type DeploymentSchema = {
   version: number;
   tables: SchemaTable[];
   indexes: SchemaIndex[];
-};
-
-export type DeploymentRecord = {
-  deploymentId: string;
-  slug?: string;
-  createdAt: number;
-  updatedAt: number;
-  schemaVersion: number;
 };
 
 export type DocumentRead = {

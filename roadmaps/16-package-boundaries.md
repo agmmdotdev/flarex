@@ -1,5 +1,69 @@
 # Package Boundaries
 
+## Schema-First Protocol Package Boundary
+
+Previous completed checkpoint: `27afbea` Add Effect migration reviewer.
+
+What changed:
+
+- Added `packages/flarex-protocol` as the first schema-first internal protocol
+  package.
+- The package currently owns only the narrow RegistryDO proof surface:
+  `Json`, `CreateDeploymentRequest`, `DeploymentRecord`,
+  `ListDeploymentsResponse`, and `ProtocolValidationError`.
+- `flarex-backend` now depends on `flarex-protocol` and consumes
+  `CreateDeploymentRequest` decoding for `RegistryDO` create-deployment
+  requests.
+- `flarex-backend/src/types.ts` re-exports `DeploymentRecord` from
+  `flarex-protocol` while keeping the existing backend-local mutable `Json`
+  alias in place to avoid a broad cross-package type churn in this first
+  checkpoint.
+
+Why it changed:
+
+The Effect migration needs a proven contract boundary before moving DOs,
+introducing HttpApi, or reorganizing modules. Starting with RegistryDO creates
+a small package-boundary proof while leaving Worker routing and Durable Object
+SQL behavior unchanged.
+
+Convex references inspected:
+
+- No new Convex source files were required for this package-boundary slice.
+- The existing Convex-first direction still applies: public SDK compatibility
+  remains in `packages/flarex`, while backend protocol contracts move behind a
+  runtime-neutral internal package.
+
+Flarex differences:
+
+- This is an Effect Schema package boundary, not a Convex port. Convex's
+  backend model is Rust-owned; Flarex needs TypeScript runtime schemas for
+  Cloudflare Worker and DO boundaries.
+- `ValidatorJson` remains separate from Effect Schema. The new package
+  validates transport/service contracts, not user document or function
+  validators.
+
+Known limitations:
+
+- Only RegistryDO contracts are present. Deployment, partition, execution,
+  scheduler, sync, and executor contracts remain in their existing packages.
+- The workspace uses the Effect v4 beta line (`effect@4.0.0-beta.90`) so the
+  protocol package can follow the local `effect-smol` API style, including
+  `Schema.TaggedErrorClass`.
+- Built-output package publishing remains future work; packages still expose
+  TypeScript source.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
 ## Packed Test SDK Reset Boundary
 
 Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres

@@ -21,7 +21,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "flarex": "workspace:*"
+    "flarex": "workspace:*",
+    "flarex-protocol": "workspace:*"
   },
   "peerDependencies": {
     "miniflare": "catalog:",

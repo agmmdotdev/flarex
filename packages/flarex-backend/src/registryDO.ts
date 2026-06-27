@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  parseCreateDeploymentRequest,
+  ProtocolValidationError,
+  type CreateDeploymentRequest,
+  type DeploymentRecord,
+  type ListDeploymentsResponse,
+} from "flarex-protocol/registry";
 import { errorResponse, json, readJson } from "./http";
-import type { DeploymentRecord, Env } from "./types";
-
-type CreateDeploymentRequest = {
-  deploymentId?: string;
-  slug?: string;
-};
+import type { Env } from "./types";
 
 export class RegistryDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
@@ -31,13 +33,17 @@ export class RegistryDO extends DurableObject<Env> {
         return json({ service: "flarex-registry", status: "ok" });
       }
       if (url.pathname === "/deployments" && request.method === "POST") {
-        return json(await this.createDeployment(await readJson<CreateDeploymentRequest>(request)));
+        const body = parseCreateDeploymentRequest(await readJson(request));
+        return json(await this.createDeployment(body));
       }
       if (url.pathname === "/deployments" && request.method === "GET") {
-        return json({ deployments: this.listDeployments() });
+        return json({ deployments: this.listDeployments() } satisfies ListDeploymentsResponse);
       }
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
+      if (error instanceof ProtocolValidationError) {
+        return json({ error: error.message }, { status: 400 });
+      }
       return errorResponse(error);
     }
   }
@@ -84,14 +90,13 @@ export class RegistryDO extends DurableObject<Env> {
       )
       .toArray()
       .map(row => {
-        const record: DeploymentRecord = {
+        return {
           deploymentId: row.deployment_id,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           schemaVersion: row.schema_version,
+          ...(row.slug === null ? {} : { slug: row.slug }),
         };
-        if (row.slug !== null) record.slug = row.slug;
-        return record;
       });
   }
 }

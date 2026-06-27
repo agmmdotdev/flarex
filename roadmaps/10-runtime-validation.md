@@ -1,5 +1,59 @@
 # Runtime Validation
 
+## Registry Protocol Schema Boundary
+
+Previous completed checkpoint: `27afbea` Add Effect migration reviewer.
+
+What changed:
+
+- RegistryDO create-deployment requests now decode through
+  `flarex-protocol/registry` before persistence.
+- Invalid JSON still fails at the existing HTTP JSON boundary.
+- Schema-invalid create-deployment bodies now fail with a typed
+  `ProtocolValidationError` mapped to HTTP 400.
+- Added focused Miniflare coverage for create/list deployment, invalid JSON,
+  schema-invalid body, and duplicate deployment-id update behavior.
+
+Why it changed:
+
+This is the first small Effect Schema proof for backend runtime validation. It
+keeps the existing fetch router and SQL transaction behavior intact while
+proving that an internal protocol package can own runtime request contracts.
+
+Convex references inspected:
+
+- No new Convex source files were required for this RegistryDO boundary proof.
+- The semantic target remains Convex-style backend validation before state
+  mutation, but this specific slice is about Flarex transport shape rather than
+  user function or document validation.
+
+Cloudflare differences:
+
+- The validation runs inside a Durable Object `fetch()` handler and maps typed
+  protocol validation failures to ordinary JSON HTTP responses.
+- HttpApi is intentionally not introduced yet; that remains a later spike once
+  the schema/package boundary is proven.
+
+Known limitations:
+
+- The error message is intentionally coarse for this first boundary. Field-path
+  parse diagnostics can be improved when shared protocol error formatting is
+  introduced.
+- RegistryDO still uses direct `Date.now()` and `crypto.randomUUID()` because
+  this checkpoint does not yet introduce Effect services or Clock/Ids layers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+```
+
 ## Goal
 
 Flarex validators must be executable runtime contracts, not only TypeScript
