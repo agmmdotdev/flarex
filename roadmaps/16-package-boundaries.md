@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Deployment Schema Function Validation Boundary
+
+Previous completed checkpoint: `3a257f3` Extract deployment request
+validators.
+
+What changed:
+
+- Expanded `packages/flarex-backend/src/deployment/Validation.ts` with
+  schema/function validation primitives.
+- Moved reusable validator helpers out of `DeploymentDO` while keeping the DO
+  as the caller for route, SQL, and service boundaries.
+- Exported only the helpers still needed by local analysis/codegen
+  orchestration in `DeploymentDO`.
+- Extended direct validator tests for schema/function behavior.
+
+Why it changed:
+
+Schema/function validation belongs beside the other deployment validation
+helpers. Moving it narrows `DeploymentDO` toward orchestration while keeping
+transport schemas in `flarex-protocol` and backend-specific validator logic in
+`flarex-backend`.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- The validation module is backend-local, not a public SDK or protocol
+  surface. `ValidatorJson` validation remains the backend representation for
+  user document/function validators.
+
+Known limitations:
+
+- Deep `validateAnalysis` and `validateCodegenAnalysis` orchestration remains
+  in `DeploymentDO`.
+- A later slice should reduce the number of helper exports once codegen
+  validation moves as a unit.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Validation Module Boundary
 
 Previous completed checkpoint: `64f1e75` Extract deployment error types.

@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Schema Function Validation
+
+Previous completed checkpoint: `3a257f3` Extract deployment request
+validators.
+
+What changed:
+
+- Extracted schema/function validation primitives into
+  `deployment/Validation.ts`.
+- Preserved schema table/index defaults, function visibility defaults, route
+  and partition policy parsing, validator metadata handling, and existing HTTP
+  400 messages.
+- Left `validateAnalysis` and `validateCodegenAnalysis` in `DeploymentDO` so
+  cross-field analysis/codegen behavior stays unchanged.
+- Added direct tests for schema/function normalization and exact error
+  messages.
+
+Why it changed:
+
+After moving source-package and diagnostics validation, schema/function
+validation is the next reusable layer. It shrinks the Durable Object without
+mixing this checkpoint with deep codegen consistency checks.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's schema/function
+  validation boundary.
+
+Flarex differences:
+
+- Flarex still validates backend deployment metadata with `ValidatorJson`;
+  this checkpoint does not replace it with Effect Schema.
+
+Known limitations:
+
+- `validateAnalysis`, `validateCodegenAnalysis`, and row normalization still
+  live in `DeploymentDO`.
+- The next validator slice should move analysis/codegen as a unit or reduce
+  helper exports after proving exact-message parity.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Source Package And Diagnostics Validation
 
 Previous completed checkpoint: `64f1e75` Extract deployment error types.

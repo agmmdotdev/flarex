@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateDiagnostics, validateSourcePackage } from "../src/deployment/Validation";
+import {
+  validateDiagnostics,
+  validateFunctions,
+  validateSchema,
+  validateSourcePackage,
+} from "../src/deployment/Validation";
 import { HttpError } from "../src/http";
-import type { PushSourcePackage } from "../src/types";
+import type { DeploymentFunctions, DeploymentSchema, PushSourcePackage } from "../src/types";
 
 describe("deployment validation", () => {
   it("normalizes source package modules and function paths", () => {
@@ -62,6 +67,84 @@ describe("deployment validation", () => {
     expect(() => validateDiagnostics([{ level: "debug", message: "too chatty" }])).toThrow(
       new HttpError(400, "Push diagnostic at index 0 has an invalid level."),
     );
+  });
+
+  it("normalizes deployment schema metadata", () => {
+    const normalized = validateSchema({
+      version: 1,
+      tables: [{
+        tableId: 1,
+        name: "messages",
+        placement: { kind: "global" },
+      }],
+      indexes: [{
+        indexId: 1,
+        tableId: 1,
+        name: "by_author",
+        fields: ["authorId"],
+      }],
+    });
+
+    expect(normalized).toEqual({
+      version: 1,
+      tables: [{
+        tableId: 1,
+        name: "messages",
+        state: "active",
+        validator: null,
+        placement: { kind: "global" },
+      }],
+      indexes: [{
+        indexId: 1,
+        tableId: 1,
+        name: "by_author",
+        fields: ["authorId"],
+        state: "enabled",
+      }],
+    });
+  });
+
+  it("preserves deployment schema validation error messages", () => {
+    expect(() => validateSchema("not-schema")).toThrow(new HttpError(400, "Schema must be an object."));
+    expect(() =>
+      validateSchema({
+        version: 1,
+        tables: [],
+        indexes: [{ indexId: 1, tableId: 99, name: "bad", fields: [] }],
+      } satisfies DeploymentSchema)
+    ).toThrow(new HttpError(400, "Index bad references unknown table id 99."));
+  });
+
+  it("normalizes deployment function metadata", () => {
+    const normalized = validateFunctions({
+      functions: [{
+        path: "messages:list",
+        kind: "query",
+      }],
+    });
+
+    expect(normalized).toEqual({
+      functions: [{
+        path: "messages:list",
+        kind: "query",
+        visibility: "public",
+        args: null,
+        returns: null,
+        route: null,
+        partition: null,
+      }],
+    });
+  });
+
+  it("preserves deployment function validation error messages", () => {
+    expect(() => validateFunctions("not-functions")).toThrow(
+      new HttpError(400, "Function metadata must be an object."),
+    );
+    expect(() =>
+      validateFunctions({
+        functions: [{ path: "messages:list", kind: "subscription" }],
+      } as unknown as DeploymentFunctions)
+    ).toThrow(new HttpError(400, "$functions.messages:list.kind: Invalid function kind subscription."));
   });
 });
 

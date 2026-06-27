@@ -1,5 +1,58 @@
 # Runtime Validation
 
+## Deployment Schema Function Validation Module
+
+Previous completed checkpoint: `3a257f3` Extract deployment request
+validators.
+
+What changed:
+
+- Moved schema and function validation primitives into
+  `deployment/Validation.ts`.
+- Extracted `validateSchema`, `validateFunctions`,
+  `validateFunctionPartitions`, `safeValidator`, and helper parsers from
+  `DeploymentDO`.
+- Kept `DeploymentDO` responsible for HTTP handling, SQL writes, row
+  normalization, and deep analysis/codegen orchestration.
+- Added direct validator tests for schema/function normalization and exact
+  HTTP 400 message preservation.
+
+Why it changed:
+
+The previous slice created the validation module with source-package and
+diagnostics helpers. This checkpoint moves the next pure validation layer
+without changing route behavior or the deep deployment analysis/codegen flow.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal validation boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object routing and storage ownership are unchanged. The validation
+  module still throws backend `HttpError` values consumed by the existing DO
+  boundary.
+
+Known limitations:
+
+- `validateAnalysis` and `validateCodegenAnalysis` still live in
+  `DeploymentDO`.
+- `parseAnalyzedStartPushRequest` still decodes only the wrapper-level
+  protocol shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Source Package Validation Module
 
 Previous completed checkpoint: `64f1e75` Extract deployment error types.

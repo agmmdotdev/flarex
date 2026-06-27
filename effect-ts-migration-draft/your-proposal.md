@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `64f1e75` Extract deployment error types.
-- Active checkpoint: extract source-package and diagnostics validators into `deployment/Validation.ts` while preserving exact HTTP 400 messages and normalization behavior.
+- Previous completed checkpoint: `3a257f3` Extract deployment request validators.
+- Active checkpoint: extract deployment schema/function validation primitives into `deployment/Validation.ts` while preserving exact HTTP 400 messages and normalization behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 13 slice:
+Current Goal 14 slice:
+
+1. Move `validateSchema`, `validateFunctions`, `validateFunctionPartitions`, `safeValidator`, and their helper parsers from `DeploymentDO` into `deployment/Validation.ts`.
+2. Keep `DeploymentDO` as the HTTP/Durable Object boundary and keep `validateAnalysis`/`validateCodegenAnalysis` orchestration local for this slice.
+3. Preserve table/index/function normalization defaults, partition validation, validator metadata errors, canonical JSON comparison support, and every existing `HttpError(400, ...)` message for the moved helpers.
+4. Extend direct validator tests for schema/function normalization and exact message preservation, while keeping route-level push tests unchanged.
+5. Do not change SQL writes, row normalization, service orchestration, protocol schemas, or deep analysis/codegen request decoding in this slice.
+6. Validate with focused validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 13 slice:
 
 1. Add `deployment/Validation.ts` with `validateSourcePackage` and `validateDiagnostics`.
 2. Keep `DeploymentDO` as the HTTP boundary and keep `parseAnalyzedStartPushRequest` wrapper-oriented.
@@ -115,10 +124,10 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 13 should be one of:
+Next checkpoint after Goal 14 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
-- Move deployment schema/function semantic validators into `deployment/Validation.ts` only if exact error-message parity can be preserved with direct tests first.
+- Move `validateAnalysis` and `validateCodegenAnalysis` orchestration into `deployment/Validation.ts` only if exact error-message parity can be preserved with direct tests first.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
