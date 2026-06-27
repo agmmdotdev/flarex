@@ -32,6 +32,14 @@ ledger would eventually become a giant project-history document and duplicate
 the focused domain records. The automatic commit rule remains, but checkpoint
 history now stays with the domain it explains.
 
+Added an Effect-TS migration-specific reviewer checkpoint. Effect migration
+diffs now use only `effect-ts-quality-checker` instead of the legacy
+`typescript-diff-reviewer` plus `code-quality-diff-reviewer` pair. The new
+reviewer is read-only, diff-scoped, and points future agents at the local
+`effect-smol` and `t3code` opensrc references for Effect style, service/layer
+composition, typed errors, HttpApi boundaries, runtime boundaries, and Effect
+testing patterns.
+
 ## Why This Shape
 
 The Flarex work is now a separate Cloudflare-native backend and SDK prototype.
@@ -62,6 +70,9 @@ Convex source tree to remain nearby for reference.
 - A domain roadmap's implementation history intentionally trails its newest
   commit by one repository-changing turn because Git commit IDs are
   content-derived.
+- The Effect-TS reviewer relies on the ignored local `opensrc/` cache for
+  reference material. If that cache is missing on a future machine, refresh
+  `effect-TS/effect-smol` and `pingdotgg/t3code` before using the reviewer.
 
 ## Implementation Checkpoints
 
@@ -84,6 +95,13 @@ corrects checkpoint recording to stay domain-specific.
 ### `fe8ec44` Keep implementation history domain specific
 
 Cleaned up the global chronological implementation log, leaving implementation checkpoint history domain-specific in their respective roadmaps.
+
+### Pending checkpoint
+
+Added `.codex/agents/effect-ts-quality-checker.toml` and updated `AGENTS.md`
+so Effect-TS migration checkpoints use only that reviewer. The prompt records
+the relevant `effect-smol` and `t3code` reference files for future review
+passes.
 
 ## Verification
 

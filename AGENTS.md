@@ -4,14 +4,25 @@ These are operating rules for future agents working in this workspace. Feature
 design records, implementation notes, Convex references, and Cloudflare
 differences belong in `roadmaps/`, not in this file.
 
-Before committing a significant code change, spawn both project custom reviewer
-subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
-Significant code changes include behavior changes, public contract/type
-changes, data model/schema/migration changes, non-trivial refactors, or test
-changes that materially alter coverage or expectations. Do not require reviewer
-subagents for docs-only commits, planning/roadmap updates, formatting-only
-changes, generated-file refreshes, or minor mechanical edits that do not affect
-behavior.
+Before committing a significant code change, spawn the required project custom
+reviewer subagent(s).
+
+For ordinary significant code changes, spawn both legacy reviewers:
+`typescript-diff-reviewer` and `code-quality-diff-reviewer`. Significant code
+changes include behavior changes, public contract/type changes, data
+model/schema/migration changes, non-trivial refactors, or test changes that
+materially alter coverage or expectations.
+
+For Effect-TS migration changes, spawn only `effect-ts-quality-checker`. Do not
+also spawn `typescript-diff-reviewer` or `code-quality-diff-reviewer` for the
+same Effect migration checkpoint. Effect-TS migration changes include adding or
+refactoring Effect services, Layers, Effect Schema contracts, HttpApi
+boundaries, typed Effect errors, ManagedRuntime/runtime-boundary wiring,
+Effect-based tests, or replacing promise/try-catch flows with Effect pipelines.
+
+Do not require reviewer subagents for docs-only commits, planning/roadmap
+updates, formatting-only changes, generated-file refreshes, or minor mechanical
+edits that do not affect behavior.
 Do not spawn reviewer subagents on every turn; use main-thread self-review
 during ordinary investigation, small edits, and test-fix loops, and reserve
 reviewer subagents for meaningful checkpoints before commit or after significant
@@ -24,8 +35,8 @@ skill usage, validation expectations, and response format.
 The main thread owns all writes and all Git operations. The main thread must
 triage reviewer findings, apply useful fixes itself, rerun validation, then
 commit. If the diff changes after reviewers are spawned, the previous reviews
-are stale; rerun both reviewers against the final diff unless the only change is
-docs-only commentary.
+are stale; rerun the required reviewer set against the final diff unless the
+only change is docs-only commentary.
 ## Core Rule
 
 Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
