@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 
 export const RegistryRoute = {
   health: "/health",
@@ -6,6 +7,13 @@ export const RegistryRoute = {
 } as const;
 
 export type RegistryRoutePath = typeof RegistryRoute[keyof typeof RegistryRoute];
+
+export class RegistryHealthResponse extends Schema.Class<RegistryHealthResponse>(
+  "RegistryHealthResponse",
+)({
+  service: Schema.Literal("flarex-registry"),
+  status: Schema.Literal("ok"),
+}) {}
 
 export class ProtocolValidationError extends Schema.TaggedErrorClass<ProtocolValidationError>()(
   "ProtocolValidationError",
@@ -37,7 +45,23 @@ export class ListDeploymentsResponse extends Schema.Class<ListDeploymentsRespons
   deployments: Schema.Array(DeploymentRecord),
 }) {}
 
+export class RegistryApiGroup extends HttpApiGroup.make("registry", { topLevel: true }).add(
+  HttpApiEndpoint.get("health", RegistryRoute.health, {
+    success: RegistryHealthResponse,
+  }),
+  HttpApiEndpoint.get("listDeployments", RegistryRoute.deployments, {
+    success: ListDeploymentsResponse,
+  }),
+  HttpApiEndpoint.post("createDeployment", RegistryRoute.deployments, {
+    payload: CreateDeploymentRequest,
+    success: DeploymentRecord,
+  }),
+) {}
+
+export class RegistryApi extends HttpApi.make("flarex-registry").add(RegistryApiGroup) {}
+
 const decodeCreateDeploymentRequest = Schema.decodeUnknownSync(CreateDeploymentRequest);
+const decodeRegistryHealthResponse = Schema.decodeUnknownSync(RegistryHealthResponse);
 
 export function parseCreateDeploymentRequest(value: unknown): CreateDeploymentRequest {
   try {
@@ -46,6 +70,18 @@ export function parseCreateDeploymentRequest(value: unknown): CreateDeploymentRe
     throw new ProtocolValidationError({
       schema: "CreateDeploymentRequest",
       message: "Create deployment request must include optional string deploymentId and slug fields.",
+      cause,
+    });
+  }
+}
+
+export function parseRegistryHealthResponse(value: unknown): RegistryHealthResponse {
+  try {
+    return decodeRegistryHealthResponse(value);
+  } catch (cause) {
+    throw new ProtocolValidationError({
+      schema: "RegistryHealthResponse",
+      message: "Registry health response did not match the registry protocol.",
       cause,
     });
   }
