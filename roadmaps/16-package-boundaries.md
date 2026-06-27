@@ -1,5 +1,52 @@
 # Package Boundaries
 
+## Deployment Route Bridge Boundary
+
+Previous completed checkpoint: `31971a4` Inline deployment start push route
+bridge.
+
+What changed:
+
+- Removed the remaining thin private deployment route bridge methods from
+  `DeploymentDO`.
+- The active deployment, push status, finish-push, and abandon-push route
+  branches now call `runDeployment` directly.
+- Kept `DeploymentService`, `deployment/Validation.ts`, `DeploymentPushStore`,
+  and `flarex-protocol` unchanged.
+
+Why it changed:
+
+The meaningful package boundaries are now the HTTP route, the `runDeployment`
+runtime bridge, and the deployment service/store modules. The removed methods
+no longer represented separate ownership.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- This is not a protocol, SDK, service, or store move. It only removes
+  backend-local method hops.
+
+Known limitations:
+
+- Direct service calls in `DeploymentDO.fetch()` may be revisited after the
+  deep protocol-decoding decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Start Push Route Bridge Boundary
 
 Previous completed checkpoint: `c053c93` Extract deployment start push input

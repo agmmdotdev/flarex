@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Deployment Route Runtime Bridge Cleanup
+
+Previous completed checkpoint: `31971a4` Inline deployment start push route
+bridge.
+
+What changed:
+
+- Inlined the remaining thin deployment route bridge methods into
+  `DeploymentDO.fetch()`.
+- Kept `DeploymentDO.runDeployment` as the ManagedRuntime boundary.
+- Preserved finish-push JSON body parsing even though the body is not used by
+  the service layer.
+- Removed now-unused route bridge type imports from `DeploymentDO`.
+
+Why it changed:
+
+After deployment behavior moved behind services, the private route bridge
+methods only delegated to `runDeployment`. Inlining them keeps the route flow
+and runtime boundary visible in one place.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal Durable Object cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. The same ManagedRuntime bridge
+  is still used through `DeploymentDO.runDeployment`.
+
+Known limitations:
+
+- Deep protocol decoding of `analysis` and `codegenAnalysis` remains separate
+  from backend validation.
+- `DeploymentDO.fetch()` now contains all deployment route-to-service calls
+  directly.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Start Push Runtime Bridge Cleanup
 
 Previous completed checkpoint: `c053c93` Extract deployment start push input

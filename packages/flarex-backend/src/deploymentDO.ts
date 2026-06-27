@@ -19,12 +19,8 @@ import {
 } from "./deployment/Validation";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
-  ActiveDeploymentStatus,
-  AbandonPushRequest,
   Env,
-  FinishPushResponse,
   FinishPushRequest,
-  PushStatus,
 } from "./types";
 
 export class DeploymentDO extends DurableObject<Env> {
@@ -96,7 +92,9 @@ export class DeploymentDO extends DurableObject<Env> {
         return json({ service: "flarex-deployment", status: "ok" });
       }
       if (url.pathname === "/deployment" && request.method === "GET") {
-        return json(await this.activeDeployment());
+        return json(await this.runDeployment(
+          DeploymentService.use(service => service.getActiveDeployment()),
+        ));
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
@@ -111,17 +109,23 @@ export class DeploymentDO extends DurableObject<Env> {
         const pushId = decodeURIComponent(pushMatch[1]!);
         const action = pushMatch[2];
         if (action === undefined && request.method === "GET") {
-          return json(await this.pushStatus(pushId));
+          return json(await this.runDeployment(
+            DeploymentService.use(service => service.getPush(pushId)),
+          ));
         }
         if (action === "finish" && request.method === "POST") {
-          const response = await this.finishPush(pushId, await readJson<FinishPushRequest>(request));
+          await readJson<FinishPushRequest>(request);
+          const response = await this.runDeployment(
+            DeploymentService.use(service => service.finishPush(pushId)),
+          );
           return json(response, { status: response.result === "rejected" ? 409 : 200 });
         }
         if (action === "abandon" && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));
-          return json(await this.abandonPush(
-            pushId,
-            body.reason === undefined ? {} : { reason: body.reason },
+          return json(await this.runDeployment(
+            DeploymentService.use(service =>
+              service.abandonPush(pushId, body.reason === undefined ? {} : { reason: body.reason })
+            ),
           ));
         }
       }
@@ -171,30 +175,6 @@ export class DeploymentDO extends DurableObject<Env> {
       throw new HttpError(500, "Deployment storage error.");
     }
     return result.value;
-  }
-
-  private async activeDeployment(): Promise<ActiveDeploymentStatus> {
-    return this.runDeployment(
-      DeploymentService.use(service => service.getActiveDeployment()),
-    );
-  }
-
-  private async pushStatus(pushId: string): Promise<PushStatus> {
-    return this.runDeployment(
-      DeploymentService.use(service => service.getPush(pushId)),
-    );
-  }
-
-  private async finishPush(pushId: string, _request: FinishPushRequest): Promise<FinishPushResponse> {
-    return this.runDeployment(
-      DeploymentService.use(service => service.finishPush(pushId)),
-    );
-  }
-
-  private async abandonPush(pushId: string, request: AbandonPushRequest): Promise<PushStatus> {
-    return this.runDeployment(
-      DeploymentService.use(service => service.abandonPush(pushId, request)),
-    );
   }
 
   private setMetaIfMissing(key: string, value: string): void {

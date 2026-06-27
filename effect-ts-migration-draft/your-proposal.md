@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c053c93` Extract deployment start push input validation.
-- Active checkpoint: collapse the now-thin `DeploymentDO.startPush` bridge into the `POST /push/start-analyzed` fetch branch while keeping `runDeployment` as the runtime boundary.
+- Previous completed checkpoint: `31971a4` Inline deployment start push route bridge.
+- Active checkpoint: inline the remaining thin deployment route bridge methods into `DeploymentDO.fetch()` while keeping `runDeployment` as the runtime boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 22 slice:
+Current Goal 23 slice:
+
+1. Inline `DeploymentDO.activeDeployment`, `pushStatus`, `finishPush`, and `abandonPush` into their fetch route branches.
+2. Keep `DeploymentDO.fetch()` responsible for HTTP routing, JSON reading, protocol parsing, and calling `runDeployment`.
+3. Keep `DeploymentDO.runDeployment` as the single ManagedRuntime boundary for deployment service effects.
+4. Preserve finish-push JSON body parsing even though the request body is currently unused by the service.
+5. Remove now-unused route bridge type imports from `DeploymentDO`.
+6. Preserve route behavior, protocol schemas, validation messages, service orchestration, SQL behavior, and row normalization.
+7. Validate with focused deployment service/validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 22 slice:
 
 1. Inline the private `DeploymentDO.startPush` method into the `POST /push/start-analyzed` fetch branch.
 2. Keep `DeploymentDO.fetch()` responsible for HTTP routing, JSON reading, `parseAnalyzedStartPushRequest`, backend request adaptation, and calling `runDeployment`.
@@ -201,11 +211,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 22 should be one of:
+Next checkpoint after Goal 23 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
-- Review whether deployment route branches should use a small local helper for `DeploymentService.use(...)` effects without obscuring `runDeployment`.
+- Review whether the direct `DeploymentService.use(...)` calls should remain explicit or be grouped only after the deep protocol-decoding decision.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

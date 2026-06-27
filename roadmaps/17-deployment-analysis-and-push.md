@@ -1,5 +1,50 @@
 # Deployment Analysis And Push
 
+## Deployment Route Bridge Cleanup
+
+Previous completed checkpoint: `31971a4` Inline deployment start push route
+bridge.
+
+What changed:
+
+- Inlined active deployment, push status, finish-push, and abandon-push service
+  bridge methods into their route branches.
+- Preserved the same protocol parsers, service methods, response status logic,
+  and `runDeployment` runtime boundary.
+- Kept finish-push JSON parsing in place to preserve malformed-body behavior.
+
+Why it changed:
+
+The remaining private route methods were pass-throughs after service/store
+extraction. Inlining them keeps deployment route behavior explicit without
+changing push semantics.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's deployment route
+  bridge cleanup.
+
+Flarex differences:
+
+- This is not a protocol package change and not a service/store change.
+
+Known limitations:
+
+- Deep protocol decoding of analysis/codegen remains a later decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Start Push Route Bridge Cleanup
 
 Previous completed checkpoint: `c053c93` Extract deployment start push input
