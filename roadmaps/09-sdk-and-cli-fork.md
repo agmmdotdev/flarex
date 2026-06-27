@@ -1,5 +1,56 @@
 # SDK And CLI Fork
 
+## Packed Consumer Codegen Dry-Run Gate
+
+Previous completed checkpoint: `982396a` Add fresh consumer package install
+gate.
+
+What changed:
+
+- Extended `integration/fresh-consumer-pack.integration.test.ts` so the packed
+  consumer writes a minimal `flarex/` project and runs:
+  `flarex-dev codegen --dry-run --typecheck disable`.
+- The test now verifies the packed CLI reports generated writes for
+  `flarex/_generated/server.ts` and that dry-run mode does not create the file.
+- The temp consumer installs both `flarex-dev` and `flarex` from packed tarballs
+  because user source imports `flarex/server` and `flarex/values`.
+
+Why it changed:
+
+The previous fresh-consumer gate proved install and CLI startup only. This
+adds a real SDK command path through source-package analysis and dry-run
+codegen from the installed packed CLI.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex treats npm-installable CLI/SDK behavior as part of the package
+    contract.
+- `packages/flarex-dev/test/fixtures.ts`
+  - reused the existing minimal Flarex project shape used by local CLI tests.
+
+Flarex differences:
+
+- Flarex still runs source-mode TypeScript packages through `tsx` in this
+  prototype; Convex publishes built CLI/runtime artifacts.
+- The packed consumer still uses local tarball overrides for unpublished
+  internal Flarex packages.
+
+Known limitations:
+
+- The packed consumer gate uses `--typecheck disable`; it does not yet prove
+  generated output typechecking from an installed package.
+- The gate still does not run `deploy` or contact an authoritative backend
+  analyzer.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Fresh Consumer Packed Install Gate
 
 Previous completed checkpoint: `85faa2d` Add remaining package packability

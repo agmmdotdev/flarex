@@ -1,5 +1,54 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Codegen Smoke
+
+Previous completed checkpoint: `982396a` Add fresh consumer package install
+gate.
+
+What changed:
+
+- Extended the fresh-consumer integration test beyond CLI help.
+- The temp consumer now includes a minimal `flarex/schema.ts` and
+  `flarex/functions/messages.ts`.
+- After installing `flarex-dev` from packed tarballs, the test runs
+  `flarex-dev codegen --dry-run --typecheck disable`, verifies generated write
+  reporting, and verifies dry-run mode leaves `_generated/server.ts` absent.
+- The consumer directly depends on the packed `flarex` tarball as well as
+  `flarex-dev`, matching the source imports used by real application code.
+
+Why it changed:
+
+Install-only package tests can miss command-time module resolution and analyzer
+failures. This turns the packed consumer into a real dry-run codegen smoke while
+keeping it deterministic.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package installability is a user-facing test boundary.
+- `packages/flarex-dev/test/fixtures.ts`
+  - existing minimal project fixture copied for the packed CLI smoke.
+
+Flarex differences:
+
+- The smoke disables generated-output typechecking to isolate installed CLI
+  codegen behavior from the separate TypeScript typecheck lane.
+- It still uses local tarball overrides because Flarex internal packages are not
+  published.
+
+Known limitations:
+
+- This does not yet run generated-output typechecking from the packed consumer.
+- This does not exercise backend push/deploy from the packed consumer.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Fresh Consumer Install Simulation
 
 Previous completed checkpoint: `85faa2d` Add remaining package packability

@@ -104,6 +104,7 @@ describe("fresh consumer packed install", () => {
         "auto-install-peers=false\n",
         "utf8",
       );
+      await writeMinimalFlarexProject(consumerDir);
 
       const install = runPnpm(consumerDir, [
         "install",
@@ -119,11 +120,43 @@ describe("fresh consumer packed install", () => {
       expect(help.error).toBeUndefined();
       expect(help.status, commandOutput(help)).toBe(0);
       expect(help.stdout).toContain("flarex-dev <command> [options]");
+
+      const codegen = runPnpm(
+        consumerDir,
+        ["exec", "flarex-dev", "codegen", "--dry-run", "--typecheck", "disable"],
+        120_000,
+      );
+      expect(codegen.error).toBeUndefined();
+      expect(codegen.status, commandOutput(codegen)).toBe(0);
+      expect(codegen.stdout).toContain("Command would write file:");
+      expect(codegen.stdout.replaceAll("\\", "/")).toContain("flarex/_generated/server.ts");
+      await expect(stat(join(consumerDir, "flarex/_generated/server.ts"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });
+
+async function writeMinimalFlarexProject(root: string): Promise<void> {
+  await mkdir(join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    join(root, "flarex/schema.ts"),
+    `import { defineGlobalTable, defineSchema } from "flarex/server";
+import { v } from "flarex/values";
+export default defineSchema({ messages: defineGlobalTable({ body: v.string() }) });
+`,
+    "utf8",
+  );
+  await writeFile(
+    join(root, "flarex/functions/messages.ts"),
+    `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    "utf8",
+  );
+}
 
 function freshConsumerManifest(): Record<string, unknown> {
   return {
@@ -132,6 +165,7 @@ function freshConsumerManifest(): Record<string, unknown> {
     private: true,
     type: "module",
     dependencies: {
+      flarex: "file:../packs/flarex-0.0.1.tgz",
       "flarex-dev": "file:../packs/flarex-dev-0.0.1.tgz",
       vite: workspacePackageLink("vite"),
     },

@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Packed Consumer Command Boundary
+
+Previous completed checkpoint: `982396a` Add fresh consumer package install
+gate.
+
+What changed:
+
+- The fresh-consumer package graph gate now executes a real installed CLI
+  command, not just `--help`.
+- The packed `flarex-dev` tarball must be able to analyze a minimal consumer
+  `flarex/` source tree and produce dry-run generated file output.
+- The consumer also installs packed `flarex` directly, so the source/runtime SDK
+  boundary used by `flarex/server` and `flarex/values` is represented explicitly.
+
+Boundary rule:
+
+Package graph gates should prove two things:
+
+- the package manager can install the packed graph outside the monorepo, and
+- the installed CLI can execute meaningful user-facing commands from that
+  consumer context.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex's npm package boundary includes executable SDK/CLI behavior from the
+    installed artifact.
+- `packages/flarex-dev/test/fixtures.ts`
+  - minimal Flarex project shape reused for command execution.
+
+Flarex differences:
+
+- Flarex source-mode packages still require local public dependency links in
+  the packed consumer fixture; Convex publishes built artifacts.
+
+Known limitations:
+
+- Dry-run codegen is covered, but generated-output typecheck and deploy are
+  still separate future package-boundary gates.
+- The test does not yet cover `flarex-test` or `@flarex/executor-nitro`.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Fresh Consumer Package Graph Boundary
 
 Previous completed checkpoint: `85faa2d` Add remaining package packability
