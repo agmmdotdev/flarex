@@ -6,6 +6,82 @@ import { expect } from "vitest";
 export const workspaceRoot = resolve(import.meta.dirname, "..");
 export const commandTimeoutMs = 60_000;
 
+export type InternalPackedPackage = {
+  readonly packageName: string;
+  readonly packageRoot: string;
+  readonly tarballName: string;
+};
+
+export const internalPackedPackages = [
+  {
+    packageName: "flarex",
+    packageRoot: resolve(workspaceRoot, "packages/flarex"),
+    tarballName: "flarex-0.0.1.tgz",
+  },
+  {
+    packageName: "flarex-backend",
+    packageRoot: resolve(workspaceRoot, "packages/flarex-backend"),
+    tarballName: "flarex-backend-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/persistence-postgres",
+    packageRoot: resolve(workspaceRoot, "packages/persistence-postgres"),
+    tarballName: "flarex-persistence-postgres-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/freshness",
+    packageRoot: resolve(workspaceRoot, "packages/freshness"),
+    tarballName: "flarex-freshness-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/executor",
+    packageRoot: resolve(workspaceRoot, "packages/executor"),
+    tarballName: "flarex-executor-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/executor-http",
+    packageRoot: resolve(workspaceRoot, "packages/executor-http"),
+    tarballName: "flarex-executor-http-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/executor-nitro",
+    packageRoot: resolve(workspaceRoot, "packages/executor-nitro"),
+    tarballName: "flarex-executor-nitro-0.0.1.tgz",
+  },
+  {
+    packageName: "flarex-dev",
+    packageRoot: resolve(workspaceRoot, "packages/flarex-dev"),
+    tarballName: "flarex-dev-0.0.1.tgz",
+  },
+  {
+    packageName: "flarex-test",
+    packageRoot: resolve(workspaceRoot, "packages/flarex-test"),
+    tarballName: "flarex-test-0.0.1.tgz",
+  },
+] as const satisfies readonly InternalPackedPackage[];
+
+export type InternalPackedPackageName =
+  (typeof internalPackedPackages)[number]["packageName"];
+
+export function internalPackedPackage(
+  packageName: InternalPackedPackageName,
+): InternalPackedPackage {
+  const packageCase = internalPackedPackages.find(
+    candidate => candidate.packageName === packageName,
+  );
+  if (packageCase === undefined) {
+    throw new Error(`Unknown internal packed package ${packageName}`);
+  }
+  return packageCase;
+}
+
+export function internalPackedPackageSpecifier(
+  packageName: InternalPackedPackageName,
+): string {
+  const packageCase = internalPackedPackage(packageName);
+  return `file:../packs/${packageCase.tarballName}`;
+}
+
 export type PackedManifest = {
   name: string;
   version: string;

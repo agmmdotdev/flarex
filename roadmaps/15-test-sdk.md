@@ -1,5 +1,56 @@
 # Test SDK
 
+## Test SDK Fresh-Consumer Smoke
+
+Previous completed test-SDK checkpoint: `fad789f` Add test SDK and Nitro
+package boundaries.
+
+What changed:
+
+- Added `flarex-test` to the packed fresh-consumer install fixture.
+- The fixture now overrides transitive `flarex-test` dependencies to the packed
+  local tarballs, including `flarex-dev`.
+- The temp consumer imports the primary `flarexTest` factory,
+  `FlarexTestInvocationError`, and the `FlarexTest` public type from the
+  installed tarball.
+- The fixture runs both consumer `tsc` and runtime `tsx` smokes after codegen.
+
+Why it changed:
+
+`flarex-test` is an app-test package. It must resolve from a clean consumer
+install, not only from the workspace package graph.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration.
+- `npm-packages/convex/package.json`
+  - installable package boundaries are part of the public testing contract.
+
+Flarex differences:
+
+- Flarex's test SDK wraps the local dev runtime and Miniflare path. Convex's
+  test package targets Convex's own backend/test harness.
+
+Known limitations:
+
+- The packed-consumer smoke imports the test SDK but does not yet run
+  `flarexTest(...)` against the generated packed fixture.
+- Identity helpers, reset helpers, and richer test harness APIs remain future
+  work.
+- The typecheck is still a Vite/Bundler-style source-package check until Flarex
+  publishes built artifacts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Test SDK Tarball Boundary
 
 Previous completed test-SDK checkpoint: `339e671` Add packed consumer

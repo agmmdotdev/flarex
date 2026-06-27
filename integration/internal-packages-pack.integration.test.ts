@@ -8,18 +8,17 @@ import {
   assertOptionalPeerDependencies,
   exportedTargetEntries,
   expectSuccessfulCommand,
+  internalPackedPackage,
   readPackedManifest,
   readSourceManifest,
   runPnpmPack,
   singlePackedTarball,
   stringRecord,
   tarballEntries,
-  workspaceRoot,
+  type InternalPackedPackage,
 } from "./packabilityHelpers.ts";
 
-type PackagePackCase = {
-  readonly packageName: string;
-  readonly packageRoot: string;
+type PackagePackCase = InternalPackedPackage & {
   readonly expectedEntries: readonly string[];
   readonly allowedTestEntries?: readonly string[];
   readonly expectedTestExports?: readonly string[];
@@ -34,8 +33,7 @@ type DrizzleJournalEntry = {
 
 const packages = [
   {
-    packageName: "flarex",
-    packageRoot: resolve(workspaceRoot, "packages/flarex"),
+    ...internalPackedPackage("flarex"),
     expectedEntries: [
       "package/LICENSE.convex",
       "package/src/index.ts",
@@ -46,8 +44,7 @@ const packages = [
     ],
   },
   {
-    packageName: "flarex-backend",
-    packageRoot: resolve(workspaceRoot, "packages/flarex-backend"),
+    ...internalPackedPackage("flarex-backend"),
     expectedEntries: [
       "package/src/worker.ts",
       "package/src/artifactRuntime.ts",
@@ -60,8 +57,7 @@ const packages = [
     requiredPeerDependencies: ["miniflare", "vite"],
   },
   {
-    packageName: "@flarex/persistence-postgres",
-    packageRoot: resolve(workspaceRoot, "packages/persistence-postgres"),
+    ...internalPackedPackage("@flarex/persistence-postgres"),
     expectedEntries: [
       "package/src/index.ts",
       "package/src/postgres.ts",
@@ -71,18 +67,16 @@ const packages = [
       "package/drizzle/0000_dapper_warbird.sql",
     ],
     expectedDrizzleMigrationsRoot: resolve(
-      workspaceRoot,
-      "packages/persistence-postgres/drizzle",
+      internalPackedPackage("@flarex/persistence-postgres").packageRoot,
+      "drizzle",
     ),
   },
   {
-    packageName: "@flarex/freshness",
-    packageRoot: resolve(workspaceRoot, "packages/freshness"),
+    ...internalPackedPackage("@flarex/freshness"),
     expectedEntries: ["package/src/index.ts"],
   },
   {
-    packageName: "@flarex/executor",
-    packageRoot: resolve(workspaceRoot, "packages/executor"),
+    ...internalPackedPackage("@flarex/executor"),
     expectedEntries: [
       "package/src/index.ts",
       "package/src/invoke.ts",
@@ -91,24 +85,21 @@ const packages = [
     ],
   },
   {
-    packageName: "@flarex/executor-http",
-    packageRoot: resolve(workspaceRoot, "packages/executor-http"),
+    ...internalPackedPackage("@flarex/executor-http"),
     expectedEntries: [
       "package/src/index.ts",
       "package/src/liveQueryDelivery.ts",
     ],
   },
   {
-    packageName: "flarex-test",
-    packageRoot: resolve(workspaceRoot, "packages/flarex-test"),
+    ...internalPackedPackage("flarex-test"),
     expectedEntries: ["package/src/index.ts"],
   },
   {
-    packageName: "@flarex/executor-nitro",
-    packageRoot: resolve(workspaceRoot, "packages/executor-nitro"),
+    ...internalPackedPackage("@flarex/executor-nitro"),
     expectedEntries: ["package/src/index.ts"],
   },
-] satisfies readonly PackagePackCase[];
+] as const satisfies readonly PackagePackCase[];
 
 describe("internal package tarballs", () => {
   it.each(packages)("%s packs only its public source surface", async packCase => {
@@ -135,18 +126,38 @@ describe("internal package tarballs", () => {
         expect(entries).toContain(exportedTarget);
       }
       const exportedNames = Object.keys(stringRecord(manifest.exports));
-      for (const expectedTestExport of packCase.expectedTestExports ?? []) {
+      for (const expectedTestExport of optionalTestExports(packCase)) {
         expect(exportedNames).toContain(expectedTestExport);
       }
 
-      assertNoPackedDevelopmentEntries(entries, packCase.allowedTestEntries);
+      assertNoPackedDevelopmentEntries(entries, optionalAllowedTestEntries(packCase));
       assertManifestDependencyProtocols(manifest);
-      assertOptionalPeerDependencies(manifest, packCase.requiredPeerDependencies ?? []);
+      assertOptionalPeerDependencies(manifest, optionalRequiredPeerDependencies(packCase));
     } finally {
       await rm(packDir, { recursive: true, force: true });
     }
   });
 });
+
+function optionalTestExports(
+  packCase: PackagePackCase,
+): readonly string[] {
+  return "expectedTestExports" in packCase ? packCase.expectedTestExports ?? [] : [];
+}
+
+function optionalAllowedTestEntries(
+  packCase: PackagePackCase,
+): readonly string[] | undefined {
+  return "allowedTestEntries" in packCase ? packCase.allowedTestEntries : undefined;
+}
+
+function optionalRequiredPeerDependencies(
+  packCase: PackagePackCase,
+): readonly string[] {
+  return "requiredPeerDependencies" in packCase
+    ? packCase.requiredPeerDependencies ?? []
+    : [];
+}
 
 async function expectedDrizzleMigrationEntries(
   packCase: PackagePackCase,

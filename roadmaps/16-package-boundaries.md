@@ -1,5 +1,69 @@
 # Package Boundaries
 
+## Test SDK And Nitro Fresh-Consumer Boundary
+
+Previous completed checkpoint: `fad789f` Add test SDK and Nitro package
+boundaries.
+
+What changed:
+
+- Extended the packed fresh-consumer install gate to include:
+  - `flarex-test`,
+  - `@flarex/executor-nitro`.
+- The temp consumer now installs both packages from local tarballs alongside
+  the existing Flarex package graph.
+- The fixture override matrix now maps every packed internal package, including
+  transitive dependencies such as `flarex-test -> flarex-dev`, to the local
+  tarball produced during the test.
+- Shared internal package metadata now lives in `packabilityHelpers.ts` so the
+  tarball-shape test and the fresh-consumer test do not maintain divergent
+  package name/root/tarball lists.
+- Added a consumer smoke file that imports the Nitro adapter factory and the
+  test SDK public factory/error/type surface from the installed packages, then
+  runs both `tsc` and `tsx` from the fresh consumer.
+
+Why it changed:
+
+The previous checkpoint proved tarball shape only. Package boundaries are more
+useful when the package can also be installed and resolved from a clean app
+graph, because source-mode exports can hide missing dependency or TypeScript
+resolution problems until consumed outside the workspace.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex package metadata treats exports and installable contents as the SDK
+    boundary.
+- Convex's npm package flow remains the model: the consumer should import the
+  public package, not workspace source paths.
+
+Flarex differences:
+
+- Flarex still validates TypeScript-source tarballs. Convex publishes built SDK
+  artifacts.
+- `@flarex/executor-nitro` is a Flarex host adapter; Convex does not expose a
+  Nitro/Vercel adapter package.
+
+Known limitations:
+
+- The smoke imports `flarex-test` and `@flarex/executor-nitro`, but it does not
+  run a complete packed-app invocation through `flarex-test` yet.
+- The Nitro adapter smoke proves import/runtime resolution, not an end-to-end
+  Nitro server deployment.
+- The consumer typecheck uses Flarex's current Vite/Bundler-style source
+  package resolution. Built NodeNext artifact validation remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Test SDK And Nitro Adapter Tarball Boundaries
 
 Previous completed checkpoint: `339e671` Add packed consumer generated

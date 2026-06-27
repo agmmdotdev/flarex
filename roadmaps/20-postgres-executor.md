@@ -1,5 +1,59 @@
 # Postgres Executor
 
+## Nitro Adapter Fresh-Consumer Smoke
+
+Previous completed checkpoint: `fad789f` Add test SDK and Nitro package
+boundaries.
+
+What changed:
+
+- Added `@flarex/executor-nitro` to the packed fresh-consumer install fixture.
+- The packed override matrix now includes every internal tarball so Nitro's
+  transitive executor dependencies resolve from the same packed graph.
+- The internal package metadata is shared with the tarball-shape test, avoiding
+  a second hand-maintained package list for the Nitro adapter.
+- The temp consumer imports `createFlarexNitroHandler` and
+  `FlarexNitroEventLike` from the installed tarball.
+- The fixture runs consumer `tsc` and runtime `tsx` smokes after package
+  install.
+
+Why it changed:
+
+The Nitro adapter is the Vercel/Nitro-facing package boundary for the trusted
+executor. It should be proven installable from a clean consumer graph before
+more framework adapter behavior is built on top.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex keeps public package imports behind package exports instead of
+    source-path imports.
+
+Flarex differences:
+
+- Convex owns its hosted backend runtime and does not need this adapter.
+- Flarex keeps Nitro adapter validation separate from executor-core validation
+  so the framework-neutral core remains reusable.
+
+Known limitations:
+
+- The smoke proves install/import/runtime resolution, not deployment on Nitro or
+  Vercel.
+- Route behavior remains covered by `@flarex/executor-nitro` package tests and
+  `@flarex/executor-http` tests.
+- The consumer typecheck uses source-package Vite/Bundler-style resolution.
+  Built artifact validation remains a future package-output checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Nitro Adapter Tarball Boundary
 
 Previous completed checkpoint: `339e671` Add packed consumer generated

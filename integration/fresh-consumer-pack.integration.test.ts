@@ -4,54 +4,12 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   expectSuccessfulCommand,
+  internalPackedPackageSpecifier,
+  internalPackedPackages,
   runCommand,
   runPnpmPack,
   workspaceRoot,
 } from "./packabilityHelpers.ts";
-
-type PackedPackage = {
-  readonly packageName: string;
-  readonly packageRoot: string;
-  readonly tarballName: string;
-};
-
-const packedPackages = [
-  {
-    packageName: "flarex",
-    packageRoot: resolve(workspaceRoot, "packages/flarex"),
-    tarballName: "flarex-0.0.1.tgz",
-  },
-  {
-    packageName: "flarex-backend",
-    packageRoot: resolve(workspaceRoot, "packages/flarex-backend"),
-    tarballName: "flarex-backend-0.0.1.tgz",
-  },
-  {
-    packageName: "@flarex/persistence-postgres",
-    packageRoot: resolve(workspaceRoot, "packages/persistence-postgres"),
-    tarballName: "flarex-persistence-postgres-0.0.1.tgz",
-  },
-  {
-    packageName: "@flarex/freshness",
-    packageRoot: resolve(workspaceRoot, "packages/freshness"),
-    tarballName: "flarex-freshness-0.0.1.tgz",
-  },
-  {
-    packageName: "@flarex/executor",
-    packageRoot: resolve(workspaceRoot, "packages/executor"),
-    tarballName: "flarex-executor-0.0.1.tgz",
-  },
-  {
-    packageName: "@flarex/executor-http",
-    packageRoot: resolve(workspaceRoot, "packages/executor-http"),
-    tarballName: "flarex-executor-http-0.0.1.tgz",
-  },
-  {
-    packageName: "flarex-dev",
-    packageRoot: resolve(workspaceRoot, "packages/flarex-dev"),
-    tarballName: "flarex-dev-0.0.1.tgz",
-  },
-] satisfies readonly PackedPackage[];
 
 const flarexDevRoot = resolve(workspaceRoot, "packages/flarex-dev");
 const persistencePostgresRoot = resolve(workspaceRoot, "packages/persistence-postgres");
@@ -75,7 +33,7 @@ const linkedExternalPackageRoots: ReadonlyMap<string, string> = new Map(
 );
 
 describe("fresh consumer packed install", () => {
-  it("installs flarex-dev from local package tarballs and runs the CLI", async () => {
+  it("installs the packed internal graph and runs consumer smokes", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "flarex-packed-consumer-"));
     try {
       const packDir = join(tempRoot, "packs");
@@ -85,7 +43,7 @@ describe("fresh consumer packed install", () => {
       await mkdir(consumerDir);
       await mkdir(storeDir);
 
-      for (const packCase of packedPackages) {
+      for (const packCase of internalPackedPackages) {
         const pack = runPnpmPack(packCase.packageRoot, packDir);
         expectSuccessfulCommand(pack);
         await expect(stat(join(packDir, packCase.tarballName))).resolves.toBeDefined();
@@ -107,6 +65,7 @@ describe("fresh consumer packed install", () => {
         "utf8",
       );
       await writeMinimalFlarexProject(consumerDir);
+      await writePackedConsumerSmoke(consumerDir);
 
       const install = runPnpm(consumerDir, [
         "install",
@@ -144,6 +103,23 @@ describe("fresh consumer packed install", () => {
       expect(generatedCodegen.error).toBeUndefined();
       expect(generatedCodegen.status, commandOutput(generatedCodegen)).toBe(0);
       await expect(stat(join(consumerDir, "flarex/_generated/server.ts"))).resolves.toBeDefined();
+
+      const consumerTypecheck = runPnpm(
+        consumerDir,
+        ["exec", "tsc", "-p", "tsconfig.packed-smoke.json"],
+        120_000,
+      );
+      expect(consumerTypecheck.error).toBeUndefined();
+      expect(consumerTypecheck.status, commandOutput(consumerTypecheck)).toBe(0);
+
+      const consumerRuntime = runPnpm(
+        consumerDir,
+        ["exec", "tsx", "packed-smoke.ts"],
+        120_000,
+      );
+      expect(consumerRuntime.error).toBeUndefined();
+      expect(consumerRuntime.status, commandOutput(consumerRuntime)).toBe(0);
+      expect(consumerRuntime.stdout).toContain("packed-smoke ok");
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -169,6 +145,62 @@ export const list = query({ args: {}, handler: async () => [] });
   );
 }
 
+async function writePackedConsumerSmoke(root: string): Promise<void> {
+  await writeFile(
+    join(root, "tsconfig.packed-smoke.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          allowImportingTsExtensions: true,
+          exactOptionalPropertyTypes: true,
+          isolatedModules: true,
+          lib: ["ES2022", "DOM"],
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          skipLibCheck: true,
+          strict: true,
+          target: "ES2022",
+          types: ["@cloudflare/workers-types"],
+        },
+        include: ["packed-smoke.ts"],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await writeFile(
+    join(root, "packed-smoke.ts"),
+    `import { createFlarexNitroHandler, type FlarexNitroEventLike } from "@flarex/executor-nitro";
+import { FlarexTestInvocationError, flarexTest, type FlarexTest } from "flarex-test";
+
+const handlerFactory: typeof createFlarexNitroHandler = createFlarexNitroHandler;
+const testFactory: typeof flarexTest = flarexTest;
+const eventLike: FlarexNitroEventLike = { request: new Request("http://local/health") };
+let testHarness: FlarexTest | undefined;
+
+if (typeof handlerFactory !== "function") {
+  throw new Error("Nitro handler factory is not callable.");
+}
+if (typeof testFactory !== "function") {
+  throw new Error("Flarex test factory is not callable.");
+}
+if (!(FlarexTestInvocationError.prototype instanceof Error)) {
+  throw new Error("Flarex test invocation error does not extend Error.");
+}
+if (!(eventLike.request instanceof Request)) {
+  throw new Error("Nitro event request is not a Request.");
+}
+testHarness = undefined;
+void testHarness;
+
+console.log("packed-smoke ok");
+`,
+    "utf8",
+  );
+}
+
 function freshConsumerManifest(): Record<string, unknown> {
   return {
     name: "flarex-packed-consumer",
@@ -177,8 +209,10 @@ function freshConsumerManifest(): Record<string, unknown> {
     type: "module",
     dependencies: {
       "@cloudflare/workers-types": workspacePackageLink("@cloudflare/workers-types"),
-      flarex: "file:../packs/flarex-0.0.1.tgz",
-      "flarex-dev": "file:../packs/flarex-dev-0.0.1.tgz",
+      "@flarex/executor-nitro": internalPackedPackageSpecifier("@flarex/executor-nitro"),
+      flarex: internalPackedPackageSpecifier("flarex"),
+      "flarex-dev": internalPackedPackageSpecifier("flarex-dev"),
+      "flarex-test": internalPackedPackageSpecifier("flarex-test"),
       typescript: workspacePackageLink("typescript"),
       vite: workspacePackageLink("vite"),
     },
@@ -190,11 +224,10 @@ function freshConsumerWorkspaceYaml(): string {
   - .
 overrides:
 ${[
-  ...packedPackages
-    .filter(packCase => packCase.packageName !== "flarex-dev")
+  ...internalPackedPackages
     .map(packCase => ({
       packageName: packCase.packageName,
-      specifier: `file:../packs/${packCase.tarballName}`,
+      specifier: internalPackedPackageSpecifier(packCase.packageName),
     })),
   ...linkedExternalPackages.map(link => ({
     packageName: link.packageName,

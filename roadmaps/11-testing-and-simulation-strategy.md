@@ -1,5 +1,63 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Test SDK And Nitro Smoke
+
+Previous completed checkpoint: `fad789f` Add test SDK and Nitro package
+boundaries.
+
+What changed:
+
+- Extended `integration/fresh-consumer-pack.integration.test.ts` so the fresh
+  temp consumer installs packed `flarex-test` and packed
+  `@flarex/executor-nitro`.
+- The packed override matrix now covers all packed internal packages so
+  transitive dependencies resolve to the same local tarballs.
+- The internal package metadata is shared with the tarball-shape test, while
+  each test keeps its own expectations.
+- Added a temp consumer `packed-smoke.ts` and `tsconfig.packed-smoke.json`.
+- The integration test now verifies both TypeScript resolution with `tsc` and
+  runtime import resolution with `tsx` for those packages.
+
+Why it changed:
+
+The package graph gate should represent what app and adapter consumers actually
+do after install. Internal tarball shape tests can miss broken transitive
+dependency rewriting or source-mode export resolution.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package exports and dependency metadata define the installed SDK contract.
+
+Flarex differences:
+
+- The consumer still links external dependencies from the workspace store for
+  deterministic offline tests, while Convex's published package is consumed
+  from npm.
+- Flarex's test SDK and Nitro adapter are separate packages because local tests
+  and host adapters are part of this platform split.
+
+Known limitations:
+
+- This is an import/type/runtime smoke, not a full packed-app `flarexTest(...)`
+  invocation.
+- It does not boot Nitro. Nitro route behavior remains covered by
+  package-level adapter tests.
+- The consumer typecheck follows the existing generated-output
+  Vite/Bundler-style resolution path, not a built NodeNext package artifact
+  path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Test SDK And Nitro Adapter Packability
 
 Previous completed checkpoint: `339e671` Add packed consumer generated
