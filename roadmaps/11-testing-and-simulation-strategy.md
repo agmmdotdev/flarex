@@ -1,5 +1,65 @@
 # Testing and Simulation Strategy
 
+## Shared Package Packability Gates
+
+Previous completed checkpoint: `000379c` Add flarex-dev packability gate.
+
+What changed:
+
+- Added `integration/packabilityHelpers.ts` for shared tarball inspection:
+  - bounded `pnpm pack` execution,
+  - dynamic tarball discovery,
+  - packed/source manifest parsing,
+  - export-target existence checks,
+  - local dependency protocol checks, and
+  - tarball entry reads.
+- Added `integration/internal-packages-pack.integration.test.ts` covering
+  `flarex` and `flarex-backend`.
+- The existing `flarex-dev` pack test now reuses the same helpers.
+
+Why it changed:
+
+The first packability gate was specific to `flarex-dev`. The next steps need to
+check multiple internal packages the same way, so the narrow shared helper keeps
+the tests consistent without duplicating unsafe JSON parsing or process-spawn
+logic.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package `files`, `exports`, and `bin` shape are part of the public
+    compatibility surface.
+
+Flarex differences:
+
+- These tests inspect source-mode tarballs, not built npm artifacts.
+- `flarex-backend` keeps existing public test-namespaced exports; the test
+  allows only the exact `package/test/backendHarness.ts` file under `test/`
+  because `./test/sync-protocol` points at `src/syncProtocol.ts`.
+- The internal package packability test asserts required optional peer
+  dependencies and `peerDependenciesMeta.optional` for public test helpers such
+  as the backend harness.
+
+Known limitations:
+
+- No full packed install fixture yet.
+- The helper currently handles string export targets only, matching current
+  Flarex package manifests.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex pack --dry-run
+corepack pnpm --filter flarex-backend pack --dry-run
+git diff --check
+```
+
 ## CLI Packability Integration
 
 Previous completed checkpoint: `5cf8dcd` Cover flarex-dev consumer bin shim.

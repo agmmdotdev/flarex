@@ -1,5 +1,66 @@
 # SDK And CLI Fork
 
+## Internal Package Tarball Prerequisites
+
+Previous completed checkpoint: `000379c` Add flarex-dev packability gate.
+
+What changed:
+
+- Added publish `files` whitelists for `flarex` and `flarex-backend`.
+- `flarex` now packs package metadata, `LICENSE.convex`, and `src`.
+- `flarex-backend` now packs package metadata, `src`, and the existing public
+  `./test/backendHarness` file export target only.
+- `flarex-backend` now declares optional peer dependencies for `miniflare` and
+  `vite`, because the public backend harness export imports them.
+- Internal package packability coverage asserts those harness peers are present
+  and marked optional in `peerDependenciesMeta`.
+- Factored tarball inspection helpers out of the `flarex-dev` pack test and
+  reused them for internal package packability coverage.
+
+Why it changed:
+
+`flarex-dev` depends on internal Flarex packages. A fresh packed install cannot
+be reliable while those internal tarballs still publish broad test/config
+surfaces. Convex keeps npm package contents explicit through `files`, and Flarex
+needs the same package-surface control package by package.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - uses explicit `files` plus package `exports`/`bin` as the public npm
+    surface.
+
+Flarex differences:
+
+- Convex publishes built artifacts. These Flarex packages still publish
+  source-mode TypeScript, so tests assert that all string export targets exist
+  in the packed source tarballs.
+- `flarex-backend` intentionally still exposes `./test/backendHarness` and
+  `./test/sync-protocol`; this checkpoint preserves those existing public
+  test-namespaced exports rather than redesigning them.
+
+Known limitations:
+
+- This still does not install all packed packages into a fresh consumer.
+- Remaining internal dependencies such as `@flarex/persistence-postgres`,
+  `@flarex/freshness`, `@flarex/executor`, and `@flarex/executor-http` still
+  need equivalent package-surface gates before the full install test is worth
+  adding.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex pack --dry-run
+corepack pnpm --filter flarex-backend pack --dry-run
+git diff --check
+```
+
 ## Packed CLI Tarball Gate
 
 Previous completed checkpoint: `5cf8dcd` Cover flarex-dev consumer bin shim.

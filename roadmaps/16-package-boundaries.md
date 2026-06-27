@@ -1,5 +1,65 @@
 # Package Boundaries
 
+## Source Package Tarball Boundaries
+
+Previous completed checkpoint: `000379c` Add flarex-dev packability gate.
+
+What changed:
+
+- Added explicit package `files` boundaries for:
+  - `flarex`: `LICENSE.convex` and `src`,
+  - `flarex-backend`: `src` and `test/backendHarness.ts`.
+- Added optional peer dependencies for `miniflare` and `vite` because the
+  public `flarex-backend/test/backendHarness` export imports those packages.
+- Added packability coverage proving those peers are marked optional in the
+  packed manifest.
+- Added integration coverage proving those tarballs contain their public export
+  targets and exclude broad test/config files.
+
+Boundary rule:
+
+Published source-mode packages should expose only the files referenced by their
+public package surface. Tests, Vitest config, and TypeScript project config are
+not package runtime surface. Existing exported test helpers and test-namespaced
+exports must be named and allowed explicitly instead of leaking whole `test/`
+directories. If a public test helper imports test/runtime packages, those
+packages must be declared as dependencies or peers instead of staying only in
+`devDependencies`.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - uses explicit `files` to control the npm package boundary.
+
+Flarex differences:
+
+- Flarex still ships TypeScript source in these packages; Convex ships built
+  artifacts.
+- `flarex-backend` still has public `./test/backendHarness` and
+  `./test/sync-protocol` exports. This checkpoint preserves the existing
+  exports and limits the package to the exact test helper file plus source
+  targets.
+
+Known limitations:
+
+- This does not decide whether `./test/backendHarness` or `./test/sync-protocol`
+  should remain public long-term.
+- Other internal packages still need the same boundary hardening.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex build
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex pack --dry-run
+corepack pnpm --filter flarex-backend pack --dry-run
+git diff --check
+```
+
 ## DeliveryDO Executor Injection Implementation
 
 Previous completed checkpoint: `f12a7d2` Add live query delivery claim ack

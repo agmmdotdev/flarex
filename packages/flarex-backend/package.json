@@ -2,6 +2,10 @@
   "name": "flarex-backend",
   "version": "0.0.1",
   "type": "module",
+  "files": [
+    "src",
+    "test/backendHarness.ts"
+  ],
   "exports": {
     ".": "./src/worker.ts",
     "./artifact-runtime": "./src/artifactRuntime.ts",
@@ -18,6 +22,18 @@
   },
   "dependencies": {
     "flarex": "workspace:*"
+  },
+  "peerDependencies": {
+    "miniflare": "catalog:",
+    "vite": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "miniflare": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "miniflare": "catalog:",
