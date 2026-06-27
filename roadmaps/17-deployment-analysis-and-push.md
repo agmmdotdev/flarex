@@ -1,5 +1,52 @@
 # Deployment Analysis And Push
 
+## Deployment Error Module
+
+Previous completed checkpoint: `566ddfa` Extract deployment push read service.
+
+What changed:
+
+- Extracted deployment push/active tagged errors from `DeploymentService` into
+  `deployment/Errors.ts`.
+- Preserved unknown-push, invalid-state, and no-active-deployment error tags
+  and payload fields.
+- Kept `DeploymentDO.runDeployment` responsible for converting those typed
+  failures to the existing HTTP responses.
+
+Why it changed:
+
+The push state surface now uses the deployment service for start, finish,
+abandon, active read, and single-push read. A dedicated typed error module is
+the narrow cleanup needed before moving into validator extraction.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's internal Effect
+  error boundary cleanup.
+
+Flarex differences:
+
+- Error classes remain backend-local implementation types, not protocol
+  response schemas.
+
+Known limitations:
+
+- Deeper analysis/codegen validation is intentionally unchanged.
+- The next validator slice must preserve exact current failure messages.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Push Status Read Service
 
 Previous completed checkpoint: `a93b051` Extract active deployment service

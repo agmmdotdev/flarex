@@ -11,8 +11,8 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
-  DeploymentService,
-} from "./deployment/Service";
+} from "./deployment/Errors";
+import { DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {

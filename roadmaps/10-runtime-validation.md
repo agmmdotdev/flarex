@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Deployment Error Module Validation
+
+Previous completed checkpoint: `566ddfa` Extract deployment push read service.
+
+What changed:
+
+- Moved deployment service tagged errors into `deployment/Errors.ts`.
+- Kept `DeploymentPushNotFoundError`, `DeploymentPushInvalidStateError`, and
+  `DeploymentActiveDeploymentNotFoundError` names, fields, and constructors
+  unchanged.
+- Updated `DeploymentService`, `DeploymentDO`, and deployment service tests to
+  import typed errors from the dedicated error module.
+- Preserved `DeploymentDO.runDeployment` HTTP mapping for no active deployment,
+  unknown push, and invalid abandon state.
+
+Why it changed:
+
+The deployment service now owns several read/write branches. Pulling typed
+errors into a small module keeps the Effect error boundary reusable before
+semantic validator extraction starts.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a Flarex-internal module
+  boundary cleanup around the existing deployment state machine.
+
+Cloudflare differences:
+
+- Durable Object routing and SQLite ownership are unchanged. The split only
+  changes where typed Effect error classes live.
+
+Known limitations:
+
+- Deep deployment analysis/codegen request validation remains in
+  `DeploymentDO`.
+- No new protocol schemas or router abstraction were introduced.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Push Read Service Validation
 
 Previous completed checkpoint: `a93b051` Extract active deployment service

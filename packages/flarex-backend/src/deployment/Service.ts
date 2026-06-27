@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { HttpError } from "../http";
 import type {
   AbandonPushRequest,
@@ -12,6 +12,11 @@ import type {
 } from "../types";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
 import { DeploymentPushStore, type DeploymentSqlError } from "./Store";
+import {
+  DeploymentActiveDeploymentNotFoundError,
+  DeploymentPushInvalidStateError,
+  DeploymentPushNotFoundError,
+} from "./Errors";
 
 export type StartAnalyzedPushInput = {
   readonly sourcePackage: PushSourcePackage;
@@ -25,27 +30,6 @@ export type StartAnalyzedPushInput = {
       readonly error: string;
     }
 );
-
-export class DeploymentPushNotFoundError extends Schema.TaggedErrorClass<DeploymentPushNotFoundError>()(
-  "DeploymentPushNotFoundError",
-  {
-    pushId: Schema.String,
-  },
-) {}
-
-export class DeploymentPushInvalidStateError extends Schema.TaggedErrorClass<DeploymentPushInvalidStateError>()(
-  "DeploymentPushInvalidStateError",
-  {
-    action: Schema.Literal("abandon"),
-    pushId: Schema.String,
-    state: Schema.String,
-  },
-) {}
-
-export class DeploymentActiveDeploymentNotFoundError extends Schema.TaggedErrorClass<DeploymentActiveDeploymentNotFoundError>()(
-  "DeploymentActiveDeploymentNotFoundError",
-  {},
-) {}
 
 export class DeploymentService extends Context.Service<DeploymentService, {
   getActiveDeployment(): Effect.Effect<

@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## Deployment Error Module Boundary
+
+Previous completed checkpoint: `566ddfa` Extract deployment push read service.
+
+What changed:
+
+- Added `packages/flarex-backend/src/deployment/Errors.ts` for deployment
+  service tagged errors.
+- Kept service implementation in `DeploymentService` and HTTP mapping in
+  `DeploymentDO`.
+- Updated tests to assert the same typed error classes from the dedicated
+  module.
+
+Why it changed:
+
+As deployment orchestration moves behind Effect services, typed domain errors
+should be importable without pulling the service implementation itself into
+every boundary or test.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint only clarifies the
+  current Flarex package boundary.
+
+Flarex differences:
+
+- Flarex still maps errors at the Durable Object HTTP boundary. The error
+  module is not a public SDK contract.
+
+Known limitations:
+
+- Protocol/parser errors remain in `flarex-protocol/deployment`.
+- Semantic validators are still local to `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Push Read Service Boundary
 
 Previous completed checkpoint: `a93b051` Extract active deployment service
