@@ -82,6 +82,73 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("rejects malformed analyzed push request bodies", async () => {
+    const invalidJson = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/push-start-bad-body/push/start-analyzed",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(invalidJson.status).toBe(400);
+    await expect(invalidJson.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
+    const invalidSourcePackage = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: {
+        ...sourcePackage(),
+        modules: "not-modules",
+      },
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+    });
+    expect(invalidSourcePackage.status).toBe(400);
+    await expect(invalidSourcePackage.json()).resolves.toEqual({
+      error: "Source package modules must be an array.",
+    });
+
+    const invalidDiagnostics = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      diagnostics: "not-diagnostics",
+    });
+    expect(invalidDiagnostics.status).toBe(400);
+    await expect(invalidDiagnostics.json()).resolves.toEqual({
+      error: "Push diagnostics must be an array.",
+    });
+
+    const invalidDiagnosticEntry = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      diagnostics: [{ level: "debug", message: "too chatty" }],
+    });
+    expect(invalidDiagnosticEntry.status).toBe(400);
+    await expect(invalidDiagnosticEntry.json()).resolves.toEqual({
+      error: "Push diagnostic at index 0 has an invalid level.",
+    });
+
+    const successWithError = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      error: "should not be present",
+    });
+    expect(successWithError.status).toBe(400);
+    await expect(successWithError.json()).resolves.toEqual({
+      error: "A push with analysis must not include error.",
+    });
+
+    const failureWithCodegen = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      codegenAnalysis: candidateCodegenAnalysis(),
+    });
+    expect(failureWithCodegen.status).toBe(400);
+    await expect(failureWithCodegen.json()).resolves.toEqual({
+      error: "A push without analysis must not include codegenAnalysis.",
+    });
+  });
+
   it("preserves analyzer codegen analysis through source-only push activation", async () => {
     const package_ = sourcePackage();
     const analysis = {
@@ -958,7 +1025,7 @@ async function startPushWithHarness(
 ): Promise<PushStatus> {
   const response = await startPushResponseWithHarness(target, deploymentId, body);
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  return parsePushStatus(await response.json()) as PushStatus;
 }
 
 async function startPushResponse(
@@ -966,6 +1033,13 @@ async function startPushResponse(
   body: AnalyzedStartPushRequest,
 ): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
   return startPushResponseWithHarness(harness, deploymentId, body);
+}
+
+async function startPushRawResponse(
+  deploymentId: string,
+  body: unknown,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return startPushResponseWithHarness(harness, deploymentId, body as AnalyzedStartPushRequest);
 }
 
 async function startPushResponseWithHarness(

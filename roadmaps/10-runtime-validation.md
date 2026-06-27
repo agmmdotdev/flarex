@@ -1,5 +1,64 @@
 # Runtime Validation
 
+## Deployment Push Start Protocol Validation
+
+Previous completed checkpoint: `6d026a9` Add deployment abandon protocol
+schema.
+
+What changed:
+
+- DeploymentDO analyzed push-start bodies now decode through
+  `flarex-protocol/deployment`.
+- The protocol layer validates source package presence, diagnostics array
+  shape, the failed-analysis `error` requirement, and success/failure mutual
+  exclusion before `startPush` runs.
+- Existing DeploymentDO validators still validate source package semantics,
+  diagnostics items, deployment analysis, codegen analysis, schema, functions,
+  validators, and partition metadata.
+- Focused push tests now cover invalid JSON, preserved source package
+  validation, invalid diagnostics wrapper, mixed success/failure wrappers,
+  valid analyzed push response parsing, and failed analysis push response
+  parsing.
+
+Why it changed:
+
+This moves the next stable transport contract into the protocol package while
+keeping the correctness-sensitive deployment metadata validation path
+unchanged.
+
+Convex references inspected:
+
+- No new Convex source files were required. The same deploy-analysis direction
+  remains documented in the deployment roadmap.
+
+Cloudflare differences:
+
+- Validation still occurs inside a Cloudflare Durable Object `fetch()` handler,
+  with `DeploymentProtocolValidationError` mapped to HTTP 400 before the
+  existing error helper.
+
+Known limitations:
+
+- Deep `sourcePackage`, diagnostics item, `analysis`, and `codegenAnalysis`
+  schemas are intentionally deferred for the start-analyzed route so existing
+  DeploymentDO validation messages stay stable.
+- Finish-push still uses its existing request and response handling.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "skips stale failed live query deliveries after a newer result is active"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deployment Abandon Protocol Validation
 
 Previous completed checkpoint: `90f4383` Test registry Effect service.

@@ -1,5 +1,68 @@
 # Package Boundaries
 
+## Deployment Push Start Protocol Boundary
+
+Previous completed checkpoint: `6d026a9` Add deployment abandon protocol
+schema.
+
+What changed:
+
+- Extended `flarex-protocol/deployment` with source package and analyzed
+  push-start wrapper schemas:
+  `PushSourceModule`, `PushSourcePackage`, `PushDiagnostic`, and
+  `AnalyzedStartPushRequest`.
+- DeploymentDO now decodes `POST /push/start-analyzed` bodies with
+  `parseAnalyzedStartPushRequest`.
+- DeploymentDO normalizes the protocol class output into its existing backend
+  `AnalyzedStartPushRequest` shape before calling the unchanged `startPush`
+  implementation, including explicit success/failure mutual-exclusion checks.
+- Focused push lifecycle tests now parse successful analyzed push responses
+  through `parsePushStatus` and cover invalid JSON, preserved source package
+  validation, preserved diagnostics item validation, invalid diagnostics
+  wrappers, and mixed success/failure wrappers.
+
+Why it changed:
+
+The abandon-push slice proved the deployment protocol subpath on a tiny route.
+Push start is the next useful boundary because it validates input before any
+push row is written while still allowing the deeper deployment analysis
+validators to remain local.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is still an incremental
+  TypeScript protocol-boundary migration, not a redesign of deploy analysis or
+  activation semantics.
+
+Flarex differences:
+
+- Convex deploy APIs have mature backend service contracts. Flarex is
+  extracting those contracts gradually from a Cloudflare Durable Object router.
+
+Known limitations:
+
+- `sourcePackage`, diagnostics items, `analysis`, and `codegenAnalysis` remain
+  deep-validated by DeploymentDO helpers. The protocol exports source package
+  and diagnostic schemas for response parsing, but
+  `parseAnalyzedStartPushRequest` only owns the push-start wrapper contract
+  until those validators can be migrated without changing error semantics.
+- Public source-only `/push/start` remains unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "skips stale failed live query deliveries after a newer result is active"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deployment Abandon Protocol Boundary
 
 Previous completed checkpoint: `90f4383` Test registry Effect service.

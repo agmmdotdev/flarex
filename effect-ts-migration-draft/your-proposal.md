@@ -2,12 +2,20 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `90f4383` Test registry Effect service.
-- Active checkpoint: extend `flarex-protocol` to the DeploymentDO abandon-push boundary while keeping DeploymentDO SQL/router behavior unchanged.
+- Previous completed checkpoint: `6d026a9` Add deployment abandon protocol schema.
+- Active checkpoint: extend `flarex-protocol/deployment` to source package, diagnostics, and analyzed push-start wrapper schemas while keeping deep deployment and diagnostics item validators in DeploymentDO.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 
-Current Goal 4 slice:
+Current Goal 5 slice:
+
+1. Add `PushSourceModule`, `PushSourcePackage`, `PushDiagnostic`, and `AnalyzedStartPushRequest` schemas to `flarex-protocol/deployment`.
+2. Convert only `POST /push/start-analyzed` body decoding to `parseAnalyzedStartPushRequest`.
+3. Normalize protocol class output back into the existing backend `AnalyzedStartPushRequest` exact optional shape before calling `DeploymentDO.startPush`, including explicit success/failure mutual-exclusion checks.
+4. Keep existing `validateSourcePackage`, `validateDiagnostics`, `validateAnalysis`, `validateCodegenAnalysis`, SQL writes, and push state transitions unchanged.
+5. Add focused tests for valid analyzed push response parsing, failed-analysis push response parsing, invalid JSON, preserved source package validation, invalid diagnostics wrapper and item validation, and mixed success/failure wrappers.
+
+Completed Goal 4 slice:
 
 1. Add `flarex-protocol/deployment` for the narrow `POST /push/:id/abandon` boundary.
 2. Define `AbandonPushRequest`, `PushStatus`, and `DeploymentProtocolValidationError` with Effect Schema.
@@ -35,9 +43,9 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 4 should be one of:
+Next checkpoint after Goal 5 should be one of:
 
-- Extend `flarex-protocol/deployment` to source package and analyzed push start schemas.
+- Extend `flarex-protocol/deployment` to deep deployment schema/function metadata and codegen analysis contracts.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

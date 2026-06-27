@@ -4,8 +4,10 @@ import {
   validateExecutionArtifactRef,
 } from "flarex/artifacts";
 import {
+  parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
   parseAbandonPushRequest,
+  type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
@@ -106,7 +108,8 @@ export class DeploymentDO extends DurableObject<Env> {
         return json(active);
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
-        return json(await this.startPush(await readJson<AnalyzedStartPushRequest>(request)));
+        const body = parseAnalyzedStartPushRequest(await readJson(request));
+        return json(await this.startPush(analyzedStartPushRequest(body)));
       }
       const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
       if (pushMatch) {
@@ -526,6 +529,30 @@ function parsePushState(value: string): PushStatus["state"] {
     return value;
   }
   throw new Error(`Unknown stored push state ${value}.`);
+}
+
+function analyzedStartPushRequest(request: ProtocolAnalyzedStartPushRequest): AnalyzedStartPushRequest {
+  const sourcePackage = validateSourcePackage(request.sourcePackage as PushSourcePackage);
+  const diagnostics = request.diagnostics === undefined
+    ? undefined
+    : validateDiagnostics(request.diagnostics);
+  if (request.analysis === undefined) {
+    const error = request.error;
+    if (error === undefined) {
+      throw new Error("Parsed failed push request is missing error.");
+    }
+    return {
+      sourcePackage,
+      error,
+      ...(diagnostics === undefined ? {} : { diagnostics }),
+    };
+  }
+  return {
+    sourcePackage,
+    analysis: request.analysis,
+    ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+  };
 }
 
 function validateAnalysis(analysis: unknown): DeploymentAnalysis {
