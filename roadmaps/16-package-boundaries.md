@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Packed Test SDK Mutation Boundary
+
+Previous completed checkpoint: `5cb7dee` Run packed test SDK against
+generated app.
+
+What changed:
+
+- Added a generated `messages.send` mutation to the packed fresh-consumer
+  fixture.
+- The packed consumer now invokes both generated query and mutation references
+  through the installed `flarex-test` package.
+- The mutation result and the follow-up query prove the write path persists
+  data through the packed consumer runtime, including matching the returned id
+  to the queried document `_id`.
+
+Why it changed:
+
+Package boundaries for test helpers should prove the app-facing behavior that
+developers rely on. A read-only query smoke did not prove that the installed
+test SDK can drive mutation sessions and observe committed writes through the
+same generated app API.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - installed package exports are the consumer boundary.
+- Convex test-helper ergonomics remain the model for invoking generated app
+  functions through a compact test harness.
+
+Flarex differences:
+
+- Flarex validates this through a temp source-mode package consumer and local
+  Miniflare/dev runtime. Convex publishes built artifacts and targets its own
+  backend/test runtime.
+
+Known limitations:
+
+- This proves a single-partition write in the packed consumer. Subscription,
+  identity, reset, and Postgres-transport consumer gates remain future work.
+- Built NodeNext artifact validation remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Invocation Boundary
 
 Previous completed checkpoint: `44878a0` Add packed consumer smokes for test

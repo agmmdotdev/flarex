@@ -1,5 +1,59 @@
 # Test SDK
 
+## Packed Consumer Test SDK Mutation
+
+Previous completed test-SDK checkpoint: `5cb7dee` Run packed test SDK against
+generated app.
+
+What changed:
+
+- Extended the packed fresh-consumer temp app with a public
+  `messages.send` mutation.
+- The packed `packed-flarex-test.ts` script now:
+  - confirms the initial generated query result is empty,
+  - invokes `api.messages.send` through `flarexTest().mutation(...)`,
+  - verifies the returned message id shape,
+  - queries `api.messages.list` again and verifies the persisted document is
+    visible with the returned `_id`, expected `userId`, and expected body.
+
+Why it changed:
+
+The previous checkpoint proved that the installed `flarex-test` package can
+boot a generated app and run a query. The test SDK also needs package-boundary
+coverage for mutation/write sessions because Convex-style test harnesses are
+used to validate application mutations, not only reads.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration: app tests should invoke generated function references through a
+  compact harness.
+- `npm-packages/convex/package.json`
+  - installed SDK exports define the consumer-facing test contract.
+
+Flarex differences:
+
+- Flarex's packed consumer harness runs through local Miniflare/dev runtime and
+  the current Flarex backend simulation. Convex's equivalent helper path runs
+  against Convex's backend/test runtime.
+
+Known limitations:
+
+- This covers a single-partition mutation followed by a query. Subscription,
+  identity helper, reset helper, and Postgres-transport packed test SDK gates
+  remain future work.
+- The typecheck is still a Vite/Bundler-style source-package check until Flarex
+  publishes built artifacts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Invocation
 
 Previous completed test-SDK checkpoint: `44878a0` Add packed consumer smokes

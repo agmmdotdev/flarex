@@ -153,7 +153,7 @@ export default defineSchema({
   );
   await writeFile(
     join(root, "flarex/functions/messages.ts"),
-    `import { model, query } from "../_generated/server";
+    `import { model, mutation, query } from "../_generated/server";
 import { v } from "flarex/values";
 
 export const list = query({
@@ -164,6 +164,17 @@ export const list = query({
       .query("messages")
       .withIndex("by_user", q => q.eq("userId", args.userId))
       .collect();
+  },
+});
+
+export const send = mutation({
+  partition: model.users,
+  args: { userId: v.id("users"), body: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("messages", {
+      userId: args.userId,
+      body: args.body,
+    });
   },
 });
 `,
@@ -240,6 +251,20 @@ try {
   const messages = await t.query(api.messages.list, { userId });
   if (!Array.isArray(messages) || messages.length !== 0) {
     throw new Error(\`Expected empty messages list, got \${JSON.stringify(messages)}\`);
+  }
+  const messageId = await t.mutation(api.messages.send, { userId, body: "hello" });
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    throw new Error(\`Expected message id, got \${JSON.stringify(messageId)}\`);
+  }
+  const updatedMessages = await t.query(api.messages.list, { userId });
+  if (
+    !Array.isArray(updatedMessages) ||
+    updatedMessages.length !== 1 ||
+    updatedMessages[0]?._id !== messageId ||
+    updatedMessages[0]?.userId !== userId ||
+    updatedMessages[0]?.body !== "hello"
+  ) {
+    throw new Error(\`Expected persisted message, got \${JSON.stringify(updatedMessages)}\`);
   }
   console.log("packed-flarex-test ok");
 } finally {

@@ -1,5 +1,55 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Test SDK Mutation
+
+Previous completed checkpoint: `5cb7dee` Run packed test SDK against generated
+app.
+
+What changed:
+
+- Added a generated mutation path to the packed fresh-consumer fixture.
+- The packed consumer test now verifies:
+  - initial generated query result is empty,
+  - `flarexTest().mutation(api.messages.send, ...)` returns a message id,
+  - a follow-up generated query sees the persisted message with the same `_id`
+    and partition owner.
+
+Why it changed:
+
+The previous packed test SDK check proved a generated query only. A test SDK
+consumer gate should also cover writes, because application tests commonly use
+the harness to validate mutation behavior.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in the Test SDK roadmap:
+  application tests should use generated references and a compact harness API.
+- `npm-packages/convex/package.json`
+  - installed package metadata is part of the testable consumer contract.
+
+Flarex differences:
+
+- Flarex validates mutation behavior through the local dev runtime and
+  source-mode packed packages. Convex's equivalent testing path is tied to
+  Convex's backend/test runtime.
+
+Known limitations:
+
+- This covers one single-partition mutation and read-after-write check.
+  Subscriptions, identity, reset helpers, and Postgres-transport packed tests
+  remain future work.
+- The fixture still validates source-mode packages with Bundler-style
+  TypeScript resolution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Invocation
 
 Previous completed checkpoint: `44878a0` Add packed consumer smokes for test
