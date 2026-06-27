@@ -1,5 +1,55 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Postgres Subscription
+
+Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke
+flow.
+
+What changed:
+
+- Added Postgres live-query subscription behavior to the packed consumer
+  `flarex-test` script.
+- Reused one generated live-query assertion helper for both legacy and Postgres
+  packed scripts so the subscription contract stays synchronized.
+- The fresh install now verifies the Postgres transport can deliver a
+  subscription update after a sync client mutation, using generated app
+  references and the installed package graph.
+
+Why it changed:
+
+The testing strategy needs package-boundary coverage for both direct invoke and
+live sync. Workspace E2E tests already covered Postgres sync, but a clean
+installed consumer is the stronger regression gate for developer-facing app
+tests.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - live query callbacks are client-facing behavior, not only backend rerun
+    internals.
+- Convex testing helper ergonomics recorded in the Test SDK roadmap.
+
+Flarex differences:
+
+- Flarex's local Postgres sync path is PGlite-backed and bridged through
+  Miniflare. Convex's equivalent client tests run against Convex's runtime
+  model.
+
+Known limitations:
+
+- This does not test real Postgres concurrency, network distance, or hosted
+  WebSocket deployment.
+- Identity/reset/seed helpers remain unimplemented.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Postgres Invoke
 
 Previous completed checkpoint: `d133982` Cover packed test SDK live query

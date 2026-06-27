@@ -1,5 +1,56 @@
 # Sync And Subscriptions
 
+## Packed Consumer Postgres Subscription
+
+Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke
+flow.
+
+What changed:
+
+- Extended the packed fresh-consumer test SDK script for
+  `executorTransport: "postgres"` to subscribe with `client.onUpdate(...)`.
+- Reused a shared generated live-query assertion helper so legacy and Postgres
+  packed sync smokes keep the same wait/error/cleanup behavior.
+- The packed script now proves the Postgres/PGlite executor path can deliver
+  the initial live query result and a mutation-triggered live query update from
+  a clean installed consumer package graph.
+
+Why it changed:
+
+The sync system had workspace E2E coverage and packed legacy subscription
+coverage. The missing developer-facing proof was packed Postgres subscription
+delivery, which exercises the forward sync path through the same public client
+surface app tests use.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex clients subscribe to queries and receive updated results through the
+    sync protocol.
+- `crates/sync/src/state.rs`
+  - active query state emits updates only when rerun results change.
+
+Flarex differences:
+
+- Flarex's local Postgres subscription test routes through PGlite, the trusted
+  executor, Miniflare, and Cloudflare-shaped sync delivery. Convex does not
+  expose this split to the test harness.
+
+Known limitations:
+
+- This is a local package-boundary smoke, not a hosted WebSocket deployment
+  test.
+- Identity-aware subscriptions and auth transitions remain future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Live Query
 
 Previous completed sync checkpoint: `a738186` Cover packed test SDK mutation

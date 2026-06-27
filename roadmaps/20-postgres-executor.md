@@ -1,5 +1,57 @@
 # Postgres Executor
 
+## Packed Test SDK Postgres Subscription
+
+Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke
+flow.
+
+What changed:
+
+- Extended the packed fresh-consumer Postgres test to exercise live query
+  delivery through `flarex-test`'s public `client()` API.
+- The Postgres script now shares the generated live-query assertion helper used
+  by the legacy packed script.
+- The installed consumer now proves a Postgres-backed subscription receives the
+  initial query result, a sync mutation writes through the trusted executor,
+  and the live query callback receives the updated result.
+
+Why it changed:
+
+Postgres invoke is not enough for the platform target. The forward executor
+path also owns mutation-triggered invalidation, durable delivery rows, and sync
+fanout. A packed consumer gate now verifies that those pieces are reachable
+through the developer test SDK surface.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's client treats query subscriptions as the normal frontend path.
+- `crates/sync/src/state.rs`
+  - backend query state suppresses unchanged results and emits updates when
+    reruns change.
+
+Flarex differences:
+
+- Flarex splits trusted Postgres execution from Cloudflare-shaped connection
+  delivery. Convex keeps these responsibilities inside its backend runtime.
+- This is still the PGlite/local test lane, not the real Postgres lock/isolation
+  lane.
+
+Known limitations:
+
+- No hosted Nitro/Vercel plus Cloudflare Worker deployment smoke exists yet.
+- Real Postgres delivery/concurrency remains covered by lower-level lanes, not
+  this packed consumer fixture.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Postgres Invoke
 
 Previous completed checkpoint: `d133982` Cover packed test SDK live query

@@ -1,5 +1,62 @@
 # Test SDK
 
+## Packed Consumer Postgres Test SDK Subscription
+
+Previous completed test-SDK checkpoint: `9b0486f` Cover packed test SDK
+Postgres invoke flow.
+
+What changed:
+
+- Extended `packed-flarex-postgres-test.ts` to create a public
+  `FlarexClient` from `flarexTest({ executorTransport: "postgres" }).client()`.
+- The packed Postgres script now subscribes to `api.messages.list`, waits for
+  the initial Postgres-backed query result, runs `client.mutation(api.messages.send, ...)`,
+  and waits for the live-query update delivered through the Postgres executor
+  delivery path.
+- Extracted a shared generated `packed-live-query-helpers.ts` helper so both
+  legacy and Postgres packed scripts use the same order-insensitive message-set
+  predicate, timeout behavior, cleanup, and async subscription error handling.
+
+Why it changed:
+
+The previous checkpoint proved direct Postgres query/mutation/read-after-write
+from a clean installed consumer. Convex-style app tests also depend on the
+client subscription surface, so the packed test SDK must prove that the
+Postgres transport can drive live query delivery through the public harness.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's browser client owns live query subscription updates.
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration: generated function references plus a compact app-test harness.
+
+Flarex differences:
+
+- Flarex's Postgres local lane uses PGlite plus the trusted executor and
+  Cloudflare-shaped sync bridge. Convex's test surface talks to one Convex
+  backend runtime.
+- The transport selector remains Flarex-specific during migration from the
+  legacy Durable Object prototype.
+
+Known limitations:
+
+- This covers packed Postgres live-query delivery in the local PGlite lane, not
+  real Postgres network latency or production WebSocket hosting.
+- Identity helper, reset helper, seed helper, and built-artifact package
+  validation remain future work.
+- The shared helper is generated only inside this packed-consumer fixture. A
+  future SDK helper may expose a first-class live-query assertion API.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Postgres Test SDK Invoke
 
 Previous completed test-SDK checkpoint: `d133982` Cover packed test SDK live

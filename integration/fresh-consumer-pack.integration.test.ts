@@ -213,6 +213,7 @@ async function writePackedConsumerSmoke(root: string): Promise<void> {
           "packed-smoke.ts",
           "packed-flarex-test.ts",
           "packed-flarex-postgres-test.ts",
+          "packed-live-query-helpers.ts",
         ],
       },
       null,
@@ -250,65 +251,50 @@ console.log("packed-smoke ok");
     "utf8",
   );
   await writeFile(
-    join(root, "packed-flarex-test.ts"),
-    `import { flarexTest, type FlarexTest } from "flarex-test";
+    join(root, "packed-live-query-helpers.ts"),
+    `import type { FlarexTest } from "flarex-test";
 import type { FunctionReturnType } from "flarex";
-import { encodeFlarexId } from "flarex/server";
 import { api } from "./flarex/_generated/api";
-import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
-import type { TableNames } from "./flarex/_generated/dataModel";
 import type { Id } from "flarex/values";
 
-const usersTable = "users" satisfies TableNames;
-const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "u1");
-const t = await flarexTest();
-try {
-  const messages = await t.query(api.messages.list, { userId });
-  if (!Array.isArray(messages) || messages.length !== 0) {
-    throw new Error(\`Expected empty messages list, got \${JSON.stringify(messages)}\`);
-  }
-  const messageId = await t.mutation(api.messages.send, { userId, body: "hello" });
-  if (typeof messageId !== "string" || messageId.length === 0) {
-    throw new Error(\`Expected message id, got \${JSON.stringify(messageId)}\`);
-  }
-  const updatedMessages = await t.query(api.messages.list, { userId });
-  if (
-    !Array.isArray(updatedMessages) ||
-    updatedMessages.length !== 1 ||
-    updatedMessages[0]?._id !== messageId ||
-    updatedMessages[0]?.userId !== userId ||
-    updatedMessages[0]?.body !== "hello"
-  ) {
-    throw new Error(\`Expected persisted message, got \${JSON.stringify(updatedMessages)}\`);
-  }
-  await expectLiveMessageUpdate(t, userId);
-  console.log("packed-flarex-test ok");
-} finally {
-  await t.dispose();
-}
-
-async function expectLiveMessageUpdate(
-  t: FlarexTest,
-  userId: Id<"users">,
-): Promise<void> {
-  const client = t.client();
+export async function expectPackedLiveMessageUpdate(input: {
+  t: FlarexTest;
+  userId: Id<"users">;
+  initialBodies: readonly string[];
+  liveBody: string;
+  label: string;
+}): Promise<void> {
+  const client = input.t.client();
   const updates: Array<FunctionReturnType<typeof api.messages.list>> = [];
   const errors: Error[] = [];
   const unsubscribe = client.onUpdate(
     api.messages.list,
-    { userId },
+    { userId: input.userId },
     value => updates.push(value),
     error => errors.push(error),
   );
 
   try {
-    await waitFor(() => hasMessageSet(latestUpdate(updates), ["hello"]), errors);
-    await client.mutation(api.messages.send, { userId, body: "live" });
-    await waitFor(() => hasMessageSet(latestUpdate(updates), ["hello", "live"]), errors);
+    await waitFor(
+      () => hasMessageSet(latestUpdate(updates), input.initialBodies),
+      errors,
+      input.label,
+    );
+    await client.mutation(api.messages.send, {
+      userId: input.userId,
+      body: input.liveBody,
+    });
+    await waitFor(
+      () => hasMessageSet(latestUpdate(updates), [...input.initialBodies, input.liveBody]),
+      errors,
+      input.label,
+    );
     const liveUpdate = latestUpdate(updates);
-    const liveMessage = liveUpdate?.find(message => message.body === "live");
-    if (liveUpdate === undefined || liveMessage?.userId !== userId) {
-      throw new Error(\`Expected live query update, got \${JSON.stringify(updates)}\`);
+    const liveMessage = liveUpdate?.find(message => message.body === input.liveBody);
+    if (liveUpdate === undefined || liveMessage?.userId !== input.userId) {
+      throw new Error(
+        \`Expected \${input.label} live query update, got \${JSON.stringify(updates)}\`,
+      );
     }
   } finally {
     unsubscribe();
@@ -332,19 +318,68 @@ function hasMessageSet(
   return expectedBodies.every((body, index) => actualBodies[index] === body);
 }
 
-async function waitFor(predicate: () => boolean, errors: readonly Error[]): Promise<void> {
+async function waitFor(
+  predicate: () => boolean,
+  errors: readonly Error[],
+  label: string,
+): Promise<void> {
   const started = Date.now();
   while (!predicate()) {
     if (errors.length > 0) {
-      throw new Error(\`Unexpected live query errors: \${errors.map(error => error.message).join("; ")}\`);
+      throw new Error(\`Unexpected \${label} live query errors: \${errors.map(error => error.message).join("; ")}\`);
     }
     if (Date.now() - started > 2000) {
       throw new Error(
-        \`Timed out waiting for packed live query update. Errors: \${errors.map(error => error.message).join("; ")}\`,
+        \`Timed out waiting for packed \${label} live query update. Errors: \${errors.map(error => error.message).join("; ")}\`,
       );
     }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
+}
+`,
+    "utf8",
+  );
+  await writeFile(
+    join(root, "packed-flarex-test.ts"),
+    `import { flarexTest } from "flarex-test";
+import { encodeFlarexId } from "flarex/server";
+import { api } from "./flarex/_generated/api";
+import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
+import type { TableNames } from "./flarex/_generated/dataModel";
+import { expectPackedLiveMessageUpdate } from "./packed-live-query-helpers";
+
+const usersTable = "users" satisfies TableNames;
+const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "u1");
+const t = await flarexTest();
+try {
+  const messages = await t.query(api.messages.list, { userId });
+  if (!Array.isArray(messages) || messages.length !== 0) {
+    throw new Error(\`Expected empty messages list, got \${JSON.stringify(messages)}\`);
+  }
+  const messageId = await t.mutation(api.messages.send, { userId, body: "hello" });
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    throw new Error(\`Expected message id, got \${JSON.stringify(messageId)}\`);
+  }
+  const updatedMessages = await t.query(api.messages.list, { userId });
+  if (
+    !Array.isArray(updatedMessages) ||
+    updatedMessages.length !== 1 ||
+    updatedMessages[0]?._id !== messageId ||
+    updatedMessages[0]?.userId !== userId ||
+    updatedMessages[0]?.body !== "hello"
+  ) {
+    throw new Error(\`Expected persisted message, got \${JSON.stringify(updatedMessages)}\`);
+  }
+  await expectPackedLiveMessageUpdate({
+    t,
+    userId,
+    initialBodies: ["hello"],
+    liveBody: "live",
+    label: "legacy",
+  });
+  console.log("packed-flarex-test ok");
+} finally {
+  await t.dispose();
 }
 
 function tableId(tableName: TableNames): number {
@@ -364,6 +399,7 @@ import { encodeFlarexId } from "flarex/server";
 import { api } from "./flarex/_generated/api";
 import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
 import type { TableNames } from "./flarex/_generated/dataModel";
+import { expectPackedLiveMessageUpdate } from "./packed-live-query-helpers";
 
 const usersTable = "users" satisfies TableNames;
 const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "pg-u1");
@@ -397,6 +433,13 @@ try {
     throw new Error(\`Expected persisted Postgres message, got \${JSON.stringify(updatedMessages)}\`);
   }
 
+  await expectPackedLiveMessageUpdate({
+    t,
+    userId,
+    initialBodies: ["postgres"],
+    liveBody: "postgres-live",
+    label: "Postgres",
+  });
   console.log("packed-flarex-postgres-test ok");
 } finally {
   await t.dispose();

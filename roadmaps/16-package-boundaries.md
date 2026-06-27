@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Packed Test SDK Postgres Subscription Boundary
+
+Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke
+flow.
+
+What changed:
+
+- Extended the fresh packed-consumer Postgres script to use the installed
+  `flarex-test` package's `client()` helper.
+- Added a generated shared live-query assertion helper so the legacy and
+  Postgres packed scripts validate the same subscription contract.
+- The clean installed package graph now proves Postgres-backed live query
+  subscription, sync mutation, delivery, and callback update behavior through
+  public package exports and generated app files.
+
+Why it changed:
+
+Direct Postgres invoke coverage proved that the packed test SDK can reach the
+trusted executor. The package boundary still needed to prove the app-facing
+sync surface, because a consumer can successfully invoke mutations while still
+failing to receive live-query updates from the installed package graph.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's installed client package owns live-query subscription behavior.
+- `npm-packages/convex/package.json`
+  - installed package exports are the consumer boundary.
+
+Flarex differences:
+
+- Flarex validates this through the local Postgres/PGlite executor transport
+  and Miniflare WebSocket bridge. Convex does not expose the transport split.
+- Built NodeNext artifact validation remains separate from this source-mode
+  packed consumer gate.
+
+Known limitations:
+
+- This proves local PGlite-backed Postgres delivery, not a deployed
+  Nitro/Vercel executor plus Cloudflare Worker WebSocket deployment.
+- Identity/reset helper package boundaries remain future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Postgres Transport Boundary
 
 Previous completed checkpoint: `d133982` Cover packed test SDK live query
