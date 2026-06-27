@@ -1,5 +1,50 @@
 # Deployment Analysis And Push
 
+## Start Push Route Bridge Cleanup
+
+Previous completed checkpoint: `c053c93` Extract deployment start push input
+validation.
+
+What changed:
+
+- Inlined the `DeploymentDO.startPush` method into the start-analyzed route.
+- Preserved the same protocol parser, backend adapter, service method, and
+  runtime boundary.
+- Removed an unused deployment request type import from `DeploymentDO`.
+
+Why it changed:
+
+The method became a pass-through after the service input adapter moved to
+`deployment/Validation.ts`. Inlining it keeps the route flow explicit without
+changing deployment push behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's start-push route
+  bridge cleanup.
+
+Flarex differences:
+
+- This is not a protocol package change and not a service/store change.
+
+Known limitations:
+
+- Deep protocol decoding of analysis/codegen remains a later decision.
+- Other deployment route bridges are still private methods.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Start Push Service Input Adapter
 
 Previous completed checkpoint: `5e74840` Move deployment metadata access into

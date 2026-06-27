@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Deployment Start Push Runtime Bridge Cleanup
+
+Previous completed checkpoint: `c053c93` Extract deployment start push input
+validation.
+
+What changed:
+
+- Inlined the thin `DeploymentDO.startPush` private method into the
+  `POST /push/start-analyzed` fetch branch.
+- Kept `DeploymentDO.runDeployment` as the ManagedRuntime boundary.
+- Kept protocol wrapper parsing and backend request adaptation in the fetch
+  branch.
+- Removed the unused `AnalyzedStartPushRequest` import from `DeploymentDO`.
+
+Why it changed:
+
+After start-push normalization moved into `deployment/Validation.ts`, the
+private method only delegated to `runDeployment`. Inlining it keeps the runtime
+boundary visible and removes a no-longer-useful method hop.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal Durable Object cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. The same ManagedRuntime bridge
+  is still used through `DeploymentDO.runDeployment`.
+
+Known limitations:
+
+- Deep protocol decoding of `analysis` and `codegenAnalysis` remains separate
+  from backend validation.
+- Other deployment fetch branches still use small private methods.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Start Push Service Input Validation
 
 Previous completed checkpoint: `5e74840` Move deployment metadata access into

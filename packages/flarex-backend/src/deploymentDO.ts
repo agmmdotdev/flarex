@@ -21,7 +21,6 @@ import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
   ActiveDeploymentStatus,
   AbandonPushRequest,
-  AnalyzedStartPushRequest,
   Env,
   FinishPushResponse,
   FinishPushRequest,
@@ -101,7 +100,11 @@ export class DeploymentDO extends DurableObject<Env> {
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
-        return json(await this.startPush(analyzedStartPushRequest(body)));
+        return json(await this.runDeployment(
+          DeploymentService.use(service =>
+            service.startAnalyzedPush(startAnalyzedPushInput(analyzedStartPushRequest(body)))
+          ),
+        ));
       }
       const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
       if (pushMatch) {
@@ -129,14 +132,6 @@ export class DeploymentDO extends DurableObject<Env> {
       }
       return errorResponse(error);
     }
-  }
-
-  private async startPush(request: AnalyzedStartPushRequest): Promise<PushStatus> {
-    return this.runDeployment(
-      DeploymentService.use(service =>
-        service.startAnalyzedPush(startAnalyzedPushInput(request))
-      ),
-    );
   }
 
   private async runDeployment<A>(
