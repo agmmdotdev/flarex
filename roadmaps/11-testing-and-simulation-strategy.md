@@ -1,5 +1,53 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Test SDK Subscription
+
+Previous completed checkpoint: `a738186` Cover packed test SDK mutation flow.
+
+What changed:
+
+- Added a packed consumer live-query smoke to the existing fresh-consumer
+  integration.
+- The script now uses `flarexTest().client().onUpdate(...)`, observes the
+  initial query result, performs `client.mutation(api.messages.send, ...)`, and
+  waits for the subscription update using a semantic exact-set check instead of
+  callback-count timing.
+
+Why it changed:
+
+Direct invoke tests do not prove the installed test SDK can drive the public
+client/sync surface. This adds package-boundary coverage for a common
+Convex-style app test pattern: subscribe to a query, mutate, and assert the
+query result changes.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's browser client owns live query subscription updates.
+- Convex testing helper ergonomics recorded in the Test SDK roadmap.
+
+Flarex differences:
+
+- Flarex uses a Miniflare-backed WebSocket bridge in `flarex-test`. Convex's
+  client connects to Convex's backend sync runtime.
+
+Known limitations:
+
+- This covers the legacy/local dev sync path from the packed consumer. The
+  Postgres executor delivery path remains outside this packed fixture.
+- Identity and reset helper packed tests remain future work.
+- The fixture still validates source-mode packages with Bundler-style
+  TypeScript resolution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Mutation
 
 Previous completed checkpoint: `5cb7dee` Run packed test SDK against generated
@@ -36,8 +84,8 @@ Flarex differences:
 Known limitations:
 
 - This covers one single-partition mutation and read-after-write check.
-  Subscriptions, identity, reset helpers, and Postgres-transport packed tests
-  remain future work.
+  Subscription coverage was added in the next checkpoint; identity, reset
+  helpers, and Postgres-transport packed tests remain future work.
 - The fixture still validates source-mode packages with Bundler-style
   TypeScript resolution.
 

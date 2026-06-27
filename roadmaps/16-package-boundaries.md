@@ -1,5 +1,52 @@
 # Package Boundaries
 
+## Packed Test SDK Subscription Boundary
+
+Previous completed checkpoint: `a738186` Cover packed test SDK mutation flow.
+
+What changed:
+
+- Extended the packed consumer test SDK smoke to use the installed
+  `flarex-test` package's `client()` helper.
+- The temp consumer now exercises a live query subscription and a client-side
+  mutation over the sync path, then verifies the subscription receives the
+  updated query result with an order-insensitive exact message-set assertion.
+
+Why it changed:
+
+The test SDK package boundary should cover the app-facing sync surface as well
+as direct invoke helpers. A package can import and run direct mutations but
+still fail to expose a usable WebSocket-backed client from a clean consumer.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's installed client package owns live query subscription behavior.
+- `npm-packages/convex/package.json`
+  - installed package exports are the consumer boundary.
+
+Flarex differences:
+
+- Flarex validates this through a source-mode packed consumer and the test
+  SDK's Miniflare WebSocket bridge. Convex validates against its hosted sync
+  service/runtime.
+
+Known limitations:
+
+- This proves legacy/local dev sync behavior from a packed consumer. The
+  Postgres executor delivery path remains covered by example E2E, not by a
+  packed `flarex-test` consumer yet.
+- Built NodeNext artifact validation remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Mutation Boundary
 
 Previous completed checkpoint: `5cb7dee` Run packed test SDK against
@@ -37,8 +84,9 @@ Flarex differences:
 
 Known limitations:
 
-- This proves a single-partition write in the packed consumer. Subscription,
-  identity, reset, and Postgres-transport consumer gates remain future work.
+- This proves a single-partition write in the packed consumer. Subscription was
+  added in the next checkpoint; identity, reset, and Postgres-transport
+  consumer gates remain future work.
 - Built NodeNext artifact validation remains future work.
 
 Verification:

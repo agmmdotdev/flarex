@@ -1,5 +1,57 @@
 # Test SDK
 
+## Packed Consumer Test SDK Subscription
+
+Previous completed test-SDK checkpoint: `a738186` Cover packed test SDK
+mutation flow.
+
+What changed:
+
+- Extended the packed fresh-consumer runtime script to create a public
+  `FlarexClient` through `flarexTest().client()`.
+- The script now subscribes to `api.messages.list` with `client.onUpdate(...)`,
+  waits for the initial live query result, runs `client.mutation(api.messages.send, ...)`,
+  and waits for the live query update.
+- The live update wait uses semantic message-set predicates instead of exact
+  callback counts, fails immediately on async subscription errors, and verifies
+  the new message appears with the expected `userId` and body.
+
+Why it changed:
+
+The packed test SDK already proved direct query and mutation invocation. A
+Convex-style app test harness also needs the client/live-query surface, because
+frontend tests depend on subscription updates after mutations.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's browser client drives live query updates over the sync protocol.
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration: tests should use a compact harness and generated references.
+
+Flarex differences:
+
+- Flarex uses the test SDK's Miniflare-backed WebSocket constructor and local
+  dev runtime. Convex's sync client talks to Convex's backend sync service.
+
+Known limitations:
+
+- This covers the legacy/local dev sync path from a packed consumer, not the
+  Postgres executor delivery path.
+- Identity helper, reset helper, and Postgres-transport packed test SDK gates
+  remain future work.
+- The typecheck is still a Vite/Bundler-style source-package check until Flarex
+  publishes built artifacts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Mutation
 
 Previous completed test-SDK checkpoint: `5cb7dee` Run packed test SDK against
@@ -39,9 +91,9 @@ Flarex differences:
 
 Known limitations:
 
-- This covers a single-partition mutation followed by a query. Subscription,
-  identity helper, reset helper, and Postgres-transport packed test SDK gates
-  remain future work.
+- This covers a single-partition mutation followed by a query. Subscription was
+  added in the next checkpoint; identity helper, reset helper, and
+  Postgres-transport packed test SDK gates remain future work.
 - The typecheck is still a Vite/Bundler-style source-package check until Flarex
   publishes built artifacts.
 

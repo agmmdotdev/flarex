@@ -1,5 +1,53 @@
 # Sync And Subscriptions
 
+## Packed Consumer Test SDK Live Query
+
+Previous completed sync checkpoint: `a738186` Cover packed test SDK mutation
+flow.
+
+What changed:
+
+- Extended the packed fresh-consumer test SDK smoke with a public
+  `FlarexClient.onUpdate(...)` subscription.
+- The temp consumer now observes the initial generated query result, performs a
+  client mutation over the sync path, and asserts the subscription receives the
+  live query update without assuming result ordering or exact callback counts.
+
+Why it changed:
+
+The example app already covered live query updates from workspace source. The
+packed consumer boundary also needs to prove the installed `flarex-test`
+package can expose a working WebSocket-backed client for application tests.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+  - Convex's installed client is responsible for live query subscription
+    updates.
+- `crates/sync/src/state.rs`
+  - Convex tracks query subscriptions and transitions through sync state.
+
+Flarex differences:
+
+- Flarex runs this through the local dev runtime and test SDK WebSocket bridge.
+  Convex keeps this inside the hosted backend sync service.
+
+Known limitations:
+
+- This is a packed-consumer proof for the legacy/local dev sync path. The
+  packed test SDK still does not exercise Postgres executor delivery.
+- It asserts client-visible updates, not internal delivery-row or ConnectionDO
+  state.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Public Client Postgres Delivery E2E
 
 Previous completed sync checkpoint: `07b0e38` Harden invoke write-shape

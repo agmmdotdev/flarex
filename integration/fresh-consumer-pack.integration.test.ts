@@ -238,11 +238,13 @@ console.log("packed-smoke ok");
   );
   await writeFile(
     join(root, "packed-flarex-test.ts"),
-    `import { flarexTest } from "flarex-test";
+    `import { flarexTest, type FlarexTest } from "flarex-test";
+import type { FunctionReturnType } from "flarex";
 import { encodeFlarexId } from "flarex/server";
 import { api } from "./flarex/_generated/api";
 import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
 import type { TableNames } from "./flarex/_generated/dataModel";
+import type { Id } from "flarex/values";
 
 const usersTable = "users" satisfies TableNames;
 const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "u1");
@@ -266,9 +268,70 @@ try {
   ) {
     throw new Error(\`Expected persisted message, got \${JSON.stringify(updatedMessages)}\`);
   }
+  await expectLiveMessageUpdate(t, userId);
   console.log("packed-flarex-test ok");
 } finally {
   await t.dispose();
+}
+
+async function expectLiveMessageUpdate(
+  t: FlarexTest,
+  userId: Id<"users">,
+): Promise<void> {
+  const client = t.client();
+  const updates: Array<FunctionReturnType<typeof api.messages.list>> = [];
+  const errors: Error[] = [];
+  const unsubscribe = client.onUpdate(
+    api.messages.list,
+    { userId },
+    value => updates.push(value),
+    error => errors.push(error),
+  );
+
+  try {
+    await waitFor(() => hasMessageSet(latestUpdate(updates), ["hello"]), errors);
+    await client.mutation(api.messages.send, { userId, body: "live" });
+    await waitFor(() => hasMessageSet(latestUpdate(updates), ["hello", "live"]), errors);
+    const liveUpdate = latestUpdate(updates);
+    const liveMessage = liveUpdate?.find(message => message.body === "live");
+    if (liveUpdate === undefined || liveMessage?.userId !== userId) {
+      throw new Error(\`Expected live query update, got \${JSON.stringify(updates)}\`);
+    }
+  } finally {
+    unsubscribe();
+    client.close();
+  }
+}
+
+function latestUpdate(
+  updates: Array<FunctionReturnType<typeof api.messages.list>>,
+): FunctionReturnType<typeof api.messages.list> | undefined {
+  return updates.at(-1);
+}
+
+function hasMessageSet(
+  value: FunctionReturnType<typeof api.messages.list> | undefined,
+  bodies: readonly string[],
+): boolean {
+  if (value === undefined || value.length !== bodies.length) return false;
+  const actualBodies = value.map(message => message.body).sort();
+  const expectedBodies = [...bodies].sort();
+  return expectedBodies.every((body, index) => actualBodies[index] === body);
+}
+
+async function waitFor(predicate: () => boolean, errors: readonly Error[]): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (errors.length > 0) {
+      throw new Error(\`Unexpected live query errors: \${errors.map(error => error.message).join("; ")}\`);
+    }
+    if (Date.now() - started > 2000) {
+      throw new Error(
+        \`Timed out waiting for packed live query update. Errors: \${errors.map(error => error.message).join("; ")}\`,
+      );
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
 }
 
 function tableId(tableName: TableNames): number {
