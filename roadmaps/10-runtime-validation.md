@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Deployment Push Row Validation
+
+Previous completed checkpoint: `a5ff90c` Extract analyzed push adapter.
+
+What changed:
+
+- Moved push row normalization into `deployment/Validation.ts`.
+- Moved generated codegen fallback construction beside the analysis/codegen
+  validators.
+- Kept `DeploymentDO.getPush` responsible for SQL row lookup.
+- Added direct tests for generated codegen fallback, stored diagnostics
+  preservation, and unknown stored push state errors.
+
+Why it changed:
+
+The previous slices moved request and deployment metadata validation out of the
+Durable Object. Push row normalization is the matching read-side validation
+piece and can move without changing storage ownership.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal validation/read-normalization boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object SQLite reads are unchanged. Only the pure row-to-status
+  conversion moved.
+
+Known limitations:
+
+- `DeploymentPushStore` still receives a `readPush` callback from
+  `DeploymentDO`.
+- Deep protocol decoding remains intentionally separate from backend
+  validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Start Push Adapter Validation
 
 Previous completed checkpoint: `2e5f3dd` Extract deployment analysis

@@ -17,10 +17,24 @@ import type {
   Json,
   PushDiagnostic,
   PushSourcePackage,
+  PushStatus,
   SchemaTable,
   ValidatorJson,
 } from "../types";
 import { assertValidatorJson, BackendValidationError } from "../validation";
+
+export interface DeploymentPushStatusRow extends Record<string, string | number | null> {
+  push_id: string;
+  state: string;
+  source_package_json: string;
+  schema_json: string | null;
+  functions_json: string | null;
+  codegen_analysis_json: string | null;
+  error: string | null;
+  diagnostics_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
 
 export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
   if (!Array.isArray(sourcePackage.modules)) {
@@ -120,6 +134,93 @@ export function analyzedStartPushRequest(
     ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
     ...(diagnostics === undefined ? {} : { diagnostics }),
   };
+}
+
+export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
+  const storedAnalysis = row.schema_json === null || row.functions_json === null
+    ? undefined
+    : validateAnalysis({
+      schema: JSON.parse(row.schema_json),
+      functions: JSON.parse(row.functions_json),
+    });
+  const storedCodegenAnalysis: unknown = row.codegen_analysis_json === null
+    ? undefined
+    : JSON.parse(row.codegen_analysis_json);
+  const diagnostics = row.diagnostics_json === null
+    ? []
+    : JSON.parse(row.diagnostics_json) as PushDiagnostic[];
+  return {
+    pushId: row.push_id,
+    state: parsePushState(row.state),
+    sourcePackage: JSON.parse(row.source_package_json) as PushSourcePackage,
+    ...(storedAnalysis !== undefined
+      ? {
+          analysis: storedAnalysis,
+          codegenAnalysis: storedCodegenAnalysis === undefined
+            ? codegenAnalysisFromDeploymentAnalysis(storedAnalysis)
+            : validateCodegenAnalysis(storedCodegenAnalysis, storedAnalysis),
+        }
+      : {}),
+    ...(row.error === null ? {} : { error: row.error }),
+    ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function codegenAnalysisFromDeploymentAnalysis(
+  analysis: DeploymentAnalysis,
+): DeploymentCodegenAnalysis {
+  const modules = new Map<string, DeploymentCodegenModule>();
+  for (const metadata of analysis.functions.functions) {
+    const { moduleName, exportName } = parseFunctionPath(metadata.path);
+    const module = modules.get(moduleName) ?? { moduleName, functions: [] };
+    module.functions.push({
+      moduleName,
+      exportName,
+      kind: metadata.kind,
+      visibility: metadata.visibility ?? "public",
+      args: metadata.args ?? { type: "any" },
+      returns: metadata.returns ?? null,
+      partition: metadata.partition ?? null,
+      ...(metadata.position === undefined ? {} : { position: metadata.position }),
+    });
+    modules.set(moduleName, module);
+  }
+  return {
+    schema: analysis.schema,
+    functions: [...modules.values()]
+      .map(module => ({
+        ...module,
+        functions: module.functions.sort((left, right) =>
+          left.exportName.localeCompare(right.exportName),
+        ),
+      }))
+      .sort((left, right) => left.moduleName.localeCompare(right.moduleName)),
+  };
+}
+
+function parseFunctionPath(path: string): { moduleName: string; exportName: string } {
+  const separator = path.indexOf(":");
+  if (separator === -1) return { moduleName: path, exportName: "default" };
+  return {
+    moduleName: path.slice(0, separator),
+    exportName: path.slice(separator + 1),
+  };
+}
+
+function parsePushState(value: string): PushStatus["state"] {
+  if (
+    value === "pending" ||
+    value === "analyzed" ||
+    value === "failed" ||
+    value === "activated" ||
+    value === "abandoned" ||
+    value === "superseded"
+  ) {
+    return value;
+  }
+  throw new Error(`Unknown stored push state ${value}.`);
 }
 
 export function validateSchema(schema: unknown): DeploymentSchema {

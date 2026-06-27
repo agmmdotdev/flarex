@@ -1,5 +1,52 @@
 # Deployment Analysis And Push
 
+## Push Row Normalization
+
+Previous completed checkpoint: `a5ff90c` Extract analyzed push adapter.
+
+What changed:
+
+- Moved stored push row normalization into `deployment/Validation.ts`.
+- Moved generated codegen fallback construction out of `DeploymentDO`.
+- Preserved push state parsing, source package parsing, analysis/codegen
+  validation, diagnostics handling, error field handling, timestamps, and
+  generated codegen ordering.
+- Added direct tests for row normalization and generated fallback behavior.
+
+Why it changed:
+
+Deployment validation now owns request, metadata, and adapter normalization.
+Stored push rows are the remaining pure normalization step before considering a
+larger store-boundary change.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's push-status read
+  normalization boundary.
+
+Flarex differences:
+
+- SQL lookup remains in the Durable Object. This checkpoint does not move
+  storage ownership.
+
+Known limitations:
+
+- `DeploymentPushStore` still calls back into `DeploymentDO` for push reads.
+- Deep protocol decoding of analysis/codegen remains a later decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Start Push Adapter
 
 Previous completed checkpoint: `2e5f3dd` Extract deployment analysis

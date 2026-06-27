@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Deployment Push Row Normalization Boundary
+
+Previous completed checkpoint: `a5ff90c` Extract analyzed push adapter.
+
+What changed:
+
+- Added `DeploymentPushStatusRow` and `pushStatusFromRow` to
+  `packages/flarex-backend/src/deployment/Validation.ts`.
+- Moved generated codegen fallback construction into the validation module.
+- Kept SQL row lookup in `DeploymentDO`.
+- Added direct tests for the moved read-normalization helpers.
+
+Why it changed:
+
+The deployment validation module now owns backend request validation and
+deployment metadata validation. Stored push row normalization is pure
+conversion at the same boundary, while SQL access remains a Durable
+Object/store concern.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- The validation module is backend-local. It does not become a protocol or SDK
+  contract.
+
+Known limitations:
+
+- `DeploymentPushStore` still depends on a `readPush` callback supplied by
+  `DeploymentDO`.
+- The next store-boundary slice can decide whether that callback should move
+  behind the store directly.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Start Push Adapter Boundary
 
 Previous completed checkpoint: `2e5f3dd` Extract deployment analysis

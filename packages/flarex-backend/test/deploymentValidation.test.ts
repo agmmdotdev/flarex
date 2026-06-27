@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzedStartPushRequest,
+  codegenAnalysisFromDeploymentAnalysis,
+  pushStatusFromRow,
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
   validateFunctions,
   validateSchema,
   validateSourcePackage,
+  type DeploymentPushStatusRow,
 } from "../src/deployment/Validation";
 import { HttpError } from "../src/http";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
@@ -275,6 +278,87 @@ describe("deployment validation", () => {
       }, analysis)
     ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
   });
+
+  it("generates codegen analysis from deployment analysis", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: {
+        functions: [
+          { path: "messages:list", kind: "query" },
+          { path: "messages:create", kind: "mutation" },
+          { path: "health", kind: "query" },
+        ],
+      },
+    });
+
+    expect(codegenAnalysisFromDeploymentAnalysis(analysis).functions).toEqual([
+      {
+        moduleName: "health",
+        functions: [{
+          moduleName: "health",
+          exportName: "default",
+          kind: "query",
+          visibility: "public",
+          args: { type: "any" },
+          returns: null,
+          partition: null,
+        }],
+      },
+      {
+        moduleName: "messages",
+        functions: [
+          {
+            moduleName: "messages",
+            exportName: "create",
+            kind: "mutation",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          },
+          {
+            moduleName: "messages",
+            exportName: "list",
+            kind: "query",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("normalizes stored push rows with generated codegen fallback", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+
+    const status = pushStatusFromRow(pushRow({
+      schema_json: JSON.stringify(simpleSchema()),
+      functions_json: JSON.stringify(simpleFunctions()),
+      diagnostics_json: JSON.stringify([{ level: "log", message: "stored diagnostic" }]),
+    }));
+
+    expect(status).toMatchObject({
+      pushId: "push-row",
+      state: "analyzed",
+      sourcePackage: sourcePackage(),
+      analysis,
+      codegenAnalysis: codegenAnalysisFromDeploymentAnalysis(analysis),
+      diagnostics: [{ level: "log", message: "stored diagnostic" }],
+      createdAt: 1_000,
+      updatedAt: 2_000,
+    });
+  });
+
+  it("preserves stored push row state error messages", () => {
+    expect(() => pushStatusFromRow(pushRow({ state: "unknown" }))).toThrow(
+      new Error("Unknown stored push state unknown."),
+    );
+  });
 });
 
 function sourceModule(path: string): PushSourcePackage["modules"][number] {
@@ -327,5 +411,21 @@ function simpleFunctions(): DeploymentFunctions {
       path: "messages:list",
       kind: "query",
     }],
+  };
+}
+
+function pushRow(overrides: Partial<DeploymentPushStatusRow> = {}): DeploymentPushStatusRow {
+  return {
+    push_id: "push-row",
+    state: "analyzed",
+    source_package_json: JSON.stringify(sourcePackage()),
+    schema_json: null,
+    functions_json: null,
+    codegen_analysis_json: null,
+    error: null,
+    diagnostics_json: null,
+    created_at: 1_000,
+    updated_at: 2_000,
+    ...overrides,
   };
 }
