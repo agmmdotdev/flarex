@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect, ManagedRuntime } from "effect";
 import {
   executionArtifactRefForSourcePackage,
   validateExecutionArtifactRef,
@@ -9,6 +10,9 @@ import {
   parseAbandonPushRequest,
   type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
+import { makeDeploymentLayer } from "./deployment/Layer";
+import { DeploymentService } from "./deployment/Service";
+import type { DeploymentSqlError } from "./deployment/Store";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import type {
@@ -42,6 +46,9 @@ import { assertValidatorJson, BackendValidationError } from "./validation";
 
 export class DeploymentDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
+  private readonly deploymentRuntime = ManagedRuntime.make(
+    makeDeploymentLayer(this.ctx.storage, this.sql, pushId => this.getPush(pushId)),
+  );
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -143,59 +150,55 @@ export class DeploymentDO extends DurableObject<Env> {
 
   private async startPush(request: AnalyzedStartPushRequest): Promise<PushStatus> {
     const sourcePackage = validateSourcePackage(request.sourcePackage);
-    const now = Date.now();
-    const pushId = crypto.randomUUID();
     const error = request.error;
     const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
-    const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
-    const codegenAnalysis = analysis === undefined
-      ? undefined
-      : validateCodegenAnalysis(
-        hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
-        analysis,
-      );
     const diagnostics = validateDiagnostics(request.diagnostics);
-    const state = analysis === undefined ? "failed" : "analyzed";
-    if (analysis === undefined && (typeof error !== "string" || error.length === 0)) {
-      throw new HttpError(400, "A push without analysis must include an error message.");
+    if (analysis === undefined) {
+      if (typeof error !== "string" || error.length === 0) {
+        throw new HttpError(400, "A push without analysis must include an error message.");
+      }
+      return this.runDeployment(
+        DeploymentService.use(service =>
+          service.startAnalyzedPush({
+            sourcePackage,
+            error,
+            diagnostics,
+          })
+        ),
+      );
     }
+    const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
+    const codegenAnalysis = validateCodegenAnalysis(
+      hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
+      analysis,
+    );
+    return this.runDeployment(
+      DeploymentService.use(service =>
+        service.startAnalyzedPush({
+          sourcePackage,
+          analysis,
+          codegenAnalysis,
+          diagnostics,
+        })
+      ),
+    );
+  }
 
-    return this.ctx.storage.transaction(async () => {
-      this.sql.exec(
-        "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
-        now,
-      );
-      this.sql.exec(
-        `
-        INSERT INTO pushes (
-          push_id,
-          state,
-          source_package_json,
-          schema_json,
-          functions_json,
-          codegen_analysis_json,
-          error,
-          diagnostics_json,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        pushId,
-        state,
-        JSON.stringify(sourcePackage),
-        analysis === undefined ? null : JSON.stringify(analysis.schema),
-        analysis === undefined ? null : JSON.stringify(analysis.functions),
-        codegenAnalysis === undefined ? null : JSON.stringify(codegenAnalysis),
-        error ?? null,
-        diagnostics.length === 0 ? null : JSON.stringify(diagnostics),
-        now,
-        now,
-      );
-      const status = this.getPush(pushId);
-      if (!status) throw new Error(`Push ${pushId} was not stored.`);
-      return status;
-    });
+  private async runDeployment<A>(
+    effect: Effect.Effect<A, DeploymentSqlError, DeploymentService>,
+  ): Promise<A> {
+    const result = await this.deploymentRuntime.runPromise(
+      effect.pipe(
+        Effect.match({
+          onFailure: error => ({ ok: false as const, error }),
+          onSuccess: value => ({ ok: true as const, value }),
+        }),
+      ),
+    );
+    if (!result.ok) {
+      throw new HttpError(500, "Deployment storage error.");
+    }
+    return result.value;
   }
 
   private async finishPush(pushId: string, _request: FinishPushRequest): Promise<FinishPushResponse> {

@@ -1,5 +1,60 @@
 # Runtime Validation
 
+## Deployment Push Start Service Validation
+
+Previous completed checkpoint: `bbdbec2` Add deployment analysis protocol
+schemas.
+
+What changed:
+
+- Added a narrow Effect-backed `DeploymentService.startAnalyzedPush` path for
+  analyzed push-start persistence.
+- Kept request parsing and semantic validation in `DeploymentDO`, including
+  the existing source package, diagnostics, deployment analysis, and codegen
+  validation messages.
+- Added service-level tests with controlled clock/id services and typed
+  `DeploymentSqlError` propagation.
+- Kept focused push lifecycle tests covering the real Durable Object route.
+
+Why it changed:
+
+The protocol schemas now cover the response surface. This checkpoint starts
+the real Effect transformation at the smallest write path that can be proven
+without changing HTTP behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. This slice follows the existing
+  repo-local Registry Effect service pattern while preserving the documented
+  Convex-style deployment metadata direction.
+
+Cloudflare differences:
+
+- The Durable Object still owns the HTTP request boundary, validation helpers,
+  and SQLite instance. The Effect service is scoped to per-DO runtime
+  composition and the push-start transaction.
+
+Known limitations:
+
+- Finish-push, abandon-push, active deployment reads, and deep request decoding
+  remain in `DeploymentDO`.
+- Storage failures are now mapped to a typed `DeploymentSqlError` and returned
+  as a generic deployment storage HTTP 500 from the DO boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "coalesces concurrent fresh pending delivery reconciles"
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "does not coalesce concurrent pending delivery reconciles with different parameters"
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Analysis Response Protocol Validation
 
 Previous completed checkpoint: `bc2d552` Add deployment push-start protocol
