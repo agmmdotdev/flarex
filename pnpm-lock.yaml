@@ -154,6 +154,9 @@ importers:
 
   packages/flarex-backend:
     dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.90
       flarex:
         specifier: workspace:*
         version: link:../flarex

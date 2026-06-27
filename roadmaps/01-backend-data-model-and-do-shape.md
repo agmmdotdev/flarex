@@ -1,5 +1,55 @@
 # Backend Data Model And Durable Object Shape
 
+## RegistryDO Effect Host Shape
+
+Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
+
+What changed:
+
+- `RegistryDO` remains the Cloudflare Durable Object host and still owns table
+  initialization plus the `/health` and `/deployments` fetch router.
+- Registry persistence and behavior moved behind per-instance Effect services:
+  `RegistryStore`, `RegistryService`, `RegistryClock`, and `RegistryIds`.
+- `RegistryDO` composes the registry layer from its own `ctx.storage.sql` and
+  runs service effects through a `ManagedRuntime` at handler boundaries.
+
+Why it changed:
+
+This keeps the DO lifecycle and object-local SQLite state explicit while
+testing the service/layer extraction pattern before changing larger DOs or
+HTTP routing. It is the smallest useful proof that Durable Object classes can
+be thin Cloudflare hosts around Effect runtime code.
+
+Convex references inspected:
+
+- No new Convex source files were needed. RegistryDO is deployment metadata
+  coordination, not the authoritative document/OCC data path.
+
+Cloudflare difference:
+
+- Unlike Convex backend components, Cloudflare Durable Object state is attached
+  to each object instance. The SQL-backed Effect layer must therefore be built
+  from the object instance, not as a global package singleton.
+
+Known limitations:
+
+- RegistryDO is still a plain fetch router. HttpApi, typed DO clients, and
+  Alchemy Durable Object resources are deferred.
+- DeploymentDO, PartitionDO, ExecutionDO, DeliveryDO, SchedulerDO, and
+  ConnectionDO still use their existing hand-written shapes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Authority Pivot
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

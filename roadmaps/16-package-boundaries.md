@@ -1,5 +1,68 @@
 # Package Boundaries
 
+## Registry Effect Service Boundary
+
+Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
+
+What changed:
+
+- `flarex-backend` now depends on the workspace Effect v4 beta catalog entry
+  directly because backend runtime code owns Effect services and Layers, not
+  only protocol schemas.
+- Added `packages/flarex-backend/src/registry/` as a narrow module folder for
+  RegistryDO internals without moving the Durable Object host file yet.
+- `registry/Store.ts` owns Durable Object SQLite access and emits typed
+  `RegistrySqlError` failures at the SQL boundary.
+- `registry/Runtime.ts` owns clock/id services so service logic does not hide
+  direct `Date.now()` or `crypto.randomUUID()` calls.
+- `registry/Service.ts` owns registry behavior behind `Context.Service`,
+  `Layer`, and named `Effect.fn` service methods.
+- `registry/Layer.ts` composes the per-DO runtime layer from the DO's own SQL
+  storage instance.
+
+Why it changed:
+
+The previous checkpoint proved the protocol package boundary. This checkpoint
+proves the next backend package boundary: existing DO hosts can remain small
+Cloudflare adapters while reusable runtime behavior moves behind Effect
+services and layers.
+
+Convex references inspected:
+
+- No new Convex source files were required for this package-boundary slice.
+- The Convex-first constraint still applies to backend semantics; this
+  checkpoint only changes local Flarex composition boundaries around an
+  existing RegistryDO behavior proof.
+
+Flarex differences:
+
+- Convex does not need a TypeScript `ManagedRuntime` bridge at its Rust
+  backend boundaries. Flarex does because Durable Object `fetch()` handlers are
+  non-Effect Cloudflare entrypoints.
+- The DO SQL storage layer is per Durable Object instance, not global. The
+  layer factory therefore accepts `ctx.storage.sql` from the DO instance.
+
+Known limitations:
+
+- Only RegistryDO internals use the Effect service boundary. Worker routing,
+  DeploymentDO, PartitionDO, executor-http, and freshness remain unchanged.
+- The RegistryDO host still uses a plain hand-written fetch router. HttpApi is
+  intentionally deferred until service extraction has a reviewed proof.
+- Effect service unit tests are not added yet; current coverage remains the
+  focused Miniflare route tests from the previous checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Schema-First Protocol Package Boundary
 
 Previous completed checkpoint: `27afbea` Add Effect migration reviewer.

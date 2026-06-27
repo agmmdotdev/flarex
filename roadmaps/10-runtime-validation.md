@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Registry Effect Service Validation Boundary
+
+Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
+
+What changed:
+
+- RegistryDO request decoding still happens through `flarex-protocol/registry`
+  at the HTTP boundary.
+- Registry creation/listing now runs through `RegistryService`, which depends
+  on an Effect `RegistryStore`, `RegistryClock`, and `RegistryIds`.
+- SQL failures are represented as typed `RegistrySqlError` values at the store
+  boundary before the DO host maps them to a stable HTTP 500 JSON response at
+  the Effect runtime boundary.
+- Current time now comes from Effect `DateTime.now` through the registry clock
+  service, making the service layer testable without hiding `Date.now()` in
+  domain logic.
+
+Why it changed:
+
+The first schema proof validated transport input. This checkpoint starts moving
+post-validation behavior into Effect services so runtime validation,
+persistence, and typed error handling can be composed and tested without a
+Cloudflare `fetch()` router owning all behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required for this RegistryDO validation
+  boundary. The semantic target remains backend-side validation before state
+  mutation.
+
+Cloudflare differences:
+
+- The Durable Object `fetch()` method remains the public entrypoint and creates
+  one Effect runtime execution boundary per route branch. Typed registry store
+  failures are matched before leaving that boundary.
+- Durable Object SQL storage is still synchronous Cloudflare storage, wrapped
+  by `Effect.try` rather than replaced with a new database abstraction.
+
+Known limitations:
+
+- `ProtocolValidationError` remains thrown by sync schema helpers and caught at
+  the DO HTTP boundary. A later HttpApi or effectful decoder slice can move
+  protocol validation into the Effect error channel.
+- Field-level parse diagnostics and shared error-to-response mapping remain
+  future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Registry Protocol Schema Boundary
 
 Previous completed checkpoint: `27afbea` Add Effect migration reviewer.

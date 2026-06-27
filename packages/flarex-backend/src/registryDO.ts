@@ -1,16 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect, ManagedRuntime } from "effect";
 import {
   parseCreateDeploymentRequest,
   ProtocolValidationError,
-  type CreateDeploymentRequest,
-  type DeploymentRecord,
   type ListDeploymentsResponse,
 } from "flarex-protocol/registry";
 import { errorResponse, json, readJson } from "./http";
+import { makeRegistryLayer } from "./registry/Layer";
+import { RegistryService } from "./registry/Service";
+import type { RegistrySqlError } from "./registry/Store";
 import type { Env } from "./types";
 
 export class RegistryDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
+  private readonly registryRuntime = ManagedRuntime.make(makeRegistryLayer(this.sql));
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -34,10 +37,16 @@ export class RegistryDO extends DurableObject<Env> {
       }
       if (url.pathname === "/deployments" && request.method === "POST") {
         const body = parseCreateDeploymentRequest(await readJson(request));
-        return json(await this.createDeployment(body));
+        return await this.runRegistryResponse(
+          RegistryService.use(service => service.createDeployment(body)),
+          deployment => json(deployment),
+        );
       }
       if (url.pathname === "/deployments" && request.method === "GET") {
-        return json({ deployments: this.listDeployments() } satisfies ListDeploymentsResponse);
+        return await this.runRegistryResponse(
+          RegistryService.use(service => service.listDeployments),
+          response => json(response satisfies ListDeploymentsResponse),
+        );
       }
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
@@ -48,55 +57,17 @@ export class RegistryDO extends DurableObject<Env> {
     }
   }
 
-  private createDeployment(request: CreateDeploymentRequest): DeploymentRecord {
-    const now = Date.now();
-    const deploymentId = request.deploymentId ?? crypto.randomUUID();
-    this.sql.exec(
-      `
-      INSERT INTO deployments (deployment_id, slug, created_at, updated_at, schema_version)
-      VALUES (?, ?, ?, ?, 0)
-      ON CONFLICT(deployment_id) DO UPDATE SET
-        slug = excluded.slug,
-        updated_at = excluded.updated_at
-      `,
-      deploymentId,
-      request.slug ?? null,
-      now,
-      now,
+  private runRegistryResponse<A>(
+    effect: Effect.Effect<A, RegistrySqlError, RegistryService>,
+    onSuccess: (value: A) => Response,
+  ): Promise<Response> {
+    return this.registryRuntime.runPromise(
+      effect.pipe(
+        Effect.match({
+          onFailure: () => json({ error: "Registry storage error." }, { status: 500 }),
+          onSuccess,
+        }),
+      ),
     );
-    return {
-      deploymentId,
-      ...(request.slug === undefined ? {} : { slug: request.slug }),
-      createdAt: now,
-      updatedAt: now,
-      schemaVersion: 0,
-    };
-  }
-
-  private listDeployments(): DeploymentRecord[] {
-    return this.sql
-      .exec<{
-        deployment_id: string;
-        slug: string | null;
-        created_at: number;
-        updated_at: number;
-        schema_version: number;
-      }>(
-        `
-        SELECT deployment_id, slug, created_at, updated_at, schema_version
-        FROM deployments
-        ORDER BY created_at DESC
-        `,
-      )
-      .toArray()
-      .map(row => {
-        return {
-          deploymentId: row.deployment_id,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          schemaVersion: row.schema_version,
-          ...(row.slug === null ? {} : { slug: row.slug }),
-        };
-      });
   }
 }
