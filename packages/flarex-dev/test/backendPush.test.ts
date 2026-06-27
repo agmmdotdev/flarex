@@ -392,8 +392,38 @@ describe("backend push coordinator", () => {
 
     expect(message).toContain("Flarex push push1 did not activate: failed.");
     expect(message).toContain("Backend rejection code: invalid_state");
+    expect(message).toContain(
+      "Backend remediation: Start a new deploy because this push is no longer finishable.",
+    );
     expect(message).toContain("Backend error: activation failed");
     expect(message).toContain("Backend diagnostic (error): push diagnostic");
+  });
+
+  it("formats remediation hints for every stable finish rejection code", () => {
+    const hints = {
+      invalid_state: "Start a new deploy because this push is no longer finishable.",
+      missing_analysis: "Restart deploy so backend analysis can produce activation metadata.",
+      missing_artifact: "Re-run deploy so the source package is uploaded before activation.",
+    } satisfies Record<FinishPushRejectionCode, string>;
+    const codes = Object.keys(hints) as FinishPushRejectionCode[];
+
+    for (const code of codes) {
+      const message = devFinishPushErrorMessage(
+        {
+          result: "rejected",
+          push: {
+            pushId: `push-${code}`,
+            state: "failed",
+          },
+          code,
+          error: "activation failed",
+        },
+        `Flarex push push-${code} did not activate`,
+      );
+
+      expect(message).toContain(`Backend rejection code: ${code}`);
+      expect(message).toContain(`Backend remediation: ${hints[code]}`);
+    }
   });
 
   it("treats non-409 finish wrapper responses as transport failures", async () => {

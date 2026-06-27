@@ -61,6 +61,7 @@ export function devFinishPushErrorMessage(response: DevFinishPushResponse, messa
   }
   const details = [
     `Backend rejection code: ${response.code}`,
+    `Backend remediation: ${finishPushRejectionHint(response.code)}`,
     `Backend error: ${response.error}`,
     ...(response.diagnostics ?? response.push.diagnostics ?? []).map(
       diagnostic => `Backend diagnostic (${diagnostic.level}): ${diagnostic.message}`,
@@ -68,6 +69,20 @@ export function devFinishPushErrorMessage(response: DevFinishPushResponse, messa
   ];
   const summary = `${message}: ${response.push.state}.`;
   return `${summary}\n${details.join("\n")}`;
+}
+
+function finishPushRejectionHint(code: FinishPushRejectionCode): string {
+  switch (code) {
+    case "invalid_state":
+      return "Start a new deploy because this push is no longer finishable.";
+    case "missing_analysis":
+      return "Restart deploy so backend analysis can produce activation metadata.";
+    case "missing_artifact":
+      return "Re-run deploy so the source package is uploaded before activation.";
+    default:
+      code satisfies never;
+      return "Inspect backend diagnostics and retry the deploy.";
+  }
 }
 
 export interface BackendPushCoordinator {

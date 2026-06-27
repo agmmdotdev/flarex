@@ -1,5 +1,59 @@
 # Deployment Analysis And Push
 
+## Finish Rejection Codes Include Remediation Hints
+
+Previous completed checkpoint: `fe5a981` Surface finish rejection codes in dev
+errors.
+
+What changed:
+
+- `devFinishPushErrorMessage(...)` now maps every current
+  `FinishPushRejectionCode` to a short developer-facing remediation line.
+- The formatter remains centralized, so CLI deploy, programmatic deploy, and
+  local dev reload failures all show the same code, remediation, backend error,
+  and diagnostics.
+- The hint mapping uses an exhaustive TypeScript switch over the backend-owned
+  rejection-code union, so future codes require an explicit formatter decision.
+
+Why it changed:
+
+The previous checkpoint surfaced stable rejection codes but still left
+developers to infer the next action from the raw code and backend error text.
+Convex's deploy path reports structured finish failures at the activation
+boundary; Flarex should do the same in its smaller response model by turning
+known finish codes into direct operational guidance.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - `finishPush(...)` owns final activation and routes finish errors through
+    deploy error handling.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish output is parsed as a structured contract before CLI reporting.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - deploy reporting consumes structured finish-push output instead of opaque
+    transport text.
+
+Flarex differences:
+
+- Convex's hosted deploy error model is richer and can include deployment diff
+  and config details. Flarex still uses compact rejection codes and plain text
+  remediation lines.
+- The hints are local CLI/dev guidance only; they do not change backend
+  response bodies or transport semantics.
+
+Known limitations:
+
+- There is still no structured CLI JSON mode for automation consumers.
+- Generic HTTP transport failures remain outside finish-code remediation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/dev.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Rejection Codes Are Developer-Facing
 
 Previous completed checkpoint: `31809e0` Add finish rejection codes.

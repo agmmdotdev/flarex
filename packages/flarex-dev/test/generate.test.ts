@@ -386,6 +386,9 @@ export const list = query({ args: {}, handler: async () => [] });
     }
     expect(error.message).toContain("Flarex push push1 did not activate: failed.");
     expect(error.message).toContain("Backend rejection code: invalid_state");
+    expect(error.message).toContain(
+      "Backend remediation: Start a new deploy because this push is no longer finishable.",
+    );
     expect(error.message).toContain("Backend error: activation failed");
     expect(error.message).toContain("Backend diagnostic (error): schema rejected");
   });

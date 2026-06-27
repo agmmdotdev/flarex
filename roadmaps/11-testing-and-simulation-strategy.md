@@ -1,5 +1,48 @@
 # Testing and Simulation Strategy
 
+## Finish Rejection Remediation Coverage
+
+Previous completed checkpoint: `fe5a981` Surface finish rejection codes in dev
+errors.
+
+What changed:
+
+- Added a formatter test that asserts remediation text for every current stable
+  finish rejection code.
+- Extended CLI deploy, programmatic deploy, and local dev runtime failure tests
+  to assert the remediation line reaches each shared formatter caller.
+
+Why it changed:
+
+The code line alone proves machine readability, but the developer-facing error
+path also needs actionable guidance. The test matrix is compile-checked with
+`satisfies Record<FinishPushRejectionCode, string>` so adding a new backend code
+forces a corresponding test expectation.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - finish errors are handled at the deploy activation boundary.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - deploy reporting is driven by structured finish output.
+
+Flarex differences:
+
+- Flarex tests assert compact remediation lines rather than Convex's richer
+  hosted deploy/config error output.
+
+Known limitations:
+
+- No JSON-mode CLI output exists yet, so automation consumers still need the
+  typed dev API rather than structured CLI stdout.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/dev.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Developer-Facing Finish Rejection Code Coverage
 
 Previous completed checkpoint: `31809e0` Add finish rejection codes.
