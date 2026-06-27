@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertManifestDependencyProtocols,
+  assertNoPackedDevelopmentEntries,
   exportedTargetEntries,
   expectSuccessfulCommand,
   optionalStringRecord,
@@ -33,8 +34,7 @@ describe("flarex-dev packed package", () => {
       expect(entries).toContain("package/bin/flarex-dev.mjs");
       expect(entries).toContain("package/src/bin.ts");
       expect(entries).toContain("package/src/cli.ts");
-      expect(entries.some(entry => entry.startsWith("package/test/"))).toBe(false);
-      expect(entries).not.toContain("package/vitest.config.ts");
+      assertNoPackedDevelopmentEntries(entries);
 
       const manifest = readPackedManifest(tarballPath);
       const bin = stringRecord(manifest.bin);

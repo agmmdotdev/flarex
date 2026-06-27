@@ -155,6 +155,17 @@ export function assertOptionalPeerDependencies(
   }
 }
 
+export function assertNoPackedDevelopmentEntries(
+  entries: readonly string[],
+  allowedEntries: readonly string[] = [],
+): void {
+  const allowed = new Set(allowedEntries);
+  const invalidEntries = entries.filter(entry =>
+    !allowed.has(entry) && isDevelopmentEntry(entry),
+  );
+  expect(invalidEntries, "tarball contains development-only entries").toEqual([]);
+}
+
 export async function singlePackedTarball(packDir: string): Promise<string> {
   const files = await readdir(packDir);
   const tarballs = files.filter(file => file.endsWith(".tgz"));
@@ -184,6 +195,34 @@ export function readPackedManifest(tarballPath: string): PackedManifest {
 
 function packageEntry(path: string): string {
   return `package/${path.replace(/^\.\//, "")}`;
+}
+
+function isDevelopmentEntry(entry: string): boolean {
+  const parts = entry.split("/");
+  const filename = parts.at(-1) ?? "";
+  return (
+    parts.some(part => developmentOnlyPathSegments.has(part)) ||
+    /\.(test|spec)\.[cm]?[jt]sx?$/.test(filename) ||
+    isConfigFilename(filename)
+  );
+}
+
+const developmentOnlyPathSegments = new Set([
+  "__fixtures__",
+  "__tests__",
+  "fixture",
+  "fixtures",
+  "test",
+  "tests",
+]);
+
+function isConfigFilename(filename: string): boolean {
+  return (
+    filename === "tsconfig.json" ||
+    /^tsconfig\..+\.json$/.test(filename) ||
+    /^vitest\.config\.[cm]?[jt]s$/.test(filename) ||
+    /^vite\.config\.[cm]?[jt]s$/.test(filename)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

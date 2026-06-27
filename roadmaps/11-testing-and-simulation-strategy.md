@@ -1,5 +1,70 @@
 # Testing and Simulation Strategy
 
+## Remaining Internal Package Packability Coverage
+
+Previous completed checkpoint: `e07b1e5` Add internal package packability
+gates.
+
+What changed:
+
+- Extended `integration/internal-packages-pack.integration.test.ts` to cover:
+  - `@flarex/persistence-postgres`,
+  - `@flarex/freshness`,
+  - `@flarex/executor`, and
+  - `@flarex/executor-http`.
+- The same shared helper now verifies their tarball identity, public export
+  targets, absence of development-only package entries, and absence of
+  local-only dependency protocols.
+- Development-only package entry checks reject `test`, `tests`, `__tests__`,
+  fixture directories, test/spec source files, and nested Vite/Vitest/
+  TypeScript config filenames unless the package case explicitly allows a
+  harness entry.
+- The persistence package case also parses `drizzle/meta/_journal.json` and
+  verifies every listed migration SQL file and snapshot is present under
+  `package/drizzle`.
+
+Why it changed:
+
+The earlier shared packability gate covered only `flarex`, `flarex-backend`,
+and `flarex-dev`. The remaining internal packages need the same gate before a
+full packed install fixture can produce meaningful failures.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package content and export declarations are treated as stable public npm
+    surface.
+
+Flarex differences:
+
+- Flarex still uses source-mode tarballs. The packability test therefore checks
+  TypeScript source files and migration files instead of built JS/type output.
+
+Known limitations:
+
+- The integration gate still inspects tarballs instead of installing them.
+- It assumes current package `exports` maps are flat string targets.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/freshness build
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter @flarex/persistence-postgres pack --dry-run
+corepack pnpm --filter @flarex/freshness pack --dry-run
+corepack pnpm --filter @flarex/executor pack --dry-run
+corepack pnpm --filter @flarex/executor-http pack --dry-run
+git diff --check
+```
+
 ## Shared Package Packability Gates
 
 Previous completed checkpoint: `000379c` Add flarex-dev packability gate.

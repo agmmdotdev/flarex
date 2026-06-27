@@ -2,6 +2,10 @@
   "name": "@flarex/persistence-postgres",
   "version": "0.0.1",
   "type": "module",
+  "files": [
+    "drizzle",
+    "src"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./postgres": "./src/postgres.ts",

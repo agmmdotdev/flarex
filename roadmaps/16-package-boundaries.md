@@ -1,5 +1,72 @@
 # Package Boundaries
 
+## Remaining Source Package Tarball Boundaries
+
+Previous completed checkpoint: `e07b1e5` Add internal package packability
+gates.
+
+What changed:
+
+- Added explicit package `files` boundaries for:
+  - `@flarex/persistence-postgres`: `drizzle` and `src`,
+  - `@flarex/freshness`: `src`,
+  - `@flarex/executor`: `src`,
+  - `@flarex/executor-http`: `src`.
+- Extended packability coverage to prove those tarballs contain public export
+  targets, exclude development-only entries, and avoid local-only dependency
+  protocols in packed manifests.
+- The persistence boundary is journal-driven: every Drizzle migration SQL file
+  and snapshot listed by `drizzle/meta/_journal.json` must be present in the
+  tarball.
+
+Boundary rule:
+
+Internal source-mode packages should publish only their runtime source and
+explicit runtime assets. Test files, Vitest config, and TypeScript config are
+not package runtime surface. Migration assets are allowed only for persistence
+packages whose runtime migration helpers resolve them.
+
+Packability tests enforce this boundary by rejecting test/spec files,
+`test`/`tests`/`__tests__` directories, fixture directories, and nested
+Vite/Vitest/TypeScript config files unless a package case explicitly allows a
+runtime test harness entry.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - controls npm package boundaries with explicit `files`.
+
+Flarex differences:
+
+- Flarex persistence currently ships Drizzle SQL migration assets directly in
+  the source tarball. Convex publishes a built package surface instead.
+
+Known limitations:
+
+- This does not verify install-time behavior in a fresh consumer yet.
+- Future built packages may replace source-mode `files` boundaries with `dist`
+  boundaries.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/freshness build
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter @flarex/persistence-postgres pack --dry-run
+corepack pnpm --filter @flarex/freshness pack --dry-run
+corepack pnpm --filter @flarex/executor pack --dry-run
+corepack pnpm --filter @flarex/executor-http pack --dry-run
+git diff --check
+```
+
 ## Source Package Tarball Boundaries
 
 Previous completed checkpoint: `000379c` Add flarex-dev packability gate.
