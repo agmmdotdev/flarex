@@ -15,11 +15,7 @@ import { DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import {
   analyzedStartPushRequest,
-  codegenAnalysisFromDeploymentAnalysis,
-  validateAnalysis,
-  validateCodegenAnalysis,
-  validateDiagnostics,
-  validateSourcePackage,
+  startAnalyzedPushInput,
 } from "./deployment/Validation";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
@@ -136,37 +132,9 @@ export class DeploymentDO extends DurableObject<Env> {
   }
 
   private async startPush(request: AnalyzedStartPushRequest): Promise<PushStatus> {
-    const sourcePackage = validateSourcePackage(request.sourcePackage);
-    const error = request.error;
-    const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
-    const diagnostics = validateDiagnostics(request.diagnostics);
-    if (analysis === undefined) {
-      if (typeof error !== "string" || error.length === 0) {
-        throw new HttpError(400, "A push without analysis must include an error message.");
-      }
-      return this.runDeployment(
-        DeploymentService.use(service =>
-          service.startAnalyzedPush({
-            sourcePackage,
-            error,
-            diagnostics,
-          })
-        ),
-      );
-    }
-    const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
-    const codegenAnalysis = validateCodegenAnalysis(
-      hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
-      analysis,
-    );
     return this.runDeployment(
       DeploymentService.use(service =>
-        service.startAnalyzedPush({
-          sourcePackage,
-          analysis,
-          codegenAnalysis,
-          diagnostics,
-        })
+        service.startAnalyzedPush(startAnalyzedPushInput(request))
       ),
     );
   }

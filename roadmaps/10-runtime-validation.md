@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Deployment Start Push Service Input Validation
+
+Previous completed checkpoint: `5e74840` Move deployment metadata access into
+store.
+
+What changed:
+
+- Added `startAnalyzedPushInput` in `deployment/Validation.ts`.
+- Moved backend analyzed start-push request normalization out of
+  `DeploymentDO.startPush`.
+- Kept `DeploymentDO.fetch()` responsible for HTTP routing, JSON reading, and
+  protocol wrapper parsing.
+- Added direct validation tests for generated codegen fallback, explicit
+  codegen preservation, failed push input, and exact defensive validation
+  errors.
+
+Why it changed:
+
+The deployment store boundary is now narrow enough that the remaining start
+push work in the Durable Object is request normalization. Moving that pure
+normalization beside the rest of deployment validation keeps the DO focused on
+HTTP and runtime bridging.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal validation boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. The runtime boundary remains
+  `DeploymentDO.runDeployment`.
+
+Known limitations:
+
+- Deep protocol decoding of `analysis` and `codegenAnalysis` remains separate
+  from backend validation.
+- `DeploymentDO.fetch()` still calls a private `startPush` method for the
+  service runtime bridge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Store Metadata Access
 
 Previous completed checkpoint: `2d6c9c4` Move deployment schema application

@@ -136,6 +136,49 @@ export function analyzedStartPushRequest(
   };
 }
 
+export type StartAnalyzedPushServiceInput = {
+  readonly sourcePackage: PushSourcePackage;
+  readonly diagnostics: ReadonlyArray<PushDiagnostic>;
+} & (
+  | {
+      readonly analysis: DeploymentAnalysis;
+      readonly codegenAnalysis: DeploymentCodegenAnalysis;
+    }
+  | {
+      readonly error: string;
+    }
+);
+
+export function startAnalyzedPushInput(
+  request: AnalyzedStartPushRequest,
+): StartAnalyzedPushServiceInput {
+  const sourcePackage = validateSourcePackage(request.sourcePackage);
+  const error = request.error;
+  const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
+  const diagnostics = validateDiagnostics(request.diagnostics);
+  if (analysis === undefined) {
+    if (typeof error !== "string" || error.length === 0) {
+      throw new HttpError(400, "A push without analysis must include an error message.");
+    }
+    return {
+      sourcePackage,
+      error,
+      diagnostics,
+    };
+  }
+  const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
+  const codegenAnalysis = validateCodegenAnalysis(
+    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
+    analysis,
+  );
+  return {
+    sourcePackage,
+    analysis,
+    codegenAnalysis,
+    diagnostics,
+  };
+}
+
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
   const storedAnalysis = row.schema_json === null || row.functions_json === null
     ? undefined

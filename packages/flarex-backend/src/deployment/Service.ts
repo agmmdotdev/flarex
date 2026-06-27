@@ -3,33 +3,19 @@ import type { HttpError } from "../http";
 import type {
   AbandonPushRequest,
   ActiveDeploymentStatus,
-  DeploymentAnalysis,
-  DeploymentCodegenAnalysis,
   FinishPushResponse,
-  PushDiagnostic,
-  PushSourcePackage,
   PushStatus,
 } from "../types";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
 import { DeploymentPushStore, type DeploymentSqlError } from "./Store";
+import type { StartAnalyzedPushServiceInput } from "./Validation";
 import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
 } from "./Errors";
 
-export type StartAnalyzedPushInput = {
-  readonly sourcePackage: PushSourcePackage;
-  readonly diagnostics: ReadonlyArray<PushDiagnostic>;
-} & (
-  | {
-      readonly analysis: DeploymentAnalysis;
-      readonly codegenAnalysis: DeploymentCodegenAnalysis;
-    }
-  | {
-      readonly error: string;
-    }
-);
+export type StartAnalyzedPushInput = StartAnalyzedPushServiceInput;
 
 export class DeploymentService extends Context.Service<DeploymentService, {
   getActiveDeployment(): Effect.Effect<

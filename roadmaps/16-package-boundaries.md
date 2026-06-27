@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Deployment Start Push Validation Boundary
+
+Previous completed checkpoint: `5e74840` Move deployment metadata access into
+store.
+
+What changed:
+
+- Moved analyzed start-push backend request normalization into
+  `deployment/Validation.ts`.
+- Reused the validation module for source package, diagnostics, analysis, and
+  codegen normalization before calling `DeploymentService.startAnalyzedPush`.
+- Kept `DeploymentDO` as the HTTP route and Effect runtime boundary.
+- Kept `flarex-protocol` as the wrapper schema package; no shared protocol
+  contract changed.
+
+Why it changed:
+
+Backend deployment validation now owns the pure request-to-service input
+adapter. That keeps package boundaries narrow: protocol parses the wrapper,
+backend validation normalizes service input, and the service/store layer owns
+runtime orchestration.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- This is not an SDK or protocol move. It is backend-local validation that
+  preserves existing HTTP messages.
+
+Known limitations:
+
+- Deep `analysis` and `codegenAnalysis` payloads are still decoded by backend
+  validation rather than by `flarex-protocol`.
+- A later slice can decide whether that should change.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Store Metadata Boundary
 
 Previous completed checkpoint: `2d6c9c4` Move deployment schema application

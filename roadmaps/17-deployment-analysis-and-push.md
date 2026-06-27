@@ -1,5 +1,54 @@
 # Deployment Analysis And Push
 
+## Start Push Service Input Adapter
+
+Previous completed checkpoint: `5e74840` Move deployment metadata access into
+store.
+
+What changed:
+
+- Added `startAnalyzedPushInput` to normalize backend analyzed start-push
+  requests into `DeploymentService.startAnalyzedPush` input.
+- Moved source package validation, diagnostics normalization, analysis
+  validation, generated codegen fallback, explicit codegen validation, and
+  missing-error validation out of `DeploymentDO.startPush`.
+- Preserved existing HTTP 400 validation messages and route behavior.
+- Added direct tests for success, failure, fallback, and exact error behavior.
+
+Why it changed:
+
+The start-push request adapter is pure deployment validation logic. Keeping it
+with the deployment validation module removes another behavioral branch from
+the Durable Object while preserving the route and runtime boundary.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's start-push
+  service-input adapter boundary.
+
+Flarex differences:
+
+- This is not a protocol package change. `flarex-protocol` still owns wrapper
+  parsing and backend validation still owns deep analysis/codegen checks.
+
+Known limitations:
+
+- Deep protocol decoding of analysis/codegen remains a later decision.
+- `DeploymentDO.fetch()` still calls a private method before `runDeployment`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Store Owned Deployment Metadata
 
 Previous completed checkpoint: `2d6c9c4` Move deployment schema application

@@ -3,6 +3,7 @@ import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
   pushStatusFromRow,
+  startAnalyzedPushInput,
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
@@ -114,6 +115,83 @@ describe("deployment validation", () => {
         sourcePackage: sourcePackage(),
       } as ProtocolAnalyzedStartPushRequest)
     ).toThrow(new Error("Parsed failed push request is missing error."));
+  });
+
+  it("prepares analyzed start-push service input with generated codegen fallback", () => {
+    const analysis = {
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    };
+
+    const input = startAnalyzedPushInput({
+      sourcePackage: sourcePackage(),
+      analysis,
+    });
+
+    expect(input).toEqual({
+      sourcePackage: sourcePackage(),
+      analysis: validateAnalysis(analysis),
+      codegenAnalysis: codegenAnalysisFromDeploymentAnalysis(validateAnalysis(analysis)),
+      diagnostics: [],
+    });
+  });
+
+  it("prepares analyzed start-push service input with explicit codegen and diagnostics", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+    const codegenAnalysis = codegenAnalysisFromDeploymentAnalysis(analysis);
+
+    const input = startAnalyzedPushInput({
+      sourcePackage: sourcePackage(),
+      analysis,
+      codegenAnalysis,
+      diagnostics: [{ level: "warn", message: "check generated output" }],
+    });
+
+    expect(input).toEqual({
+      sourcePackage: sourcePackage(),
+      analysis,
+      codegenAnalysis,
+      diagnostics: [{ level: "warn", message: "check generated output" }],
+    });
+  });
+
+  it("prepares failed start-push service input", () => {
+    const input = startAnalyzedPushInput({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      diagnostics: [{ level: "error", message: "typecheck failed" }],
+    });
+
+    expect(input).toEqual({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      diagnostics: [{ level: "error", message: "typecheck failed" }],
+    });
+  });
+
+  it("preserves start-push service input validation error messages", () => {
+    expect(() =>
+      startAnalyzedPushInput({
+        sourcePackage: sourcePackage(),
+      } as unknown as Parameters<typeof startAnalyzedPushInput>[0])
+    ).toThrow(new HttpError(400, "A push without analysis must include an error message."));
+
+    expect(() =>
+      startAnalyzedPushInput({
+        sourcePackage: sourcePackage(),
+        analysis: {
+          schema: simpleSchema(),
+          functions: simpleFunctions(),
+        },
+        codegenAnalysis: {
+          schema: { ...simpleSchema(), version: 2 },
+          functions: [],
+        },
+      })
+    ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
   });
 
   it("normalizes deployment schema metadata", () => {
