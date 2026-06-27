@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `566ddfa` Extract deployment push read service.
-- Active checkpoint: extract deployment service tagged errors into `deployment/Errors.ts` while preserving error tags, fields, and HTTP mapping.
+- Previous completed checkpoint: `64f1e75` Extract deployment error types.
+- Active checkpoint: extract source-package and diagnostics validators into `deployment/Validation.ts` while preserving exact HTTP 400 messages and normalization behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 12 slice:
+Current Goal 13 slice:
+
+1. Add `deployment/Validation.ts` with `validateSourcePackage` and `validateDiagnostics`.
+2. Keep `DeploymentDO` as the HTTP boundary and keep `parseAnalyzedStartPushRequest` wrapper-oriented.
+3. Preserve source-package module/function normalization, diagnostics truncation, and every existing `HttpError(400, ...)` message for these helpers.
+4. Add direct validator tests for normalization and exact message preservation, while keeping route-level push tests unchanged.
+5. Do not move deep `validateAnalysis`, `validateCodegenAnalysis`, schema/function validators, SQL behavior, or service orchestration in this slice.
+6. Validate with focused validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 12 slice:
 
 1. Move `DeploymentPushNotFoundError`, `DeploymentPushInvalidStateError`, and `DeploymentActiveDeploymentNotFoundError` from `DeploymentService` to `deployment/Errors.ts`.
 2. Keep tagged error names, fields, and constructors unchanged so `Effect.catchTag`, `instanceof`, and route mapping keep working.
@@ -106,10 +115,10 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 12 should be one of:
+Next checkpoint after Goal 13 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
-- Move deployment semantic validators into a typed domain/parser module only if exact error-message parity can be preserved.
+- Move deployment schema/function semantic validators into `deployment/Validation.ts` only if exact error-message parity can be preserved with direct tests first.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 

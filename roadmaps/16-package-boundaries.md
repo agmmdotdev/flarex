@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Deployment Validation Module Boundary
+
+Previous completed checkpoint: `64f1e75` Extract deployment error types.
+
+What changed:
+
+- Added `packages/flarex-backend/src/deployment/Validation.ts`.
+- Moved source-package and diagnostics helpers behind that deployment module
+  boundary.
+- Kept `DeploymentDO` as the caller for start-push validation and service
+  orchestration.
+- Added direct unit tests for the extracted helpers.
+
+Why it changed:
+
+The deployment package now has service, store, runtime, layer, and error
+modules. A validation module lets pure request/domain validation move out of
+the Durable Object incrementally without pulling route or SQL ownership with
+it.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a Flarex package boundary
+  cleanup before deeper validator extraction.
+
+Flarex differences:
+
+- The validation module is not a public protocol package. Shared transport
+  schemas still belong in `flarex-protocol`.
+
+Known limitations:
+
+- Deep schema/function/codegen validators remain in `DeploymentDO`.
+- `safeValidator` still depends on backend `ValidatorJson` validation and has
+  not moved.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Error Module Boundary
 
 Previous completed checkpoint: `566ddfa` Extract deployment push read service.

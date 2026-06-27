@@ -1,5 +1,54 @@
 # Deployment Analysis And Push
 
+## Source Package And Diagnostics Validation
+
+Previous completed checkpoint: `64f1e75` Extract deployment error types.
+
+What changed:
+
+- Extracted source-package and push diagnostics validation into
+  `deployment/Validation.ts`.
+- Preserved source module sorting, function sorting, diagnostics truncation to
+  the newest 100 entries, and existing HTTP 400 messages.
+- Added direct tests for the moved helpers, alongside existing push route
+  malformed-body tests.
+
+Why it changed:
+
+Start-push validation is the next area to move after the deployment service
+and error boundaries. Source-package and diagnostics helpers are low-risk and
+give the migration a validation module before moving analysis/codegen logic.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's start-push
+  validation cleanup.
+
+Flarex differences:
+
+- Deep deployment analysis and codegen checks remain backend implementation
+  validation rather than shared protocol decoding.
+
+Known limitations:
+
+- `validateAnalysis`, `validateCodegenAnalysis`, schema/function validators,
+  and row normalization still live in `DeploymentDO`.
+- The next validator slice needs direct exact-message tests before moving
+  cross-field schema/function logic.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Error Module
 
 Previous completed checkpoint: `566ddfa` Extract deployment push read service.

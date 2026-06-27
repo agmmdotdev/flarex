@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## Deployment Source Package Validation Module
+
+Previous completed checkpoint: `64f1e75` Extract deployment error types.
+
+What changed:
+
+- Added `deployment/Validation.ts` for source-package and diagnostics
+  validation helpers.
+- Moved `validateSourcePackage` and `validateDiagnostics` out of
+  `DeploymentDO`.
+- Kept source package module/function normalization and diagnostics truncation
+  behavior unchanged.
+- Added direct validator tests for normalization and exact HTTP 400 message
+  preservation, while retaining route-level push validation coverage.
+
+Why it changed:
+
+These helpers are the smallest start-push validators that can be extracted
+without touching deep deployment analysis or codegen cross-field checks. This
+creates the validation module boundary before the higher-risk semantic
+validators move.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint continues Flarex's
+  deployment migration around the current Durable Object push boundary.
+
+Cloudflare differences:
+
+- `DeploymentDO` still owns HTTP request handling, response mapping, and
+  Durable Object SQLite state. The validation module is backend-local.
+
+Known limitations:
+
+- Deep `validateAnalysis`, `validateCodegenAnalysis`, schema/function
+  validators, and `safeValidator` remain in `DeploymentDO`.
+- `parseAnalyzedStartPushRequest` still decodes only the wrapper-level
+  protocol shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Error Module Validation
 
 Previous completed checkpoint: `566ddfa` Extract deployment push read service.
