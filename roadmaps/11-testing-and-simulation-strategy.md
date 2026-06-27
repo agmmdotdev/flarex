@@ -1,5 +1,55 @@
 # Testing and Simulation Strategy
 
+## Developer-Facing Finish Rejection Code Coverage
+
+Previous completed checkpoint: `31809e0` Add finish rejection codes.
+
+What changed:
+
+- Extended the CLI deploy activation-failure test to assert that stderr includes
+  the stable finish rejection code.
+- Extended the programmatic deploy and local dev runtime reload failure tests
+  to assert the same code line from the shared formatter.
+- Added a focused formatter regression proving rejected finish responses still
+  surface diagnostics stored on the embedded push when the rejection envelope
+  has no top-level diagnostics.
+
+Why it changed:
+
+The previous tests proved the parser accepted stable rejection codes, but not
+that developers would actually see those codes when activation failed. This
+checkpoint covers the three current callers of `devFinishPushErrorMessage(...)`
+so formatter drift is caught at the user-facing boundary. The embedded-push
+diagnostic fallback preserves the previous push-status formatter behavior for
+custom coordinators and older backend-shaped responses.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy tests should exercise the finish boundary rather than only lower
+    parser helpers.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - deploy output is driven by structured finish-push response data.
+
+Flarex differences:
+
+- Flarex tests assert a compact rejection-code line instead of Convex's richer
+  deployment diff/config output.
+- The coverage remains focused on dev package callers because the backend
+  response-code contract was already covered in the previous checkpoint.
+
+Known limitations:
+
+- There is still no CLI JSON output mode test because Flarex does not expose
+  that mode yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/dev.test.ts test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Rejection Code Coverage
 
 Previous completed checkpoint: `dbbb06f` Return finish rejection for missing

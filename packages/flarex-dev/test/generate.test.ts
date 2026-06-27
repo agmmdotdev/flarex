@@ -385,6 +385,7 @@ export const list = query({ args: {}, handler: async () => [] });
       throw new Error("Expected deployFlarex to throw an Error.");
     }
     expect(error.message).toContain("Flarex push push1 did not activate: failed.");
+    expect(error.message).toContain("Backend rejection code: invalid_state");
     expect(error.message).toContain("Backend error: activation failed");
     expect(error.message).toContain("Backend diagnostic (error): schema rejected");
   });

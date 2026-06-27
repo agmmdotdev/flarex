@@ -492,6 +492,7 @@ describe("runFlarexDevCli", () => {
       })).resolves.toBe(1);
 
       expect(stderr.value).toContain("Flarex push push1 did not activate: failed.");
+      expect(stderr.value).toContain("Backend rejection code: invalid_state");
       expect(stderr.value).toContain("Backend error: activation failed");
       expect(stderr.value).toContain("Backend diagnostic (error): schema rejected");
     } finally {

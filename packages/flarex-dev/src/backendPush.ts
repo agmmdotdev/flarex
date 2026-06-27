@@ -59,14 +59,15 @@ export function devFinishPushErrorMessage(response: DevFinishPushResponse, messa
   if (response.result === "activated") {
     return devPushStatusErrorMessage(response.push, message);
   }
-  return devPushStatusErrorMessage(
-    {
-      ...response.push,
-      error: response.error,
-      ...(response.diagnostics === undefined ? {} : { diagnostics: response.diagnostics }),
-    },
-    message,
-  );
+  const details = [
+    `Backend rejection code: ${response.code}`,
+    `Backend error: ${response.error}`,
+    ...(response.diagnostics ?? response.push.diagnostics ?? []).map(
+      diagnostic => `Backend diagnostic (${diagnostic.level}): ${diagnostic.message}`,
+    ),
+  ];
+  const summary = `${message}: ${response.push.state}.`;
+  return `${summary}\n${details.join("\n")}`;
 }
 
 export interface BackendPushCoordinator {

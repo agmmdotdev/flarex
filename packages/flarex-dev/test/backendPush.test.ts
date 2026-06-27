@@ -4,6 +4,7 @@ import type { FinishPushRejectionCode } from "flarex-backend/types";
 import type { DeploymentAnalysis } from "../src/analyze";
 import {
   createLocalAnalyzerService,
+  devFinishPushErrorMessage,
   HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,
   LocalBackendPushCoordinator,
@@ -371,6 +372,28 @@ describe("backend push coordinator", () => {
       deploymentId: "deployment1",
       fetch: fetcher,
     }).finish("push1")).rejects.toThrow("Backend finish response push must be an object.");
+  });
+
+  it("formats rejected finish diagnostics from the push when the envelope has none", () => {
+    const message = devFinishPushErrorMessage(
+      {
+        result: "rejected",
+        push: {
+          pushId: "push1",
+          state: "failed",
+          error: "activation failed",
+          diagnostics: [{ level: "error", message: "push diagnostic" }],
+        },
+        code: "invalid_state",
+        error: "activation failed",
+      },
+      "Flarex push push1 did not activate",
+    );
+
+    expect(message).toContain("Flarex push push1 did not activate: failed.");
+    expect(message).toContain("Backend rejection code: invalid_state");
+    expect(message).toContain("Backend error: activation failed");
+    expect(message).toContain("Backend diagnostic (error): push diagnostic");
   });
 
   it("treats non-409 finish wrapper responses as transport failures", async () => {

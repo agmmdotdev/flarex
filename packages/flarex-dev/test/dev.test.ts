@@ -126,6 +126,7 @@ describe("Flarex dev runtime", () => {
       }
       expect(error.message).toContain("Flarex push");
       expect(error.message).toContain("did not activate: failed.");
+      expect(error.message).toContain("Backend rejection code: invalid_state");
       expect(error.message).toContain("Backend error: activation failed");
       expect(error.message).toContain("Backend diagnostic (error): schema rejected");
     } finally {
