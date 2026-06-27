@@ -1,5 +1,52 @@
 # SDK And CLI Fork
 
+## Root Package Exports CLI Runner
+
+Previous completed checkpoint: `d35c94d` Add deploy JSON output.
+
+What changed:
+
+- The root `flarex-dev` package entrypoint now re-exports
+  `runFlarexDevCli(...)`.
+- The root entrypoint also re-exports `FlarexDevCliOptions` beside the deploy
+  JSON output types, so automation and tests can import the full CLI contract
+  from one package surface.
+
+Why it changed:
+
+The previous checkpoint added deploy JSON output as an automation contract, but
+the reusable runner was still only available from the `flarex-dev/cli` subpath.
+Convex keeps package-level exports explicit, and Flarex should make stable
+developer-facing automation types reachable from the root development package
+entrypoint.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - exposes explicit package root and subpath exports.
+- `npm-packages/convex/src/cli/lib/command.ts`
+  - command output modes are treated as command-level public behavior.
+
+Flarex differences:
+
+- Convex's published CLI is a built package command surface. Flarex still uses
+  TS-source package exports in this workspace, so this checkpoint only aligns
+  the source-level package entrypoint.
+
+Known limitations:
+
+- There is still no stable published `flarex-dev` binary entry in
+  `package.json`.
+- The root export does not make deploy JSON available for dev server logs or
+  non-deploy commands.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/index.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Deploy Command JSON Output
 
 Previous completed checkpoint: `21b5e38` Add finish rejection remediation

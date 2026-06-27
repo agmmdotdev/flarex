@@ -1,5 +1,46 @@
 # Testing and Simulation Strategy
 
+## CLI Package Entrypoint Coverage
+
+Previous completed checkpoint: `d35c94d` Add deploy JSON output.
+
+What changed:
+
+- Added package-entrypoint coverage proving `flarex-dev` exports
+  `runFlarexDevCli(...)`, `FlarexDevCliOptions`, and deploy JSON output types.
+- The test imports from the package self-reference `flarex-dev`, exercising the
+  root export map instead of importing `src/cli` or `src/index` directly.
+
+Why it changed:
+
+The previous checkpoint established deploy JSON as a public automation surface.
+The tests now protect the package-level import path that future examples,
+adapters, and scripts should use.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - declares explicit public package exports.
+- `npm-packages/convex/src/cli/lib/command.ts`
+  - command behavior is part of the package's public developer tooling
+    surface.
+
+Flarex differences:
+
+- This test targets the local TS-source package self-reference, not a built npm
+  package artifact.
+
+Known limitations:
+
+- The test proves the root source entrypoint, not a future published binary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/index.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Deploy JSON Output Coverage
 
 Previous completed checkpoint: `21b5e38` Add finish rejection remediation

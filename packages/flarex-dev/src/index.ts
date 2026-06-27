@@ -45,7 +45,9 @@ export type {
   FlarexGeneratedOutputTypecheckOption,
   FlarexGeneratedOutputTypecheckOptions,
 } from "./generatedTypecheck.ts";
+export { runFlarexDevCli } from "./cli.ts";
 export type {
+  FlarexDevCliOptions,
   FlarexDeployJsonError,
   FlarexDeployJsonOutput,
   FlarexDeployJsonPush,
