@@ -2,11 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `31971a4` Inline deployment start push route bridge.
-- Active checkpoint: inline the remaining thin deployment route bridge methods into `DeploymentDO.fetch()` while keeping `runDeployment` as the runtime boundary.
+- Previous completed checkpoint: `7baf8e0` Inline deployment route service bridges.
+- Active checkpoint: lock the deep `analysis` / `codegenAnalysis` request-decoding decision before moving more deployment request behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
+
+Current Goal 24 slice:
+
+1. Keep `parseAnalyzedStartPushRequest` wrapper-oriented for `POST /push/start-analyzed`; it validates object shape, `sourcePackage` presence, diagnostics wrapper shape, and success/failure mutual exclusion only.
+2. Do not deep-decode request `analysis` or `codegenAnalysis` with protocol schemas yet, because backend validators own exact user-facing `HttpError(400, ...)` messages and cross-field semantic checks.
+3. Add protocol regression coverage showing deep request payloads remain unknown at this boundary.
+4. Add backend route regression coverage showing malformed direct request `analysis` and `codegenAnalysis` still return backend validation messages.
+5. Preserve response-side deep protocol parsing from Goal 6; successful push, finish, and active deployment responses continue to validate deep payloads through `flarex-protocol`.
+6. Do not change SQL behavior, service/store orchestration, runtime boundaries, request route shape, or `ValidatorJson` ownership.
+7. Validate with focused protocol/backend tests, full backend gates, and only the EffectTS quality checker reviewer.
 
 Current Goal 23 slice:
 
@@ -211,11 +221,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 23 should be one of:
+Next checkpoint after Goal 24 should be one of:
 
-- Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether the direct `DeploymentService.use(...)` calls should remain explicit or be grouped only after the deep protocol-decoding decision.
+- Extract a reusable route helper for deployment service calls only if it keeps the single `runDeployment` boundary visible and does not hide HTTP/body parsing.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

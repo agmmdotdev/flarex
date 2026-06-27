@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DeploymentProtocolValidationError,
+  parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
   parseDeploymentCodegenAnalysis,
   parseFinishPushResponse,
@@ -38,6 +39,18 @@ describe("deployment protocol schemas", () => {
 
     expect(() => parseDeploymentCodegenAnalysis(codegen))
       .toThrow(DeploymentProtocolValidationError);
+  });
+
+  it("keeps analyzed start-push request parsing wrapper-oriented", () => {
+    const request = parseAnalyzedStartPushRequest({
+      sourcePackage: sourcePackage(),
+      analysis: null,
+      codegenAnalysis: { not: "validated here" },
+      diagnostics: [],
+    });
+
+    expect(request.analysis).toBeNull();
+    expect(request.codegenAnalysis).toEqual({ not: "validated here" });
   });
 });
 

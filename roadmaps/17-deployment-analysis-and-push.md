@@ -1,5 +1,60 @@
 # Deployment Analysis And Push
 
+## Deep Request Decoding Decision
+
+Previous completed checkpoint: `7baf8e0` Inline deployment route service
+bridges.
+
+What changed:
+
+- Added protocol regression coverage proving `parseAnalyzedStartPushRequest`
+  remains wrapper-oriented for deep `analysis` and `codegenAnalysis` request
+  payloads.
+- Added backend route regression coverage proving malformed direct request
+  `analysis` and `codegenAnalysis` still return backend validation messages.
+- Updated the migration proposal to keep deep request decoding out of the
+  protocol parser for now.
+
+Why it changed:
+
+The backend validation layer owns user-facing deployment analysis diagnostics
+and semantic cross-checks. Moving deep request decoding into the protocol
+parser now would replace those exact `HttpError(400, ...)` messages with
+generic protocol errors.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a Flarex deployment
+  boundary decision around the analyzed-push route.
+
+Flarex differences:
+
+- Response parsing still validates deep deployment payloads through
+  `flarex-protocol`.
+- Request parsing remains split: protocol owns the route envelope, and backend
+  validation owns deep deployment semantics.
+
+Known limitations:
+
+- `DeploymentDO.fetch()` still contains explicit deployment route branches.
+- A later HttpApi spike must preserve this request/response boundary split or
+  intentionally replace the backend messages with reviewed parity coverage.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-protocol test -- test/deployment.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Route Bridge Cleanup
 
 Previous completed checkpoint: `31971a4` Inline deployment start push route

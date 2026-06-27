@@ -132,6 +132,25 @@ describe("deployment push lifecycle", () => {
       error: "Push diagnostic at index 0 has an invalid level.",
     });
 
+    const invalidAnalysis = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      analysis: null,
+    });
+    expect(invalidAnalysis.status).toBe(400);
+    await expect(invalidAnalysis.json()).resolves.toEqual({
+      error: "Deployment analysis must be an object.",
+    });
+
+    const invalidCodegenAnalysis = await startPushRawResponse("push-start-bad-body", {
+      sourcePackage: sourcePackage(),
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      codegenAnalysis: null,
+    });
+    expect(invalidCodegenAnalysis.status).toBe(400);
+    await expect(invalidCodegenAnalysis.json()).resolves.toEqual({
+      error: "Codegen analysis must be an object.",
+    });
+
     const successWithError = await startPushRawResponse("push-start-bad-body", {
       sourcePackage: sourcePackage(),
       analysis: { schema: candidateSchema(), functions: candidateFunctions() },

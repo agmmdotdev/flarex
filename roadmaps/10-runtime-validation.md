@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## Deployment Deep Request Boundary
+
+Previous completed checkpoint: `7baf8e0` Inline deployment route service
+bridges.
+
+What changed:
+
+- Locked the current analyzed-push request boundary with tests: the protocol
+  parser validates only the envelope, and backend validation owns deep
+  deployment analysis/codegen semantics.
+- Preserved the existing single `DeploymentDO.runDeployment` runtime boundary
+  and did not introduce a new Effect runtime bridge.
+
+Why it changed:
+
+The route currently needs backend-owned `HttpError(400, ...)` messages for
+malformed deployment analysis payloads. Deep protocol request decoding would
+change the runtime boundary behavior by failing before backend validation.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is a
+  Flarex-internal runtime boundary guard.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. The route still parses JSON in
+  `fetch()`, adapts the request through backend validation, and crosses Effect
+  once through `runDeployment`.
+
+Known limitations:
+
+- `DeploymentDO.fetch()` remains a plain router.
+- Future HttpApi or route-helper work must preserve exact validation behavior
+  before moving the boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-protocol test -- test/deployment.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Route Runtime Bridge Cleanup
 
 Previous completed checkpoint: `31971a4` Inline deployment start push route
