@@ -5,6 +5,10 @@
   "bin": {
     "flarex-dev": "./bin/flarex-dev.mjs"
   },
+  "files": [
+    "bin",
+    "src"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",

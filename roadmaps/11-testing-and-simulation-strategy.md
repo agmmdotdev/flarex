@@ -1,5 +1,58 @@
 # Testing and Simulation Strategy
 
+## CLI Packability Integration
+
+Previous completed checkpoint: `5cf8dcd` Cover flarex-dev consumer bin shim.
+
+What changed:
+
+- Added `integration/cli-pack.integration.test.ts` as a fast tarball gate for
+  `flarex-dev`.
+- The test packs `flarex-dev` into a temp directory, lists the tarball, reads
+  `package/package.json` from the tarball, and verifies the public CLI package
+  surface without installing the package.
+- The test discovers the generated tarball dynamically and compares packed
+  package identity against the source manifest, so normal version bumps do not
+  break the packaging gate.
+- The test verifies every string target in the packed `exports` map exists in
+  the tarball, not just the CLI launcher files.
+- The test uses bounded process execution and cleans up its temp directory after
+  each run.
+
+Why it changed:
+
+Consumer `.bin` coverage proved workspace command discovery. Packability
+coverage catches a different class of regressions: accidentally publishing
+tests, losing the CLI launcher, losing source entrypoints required by the
+source-mode launcher, or leaking local-only dependency protocols.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - treats package files and bin entries as part of the stable public npm
+    surface.
+
+Flarex differences:
+
+- This is tarball inspection rather than a packed install fixture.
+- Flarex's package still uses source-mode TypeScript and `tsx`; Convex's
+  package points at built CLI files.
+
+Known limitations:
+
+- No fresh-consumer packed install test exists yet.
+- The test does not execute the packed tarball's bin after installation; it only
+  proves the tarball has the needed launcher and dependency metadata.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest integration/cli-pack.integration.test.ts
+corepack pnpm --filter flarex-dev pack --dry-run
+git diff --check
+```
+
 ## Example App CLI Shim Integration
 
 Previous completed checkpoint: `a45578c` Add flarex-dev package bin.

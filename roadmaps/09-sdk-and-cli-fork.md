@@ -1,5 +1,61 @@
 # SDK And CLI Fork
 
+## Packed CLI Tarball Gate
+
+Previous completed checkpoint: `5cf8dcd` Cover flarex-dev consumer bin shim.
+
+What changed:
+
+- Added a `files` whitelist to `flarex-dev` so packed tarballs include the
+  package metadata plus `bin` and `src` instead of test files and Vitest config.
+- Added integration coverage that runs `pnpm pack` for `flarex-dev`, inspects
+  the produced tarball, and verifies:
+  - `package/bin/flarex-dev.mjs` is present,
+  - `package/src/bin.ts` and `package/src/cli.ts` are present,
+  - all string targets in the packed `exports` map exist in the tarball,
+  - `package/test/*` and `package/vitest.config.ts` are absent,
+  - the packed manifest keeps the `flarex-dev` bin entry,
+  - packed dependency buckets do not contain local-only protocols such as
+    `workspace:`, `catalog:`, `link:`, or `file:`, and
+  - dev dependencies are not emitted in the packed manifest.
+
+Why it changed:
+
+The previous checkpoint proved a workspace-linked app can discover and run the
+CLI command. The next packaging boundary is the actual tarball shape. Convex's
+published package explicitly controls included files, and Flarex needs the same
+discipline before a full packed install test becomes useful.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - declares package `bin` entries and an explicit `files` list that excludes
+    tests from the published package.
+
+Flarex differences:
+
+- Convex publishes built JS and type artifacts. Flarex still publishes
+  source-mode TypeScript entrypoints in this workspace, so the tarball must keep
+  `src/bin.ts` and `src/cli.ts` for the `tsx` launcher.
+
+Known limitations:
+
+- This checkpoint proves packability and tarball contents, not full installation
+  into a fresh consumer.
+- A full packed install currently requires packing all internal `0.0.1` Flarex
+  packages and overriding transitive package resolution. That path is heavier
+  than this normal integration gate and should be revisited after the package
+  dependency graph is closer to publish-ready.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest integration/cli-pack.integration.test.ts
+corepack pnpm --filter flarex-dev pack --dry-run
+git diff --check
+```
+
 ## Consumer Bin Shim Coverage
 
 Previous completed checkpoint: `a45578c` Add flarex-dev package bin.
