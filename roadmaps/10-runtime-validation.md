@@ -1,5 +1,66 @@
 # Runtime Validation
 
+## Deployment Finish Service Validation
+
+Previous completed checkpoint: `224f097` Extract deployment push-start
+service.
+
+What changed:
+
+- Added `DeploymentService.finishPush` for finish-push orchestration with
+  typed `DeploymentPushNotFoundError` and existing `DeploymentSqlError`
+  propagation.
+- Added `DeploymentArtifacts` as an Effect runtime dependency so artifact ref
+  creation is tested as a service dependency instead of hidden in
+  `DeploymentDO.finishPush`.
+- Moved analyzed-push preflight, controlled timestamp acquisition, activation
+  transaction, schema/function application, active metadata writes, and
+  activated response construction behind `DeploymentPushStore.finishPush`.
+- Kept `DeploymentDO.fetch()` responsible for HTTP routing, 404 mapping for
+  unknown pushes, storage-error 500 mapping, and rejected finish response 409
+  mapping.
+- Preserved activation validation `HttpError` status/message passthrough so
+  schema/function validation failures do not collapse into storage errors.
+
+Why it changed:
+
+Push-start proved the deployment service/store/runtime shape. Finish-push is
+the next correctness-sensitive write path, so this slice moves orchestration
+behind Effect while preserving the existing activation behavior and response
+surface.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint continues the
+  repo-local Cloudflare Durable Object extraction while preserving the
+  documented deployment activation direction.
+
+Cloudflare differences:
+
+- The Durable Object still owns the SQLite instance, schema/function in-memory
+  mutation helpers, and HTTP lifecycle. The service is composed per Durable
+  Object instance and does not become a global deployment singleton.
+
+Known limitations:
+
+- Finish-push request parsing remains unchanged because the request currently
+  carries no behavior-driving fields.
+- Abandon-push and active deployment reads still live in `DeploymentDO`.
+- Schema/function semantic validators remain outside the Effect service until
+  exact HTTP message parity can be preserved.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Push Start Service Validation
 
 Previous completed checkpoint: `bbdbec2` Add deployment analysis protocol
@@ -38,8 +99,8 @@ Known limitations:
 
 - Finish-push, abandon-push, active deployment reads, and deep request decoding
   remain in `DeploymentDO`.
-- Storage failures are now mapped to a typed `DeploymentSqlError` and returned
-  as a generic deployment storage HTTP 500 from the DO boundary.
+- Storage failures are mapped to typed `DeploymentSqlError` and returned as a
+  generic deployment storage HTTP 500 from the DO boundary.
 
 Verification:
 

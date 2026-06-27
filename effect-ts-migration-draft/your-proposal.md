@@ -2,12 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `bbdbec2` Add deployment analysis protocol schemas.
-- Active checkpoint: extract the first narrow `DeploymentService` Effect slice around analyzed push-start while preserving `DeploymentDO` HTTP and validation semantics.
+- Previous completed checkpoint: `224f097` Extract deployment push-start service.
+- Active checkpoint: extract finish-push orchestration into `DeploymentService` while preserving `DeploymentDO` HTTP status mapping, `FinishPushResponse` shapes, activation metadata writes, and schema/function application behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 
-Current Goal 7 slice:
+Current Goal 8 slice:
+
+1. Add `DeploymentArtifacts` as an Effect runtime dependency for execution artifact lookup instead of letting `DeploymentDO.finishPush` call artifact code directly.
+2. Add `DeploymentService.finishPush(pushId)` with typed `DeploymentPushNotFoundError` and existing `DeploymentSqlError` storage failure propagation.
+3. Keep `DeploymentDO.fetch()` and `DeploymentDO.runDeployment()` as the single HTTP/Durable Object boundary for finish-push status mapping.
+4. Move analyzed-state preflight, artifact-ref creation, controlled timestamp access, schema/function application transaction, active push metadata writes, and activated response construction behind `DeploymentPushStore.finishPush`.
+5. Preserve existing rejected finish-push response codes/messages, the HTTP 409 mapping for rejected finish responses, and activation validation `HttpError` status/message behavior.
+6. Add service-level tests for controlled clock/artifact/store behavior, preserved rejection responses, typed not-found preflight, typed finish storage failure propagation, and activation `HttpError` passthrough.
+
+Completed Goal 7 slice:
 
 1. Add `packages/flarex-backend/src/deployment/` with `Runtime`, `Store`, `Service`, and `Layer` files following the Registry service pattern.
 2. Keep `DeploymentDO.fetch()` as the HTTP/Durable Object boundary and keep `parseAnalyzedStartPushRequest` wrapper-oriented.
@@ -61,10 +70,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 7 should be one of:
+Next checkpoint after Goal 8 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
-- Extract finish-push into `DeploymentService` after push-start service behavior is proven.
+- Extract abandon-push into `DeploymentService` so the push lifecycle write paths share one typed service/store boundary.
+- Extract active deployment reads into `DeploymentService` after activation metadata writes are proven stable.
 - Move deployment semantic validators into a typed domain/parser module only if exact error-message parity can be preserved.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 

@@ -1,5 +1,63 @@
 # Package Boundaries
 
+## Deployment Finish Service Boundary
+
+Previous completed checkpoint: `224f097` Extract deployment push-start
+service.
+
+What changed:
+
+- Extended the deployment Effect service boundary from push-start into
+  finish-push activation.
+- Added an artifact runtime port next to the existing clock/id ports, keeping
+  execution artifact lookup injectable and testable.
+- Expanded the deployment store port with `getPush` and `finishPush` so the
+  service can preflight unknown pushes and then delegate activation to the
+  Durable Object-owned storage transaction.
+- Kept the Durable Object boundary responsible for HTTP status mapping,
+  route parsing, and the in-memory schema/function application callbacks used
+  by activation.
+- Kept activation validation `HttpError` failures separate from
+  `DeploymentSqlError` so HTTP 400 validation behavior remains unchanged.
+
+Why it changed:
+
+Finish-push combines artifact lookup, state-machine checks, SQL updates,
+schema/function application, and active deployment metadata. Moving that
+orchestration behind a typed service boundary makes the deployment package
+more coherent without moving Durable Object lifecycle ownership.
+
+Convex references inspected:
+
+- No new Convex source files were required. The boundary remains a Flarex
+  Cloudflare implementation detail around the existing deploy-state model.
+
+Flarex differences:
+
+- Flarex still applies schemas and functions inside a Cloudflare Durable
+  Object instance. The Effect service receives callbacks into that instance
+  rather than owning global process state.
+
+Known limitations:
+
+- The store still uses callbacks such as `readPush`, `applySchema`,
+  `applyFunctions`, and `setMeta` to preserve current Durable Object behavior.
+  A broader deployment repository abstraction can wait until all write paths
+  are behind the service.
+- Abandon-push and active deployment reads have not crossed this boundary yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Service Push Start Boundary
 
 Previous completed checkpoint: `bbdbec2` Add deployment analysis protocol

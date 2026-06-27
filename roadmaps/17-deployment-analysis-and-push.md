@@ -1,5 +1,68 @@
 # Deployment Analysis And Push
 
+## Finish Push Deployment Service
+
+Previous completed checkpoint: `224f097` Extract deployment push-start
+service.
+
+What changed:
+
+- Extracted finish-push orchestration into `DeploymentService.finishPush`.
+- Added service dependencies for push lookup, execution artifact ref creation,
+  controlled timestamp access, and the activation transaction.
+- Preserved `FinishPushResponse` behavior from the existing route: activated
+  responses stay 200, rejected responses keep their codes/messages and remain
+  409 at the HTTP boundary, and unknown pushes still map to 404.
+- Preserved activation validation `HttpError` behavior so schema/function
+  validation failures keep their original HTTP status/message instead of
+  becoming storage failures.
+- Kept schema/function activation and active deployment metadata writes inside
+  one storage transaction through the Durable Object-backed store.
+- Added service tests for successful activation, preserved rejection payloads,
+  not-found preflight, typed finish storage failures, and activation
+  `HttpError` passthrough.
+
+Why it changed:
+
+Finish-push is the state-machine step that makes a deployment active. After
+push-start moved behind the service, activation is the next narrow slice that
+proves Effect can own orchestration while the Durable Object keeps storage and
+runtime mutation ownership.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap notes continue to
+  track the broader deploy-analysis direction; this checkpoint is a Flarex
+  service-extraction step over the current Cloudflare state machine.
+
+Flarex differences:
+
+- Flarex activates deployment state in a Cloudflare Durable Object and writes
+  active metadata into DO storage. This differs from a central Convex backend
+  service, so the Effect service remains per-DO and callback-based for this
+  slice.
+
+Known limitations:
+
+- Finish request decoding is still minimal because the current body has no
+  semantic fields.
+- Abandon-push, active deployment reads, and semantic validator extraction are
+  still future slices.
+- The store reads the activated push through the existing `readPush` callback;
+  row normalization has not yet moved into a standalone repository module.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Push Start Deployment Service
 
 Previous completed checkpoint: `bbdbec2` Add deployment analysis protocol

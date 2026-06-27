@@ -1,4 +1,6 @@
 import { Context, DateTime, Effect, Layer } from "effect";
+import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import type { ExecutionArtifactRef, PushSourcePackage } from "../types";
 
 export class DeploymentClock extends Context.Service<DeploymentClock, {
   readonly currentTimeMillis: Effect.Effect<number>;
@@ -18,6 +20,20 @@ export class DeploymentIds extends Context.Service<DeploymentIds, {
     DeploymentIds,
     DeploymentIds.of({
       pushId: Effect.sync(() => crypto.randomUUID()),
+    }),
+  );
+}
+
+export class DeploymentArtifacts extends Context.Service<DeploymentArtifacts, {
+  executionArtifactRefForSourcePackage(
+    sourcePackage: PushSourcePackage,
+  ): Effect.Effect<ExecutionArtifactRef>;
+}>()("flarex-backend/deployment/DeploymentArtifacts") {
+  static readonly layer = Layer.succeed(
+    DeploymentArtifacts,
+    DeploymentArtifacts.of({
+      executionArtifactRefForSourcePackage: sourcePackage =>
+        Effect.promise(() => executionArtifactRefForSourcePackage(sourcePackage)),
     }),
   );
 }

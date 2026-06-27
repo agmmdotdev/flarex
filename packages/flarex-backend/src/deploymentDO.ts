@@ -1,9 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { Effect, ManagedRuntime } from "effect";
-import {
-  executionArtifactRefForSourcePackage,
-  validateExecutionArtifactRef,
-} from "flarex/artifacts";
+import { validateExecutionArtifactRef } from "flarex/artifacts";
 import {
   parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
@@ -11,10 +8,9 @@ import {
   type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
-import { DeploymentService } from "./deployment/Service";
+import { DeploymentPushNotFoundError, DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import { errorResponse, HttpError, json, readJson } from "./http";
-import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import type {
   ActiveDeploymentStatus,
   AbandonPushRequest,
@@ -47,7 +43,14 @@ import { assertValidatorJson, BackendValidationError } from "./validation";
 export class DeploymentDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
   private readonly deploymentRuntime = ManagedRuntime.make(
-    makeDeploymentLayer(this.ctx.storage, this.sql, pushId => this.getPush(pushId)),
+    makeDeploymentLayer(
+      this.ctx.storage,
+      this.sql,
+      pushId => this.getPush(pushId),
+      schema => this.applySchema(schema),
+      functions => this.applyFunctions(functions),
+      (key, value) => this.setMeta(key, value),
+    ),
   );
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -185,7 +188,7 @@ export class DeploymentDO extends DurableObject<Env> {
   }
 
   private async runDeployment<A>(
-    effect: Effect.Effect<A, DeploymentSqlError, DeploymentService>,
+    effect: Effect.Effect<A, DeploymentPushNotFoundError | DeploymentSqlError | HttpError, DeploymentService>,
   ): Promise<A> {
     const result = await this.deploymentRuntime.runPromise(
       effect.pipe(
@@ -196,48 +199,21 @@ export class DeploymentDO extends DurableObject<Env> {
       ),
     );
     if (!result.ok) {
+      if (result.error instanceof DeploymentPushNotFoundError) {
+        throw new HttpError(404, `Unknown push: ${result.error.pushId}`);
+      }
+      if (result.error instanceof HttpError) {
+        throw result.error;
+      }
       throw new HttpError(500, "Deployment storage error.");
     }
     return result.value;
   }
 
   private async finishPush(pushId: string, _request: FinishPushRequest): Promise<FinishPushResponse> {
-    const preflight = this.getPush(pushId);
-    if (!preflight) throw new HttpError(404, `Unknown push: ${pushId}`);
-    const executionArtifactRef = await executionArtifactRefForSourcePackage(preflight.sourcePackage);
-
-    return this.ctx.storage.transaction(async () => {
-      const status = this.getPush(pushId);
-      if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
-      if (status.state !== "analyzed") {
-        return rejectedFinishPushResponse(
-          status,
-          "invalid_state",
-          `Cannot finish push ${pushId} in state ${status.state}.`,
-        );
-      }
-      if (status.analysis === undefined) {
-        return rejectedFinishPushResponse(
-          status,
-          "missing_analysis",
-          `Push ${pushId} has no analysis to activate.`,
-        );
-      }
-      this.applySchema(status.analysis.schema);
-      this.applyFunctions(status.analysis.functions);
-      const now = Date.now();
-      this.sql.exec(
-        "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
-        now,
-        pushId,
-      );
-      this.setMeta("active_push_id", pushId);
-      this.setMeta("active_activated_at", String(now));
-      this.setMeta("active_execution_artifact_ref", JSON.stringify(executionArtifactRef));
-      const activated = this.getPush(pushId);
-      if (!activated) throw new Error(`Activated push ${pushId} disappeared.`);
-      return { result: "activated", push: activated };
-    });
+    return this.runDeployment(
+      DeploymentService.use(service => service.finishPush(pushId)),
+    );
   }
 
   private async abandonPush(pushId: string, request: AbandonPushRequest): Promise<PushStatus> {

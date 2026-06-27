@@ -1,14 +1,22 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { HttpError } from "../http";
+import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import type {
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
+  DeploymentFunctions,
+  DeploymentSchema,
+  ExecutionArtifactRef,
+  FinishPushResponse,
   PushDiagnostic,
   PushSourcePackage,
   PushStatus,
 } from "../types";
 
 const DeploymentSqlOperation = Schema.Union([
+  Schema.Literal("getPush"),
   Schema.Literal("startPush"),
+  Schema.Literal("finishPush"),
 ]);
 
 export class DeploymentSqlError extends Schema.TaggedErrorClass<DeploymentSqlError>()(
@@ -37,17 +45,37 @@ export type StartAnalyzedPushStoreInput = {
     }
 );
 
+export interface FinishPushStoreInput {
+  readonly pushId: string;
+  readonly now: number;
+  readonly executionArtifactRef: ExecutionArtifactRef;
+}
+
 export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
+  getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
   startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  finishPush(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
 }>()("flarex-backend/deployment/DeploymentPushStore") {
   static layer(
     storage: DeploymentTransactionStorage,
     sql: DeploymentSqlStorage,
     readPush: (pushId: string) => PushStatus | null,
+    applySchema: (schema: DeploymentSchema) => DeploymentSchema,
+    applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
+    setMeta: (key: string, value: string) => void,
   ) {
     return Layer.effect(
       DeploymentPushStore,
       Effect.gen(function* () {
+        const getPush = Effect.fn("DeploymentPushStore.getPush")(
+          function* (pushId: string): Effect.fn.Return<PushStatus | null, DeploymentSqlError> {
+            return yield* Effect.try({
+              try: () => readPush(pushId),
+              catch: cause => new DeploymentSqlError({ operation: "getPush", cause }),
+            });
+          },
+        );
+
         const startAnalyzedPush = Effect.fn("DeploymentPushStore.startAnalyzedPush")(
           function* (input: StartAnalyzedPushStoreInput): Effect.fn.Return<PushStatus, DeploymentSqlError> {
             return yield* Effect.tryPromise({
@@ -94,8 +122,54 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
+        const finishPush = Effect.fn("DeploymentPushStore.finishPush")(
+          function* (input: FinishPushStoreInput): Effect.fn.Return<FinishPushResponse, DeploymentSqlError | HttpError> {
+            return yield* Effect.tryPromise({
+              try: () =>
+                storage.transaction(async () => {
+                  const status = readPush(input.pushId);
+                  if (!status) throw new HttpError(404, `Unknown push: ${input.pushId}`);
+                  if (status.state !== "analyzed") {
+                    return rejectedFinishPushResponse(
+                      status,
+                      "invalid_state",
+                      `Cannot finish push ${input.pushId} in state ${status.state}.`,
+                    );
+                  }
+                  if (status.analysis === undefined) {
+                    return rejectedFinishPushResponse(
+                      status,
+                      "missing_analysis",
+                      `Push ${input.pushId} has no analysis to activate.`,
+                    );
+                  }
+                  applySchema(status.analysis.schema);
+                  applyFunctions(status.analysis.functions);
+                  sql.exec(
+                    "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
+                    input.now,
+                    input.pushId,
+                  );
+                  setMeta("active_push_id", input.pushId);
+                  setMeta("active_activated_at", String(input.now));
+                  setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
+                  const activated = readPush(input.pushId);
+                  if (!activated) throw new Error(`Activated push ${input.pushId} disappeared.`);
+                  const response: FinishPushResponse = { result: "activated", push: activated };
+                  return response;
+                }),
+              catch: cause =>
+                cause instanceof HttpError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "finishPush", cause }),
+            });
+          },
+        );
+
         return DeploymentPushStore.of({
+          getPush,
           startAnalyzedPush,
+          finishPush,
         });
       }),
     );
