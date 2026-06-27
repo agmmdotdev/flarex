@@ -4,7 +4,6 @@ import {
   parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
   parseAbandonPushRequest,
-  type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
 import {
@@ -15,6 +14,7 @@ import {
 import { DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import {
+  analyzedStartPushRequest,
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
@@ -485,28 +485,4 @@ function parsePushState(value: string): PushStatus["state"] {
     return value;
   }
   throw new Error(`Unknown stored push state ${value}.`);
-}
-
-function analyzedStartPushRequest(request: ProtocolAnalyzedStartPushRequest): AnalyzedStartPushRequest {
-  const sourcePackage = validateSourcePackage(request.sourcePackage as PushSourcePackage);
-  const diagnostics = request.diagnostics === undefined
-    ? undefined
-    : validateDiagnostics(request.diagnostics);
-  if (request.analysis === undefined) {
-    const error = request.error;
-    if (error === undefined) {
-      throw new Error("Parsed failed push request is missing error.");
-    }
-    return {
-      sourcePackage,
-      error,
-      ...(diagnostics === undefined ? {} : { diagnostics }),
-    };
-  }
-  return {
-    sourcePackage,
-    analysis: request.analysis,
-    ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
-    ...(diagnostics === undefined ? {} : { diagnostics }),
-  };
 }

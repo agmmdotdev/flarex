@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## Deployment Start Push Adapter Boundary
+
+Previous completed checkpoint: `2e5f3dd` Extract deployment analysis
+validators.
+
+What changed:
+
+- Moved the analyzed start-push protocol-to-backend adapter into
+  `packages/flarex-backend/src/deployment/Validation.ts`.
+- Kept `DeploymentDO.fetch()` responsible for HTTP routing and
+  `parseAnalyzedStartPushRequest` protocol parsing.
+- Added direct tests for adapter success/failure normalization.
+
+Why it changed:
+
+The adapter belongs with backend deployment validation because it normalizes
+protocol wrapper output into the backend `AnalyzedStartPushRequest` shape. The
+Durable Object should call the adapter, not own its field-level normalization.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- The adapter is backend-local. Shared transport schemas still belong in
+  `flarex-protocol`.
+
+Known limitations:
+
+- Deep protocol decoding remains a future decision.
+- Row/status normalization still lives in `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Analysis Codegen Validation Boundary
 
 Previous completed checkpoint: `eb0dcc2` Extract deployment schema

@@ -1,5 +1,54 @@
 # Deployment Analysis And Push
 
+## Start Push Adapter
+
+Previous completed checkpoint: `2e5f3dd` Extract deployment analysis
+validators.
+
+What changed:
+
+- Moved analyzed start-push protocol-to-backend normalization into
+  `deployment/Validation.ts`.
+- Preserved valid analyzed push, failed analyzed push, diagnostics, optional
+  `codegenAnalysis`, and defensive missing-error behavior.
+- Kept `DeploymentDO.fetch()` as the route/protocol parsing boundary.
+- Added direct adapter tests.
+
+Why it changed:
+
+The deployment validation module now owns source package, diagnostics,
+analysis, and codegen validation. Moving the small adapter beside those
+validators removes the last start-push normalization helper from the Durable
+Object without changing route behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's start-push
+  adapter boundary.
+
+Flarex differences:
+
+- This is not a protocol package move. `flarex-protocol` still owns wrapper
+  schemas and parser errors.
+
+Known limitations:
+
+- Row normalization still lives in `DeploymentDO`.
+- Deep protocol decoding of analysis/codegen remains a later decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Analysis Codegen Validation
 
 Previous completed checkpoint: `eb0dcc2` Extract deployment schema

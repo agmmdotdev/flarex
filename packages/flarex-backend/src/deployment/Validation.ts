@@ -1,6 +1,8 @@
 import { HttpError } from "../http";
+import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import type {
   AnalyzedSourcePosition,
+  AnalyzedStartPushRequest,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   DeploymentCodegenModule,
@@ -92,6 +94,32 @@ export function validateDiagnostics(value: unknown): PushDiagnostic[] {
       message: record.message,
     };
   });
+}
+
+export function analyzedStartPushRequest(
+  request: ProtocolAnalyzedStartPushRequest,
+): AnalyzedStartPushRequest {
+  const sourcePackage = validateSourcePackage(request.sourcePackage as PushSourcePackage);
+  const diagnostics = request.diagnostics === undefined
+    ? undefined
+    : validateDiagnostics(request.diagnostics);
+  if (request.analysis === undefined) {
+    const error = request.error;
+    if (error === undefined) {
+      throw new Error("Parsed failed push request is missing error.");
+    }
+    return {
+      sourcePackage,
+      error,
+      ...(diagnostics === undefined ? {} : { diagnostics }),
+    };
+  }
+  return {
+    sourcePackage,
+    analysis: request.analysis,
+    ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+  };
 }
 
 export function validateSchema(schema: unknown): DeploymentSchema {

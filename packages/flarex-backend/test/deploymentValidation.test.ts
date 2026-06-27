@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analyzedStartPushRequest,
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
@@ -8,6 +9,7 @@ import {
   validateSourcePackage,
 } from "../src/deployment/Validation";
 import { HttpError } from "../src/http";
+import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import type { DeploymentFunctions, DeploymentSchema, PushSourcePackage } from "../src/types";
 
 describe("deployment validation", () => {
@@ -69,6 +71,46 @@ describe("deployment validation", () => {
     expect(() => validateDiagnostics([{ level: "debug", message: "too chatty" }])).toThrow(
       new HttpError(400, "Push diagnostic at index 0 has an invalid level."),
     );
+  });
+
+  it("normalizes analyzed start-push protocol success requests", () => {
+    const request = analyzedStartPushRequest({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        schema: simpleSchema(),
+        functions: simpleFunctions(),
+      },
+      diagnostics: [{ level: "warn", message: "check generated output" }],
+    } as ProtocolAnalyzedStartPushRequest);
+
+    expect(request).toEqual({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        schema: simpleSchema(),
+        functions: simpleFunctions(),
+      },
+      diagnostics: [{ level: "warn", message: "check generated output" }],
+    });
+  });
+
+  it("normalizes analyzed start-push protocol failure requests", () => {
+    const request = analyzedStartPushRequest({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+    } as ProtocolAnalyzedStartPushRequest);
+
+    expect(request).toEqual({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+    });
+  });
+
+  it("preserves analyzed start-push adapter defensive errors", () => {
+    expect(() =>
+      analyzedStartPushRequest({
+        sourcePackage: sourcePackage(),
+      } as ProtocolAnalyzedStartPushRequest)
+    ).toThrow(new Error("Parsed failed push request is missing error."));
   });
 
   it("normalizes deployment schema metadata", () => {
@@ -241,6 +283,17 @@ function sourceModule(path: string): PushSourcePackage["modules"][number] {
     environment: "isolate",
     sha256: "a".repeat(64),
     source: `export default ${JSON.stringify(path)};`,
+  };
+}
+
+function sourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      sourceModule("convex/_generated/server.ts"),
+      sourceModule("functions/list.ts"),
+    ],
+    functions: ["functions/list.ts"],
+    execution: "convex/_generated/server.ts",
   };
 }
 
