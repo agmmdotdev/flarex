@@ -1,5 +1,48 @@
 # Testing and Simulation Strategy
 
+## Test SDK And Nitro Adapter Packability
+
+Previous completed checkpoint: `339e671` Add packed consumer generated
+typecheck gate.
+
+What changed:
+
+- Extended the shared internal package packability test to cover:
+  - `flarex-test`,
+  - `@flarex/executor-nitro`.
+- Added package `files` boundaries for both packages so the tarballs exclude
+  `test/` and `tsconfig.json`.
+
+Why it changed:
+
+The previous package graph gates covered the `flarex-dev` runtime graph. The
+remaining workspace packages still needed the same tarball-shape protection so
+test SDK and adapter packages do not leak repo-only files when packed.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package metadata defines the testable install surface.
+
+Flarex differences:
+
+- Flarex has separate test SDK and Nitro adapter packages. Convex's hosted
+  platform does not expose this same adapter split.
+
+Known limitations:
+
+- This does not run fresh-consumer install tests for `flarex-test` or
+  `@flarex/executor-nitro`.
+- This does not exercise `flarex-test` against an installed packed app.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Packed Consumer Generated Typecheck Smoke
 
 Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.

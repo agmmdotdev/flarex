@@ -98,6 +98,16 @@ const packages = [
       "package/src/liveQueryDelivery.ts",
     ],
   },
+  {
+    packageName: "flarex-test",
+    packageRoot: resolve(workspaceRoot, "packages/flarex-test"),
+    expectedEntries: ["package/src/index.ts"],
+  },
+  {
+    packageName: "@flarex/executor-nitro",
+    packageRoot: resolve(workspaceRoot, "packages/executor-nitro"),
+    expectedEntries: ["package/src/index.ts"],
+  },
 ] satisfies readonly PackagePackCase[];
 
 describe("internal package tarballs", () => {

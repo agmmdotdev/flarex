@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Test SDK And Nitro Adapter Tarball Boundaries
+
+Previous completed checkpoint: `339e671` Add packed consumer generated
+typecheck gate.
+
+What changed:
+
+- Added explicit package `files` boundaries for:
+  - `flarex-test`: `src`,
+  - `@flarex/executor-nitro`: `src`.
+- Extended `integration/internal-packages-pack.integration.test.ts` to include
+  both packages.
+- The shared packability gate now proves these tarballs include only their
+  exported source entrypoint, exclude tests/config, and avoid local-only
+  dependency protocols in packed manifests.
+
+Boundary rule:
+
+Every source-mode package should have an explicit npm `files` surface before it
+is used as a dependency in examples, tests, or adapters. Tests and TypeScript
+config are repo development surface, not runtime package surface.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex controls installable package contents through explicit package
+    metadata and exports.
+
+Flarex differences:
+
+- Flarex still publishes TypeScript source in this prototype. Convex publishes
+  built artifacts.
+- `@flarex/executor-nitro` is a Flarex-specific host adapter; Convex does not
+  need a Nitro adapter for its hosted backend.
+
+Known limitations:
+
+- This is tarball-shape coverage only. It does not yet install `flarex-test` or
+  `@flarex/executor-nitro` in a fresh consumer fixture.
+- Built `dist` package output remains a future boundary.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Packed Consumer Typecheck Boundary
 
 Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.

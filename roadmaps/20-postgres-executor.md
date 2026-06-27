@@ -1,5 +1,49 @@
 # Postgres Executor
 
+## Nitro Adapter Tarball Boundary
+
+Previous completed checkpoint: `339e671` Add packed consumer generated
+typecheck gate.
+
+What changed:
+
+- Added `files: ["src"]` to `packages/executor-nitro/package.json`.
+- Added `@flarex/executor-nitro` to the shared internal package packability
+  matrix.
+
+Why it changed:
+
+The Nitro adapter should remain a thin host adapter over the framework-neutral
+executor HTTP core. Its packed artifact should not leak local tests or
+TypeScript config, and its manifest should not retain workspace-only dependency
+protocols.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - public package boundaries are explicit in package metadata.
+
+Flarex differences:
+
+- Convex does not need a Nitro/Vercel adapter because Convex owns the hosted
+  backend runtime. Flarex keeps this adapter separate so the trusted executor
+  core remains framework-neutral.
+
+Known limitations:
+
+- This does not install or execute `@flarex/executor-nitro` from a fresh
+  consumer yet.
+- The adapter remains a thin package boundary; Nitro route coverage remains in
+  package-level tests.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Post-Commit Live-Query Invalidation Audit
 
 Previous completed checkpoint: `a1fea7f` Cover Postgres delivery claim cursor

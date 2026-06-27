@@ -1,5 +1,44 @@
 # SDK And CLI Fork
 
+## Test SDK Package Surface
+
+Previous completed checkpoint: `339e671` Add packed consumer generated
+typecheck gate.
+
+What changed:
+
+- Added an explicit `files: ["src"]` boundary to `flarex-test`.
+- Added `flarex-test` to the internal package tarball matrix.
+
+Why it changed:
+
+`flarex-test` is a developer-facing SDK package. Its packed surface should be
+as deliberate as `flarex` and `flarex-dev`, even before a fresh-consumer
+`flarex-test` fixture exists.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex's SDK packages treat package metadata as a public API boundary.
+
+Flarex differences:
+
+- Flarex test helpers wrap the local Miniflare/runtime path. Convex's test
+  helper ecosystem targets Convex's hosted backend semantics.
+
+Known limitations:
+
+- `flarex-test` is now tarball-shape checked, but not yet installed and used
+  from a fresh packed consumer.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Packed Consumer Generated Typecheck Gate
 
 Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.

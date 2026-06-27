@@ -1,5 +1,45 @@
 # Test SDK
 
+## Test SDK Tarball Boundary
+
+Previous completed test-SDK checkpoint: `339e671` Add packed consumer
+generated typecheck gate.
+
+What changed:
+
+- Added `files: ["src"]` to `packages/flarex-test/package.json`.
+- Added `flarex-test` to `integration/internal-packages-pack.integration.test.ts`.
+
+Why it changed:
+
+The test SDK is meant to be consumed by app tests, so its packed artifact should
+only expose the public helper source and package metadata. Repo-local type tests
+and `tsconfig.json` should not be part of the install surface.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - installable package contents are explicit package-boundary metadata.
+- Convex testing helper ergonomics remain the API inspiration recorded below.
+
+Flarex differences:
+
+- `flarex-test` runs through the local Flarex runtime and Miniflare path rather
+  than Convex's hosted backend test harness.
+
+Known limitations:
+
+- This does not yet run `flarex-test` from a packed consumer fixture.
+- `flarex-test` still lacks `run(fn)`, `withIdentity(...)`, and reset helpers.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Postgres Executor Runtime Option
 
 Previous completed test-SDK checkpoint: `d76c97c` Add reviewer subagent
