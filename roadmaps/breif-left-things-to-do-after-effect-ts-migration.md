@@ -19,6 +19,5 @@ But the real backend is still missing important core platform pieces:
 - Full Convex API parity is not done.
 - Cross-shard/atomic mutation design is still future work.
 - Production sync hosting, reconnect behavior, scheduler ops, and monitoring are not complete.
-- The last `flarex-test.reset()` slice was interrupted before final validation/review/commit, so don’t count that one as finished yet.
 
 So the accurate status is: **local backend MVP pieces are working, but core production backend is not finished.**

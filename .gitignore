@@ -2,6 +2,7 @@ node_modules/
 dist/
 .wrangler/
 .flarex/
+opensrc/
 worker-configuration.d.ts
 apps/backend/.wrangler-dev.*.log
 apps/example/flarex/_generated/
