@@ -128,9 +128,7 @@ export class DeploymentDO extends DurableObject<Env> {
         const pushId = decodeURIComponent(pushMatch[1]!);
         const action = pushMatch[2];
         if (action === undefined && request.method === "GET") {
-          const status = this.getPush(pushId);
-          if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
-          return json(status);
+          return json(await this.pushStatus(pushId));
         }
         if (action === "finish" && request.method === "POST") {
           const response = await this.finishPush(pushId, await readJson<FinishPushRequest>(request));
@@ -231,6 +229,12 @@ export class DeploymentDO extends DurableObject<Env> {
   private async activeDeployment(): Promise<ActiveDeploymentStatus> {
     return this.runDeployment(
       DeploymentService.use(service => service.getActiveDeployment()),
+    );
+  }
+
+  private async pushStatus(pushId: string): Promise<PushStatus> {
+    return this.runDeployment(
+      DeploymentService.use(service => service.getPush(pushId)),
     );
   }
 

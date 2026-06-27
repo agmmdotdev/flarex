@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Deployment Push Read Service Validation
+
+Previous completed checkpoint: `a93b051` Extract active deployment service
+read.
+
+What changed:
+
+- Added `DeploymentService.getPush` for single-push status read orchestration.
+- Kept `DeploymentDO.fetch()` as the `GET /push/:id` HTTP route boundary.
+- Reused typed `DeploymentPushNotFoundError` and mapped it through
+  `DeploymentDO.runDeployment` to the existing
+  `404 Unknown push: <id>` response.
+- Kept row lookup and row-to-status normalization behind the existing
+  `DeploymentPushStore.getPush` port.
+- Added service tests for successful push reads, typed not-found, and typed
+  storage failure propagation.
+
+Why it changed:
+
+Push lifecycle writes and active deployment reads are already behind the
+deployment service. Moving single-push reads completes the current push-state
+route surface before deeper validator or router work.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint continues the
+  Flarex Durable Object push-state service extraction already tracked in the
+  deployment roadmap.
+
+Cloudflare differences:
+
+- The Durable Object still owns HTTP routing and SQLite storage. The service
+  reads through the per-DO store port so lifecycle ownership remains local.
+
+Known limitations:
+
+- Deep deployment analysis/codegen request validation remains in
+  `DeploymentDO`.
+- Push row normalization still goes through the existing `readPush` callback.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Active Read Service Validation
 
 Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.

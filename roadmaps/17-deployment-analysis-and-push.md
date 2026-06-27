@@ -1,5 +1,57 @@
 # Deployment Analysis And Push
 
+## Push Status Read Service
+
+Previous completed checkpoint: `a93b051` Extract active deployment service
+read.
+
+What changed:
+
+- Extracted single-push status reads into `DeploymentService.getPush`.
+- Preserved `GET /push/:id` response shape, decoded push ID handling, and the
+  existing `404 Unknown push: <id>` behavior.
+- Reused `DeploymentPushNotFoundError` for missing push reads and kept
+  storage failures as typed `DeploymentSqlError`.
+- Added service tests for successful push reads, typed not-found, and typed
+  storage failure propagation.
+
+Why it changed:
+
+This completes the current deployment push-state route surface behind the
+Effect service after push-start, finish, abandon, and active deployment reads.
+It keeps the migration focused before moving into semantic validator or router
+changes.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is the Flarex push-status
+  read side of the current Cloudflare state machine.
+
+Flarex differences:
+
+- Flarex push status still comes from Durable Object SQLite through the
+  existing row normalization callback. No global deployment repository is
+  introduced.
+
+Known limitations:
+
+- Push row normalization still uses the existing callback into the Durable
+  Object.
+- Deeper analysis/codegen validation is intentionally unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Active Deployment Read Service
 
 Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.

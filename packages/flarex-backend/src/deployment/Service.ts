@@ -52,6 +52,7 @@ export class DeploymentService extends Context.Service<DeploymentService, {
     ActiveDeploymentStatus,
     DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
   >;
+  getPush(pushId: string): Effect.Effect<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError>;
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
@@ -80,6 +81,16 @@ export class DeploymentService extends Context.Service<DeploymentService, {
             return yield* Effect.fail(new DeploymentActiveDeploymentNotFoundError());
           }
           return active;
+        },
+      );
+
+      const getPush = Effect.fn("DeploymentService.getPush")(
+        function* (pushId: string): Effect.fn.Return<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError> {
+          const status = yield* store.getPush(pushId);
+          if (status === null) {
+            return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
+          }
+          return status;
         },
       );
 
@@ -158,6 +169,7 @@ export class DeploymentService extends Context.Service<DeploymentService, {
 
       return DeploymentService.of({
         getActiveDeployment,
+        getPush,
         startAnalyzedPush,
         finishPush,
         abandonPush,

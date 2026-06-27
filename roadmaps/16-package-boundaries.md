@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Deployment Push Read Service Boundary
+
+Previous completed checkpoint: `a93b051` Extract active deployment service
+read.
+
+What changed:
+
+- Extended the deployment Effect service boundary to single-push status reads.
+- Added `DeploymentService.getPush` over the existing `DeploymentPushStore`
+  read port.
+- Kept `DeploymentDO.fetch()` responsible for route matching, push ID
+  decoding, and HTTP response conversion.
+- Reused `DeploymentPushNotFoundError` for missing push status reads.
+
+Why it changed:
+
+After moving push writes and active deployment reads behind the service,
+single-push reads were the remaining deployment push-state route branch still
+calling `DeploymentDO.getPush` directly.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex
+  Cloudflare-specific service boundary over the current Durable Object state
+  model.
+
+Flarex differences:
+
+- Flarex still stores and normalizes push rows inside the Durable Object. The
+  Effect service does not introduce a global push repository.
+
+Known limitations:
+
+- The store still receives `readPush` for row-to-status normalization.
+- Semantic validator extraction remains a future checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Active Read Service Boundary
 
 Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.

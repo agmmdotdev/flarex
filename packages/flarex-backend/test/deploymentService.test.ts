@@ -100,6 +100,65 @@ describe("DeploymentService", () => {
     )).rejects.toBe(failure);
   });
 
+  it("loads push status through the store", async () => {
+    const status = analyzedPushStatus("push-read");
+
+    const result = await runDeployment(
+      DeploymentService.use(service => service.getPush("push-read")),
+      {
+        now: 1_680_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: pushId => Effect.succeed(pushId === "push-read" ? status : null),
+        },
+      },
+    );
+
+    expect(result).toBe(status);
+  });
+
+  it("returns a typed not-found error for missing push status reads", async () => {
+    const error = await runDeployment(
+      DeploymentService.use(service => service.getPush("missing-push")).pipe(
+        Effect.catchTag("DeploymentPushNotFoundError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 1_690_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(null),
+        },
+      },
+    );
+
+    if (!(error instanceof DeploymentPushNotFoundError)) {
+      throw new Error("Expected DeploymentPushNotFoundError.");
+    }
+    expect(error.pushId).toBe("missing-push");
+  });
+
+  it("preserves typed DeploymentSqlError failures from push status reads", async () => {
+    const failure = new DeploymentSqlError({
+      operation: "getPush",
+      cause: new Error("push read failed"),
+    });
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.getPush("push-read-storage-failed")).pipe(
+        Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 1_695_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.fail(failure),
+        },
+      },
+    );
+
+    expect(error).toBe(failure);
+  });
+
   it("starts analyzed pushes with the controlled clock and push id", async () => {
     const writes: StartAnalyzedPushStoreInput[] = [];
     const input: StartAnalyzedPushInput = {

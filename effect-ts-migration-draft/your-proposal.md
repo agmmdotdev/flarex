@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.
-- Active checkpoint: extract active deployment reads into `DeploymentService` while preserving `/deployment` response shape, 404 behavior, active metadata semantics, and corrupt-active-state error provenance.
+- Previous completed checkpoint: `a93b051` Extract active deployment service read.
+- Active checkpoint: extract single-push `GET /push/:id` reads into `DeploymentService` while preserving response shape, decoded push IDs, and `404 Unknown push: <id>` behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 10 slice:
+Current Goal 11 slice:
+
+1. Add `DeploymentService.getPush(pushId)` for single-push status read orchestration.
+2. Keep `DeploymentDO.fetch()` as the HTTP route boundary and preserve `GET /push/:id` response shape and decoded push ID behavior.
+3. Reuse typed `DeploymentPushNotFoundError` for missing pushes and map it in `DeploymentDO.runDeployment` to the existing `404 Unknown push: <id>` response.
+4. Keep row lookup and row-to-status normalization behind the existing `DeploymentPushStore.getPush` port.
+5. Add service tests for successful push reads, typed not-found, and typed storage failure propagation.
+6. Do not change push response schemas, request parsing, active deployment reads, or deep deployment analysis validation.
+
+Completed Goal 10 slice:
 
 1. Add `DeploymentService.getActiveDeployment()` for active deployment read orchestration.
 2. Keep `DeploymentDO.fetch()` as the HTTP route boundary and preserve `GET /deployment` response shape and `404 No active deployment.` behavior.
@@ -89,12 +98,12 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 10 should be one of:
+Next checkpoint after Goal 11 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
 - Consolidate deployment push state errors into a shared deployment error module if more service methods need the same not-found/invalid-state types.
-- Consider moving single-push `GET /push/:id` reads into `DeploymentService` if the service should own all push-state access before deeper validator work.
 - Move deployment semantic validators into a typed domain/parser module only if exact error-message parity can be preserved.
+- Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.
