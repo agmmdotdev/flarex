@@ -1,5 +1,55 @@
 # Runtime Validation
 
+## Deployment Store Push Read Validation
+
+Previous completed checkpoint: `ce58f78` Extract deployment push row
+normalization.
+
+What changed:
+
+- Moved the push-row SQL lookup into `DeploymentPushStore`.
+- Removed the `readPush` callback from `DeploymentPushStore.layer` and
+  `makeDeploymentLayer`.
+- Kept `DeploymentDO` responsible for route handling, SQL ownership,
+  schema/function application callbacks, and metadata callbacks.
+- Updated direct store tests to provide fake SQL rows and exercise the
+  store-owned read path.
+
+Why it changed:
+
+After row normalization moved into the validation module, the store can own the
+actual push-row read without calling back into the Durable Object. This keeps
+the typed storage error boundary closer to the SQL operation.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal store boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object SQLite storage is still the underlying database. The store
+  now performs the read using the SQL handle passed into its layer.
+
+Known limitations:
+
+- Schema/function application and metadata access still use callbacks supplied
+  by `DeploymentDO`.
+- Deep protocol decoding remains intentionally separate from backend
+  validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Push Row Validation
 
 Previous completed checkpoint: `a5ff90c` Extract analyzed push adapter.

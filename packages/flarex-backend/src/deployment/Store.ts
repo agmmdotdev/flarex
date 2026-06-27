@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { validateExecutionArtifactRef } from "flarex/artifacts";
 import { HttpError } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
+import { pushStatusFromRow, type DeploymentPushStatusRow } from "./Validation";
 import type {
   ActiveDeploymentStatus,
   DeploymentAnalysis,
@@ -71,7 +72,6 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   static layer(
     storage: DeploymentTransactionStorage,
     sql: DeploymentSqlStorage,
-    readPush: (pushId: string) => PushStatus | null,
     applySchema: (schema: DeploymentSchema) => DeploymentSchema,
     applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
     setMeta: (key: string, value: string) => void,
@@ -80,6 +80,20 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
     return Layer.effect(
       DeploymentPushStore,
       Effect.gen(function* () {
+        const readPush = (pushId: string): PushStatus | null => {
+          const row = sql
+            .exec<DeploymentPushStatusRow>(
+              `
+              SELECT push_id, state, source_package_json, schema_json, functions_json, codegen_analysis_json, error, diagnostics_json, created_at, updated_at
+              FROM pushes
+              WHERE push_id = ?
+              `,
+              pushId,
+            )
+            .toArray()[0];
+          return row === undefined ? null : pushStatusFromRow(row);
+        };
+
         const getPush = Effect.fn("DeploymentPushStore.getPush")(
           function* (pushId: string): Effect.fn.Return<PushStatus | null, DeploymentSqlError> {
             return yield* Effect.try({

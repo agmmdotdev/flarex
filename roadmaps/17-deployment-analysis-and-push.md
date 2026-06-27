@@ -1,5 +1,52 @@
 # Deployment Analysis And Push
 
+## Store Owned Push Reads
+
+Previous completed checkpoint: `ce58f78` Extract deployment push row
+normalization.
+
+What changed:
+
+- Moved push status SQL reads into `DeploymentPushStore`.
+- Removed the `readPush` callback from the deployment layer.
+- Preserved push row normalization through `pushStatusFromRow`.
+- Updated direct store tests to exercise fake SQL rows through the real store
+  read path.
+
+Why it changed:
+
+Push row normalization now lives outside the Durable Object. Moving the SQL
+read into the store completes the narrow push-status read boundary without
+changing route behavior or SQL schema.
+
+Convex references inspected:
+
+- No new Convex source files were required. Existing roadmap entries continue
+  to track Convex deploy phases; this checkpoint is Flarex's store-owned push
+  read boundary.
+
+Flarex differences:
+
+- Reads remain scoped to the current Durable Object SQLite instance.
+
+Known limitations:
+
+- Schema/function application and metadata callbacks still originate from
+  `DeploymentDO`.
+- Deep protocol decoding of analysis/codegen remains a later decision.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Push Row Normalization
 
 Previous completed checkpoint: `a5ff90c` Extract analyzed push adapter.

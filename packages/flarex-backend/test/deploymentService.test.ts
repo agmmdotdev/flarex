@@ -19,6 +19,10 @@ import {
   type FinishPushStoreInput,
   type StartAnalyzedPushStoreInput,
 } from "../src/deployment/Store";
+import {
+  codegenAnalysisFromDeploymentAnalysis,
+  type DeploymentPushStatusRow,
+} from "../src/deployment/Validation";
 import { HttpError } from "../src/http";
 import type {
   ActiveDeploymentStatus,
@@ -394,14 +398,11 @@ describe("DeploymentService", () => {
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
-    const sql = {
-      exec: () => undefined,
-    } as unknown as DeploymentSqlStorage;
+    const sql = sqlWithPushes([status]);
     const runtime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         storage,
         sql,
-        pushId => (pushId === status.pushId ? status : null),
         () => {
           throw failure;
         },
@@ -596,14 +597,11 @@ describe("DeploymentService", () => {
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
-    const sql = {
-      exec: () => undefined,
-    } as unknown as DeploymentSqlStorage;
+    const sql = sqlWithPushes([status]);
     const runtime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         storage,
         sql,
-        pushId => (pushId === status.pushId ? status : null),
         schema => schema,
         functions => functions,
         () => undefined,
@@ -634,9 +632,7 @@ describe("DeploymentService", () => {
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
-    const sql = {
-      exec: () => undefined,
-    } as unknown as DeploymentSqlStorage;
+    const sql = sqlWithPushes([status]);
     const metadata = new Map<string, string>([
       ["active_push_id", status.pushId],
       ["active_activated_at", "3200000"],
@@ -645,7 +641,6 @@ describe("DeploymentService", () => {
       DeploymentPushStore.layer(
         storage,
         sql,
-        pushId => (pushId === status.pushId ? status : null),
         schema => schema,
         functions => functions,
         () => undefined,
@@ -778,6 +773,40 @@ function pushStatusFromStoreInput(input: StartAnalyzedPushStoreInput): PushStatu
     ...base,
     state: "failed",
     error: input.error,
+  };
+}
+
+function sqlWithPushes(pushes: ReadonlyArray<PushStatus>): DeploymentSqlStorage {
+  const rows = new Map(pushes.map(push => [push.pushId, pushStatusRow(push)]));
+  return {
+    exec: (_query: string, pushId?: string) => ({
+      toArray: () => {
+        if (typeof pushId !== "string") return [];
+        const row = rows.get(pushId);
+        return row === undefined ? [] : [row];
+      },
+    }),
+  } as unknown as DeploymentSqlStorage;
+}
+
+function pushStatusRow(push: PushStatus): DeploymentPushStatusRow {
+  return {
+    push_id: push.pushId,
+    state: push.state,
+    source_package_json: JSON.stringify(push.sourcePackage),
+    schema_json: push.analysis === undefined ? null : JSON.stringify(push.analysis.schema),
+    functions_json: push.analysis === undefined ? null : JSON.stringify(push.analysis.functions),
+    codegen_analysis_json: push.codegenAnalysis === undefined
+      ? push.analysis === undefined
+        ? null
+        : JSON.stringify(codegenAnalysisFromDeploymentAnalysis(push.analysis))
+      : JSON.stringify(push.codegenAnalysis),
+    error: push.error ?? null,
+    diagnostics_json: push.diagnostics === undefined || push.diagnostics.length === 0
+      ? null
+      : JSON.stringify(push.diagnostics),
+    created_at: push.createdAt,
+    updated_at: push.updatedAt,
   };
 }
 

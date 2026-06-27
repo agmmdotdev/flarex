@@ -6,19 +6,18 @@ import {
   type DeploymentSqlStorage,
   type DeploymentTransactionStorage,
 } from "./Store";
-import type { DeploymentFunctions, DeploymentSchema, PushStatus } from "../types";
+import type { DeploymentFunctions, DeploymentSchema } from "../types";
 
 export function makeDeploymentLayer(
   storage: DeploymentTransactionStorage,
   sql: DeploymentSqlStorage,
-  readPush: (pushId: string) => PushStatus | null,
   applySchema: (schema: DeploymentSchema) => DeploymentSchema,
   applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
   setMeta: (key: string, value: string) => void,
   getMeta: (key: string) => string | null,
 ) {
   return DeploymentService.layer.pipe(
-    Layer.provide(DeploymentPushStore.layer(storage, sql, readPush, applySchema, applyFunctions, setMeta, getMeta)),
+    Layer.provide(DeploymentPushStore.layer(storage, sql, applySchema, applyFunctions, setMeta, getMeta)),
     Layer.provide(DeploymentArtifacts.layer),
     Layer.provide(DeploymentClock.layer),
     Layer.provide(DeploymentIds.layer),

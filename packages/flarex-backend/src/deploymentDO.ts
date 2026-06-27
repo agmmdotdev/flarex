@@ -16,8 +16,6 @@ import type { DeploymentSqlError } from "./deployment/Store";
 import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
-  pushStatusFromRow,
-  type DeploymentPushStatusRow,
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
@@ -44,7 +42,6 @@ export class DeploymentDO extends DurableObject<Env> {
     makeDeploymentLayer(
       this.ctx.storage,
       this.sql,
-      pushId => this.getPush(pushId),
       schema => this.applySchema(schema),
       functions => this.applyFunctions(functions),
       (key, value) => this.setMeta(key, value),
@@ -243,21 +240,6 @@ export class DeploymentDO extends DurableObject<Env> {
     return this.runDeployment(
       DeploymentService.use(service => service.abandonPush(pushId, request)),
     );
-  }
-
-  private getPush(pushId: string): PushStatus | null {
-    const row = this.sql
-      .exec<DeploymentPushStatusRow>(
-        `
-        SELECT push_id, state, source_package_json, schema_json, functions_json, codegen_analysis_json, error, diagnostics_json, created_at, updated_at
-        FROM pushes
-        WHERE push_id = ?
-        `,
-        pushId,
-      )
-      .toArray()[0];
-    if (!row) return null;
-    return pushStatusFromRow(row);
   }
 
   private applySchema(schema: DeploymentSchema): DeploymentSchema {
