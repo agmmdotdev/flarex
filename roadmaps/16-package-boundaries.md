@@ -1,5 +1,71 @@
 # Package Boundaries
 
+## Packed Test SDK Reset Boundary
+
+Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres
+subscriptions.
+
+What changed:
+
+- Added `reset()` to the `flarex-test` public package surface.
+- The packed fresh-consumer fixture now imports the installed tarball and proves
+  reset clears state after live-query flows for both default and Postgres
+  transports.
+- The Postgres packed reset path uses a string `persistDir`, so the packed
+  package graph proves persisted local state cleanup through the public helper.
+- Unsafe reset deletion paths are rejected by the shared `flarex-dev` resolver
+  before `flarex-test` calls recursive filesystem cleanup.
+- `flarex-test` precomputes the resettable path at harness creation, so invalid
+  public options fail before any runtime teardown.
+- The public `reset`, `reload`, and `dispose` methods run through a serialized
+  lifecycle queue.
+
+Why it changed:
+
+Package-boundary tests should prove test helpers app developers rely on from a
+clean install. Reset is a public harness contract, so it must work through the
+packed dependency graph, not only in workspace source tests.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package exports are the consumer boundary.
+- Convex test helper ergonomics recorded in the Test SDK roadmap.
+
+Flarex differences:
+
+- Flarex validates reset by recreating the local runtime because Cloudflare
+  Durable Objects and the Postgres/PGlite executor state are part of the tested
+  behavior.
+- `flarex-test` reuses the `flarex-dev` persistence resolver, keeping package
+  boundary behavior aligned with the dev runtime.
+- The reset deletion policy is intentionally narrower than arbitrary dev
+  runtime persistence paths because it performs destructive cleanup.
+- The resolver option type is derived from `FlarexDevRuntimeOptions`, keeping
+  the exported package boundary tied to the dev-runtime contract.
+- The package still ships source-mode exports; built NodeNext artifact
+  validation remains a future package-output checkpoint.
+
+Known limitations:
+
+- Identity/seed helper package boundaries remain future work.
+- No published package artifact format is finalized yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test build
+corepack pnpm --dir apps/example exec vitest run flarex/invoke-e2e.test.ts --hookTimeout=60000 --testTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Postgres Subscription Boundary
 
 Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke

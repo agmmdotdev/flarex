@@ -377,6 +377,11 @@ try {
     liveBody: "live",
     label: "legacy",
   });
+  await t.reset();
+  const resetMessages = await t.query(api.messages.list, { userId });
+  if (!Array.isArray(resetMessages) || resetMessages.length !== 0) {
+    throw new Error(\`Expected empty messages list after reset, got \${JSON.stringify(resetMessages)}\`);
+  }
   console.log("packed-flarex-test ok");
 } finally {
   await t.dispose();
@@ -406,6 +411,7 @@ const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "pg-u1");
 const t = await flarexTest({
   deploymentId: "packed-postgres",
   executorTransport: "postgres",
+  persistDir: ".flarex/packed-postgres-reset",
 });
 
 try {
@@ -440,6 +446,11 @@ try {
     liveBody: "postgres-live",
     label: "Postgres",
   });
+  await t.reset();
+  const resetMessages = await t.query(api.messages.list, { userId });
+  if (!Array.isArray(resetMessages) || resetMessages.length !== 0) {
+    throw new Error(\`Expected empty Postgres messages list after reset, got \${JSON.stringify(resetMessages)}\`);
+  }
   console.log("packed-flarex-postgres-test ok");
 } finally {
   await t.dispose();

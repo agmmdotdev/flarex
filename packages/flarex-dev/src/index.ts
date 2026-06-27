@@ -1,4 +1,9 @@
-export { createFlarexDevRuntime } from "./dev.ts";
+export {
+  createFlarexDevRuntime,
+  resolveFlarexDevPersistDir,
+  resolveResettableFlarexDevPersistDir,
+  type FlarexDevPersistDirOptions,
+} from "./dev.ts";
 export type { FlarexDevRuntime, FlarexDevRuntimeOptions } from "./dev.ts";
 export {
   createLocalExecutorHttpRuntime,

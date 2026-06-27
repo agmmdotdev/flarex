@@ -4,7 +4,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LocalBackendPushCoordinator } from "../src/backendPush";
-import { createFlarexDevRuntime, type FlarexDevRuntime } from "../src/dev";
+import {
+  createFlarexDevRuntime,
+  resolveResettableFlarexDevPersistDir,
+  type FlarexDevRuntime,
+} from "../src/dev";
 import { createMinimalFlarexProject } from "./fixtures";
 
 type MiniflareWebSocket = {
@@ -54,6 +58,45 @@ afterAll(async () => {
 });
 
 describe("Flarex dev runtime", () => {
+  it("resolves only .flarex persist directories as resettable", () => {
+    const root = resolve("apps/example");
+    const validAbsolutePersistDir = resolve(root, ".flarex/absolute-reset");
+    expect(resolveResettableFlarexDevPersistDir({
+      root,
+      persistDir: ".flarex/test-reset",
+    })).toBe(resolve(root, ".flarex/test-reset"));
+    expect(resolveResettableFlarexDevPersistDir({
+      root,
+      persistDir: validAbsolutePersistDir,
+    })).toBe(validAbsolutePersistDir);
+    expect(resolveResettableFlarexDevPersistDir({
+      root,
+      persistDir: false,
+    })).toBe(false);
+    expect(resolveResettableFlarexDevPersistDir({
+      root,
+    })).toBe(false);
+
+    for (const persistDir of [
+      "",
+      ".",
+      "..",
+      ".flarex",
+      "src",
+      "../outside",
+      resolve(root, "../outside"),
+    ]) {
+      expect(() =>
+        resolveResettableFlarexDevPersistDir({
+          root,
+          persistDir,
+        }),
+      ).toThrow(
+        "flarex-test reset can only delete explicit persistDir paths under the app .flarex directory.",
+      );
+    }
+  });
+
   it("fails startup before activation when generated output typecheck fails", async () => {
     const failedPersistDir = await mkdtemp(join(tmpdir(), "flarex-dev-typecheck-failure-"));
     try {

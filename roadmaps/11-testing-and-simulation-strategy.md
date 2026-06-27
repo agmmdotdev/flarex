@@ -1,5 +1,72 @@
 # Testing and Simulation Strategy
 
+## Test SDK Reset Coverage
+
+Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres
+subscriptions.
+
+What changed:
+
+- Added example-app coverage for `flarex-test.reset()` after a committed
+  mutation.
+- Added packed consumer coverage that calls `reset()` after live-query flows on
+  both the legacy/default runtime and Postgres/PGlite executor runtime.
+- The packed Postgres reset lane now uses a string `persistDir`, proving reset
+  clears persisted local executor/dev-runtime state, not only in-memory state.
+- Added focused path-safety coverage so reset deletion rejects `""`, `"."`,
+  `".."`, project folders, and paths outside the app root.
+- Added absolute-path guard coverage for both a valid path under `root/.flarex/`
+  and an invalid path outside the app root.
+
+Why it changed:
+
+The test strategy needs isolation helpers before larger app suites can depend
+on `flarex-test`. Recreating runtimes in every test file by hand would hide
+package-boundary problems and make future Convex-style harness work harder to
+validate.
+
+Convex references inspected:
+
+- Convex test helper ergonomics recorded in the Test SDK roadmap.
+- `convex-test` API shape recorded in the roadmap includes harness-level state
+  helpers rather than app tests manually deleting backend rows.
+
+Flarex differences:
+
+- Flarex reset is runtime recreation because the local harness exercises
+  Miniflare Durable Objects and optional PGlite executor state. Convex's test
+  helper owns a different in-memory/mock backend model.
+- Persistence path resolution is shared with `flarex-dev`, which remains the
+  source of truth for local runtime layout.
+- Reset uses a stricter `flarex-dev` resolver that only allows deletion under
+  `.flarex/`.
+- `flarex-test` validates that resolver during harness creation instead of
+  waiting until after runtime disposal.
+- Added example coverage for concurrent `t.reset()` calls after a mutation.
+- Added example coverage for `dispose()` racing with lifecycle operations so a
+  disposed harness rejects later reset, reload, and query use.
+
+Known limitations:
+
+- Identity and seed helpers remain unimplemented.
+- This is local test isolation only; real deployment data cleanup is a separate
+  platform operation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test build
+corepack pnpm --dir apps/example exec vitest run flarex/invoke-e2e.test.ts --hookTimeout=60000 --testTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Postgres Subscription
 
 Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke

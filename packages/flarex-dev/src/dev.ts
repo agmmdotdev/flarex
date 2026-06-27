@@ -1,5 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
@@ -42,12 +42,49 @@ export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
   pushCoordinatorFactory?: (backend: Miniflare, deploymentId: string) => BackendPushCoordinator;
 };
 
+export type FlarexDevPersistDirOptions = Pick<
+  FlarexDevRuntimeOptions,
+  "root" | "persistDir"
+>;
+
 export type FlarexDevRuntime = {
   deploymentId: string;
   reload: () => Promise<void>;
   fetch: (request: Request) => Promise<Response>;
   dispose: () => Promise<void>;
 };
+
+export function resolveFlarexDevPersistDir(options: FlarexDevPersistDirOptions): string | false {
+  return options.persistDir === false
+    ? false
+    : resolve(options.root, options.persistDir ?? ".flarex/dev");
+}
+
+export function resolveResettableFlarexDevPersistDir(
+  options: FlarexDevPersistDirOptions,
+): string | false {
+  if (options.persistDir === false || options.persistDir === undefined) return false;
+  const persistDir = resolveFlarexDevPersistDir(options);
+  if (persistDir === false) return false;
+  const root = resolve(options.root);
+  const relativePersistDir = relative(root, persistDir);
+  const normalizedRelativePersistDir = relativePersistDir.replaceAll("\\", "/");
+  const isInsideRoot =
+    relativePersistDir.length > 0 &&
+    !relativePersistDir.startsWith("..") &&
+    !isAbsolute(relativePersistDir);
+  const isUnderFlarexDir = normalizedRelativePersistDir.startsWith(".flarex/");
+  if (
+    !isInsideRoot ||
+    !isUnderFlarexDir ||
+    persistDir === parse(persistDir).root
+  ) {
+    throw new Error(
+      "flarex-test reset can only delete explicit persistDir paths under the app .flarex directory.",
+    );
+  }
+  return persistDir;
+}
 
 const compatibilityDate = "2026-06-14";
 
@@ -80,8 +117,7 @@ export async function createFlarexDevRuntime(
   options: FlarexDevRuntimeOptions,
 ): Promise<FlarexDevRuntime> {
   const deploymentId = options.deploymentId ?? "local-dev";
-  const persistDir =
-    options.persistDir === false ? false : resolve(options.root, options.persistDir ?? ".flarex/dev");
+  const persistDir = resolveFlarexDevPersistDir(options);
   const backendPersist = persistDir === false ? false : join(persistDir, "backend");
   const appPersist = persistDir === false ? false : join(persistDir, "app");
   const executorPersist = persistDir === false ? false : join(persistDir, "executor");

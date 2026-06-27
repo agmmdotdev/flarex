@@ -6,12 +6,13 @@ import { api } from "./_generated/api";
 
 let t: FlarexTest;
 
+const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const deploymentId = "example-e2e";
 const userId = "2:u1" as Id<"users">;
 
 beforeAll(async () => {
   t = await flarexTest({
-    root: fileURLToPath(new URL("..", import.meta.url)),
+    root: appRoot,
     deploymentId,
   });
 });
@@ -51,6 +52,37 @@ describe("Flarex invoke", () => {
         }),
       ],
     });
+
+    await t.reset();
+    await expect(t.query(api.lessons.list, { userId })).resolves.toEqual([]);
+
+    await t.mutation(api.lessons.complete, { userId, lessonId: "after-reset" });
+    await Promise.all([t.reset(), t.reset()]);
+    await expect(t.query(api.lessons.list, { userId })).resolves.toEqual([]);
+  });
+
+  it("serializes disposal with lifecycle operations", async () => {
+    const disposed = await flarexTest({
+      root: appRoot,
+      deploymentId: `${deploymentId}-disposed`,
+    });
+    const results = await Promise.allSettled([disposed.dispose(), disposed.reset()]);
+    expect(results).toMatchObject([
+      { status: "fulfilled" },
+      {
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "Flarex test runtime is disposed.",
+        }),
+      },
+    ]);
+
+    await expect(disposed.reset()).rejects.toThrow("Flarex test runtime is disposed.");
+    await expect(disposed.reload()).rejects.toThrow("Flarex test runtime is disposed.");
+    await expect(disposed.query(api.lessons.list, { userId })).rejects.toThrow(
+      "Flarex test runtime is disposed.",
+    );
+    await expect(disposed.dispose()).resolves.toBeUndefined();
   });
 
   it("rejects bad IDs through backend argument validation", async () => {

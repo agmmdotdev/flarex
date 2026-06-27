@@ -1,5 +1,92 @@
 # Test SDK
 
+## Test SDK Reset Helper
+
+Previous completed test-SDK checkpoint: `d94ef92` Cover packed test SDK
+Postgres subscriptions.
+
+What changed:
+
+- Added `reset(): Promise<void>` to the public `FlarexTest` harness.
+- `reset()` disposes the current dev runtime, clears a configured test
+  persistence directory when `persistDir` is a string, and creates a fresh dev
+  runtime with the same options.
+- `flarex-test` now reuses `resolveFlarexDevPersistDir(...)` from `flarex-dev`
+  instead of duplicating the dev runtime's persistence path convention.
+- Reset deletion now goes through `resolveResettableFlarexDevPersistDir(...)`,
+  which rejects paths outside the app `.flarex/` directory before recursive
+  cleanup.
+- The resettable path is validated during `flarexTest(...)` setup, before any
+  runtime is disposed, so invalid reset paths fail without leaving a disposed
+  harness behind.
+- `reset()`, `reload()`, and `dispose()` now share a harness lifecycle queue so
+  concurrent lifecycle calls do not leak duplicate runtimes.
+- The harness now tracks active, disposed, and lifecycle-failed states so reset
+  failures after runtime teardown produce an explicit test-harness error on
+  later use, while dispose only becomes idempotent after cleanup succeeds.
+- Updated the example invoke E2E to verify committed data disappears after
+  `t.reset()`.
+- Updated the packed fresh-consumer scripts to prove installed `flarex-test`
+  can reset both the legacy/default runtime and the Postgres/PGlite executor
+  runtime, including a string `persistDir` Postgres lane.
+
+Why it changed:
+
+Convex-style app tests need a compact harness that can isolate test cases
+without manually constructing runtimes or deleting backend state. The recent
+packed consumer gates proved query, mutation, and subscriptions; reset is the
+next practical test helper to make those checks reusable in larger suites.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in this roadmap:
+  `convex-test` exposes harness-level helpers instead of making each app test
+  manually rebuild backend state.
+- `npm-packages/convex/package.json`
+  - installed package exports define the consumer-facing test contract.
+
+Flarex differences:
+
+- Convex's mock/test runtime owns in-memory backend state directly. Flarex
+  resets by recreating the local Miniflare/dev runtime so Durable Objects,
+  generated app Workers, and the Postgres/PGlite executor lane are reset
+  together.
+- Existing clients created before reset are not migrated; tests should create
+  new clients after `reset()`.
+- `flarex-test` keeps its default `persistDir: false`, while explicit string
+  persistence follows the shared `flarex-dev` resolver.
+- Explicit string persistence must be under the app `.flarex/` directory to be
+  resettable. This is stricter than raw dev runtime persistence because reset
+  performs deletion.
+
+Known limitations:
+
+- `withIdentity(...)`, `run(fn)`, and seed helpers remain future work.
+- `reset()` is a local test harness operation, not a production deployment
+  cleanup API.
+- Concurrent lifecycle calls are serialized, but database operations issued
+  while reset or dispose is in progress are still test-author responsibility.
+- The resettable path guard is unit-tested in `flarex-dev`, and the packed
+  Postgres consumer exercises valid string `persistDir` cleanup. Broader
+  persistence lifecycle tests remain future work.
+- Path guard tests include relative unsafe paths plus absolute paths both
+  outside and inside `root/.flarex/`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test build
+corepack pnpm --dir apps/example exec vitest run flarex/invoke-e2e.test.ts --hookTimeout=60000 --testTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Postgres Test SDK Subscription
 
 Previous completed test-SDK checkpoint: `9b0486f` Cover packed test SDK

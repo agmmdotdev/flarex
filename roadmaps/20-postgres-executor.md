@@ -1,5 +1,73 @@
 # Postgres Executor
 
+## Test SDK Reset For Postgres Runtime
+
+Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres
+subscriptions.
+
+What changed:
+
+- The public `flarex-test.reset()` helper now recreates the local dev runtime,
+  including the Postgres/PGlite executor runtime when `executorTransport:
+  "postgres"` is selected.
+- The packed consumer Postgres script verifies that a document written through
+  the trusted executor disappears after reset.
+- The packed consumer Postgres script uses a string `persistDir`, so reset also
+  proves explicit persisted PGlite/dev-runtime state is removed.
+- The string persist directory is under `.flarex/`, matching the resettable
+  path guard.
+
+Why it changed:
+
+The trusted executor path needs the same test isolation ergonomics as the
+legacy local runtime. Without this, app tests using the forward Postgres path
+would need to manually reconstruct Flarex internals or tolerate state leakage
+between test cases.
+
+Convex references inspected:
+
+- Convex test helper ergonomics recorded in the Test SDK roadmap.
+- `crates/database/src/transaction.rs`
+  - transaction state is backend-owned; tests should reset the backend harness
+    rather than manipulate user-visible documents directly.
+
+Flarex differences:
+
+- Flarex reset recreates the local Miniflare backend and PGlite executor
+  instead of clearing a single in-process mock store.
+- The persistence directory path is resolved by `flarex-dev`, not by a separate
+  `flarex-test` convention.
+- Reset deletion is rejected for paths outside the app `.flarex/` directory,
+  avoiding accidental deletion of app or parent directories.
+- Valid and invalid absolute path cases are covered in the shared `flarex-dev`
+  resettable path tests.
+- Harness lifecycle serialization also applies to Postgres/PGlite runtimes
+  because `reset()` recreates the whole dev runtime through the shared queue.
+- This remains a local PGlite reset proof, not a real Postgres truncation or
+  tenant cleanup API.
+
+Known limitations:
+
+- Real Postgres test database lifecycle management remains future work.
+- Lifecycle calls on one harness are serialized, but database operations issued
+  while reset or dispose is in progress remain the test author's
+  responsibility.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test -- dev.test.ts
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm --filter flarex-test build
+corepack pnpm --dir apps/example exec vitest run flarex/invoke-e2e.test.ts --hookTimeout=60000 --testTimeout=60000
+corepack pnpm --filter @flarex/example typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Postgres Subscription
 
 Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke

@@ -1,5 +1,7 @@
+import { rm } from "node:fs/promises";
 import {
   createFlarexDevRuntime,
+  resolveResettableFlarexDevPersistDir,
   type FlarexDevRuntime,
   type FlarexDevRuntimeOptions,
 } from "flarex-dev";
@@ -15,14 +17,17 @@ import {
   type WebSocketLike,
 } from "flarex";
 
-export type FlarexTestOptions = {
-  root?: string;
-  appDir?: string;
-  generatedDir?: string;
-  deploymentId?: string;
-  executorTransport?: FlarexDevRuntimeOptions["executorTransport"];
-  persistDir?: string | false;
-};
+export type FlarexTestOptions = Partial<
+  Pick<
+    FlarexDevRuntimeOptions,
+    | "appDir"
+    | "deploymentId"
+    | "executorTransport"
+    | "generatedDir"
+    | "persistDir"
+    | "root"
+  >
+>;
 
 export type FlarexTestInvokeOptions = {
   partitionKey?: string;
@@ -61,6 +66,7 @@ export type FlarexTest = {
   webSocketConstructor: WebSocketConstructor;
   fetch(path: string, init?: RequestInit): Promise<Response>;
   reload(): Promise<void>;
+  reset(): Promise<void>;
   dispose(): Promise<void>;
 };
 
@@ -76,7 +82,70 @@ export class FlarexTestInvocationError extends Error {
 }
 
 export async function flarexTest(options: FlarexTestOptions = {}): Promise<FlarexTest> {
-  const runtime = await createFlarexDevRuntime({
+  const runtimeOptions = devRuntimeOptions(options);
+  const resetPersistDir = resolveResettableFlarexDevPersistDir(runtimeOptions);
+  let runtime = await createFlarexDevRuntime(runtimeOptions);
+  let state: "active" | "disposed" | "failed" = "active";
+  let failure: unknown;
+  let lifecycleChain = Promise.resolve();
+
+  function activeRuntime(): FlarexDevRuntime {
+    if (state === "failed") {
+      throw new Error("Flarex test runtime is unusable after lifecycle failure.", {
+        cause: failure,
+      });
+    }
+    if (state === "disposed") {
+      throw new Error("Flarex test runtime is disposed.");
+    }
+    return runtime;
+  }
+
+  function enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    lifecycleChain = lifecycleChain.then(operation, operation);
+    return lifecycleChain;
+  }
+
+  function reset(): Promise<void> {
+    return enqueueLifecycle(async () => {
+      activeRuntime();
+      try {
+        await runtime.dispose();
+        await removePersistDir(resetPersistDir);
+        runtime = await createFlarexDevRuntime(runtimeOptions);
+      } catch (error) {
+        state = "failed";
+        failure = error;
+        throw error;
+      }
+    });
+  }
+
+  function reload(): Promise<void> {
+    return enqueueLifecycle(async () => {
+      await activeRuntime().reload();
+    });
+  }
+
+  function dispose(): Promise<void> {
+    return enqueueLifecycle(async () => {
+      if (state === "disposed") return;
+      if (state === "failed") {
+        await runtime.dispose();
+        state = "disposed";
+        return;
+      }
+      await runtime.dispose();
+      state = "disposed";
+    });
+  }
+
+  const client = createTestClient(activeRuntime, { dispose, reload, reset });
+  return client;
+}
+
+function devRuntimeOptions(options: FlarexTestOptions): FlarexDevRuntimeOptions {
+  return {
     root: options.root ?? process.cwd(),
     ...(options.appDir === undefined ? {} : { appDir: options.appDir }),
     ...(options.generatedDir === undefined ? {} : { generatedDir: options.generatedDir }),
@@ -85,12 +154,18 @@ export async function flarexTest(options: FlarexTestOptions = {}): Promise<Flare
       ? {}
       : { executorTransport: options.executorTransport }),
     persistDir: options.persistDir ?? false,
-  });
-
-  return createTestClient(runtime);
+  };
 }
 
-function createTestClient(runtime: FlarexDevRuntime): FlarexTest {
+async function removePersistDir(persistDir: string | false): Promise<void> {
+  if (persistDir === false) return;
+  await rm(persistDir, { recursive: true, force: true });
+}
+
+function createTestClient(
+  runtime: () => FlarexDevRuntime,
+  lifecycle: Pick<FlarexTest, "dispose" | "reload" | "reset">,
+): FlarexTest {
   const webSocketConstructor = createRuntimeWebSocketConstructor(runtime);
 
   async function invokeRaw<Reference extends AnyFunctionReference>(
@@ -105,7 +180,7 @@ function createTestClient(runtime: FlarexDevRuntime): FlarexTest {
       partitionKey,
       ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
     };
-    const response = await runtime.fetch(
+    const response = await runtime().fetch(
       new Request("http://flarex.test/__flarex_dev/invoke", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -136,9 +211,10 @@ function createTestClient(runtime: FlarexDevRuntime): FlarexTest {
         webSocketConstructor,
       }),
     webSocketConstructor,
-    fetch: (path, init) => runtime.fetch(requestForPath(path, init)),
-    reload: runtime.reload,
-    dispose: runtime.dispose,
+    fetch: (path, init) => runtime().fetch(requestForPath(path, init)),
+    reload: lifecycle.reload,
+    reset: lifecycle.reset,
+    dispose: lifecycle.dispose,
   };
 }
 
@@ -162,7 +238,7 @@ type WebSocketResponse = Response & {
   webSocket?: MiniflareWebSocket;
 };
 
-function createRuntimeWebSocketConstructor(runtime: FlarexDevRuntime): WebSocketConstructor {
+function createRuntimeWebSocketConstructor(runtime: () => FlarexDevRuntime): WebSocketConstructor {
   return class RuntimeWebSocket implements WebSocketLike {
     readonly listeners = new Map<string, Array<{ once: boolean; listener: (event: any) => void }>>();
     readyState = 0;
@@ -201,7 +277,7 @@ function createRuntimeWebSocketConstructor(runtime: FlarexDevRuntime): WebSocket
         } else if (requestUrl.protocol === "wss:") {
           requestUrl.protocol = "https:";
         }
-        const response = await runtime.fetch(new Request(requestUrl, {
+        const response = await runtime().fetch(new Request(requestUrl, {
           headers: { Upgrade: "websocket" },
         })) as WebSocketResponse;
         if (response.status !== 101 || response.webSocket === undefined) {
