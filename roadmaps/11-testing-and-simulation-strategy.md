@@ -1,5 +1,52 @@
 # Testing and Simulation Strategy
 
+## CLI Bin Coverage
+
+Previous completed checkpoint: `33b4f8f` Export CLI runner from flarex-dev
+root.
+
+What changed:
+
+- Extended package-entrypoint coverage to read `flarex-dev`'s package `bin`
+  metadata and assert that `flarex-dev` points at `./bin/flarex-dev.mjs`.
+- The same test now executes the bin launcher with `help` and checks that it
+  returns the normal CLI help output.
+- Package metadata is parsed through an `unknown` boundary and narrowed before
+  assertions, avoiding a broad package JSON type assertion in the test.
+
+Why it changed:
+
+The root export test protected programmatic imports. The package command also
+needs coverage because future examples, local scripts, and automation should be
+able to call the CLI through the package bin just like Convex users call
+`convex`.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - declares CLI bin entries as part of the public package surface.
+- `npm-packages/convex/src/cli/index.ts`
+  - process bootstrap remains separate from the command implementation.
+
+Flarex differences:
+
+- The test invokes the local source-mode launcher, not a bundled published npm
+  artifact.
+- The launcher currently uses `tsx`; Convex's published package points at built
+  command files.
+
+Known limitations:
+
+- This does not yet test installation from a packed tarball or package manager
+  generated `.bin` shim.
+
+Verification:
+
+```sh
+node packages/flarex-dev/bin/flarex-dev.mjs help
+corepack pnpm --filter flarex-dev exec vitest run test/index.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## CLI Package Entrypoint Coverage
 
 Previous completed checkpoint: `d35c94d` Add deploy JSON output.

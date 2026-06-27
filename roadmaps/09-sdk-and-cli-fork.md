@@ -1,5 +1,60 @@
 # SDK And CLI Fork
 
+## Package Bin Command Surface
+
+Previous completed checkpoint: `33b4f8f` Export CLI runner from flarex-dev
+root.
+
+What changed:
+
+- Added a `flarex-dev` package `bin` entry pointing at
+  `./bin/flarex-dev.mjs`.
+- Added a thin Node launcher that boots the existing TypeScript CLI entrypoint
+  through the package-owned `tsx` loader.
+- Included the bin launcher in `flarex-dev` typechecking with JS checking
+  enabled, so the public command surface is covered by the package type gate.
+- Moved `tsx` into `flarex-dev` runtime dependencies because the source-mode
+  launcher needs it when the package command is invoked.
+- Updated the package `cli` script to invoke the same bin file instead of a
+  separate `tsx src/bin.ts` path.
+
+Why it changed:
+
+The previous checkpoint exported the reusable CLI runner, but examples and
+automation still lacked a stable package command. Convex exposes its CLI
+through package `bin` entries, and Flarex should expose the same shape while
+the command implementation remains centralized in `runFlarexDevCli(...)`.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - exposes `convex` and `convex-bundled` through package `bin` entries.
+- `npm-packages/convex/src/cli/index.ts`
+  - keeps a thin process bootstrap around the actual command program.
+
+Flarex differences:
+
+- Convex publishes a built CLI artifact. Flarex still runs TypeScript source in
+  this workspace, so the bin launcher resolves `tsx` and then invokes
+  `src/bin.ts`.
+- The launcher is intentionally small and does not duplicate CLI parsing,
+  deploy behavior, or output formatting.
+
+Known limitations:
+
+- This is still a source-mode development command, not a bundled production CLI
+  artifact.
+- A future packaging step should replace the `tsx` launcher with a built JS
+  command before publishing.
+
+Verification:
+
+```sh
+node packages/flarex-dev/bin/flarex-dev.mjs help
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/index.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Root Package Exports CLI Runner
 
 Previous completed checkpoint: `d35c94d` Add deploy JSON output.

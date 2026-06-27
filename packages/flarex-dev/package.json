@@ -2,6 +2,9 @@
   "name": "flarex-dev",
   "version": "0.0.1",
   "type": "module",
+  "bin": {
+    "flarex-dev": "./bin/flarex-dev.mjs"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
@@ -9,7 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "cli": "tsx src/bin.ts",
+    "cli": "node bin/flarex-dev.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
@@ -20,9 +23,7 @@
     "@flarex/persistence-postgres": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
-    "miniflare": "catalog:"
-  },
-  "devDependencies": {
+    "miniflare": "catalog:",
     "tsx": "catalog:"
   },
   "peerDependencies": {
