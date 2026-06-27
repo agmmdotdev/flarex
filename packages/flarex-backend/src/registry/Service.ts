@@ -9,7 +9,7 @@ import { RegistrySqlError, RegistryStore } from "./Store";
 
 export class RegistryService extends Context.Service<RegistryService, {
   createDeployment(request: CreateDeploymentRequest): Effect.Effect<DeploymentRecord, RegistrySqlError>;
-  readonly listDeployments: Effect.Effect<ListDeploymentsResponse, RegistrySqlError>;
+  listDeployments(): Effect.Effect<ListDeploymentsResponse, RegistrySqlError>;
 }>()("flarex-backend/registry/RegistryService") {
   static readonly layer = Layer.effect(
     RegistryService,
@@ -30,10 +30,10 @@ export class RegistryService extends Context.Service<RegistryService, {
         },
       );
 
-      const listDeployments = Effect.gen(function* () {
+      const listDeployments = Effect.fn("RegistryService.listDeployments")(function* () {
         const deployments = yield* store.listDeployments;
         return { deployments };
-      }).pipe(Effect.withSpan("RegistryService.listDeployments"));
+      });
 
       return RegistryService.of({
         createDeployment,

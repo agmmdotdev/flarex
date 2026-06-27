@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Registry Effect Service Test Boundary
+
+Previous completed checkpoint: `1a7112a` Refactor registry behind Effect
+service.
+
+What changed:
+
+- Added focused `RegistryService` tests that run against controlled Effect test
+  layers instead of Miniflare.
+- The tests provide `RegistryStore`, `RegistryClock`, and `RegistryIds` with
+  deterministic implementations.
+- `RegistryService.listDeployments` is now an explicit service method backed
+  by named `Effect.fn`, matching the reusable-function pattern already used by
+  `createDeployment`.
+
+Why it changed:
+
+The Registry service extraction should be testable without constructing a
+Cloudflare Durable Object. This checkpoint proves the service package boundary
+before the same pattern is copied into larger backend modules.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is an Effect service testing
+  boundary around existing RegistryDO behavior, not a Convex semantic port.
+
+Flarex differences:
+
+- Convex does not expose this TypeScript service/layer boundary. Flarex needs
+  it because backend behavior is being incrementally lifted out of Cloudflare
+  `fetch()` hosts into reusable Effect runtime code.
+
+Known limitations:
+
+- The tests use plain Vitest plus `ManagedRuntime` and test layers. The repo
+  does not yet add `@effect/vitest`; that can be revisited if more service
+  tests need shared layer lifecycle helpers.
+- RegistryDO remains the only backend module with this service-level test
+  shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryService.test.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Registry Effect Service Boundary
 
 Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.

@@ -2,12 +2,20 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
-- Active checkpoint: refactor `RegistryDO` behind Effect store/service/runtime layers while keeping the existing plain `fetch()` router and SQLite behavior unchanged.
+- Previous completed checkpoint: `1a7112a` Refactor registry behind Effect service.
+- Active checkpoint: add focused `RegistryService` tests with controlled Effect test layers before copying the service pattern into larger Durable Objects.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 
-Current Goal 2 slice:
+Current Goal 3 slice:
+
+1. Add service-level tests for `RegistryService` without Miniflare.
+2. Provide `RegistryStore`, `RegistryClock`, and `RegistryIds` through test layers.
+3. Prove explicit deployment IDs, generated deployment IDs, controlled timestamps, list response wrapping, and typed `RegistrySqlError` propagation.
+4. Keep `RegistryDO.fetch()` route behavior unchanged.
+5. Keep reusable Registry service methods as named `Effect.fn` functions.
+
+Completed Goal 2 slice:
 
 1. Keep `flarex-protocol` as the narrow schema-first Registry contract package from the previous checkpoint.
 2. Add `packages/flarex-backend/src/registry/` with:
@@ -19,9 +27,8 @@ Current Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 2 should be one of:
+Next checkpoint after Goal 3 should be one of:
 
-- Add service-level tests for `RegistryService` with test layers and `@effect/vitest` if the package introduces that test dependency.
 - Extend `flarex-protocol` to the next small DeploymentDO boundary only after Registry service extraction is reviewed and committed.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 

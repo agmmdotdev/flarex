@@ -44,7 +44,7 @@ export class RegistryDO extends DurableObject<Env> {
       }
       if (url.pathname === "/deployments" && request.method === "GET") {
         return await this.runRegistryResponse(
-          RegistryService.use(service => service.listDeployments),
+          RegistryService.use(service => service.listDeployments()),
           response => json(response satisfies ListDeploymentsResponse),
         );
       }

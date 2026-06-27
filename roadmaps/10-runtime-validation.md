@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Registry Service Test Coverage
+
+Previous completed checkpoint: `1a7112a` Refactor registry behind Effect
+service.
+
+What changed:
+
+- Added focused runtime tests for `RegistryService` using controlled Effect
+  test layers.
+- The tests verify explicit deployment ID handling, generated deployment ID
+  handling, controlled timestamp use, list response wrapping, and typed
+  `RegistrySqlError` propagation from the store boundary.
+- `RegistryService.listDeployments` is now a named `Effect.fn` method so both
+  registry service operations share the same reusable-function shape.
+
+Why it changed:
+
+The previous checkpoint moved Registry behavior behind Effect services. This
+checkpoint proves the validation/runtime behavior at the service layer without
+requiring HTTP routing or Durable Object SQL setup.
+
+Convex references inspected:
+
+- No new Convex source files were required. The target remains backend-side
+  validation before mutation; this slice verifies the Flarex service boundary
+  that now sits after protocol decoding.
+
+Cloudflare differences:
+
+- These tests bypass Cloudflare Durable Object storage by replacing
+  `RegistryStore` with a test layer. Route-level Miniflare coverage remains in
+  `registryDO.test.ts`.
+
+Known limitations:
+
+- The tests assert typed error propagation from `RegistryService`, not the
+  private `RegistryDO.runRegistryResponse` HTTP mapping directly.
+- More service tests will be needed before migrating DeploymentDO or
+  PartitionDO, where storage and OCC semantics are more complex.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryService.test.ts packages/flarex-backend/test/registryDO.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Registry Effect Service Validation Boundary
 
 Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
