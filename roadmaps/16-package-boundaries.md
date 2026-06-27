@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Fresh Consumer Package Graph Boundary
+
+Previous completed checkpoint: `85faa2d` Add remaining package packability
+gates.
+
+What changed:
+
+- Added a fresh-consumer install gate that packs the SDK/dev/runtime Flarex
+  packages required by `flarex-dev`, installs `flarex-dev` into a temporary
+  project, and verifies the installed CLI starts.
+- Internal Flarex packages are consumed as tarballs, not workspace links.
+- External public runtime dependencies are linked from the local workspace so
+  the gate isolates package graph correctness from registry/network behavior.
+- The install uses a temp pnpm store in offline mode so only explicit tarball
+  and link dependencies are available.
+
+Boundary rule:
+
+Package boundary tests now have two layers:
+
+- Tarball shape: each package exposes only intended files and exports.
+- Consumer graph: `flarex-dev` can install from packed Flarex tarballs and run
+  outside the monorepo.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - packages SDK surface through explicit exports and npm-installable artifact
+    layout.
+
+Flarex differences:
+
+- Convex's registry package resolves through published packages. Flarex's local
+  test must use tarball overrides until the internal packages are actually
+  published.
+- `flarex-test` and `@flarex/executor-nitro` are excluded for now because they
+  are not part of the `flarex-dev` packed runtime graph.
+
+Known limitations:
+
+- The graph gate does not yet verify built output because Flarex packages still
+  publish TypeScript source.
+- The gate does not prove external package registry availability.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Remaining Source Package Tarball Boundaries
 
 Previous completed checkpoint: `e07b1e5` Add internal package packability

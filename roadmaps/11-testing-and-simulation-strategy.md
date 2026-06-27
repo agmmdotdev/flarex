@@ -1,5 +1,57 @@
 # Testing and Simulation Strategy
 
+## Fresh Consumer Install Simulation
+
+Previous completed checkpoint: `85faa2d` Add remaining package packability
+gates.
+
+What changed:
+
+- Added a fresh-consumer integration test that installs packed Flarex tarballs
+  into a temporary project and executes the installed `flarex-dev` CLI help
+  command.
+- The fixture uses real `pnpm pack` output for the SDK/dev/runtime packages
+  required by `flarex-dev`.
+- The fixture writes consumer-local `pnpm-workspace.yaml` overrides so
+  unpublished internal package specs resolve to tarballs, while known public
+  runtime dependencies resolve to workspace-local links.
+- The fixture installs with a temp pnpm store in offline mode, so undeclared
+  public dependencies cannot be hidden by the developer's default pnpm store.
+
+Why it changed:
+
+Tarball content tests can pass while install-time dependency resolution still
+fails. This test covers the next boundary: whether a package-manager consumer
+can install `flarex-dev` outside the workspace and start the CLI.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex's npm package shape is treated as an installable SDK boundary, not
+    only a source-tree boundary.
+
+Flarex differences:
+
+- Flarex still has unpublished internal packages, so the test simulates registry
+  availability with local tarball overrides.
+- Public dependencies are linked locally to avoid network flakiness; this is a
+  package graph test, not an external registry smoke test.
+- `flarex-test` and `@flarex/executor-nitro` are not covered because this slice
+  targets the `flarex-dev` packed runtime graph.
+
+Known limitations:
+
+- The installed CLI smoke currently covers `--help` only.
+- It does not typecheck a generated consumer app or run `flarex-dev codegen`.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Remaining Internal Package Packability Coverage
 
 Previous completed checkpoint: `e07b1e5` Add internal package packability

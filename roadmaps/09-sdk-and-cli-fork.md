@@ -1,5 +1,67 @@
 # SDK And CLI Fork
 
+## Fresh Consumer Packed Install Gate
+
+Previous completed checkpoint: `85faa2d` Add remaining package packability
+gates.
+
+What changed:
+
+- Added `integration/fresh-consumer-pack.integration.test.ts`.
+- The test packs the Flarex SDK/dev/runtime packages required by `flarex-dev`
+  into local tarballs,
+  creates a temporary consumer project, installs `flarex-dev` from the packed
+  tarball, redirects unpublished internal Flarex package names to local tarball
+  overrides, and runs `flarex-dev --help` from the installed consumer.
+- The fixture supplies required runtime peer/direct public packages through
+  workspace-local links so the gate proves Flarex package graph correctness
+  without depending on registry download speed.
+- The fixture uses a temp pnpm store and offline install so undeclared external
+  packages cannot pass only because they were already in the developer's
+  default pnpm store.
+- Extended the shared packability command helper with an optional timeout for
+  longer fresh-consumer install and CLI checks.
+
+Why it changed:
+
+The earlier package gates proved tarball contents independently. The next SDK
+packaging risk is whether `flarex-dev` can actually install and start outside
+the monorepo when its Flarex dependencies are tarballs instead of workspace
+links.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex treats package exports, files, and installable npm shape as the
+    public SDK contract.
+
+Flarex differences:
+
+- Convex publishes built package output to npm. Flarex still publishes
+  source-mode tarballs in this prototype.
+- Because Flarex packages are unpublished locally, the test uses
+  `pnpm-workspace.yaml` overrides for internal Flarex packages instead of
+  resolving them from a registry.
+- `flarex-test` and `@flarex/executor-nitro` are intentionally outside this
+  gate because they are not in the `flarex-dev` packed runtime dependency
+  graph yet.
+
+Known limitations:
+
+- The test does not prove public registry availability or download behavior for
+  external packages; public dependencies are linked from the workspace to keep
+  the gate deterministic.
+- The test only runs CLI help, not full `codegen` or `deploy` from the packed
+  consumer.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Remaining Internal Package Tarball Prerequisites
 
 Previous completed checkpoint: `e07b1e5` Add internal package packability

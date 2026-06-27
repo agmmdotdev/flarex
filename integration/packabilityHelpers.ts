@@ -22,11 +22,12 @@ export function runCommand(
   command: string,
   args: string[],
   cwd: string,
+  timeoutMs: number = commandTimeoutMs,
 ): SpawnSyncReturns<string> {
   return spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    timeout: commandTimeoutMs,
+    timeout: timeoutMs,
   });
 }
 
