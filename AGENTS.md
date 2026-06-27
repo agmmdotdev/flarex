@@ -12,6 +12,10 @@ changes that materially alter coverage or expectations. Do not require reviewer
 subagents for docs-only commits, planning/roadmap updates, formatting-only
 changes, generated-file refreshes, or minor mechanical edits that do not affect
 behavior.
+Do not spawn reviewer subagents on every turn; use main-thread self-review
+during ordinary investigation, small edits, and test-fix loops, and reserve
+reviewer subagents for meaningful checkpoints before commit or after significant
+implementation slices.
 
 Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
 as the source of truth for reviewer scope, read-only boundaries, TypeScript
