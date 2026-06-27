@@ -116,6 +116,12 @@ export class AbandonPushRequest extends Schema.Class<AbandonPushRequest>(
   reason: Schema.optional(Schema.String),
 }) {}
 
+export class FinishPushRequest extends Schema.Class<FinishPushRequest>(
+  "FinishPushRequest",
+)({
+  activate: Schema.optional(Schema.Boolean),
+}) {}
+
 export class PushSourcePackage extends Schema.Class<PushSourcePackage>(
   "PushSourcePackage",
 )({
@@ -340,6 +346,7 @@ const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPus
 const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
 const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
 const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
+const decodeFinishPushRequest = Schema.decodeUnknownSync(FinishPushRequest);
 const decodeFinishPushResponse = Schema.decodeUnknownSync(FinishPushResponse);
 const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
 const decodePushStatus = Schema.decodeUnknownSync(PushStatus);
@@ -365,6 +372,32 @@ export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
     throw new DeploymentProtocolValidationError({
       schema: "AbandonPushRequest",
       message: "Abandon push request must include an optional string reason field.",
+      cause,
+    });
+  }
+}
+
+export function parseFinishPushRequest(value: unknown): FinishPushRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new DeploymentProtocolValidationError({
+      schema: "FinishPushRequest",
+      message: "Finish push request must be an object.",
+      cause: value,
+    });
+  }
+  if ("activate" in value && value.activate !== undefined && typeof value.activate !== "boolean") {
+    throw new DeploymentProtocolValidationError({
+      schema: "FinishPushRequest",
+      message: "Finish push activate flag must be a boolean.",
+      cause: value.activate,
+    });
+  }
+  try {
+    return decodeFinishPushRequest(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "FinishPushRequest",
+      message: "Finish push request must include an optional boolean activate field.",
       cause,
     });
   }

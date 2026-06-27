@@ -4,6 +4,7 @@ import {
   parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
   parseAbandonPushRequest,
+  parseFinishPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
 import {
@@ -20,10 +21,7 @@ import {
   startAnalyzedPushInput,
 } from "./deployment/Validation";
 import { errorResponse, json, readJson } from "./http";
-import type {
-  Env,
-  FinishPushRequest,
-} from "./types";
+import type { Env } from "./types";
 
 export class DeploymentDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
@@ -62,7 +60,7 @@ export class DeploymentDO extends DurableObject<Env> {
           return json(await this.runDeploymentService(service => service.getPush(pushId)));
         }
         if (action === "finish" && request.method === "POST") {
-          await readJson<FinishPushRequest>(request);
+          parseFinishPushRequest(await readJson(request));
           const response = await this.runDeploymentService(service => service.finishPush(pushId));
           return json(response, { status: response.result === "rejected" ? 409 : 200 });
         }

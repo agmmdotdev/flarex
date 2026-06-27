@@ -603,6 +603,49 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("rejects malformed finish request bodies", async () => {
+    const start = await startPush("push-finish-bad-body", analyzedPush(candidateSchema(), candidateFunctions()));
+
+    const invalidJson = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(invalidJson.status).toBe(400);
+    await expect(invalidJson.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
+    const nullBody = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(null),
+      },
+    );
+    expect(nullBody.status).toBe(400);
+    await expect(nullBody.json()).resolves.toEqual({
+      error: "Finish push request must be an object.",
+    });
+
+    const invalidActivate = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ activate: "yes" }),
+      },
+    );
+    expect(invalidActivate.status).toBe(400);
+    await expect(invalidActivate.json()).resolves.toEqual({
+      error: "Finish push activate flag must be a boolean.",
+    });
+  });
+
   it("abandons analyzed pushes without activating them", async () => {
     await putSchema("push-abandon", activeSchema());
     await putFunctions("push-abandon", activeFunctions());

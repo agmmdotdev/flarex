@@ -4,6 +4,7 @@ import {
   parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
   parseDeploymentCodegenAnalysis,
+  parseFinishPushRequest,
   parseFinishPushResponse,
   parsePushStatus,
 } from "../src/deployment";
@@ -51,6 +52,14 @@ describe("deployment protocol schemas", () => {
 
     expect(request.analysis).toBeNull();
     expect(request.codegenAnalysis).toEqual({ not: "validated here" });
+  });
+
+  it("parses finish push request bodies", () => {
+    expect(parseFinishPushRequest({})).toEqual({});
+    expect(parseFinishPushRequest({ activate: true })).toEqual({ activate: true });
+    expect(() => parseFinishPushRequest(null)).toThrow(DeploymentProtocolValidationError);
+    expect(() => parseFinishPushRequest({ activate: "yes" }))
+      .toThrow(DeploymentProtocolValidationError);
   });
 });
 

@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Deployment Finish Request Protocol Boundary
+
+Previous completed checkpoint: `817f1f3` Extract deployment storage schema
+initialization.
+
+What changed:
+
+- Added `FinishPushRequest` and `parseFinishPushRequest` to
+  `flarex-protocol/deployment`.
+- Replaced the unchecked `readJson<FinishPushRequest>` cast in
+  `DeploymentDO.fetch()` with the protocol parser.
+- Added protocol and route tests for finish request body validation.
+
+Why it changed:
+
+The finish route was the remaining deployment push route with a manually cast
+request body. Making that boundary protocol-owned gives the later router or
+HttpApi spike a precise contract without moving service orchestration.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is a Flarex
+  request-boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged after parsing. The finish body
+  still does not affect `DeploymentService.finishPush`.
+- Invalid JSON still comes from the shared `readJson` boundary before protocol
+  parsing.
+
+Known limitations:
+
+- `activate` is accepted as an optional protocol field but remains unused by
+  the current service.
+- This is not an HttpApi migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-protocol test -- test/deployment.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Storage Schema Initialization
 
 Previous completed checkpoint: `884741d` Centralize deployment service route

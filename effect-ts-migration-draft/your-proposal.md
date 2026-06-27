@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `884741d` Centralize deployment service route use.
-- Active checkpoint: extract deployment storage schema initialization and additive migration guards into a direct-tested helper.
+- Previous completed checkpoint: `817f1f3` Extract deployment storage schema initialization.
+- Active checkpoint: add an explicit `FinishPushRequest` protocol parser for the remaining manual finish-push body boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 27 slice:
+Current Goal 28 slice:
+
+1. Add `FinishPushRequest` and `parseFinishPushRequest` to `flarex-protocol/deployment`.
+2. Convert the `POST /push/:id/finish` body boundary from an unchecked `readJson<FinishPushRequest>` cast to the shared protocol parser.
+3. Keep finish-push service orchestration unchanged; the request body is still only a protocol/body validation boundary and is not used by `DeploymentService.finishPush`.
+4. Preserve the shared invalid-JSON `Request body must be JSON.` behavior from `readJson`.
+5. Add protocol parser tests for empty body, optional `activate`, non-object rejection, and invalid activate rejection.
+6. Add route tests for malformed finish JSON and malformed finish request shape.
+7. Do not change response parsing, SQL behavior, service/store orchestration, runtime boundaries, deep analysis/codegen request decoding, `ValidatorJson`, or finish response status mapping.
+8. Validate with focused protocol/backend tests, full backend gates, protocol gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 27 slice:
 
 1. Add `deployment/StorageSchema.ts` with `initializeDeploymentStorage(sql)`.
 2. Move deployment table creation, additive `ALTER TABLE ... ADD COLUMN` guards, and initial `schema_version` seeding out of `DeploymentDO`.
@@ -250,7 +261,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 27 should be one of:
+Next checkpoint after Goal 28 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.

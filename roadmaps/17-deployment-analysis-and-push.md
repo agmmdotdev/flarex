@@ -1,5 +1,55 @@
 # Deployment Analysis And Push
 
+## Deployment Finish Request Protocol Boundary
+
+Previous completed checkpoint: `817f1f3` Extract deployment storage schema
+initialization.
+
+What changed:
+
+- Added a schema-first finish-push request contract to
+  `flarex-protocol/deployment`.
+- Converted `DeploymentDO` finish body parsing to `parseFinishPushRequest`.
+- Added protocol and route coverage for malformed finish request bodies.
+
+Why it changed:
+
+Finish-push activation already lives behind `DeploymentService.finishPush`.
+The remaining route-local gap was the unchecked request body cast. This keeps
+the route HTTP boundary explicit while preserving the service/store behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  deployment push route boundary.
+
+Flarex differences:
+
+- The optional `activate` field is protocol-validated but still ignored by the
+  current service.
+- Response-side finish parsing remains covered by `parseFinishPushResponse`.
+- Request-side deep `analysis` and `codegenAnalysis` decoding remains backend
+  validation owned.
+
+Known limitations:
+
+- This is not a service orchestration change and not an HttpApi migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-protocol test -- test/deployment.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Storage Schema Initialization
 
 Previous completed checkpoint: `884741d` Centralize deployment service route
