@@ -1,5 +1,48 @@
 # Package Boundaries
 
+## Packed Consumer Typecheck Boundary
+
+Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.
+
+What changed:
+
+- The packed consumer command gate now proves normal codegen and generated
+  output typechecking, not only dry-run reporting.
+- The consumer directly provides packed `flarex`, packed `flarex-dev`, linked
+  `typescript`, and linked `@cloudflare/workers-types`.
+
+Boundary rule:
+
+Consumer package graph tests should include the packages that user source and
+generated output actually depend on. A passing installed CLI smoke is not enough
+if generated output cannot typecheck from the same consumer graph.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package exports and type surfaces are part of the installed SDK contract.
+- `packages/flarex-dev/src/generatedTypecheck.ts`
+  - Flarex's generated-output typecheck requirements.
+
+Flarex differences:
+
+- This still validates source-mode packages with local dependency links.
+  Convex publishes built package artifacts.
+
+Known limitations:
+
+- Deploy/backend push remains a future packed-consumer boundary.
+- `flarex-test` and `@flarex/executor-nitro` remain outside this package graph
+  gate until their own packed-consumer tests are added.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Command Boundary
 
 Previous completed checkpoint: `982396a` Add fresh consumer package install

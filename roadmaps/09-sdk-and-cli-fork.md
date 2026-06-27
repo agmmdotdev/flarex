@@ -1,5 +1,56 @@
 # SDK And CLI Fork
 
+## Packed Consumer Generated Typecheck Gate
+
+Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.
+
+What changed:
+
+- Extended `integration/fresh-consumer-pack.integration.test.ts` so the packed
+  consumer runs a second installed CLI command after dry-run:
+  `flarex-dev codegen --typecheck enable`.
+- The temp consumer now directly supplies `typescript` and
+  `@cloudflare/workers-types`, because generated-output typechecking resolves
+  the TypeScript CLI and Workers types from the installed consumer graph.
+- The test verifies `_generated/server.ts` exists after normal codegen.
+
+Why it changed:
+
+The previous packed consumer smoke proved installed CLI analysis and dry-run
+codegen only. This checkpoint proves the installed package can also write
+generated files and run the generated-output typecheck path from a consumer
+project.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - Convex's npm package contract includes install-time runtime and type
+    surfaces, not only package contents.
+- `packages/flarex-dev/src/generatedTypecheck.ts`
+  - Flarex generated-output typechecking resolves `typescript/bin/tsc` from the
+    installed CLI context and expects configured type libraries to be present.
+
+Flarex differences:
+
+- Flarex still links public runtime/type dependencies from the local workspace
+  inside this package-boundary test to keep the gate deterministic while the
+  packages are unpublished.
+
+Known limitations:
+
+- This still does not run `deploy` or contact an authoritative backend analyzer
+  from the packed consumer.
+- The test proves source-mode package behavior, not future built `dist`
+  packages.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Codegen Dry-Run Gate
 
 Previous completed checkpoint: `982396a` Add fresh consumer package install

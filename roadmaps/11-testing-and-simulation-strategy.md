@@ -1,5 +1,51 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Generated Typecheck Smoke
+
+Previous completed checkpoint: `395ac9f` Add packed consumer codegen smoke.
+
+What changed:
+
+- Extended the packed consumer integration test to run normal codegen with
+  `--typecheck enable` after the dry-run assertion.
+- The fixture now includes direct consumer links for `typescript` and
+  `@cloudflare/workers-types`, matching the generated typecheck command's
+  requirements.
+- The test asserts `_generated/server.ts` is written after normal codegen.
+
+Why it changed:
+
+Dry-run codegen skips the final generated-output typecheck path. This
+checkpoint exercises that path from an installed packed CLI and catches missing
+consumer type/runtime dependencies.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - npm SDK packages must work from an installed consumer project.
+- `packages/flarex-dev/src/generatedTypecheck.ts`
+  - source for the generated-output typecheck command and dependency
+    resolution.
+
+Flarex differences:
+
+- The fixture still links public dependencies from the workspace rather than
+  downloading from a registry, isolating package graph correctness from network
+  availability.
+
+Known limitations:
+
+- Deploy/backend push is still not covered from the packed consumer.
+- This does not yet cover built package output.
+
+Verification:
+
+```sh
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Codegen Smoke
 
 Previous completed checkpoint: `982396a` Add fresh consumer package install

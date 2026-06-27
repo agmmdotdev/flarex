@@ -58,6 +58,7 @@ const persistencePostgresRoot = resolve(workspaceRoot, "packages/persistence-pos
 const executorHttpRoot = resolve(workspaceRoot, "packages/executor-http");
 
 const linkedExternalPackages = [
+  { packageName: "@cloudflare/workers-types", packageRoot: flarexDevRoot },
   { packageName: "@electric-sql/pglite", packageRoot: persistencePostgresRoot },
   { packageName: "@types/pg", packageRoot: persistencePostgresRoot },
   { packageName: "drizzle-orm", packageRoot: persistencePostgresRoot },
@@ -65,6 +66,7 @@ const linkedExternalPackages = [
   { packageName: "miniflare", packageRoot: flarexDevRoot },
   { packageName: "pg", packageRoot: persistencePostgresRoot },
   { packageName: "tsx", packageRoot: flarexDevRoot },
+  { packageName: "typescript", packageRoot: flarexDevRoot },
   { packageName: "vite", packageRoot: flarexDevRoot },
 ] as const;
 
@@ -133,6 +135,15 @@ describe("fresh consumer packed install", () => {
       await expect(stat(join(consumerDir, "flarex/_generated/server.ts"))).rejects.toMatchObject({
         code: "ENOENT",
       });
+
+      const generatedCodegen = runPnpm(
+        consumerDir,
+        ["exec", "flarex-dev", "codegen", "--typecheck", "enable"],
+        120_000,
+      );
+      expect(generatedCodegen.error).toBeUndefined();
+      expect(generatedCodegen.status, commandOutput(generatedCodegen)).toBe(0);
+      await expect(stat(join(consumerDir, "flarex/_generated/server.ts"))).resolves.toBeDefined();
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -165,8 +176,10 @@ function freshConsumerManifest(): Record<string, unknown> {
     private: true,
     type: "module",
     dependencies: {
+      "@cloudflare/workers-types": workspacePackageLink("@cloudflare/workers-types"),
       flarex: "file:../packs/flarex-0.0.1.tgz",
       "flarex-dev": "file:../packs/flarex-dev-0.0.1.tgz",
+      typescript: workspacePackageLink("typescript"),
       vite: workspacePackageLink("vite"),
     },
   };
