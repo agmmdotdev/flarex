@@ -17,6 +17,7 @@ const DeploymentSqlOperation = Schema.Union([
   Schema.Literal("getPush"),
   Schema.Literal("startPush"),
   Schema.Literal("finishPush"),
+  Schema.Literal("abandonPush"),
 ]);
 
 export class DeploymentSqlError extends Schema.TaggedErrorClass<DeploymentSqlError>()(
@@ -51,10 +52,17 @@ export interface FinishPushStoreInput {
   readonly executionArtifactRef: ExecutionArtifactRef;
 }
 
+export interface AbandonPushStoreInput {
+  readonly pushId: string;
+  readonly now: number;
+  readonly reason: string;
+}
+
 export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
   startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
+  abandonPush(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | HttpError>;
 }>()("flarex-backend/deployment/DeploymentPushStore") {
   static layer(
     storage: DeploymentTransactionStorage,
@@ -166,10 +174,39 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
+        const abandonPush = Effect.fn("DeploymentPushStore.abandonPush")(
+          function* (input: AbandonPushStoreInput): Effect.fn.Return<PushStatus, DeploymentSqlError | HttpError> {
+            return yield* Effect.tryPromise({
+              try: () =>
+                storage.transaction(async () => {
+                  const status = readPush(input.pushId);
+                  if (!status) throw new HttpError(404, `Unknown push: ${input.pushId}`);
+                  if (status.state !== "pending" && status.state !== "analyzed") {
+                    throw new HttpError(409, `Cannot abandon push ${input.pushId} in state ${status.state}.`);
+                  }
+                  sql.exec(
+                    "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
+                    input.reason,
+                    input.now,
+                    input.pushId,
+                  );
+                  const abandoned = readPush(input.pushId);
+                  if (!abandoned) throw new Error(`Abandoned push ${input.pushId} disappeared.`);
+                  return abandoned;
+                }),
+              catch: cause =>
+                cause instanceof HttpError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "abandonPush", cause }),
+            });
+          },
+        );
+
         return DeploymentPushStore.of({
           getPush,
           startAnalyzedPush,
           finishPush,
+          abandonPush,
         });
       }),
     );

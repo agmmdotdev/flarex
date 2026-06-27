@@ -8,7 +8,7 @@ import {
   type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
-import { DeploymentPushNotFoundError, DeploymentService } from "./deployment/Service";
+import { DeploymentPushInvalidStateError, DeploymentPushNotFoundError, DeploymentService } from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
@@ -188,7 +188,11 @@ export class DeploymentDO extends DurableObject<Env> {
   }
 
   private async runDeployment<A>(
-    effect: Effect.Effect<A, DeploymentPushNotFoundError | DeploymentSqlError | HttpError, DeploymentService>,
+    effect: Effect.Effect<
+      A,
+      DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError | HttpError,
+      DeploymentService
+    >,
   ): Promise<A> {
     const result = await this.deploymentRuntime.runPromise(
       effect.pipe(
@@ -201,6 +205,11 @@ export class DeploymentDO extends DurableObject<Env> {
     if (!result.ok) {
       if (result.error instanceof DeploymentPushNotFoundError) {
         throw new HttpError(404, `Unknown push: ${result.error.pushId}`);
+      }
+      if (result.error instanceof DeploymentPushInvalidStateError) {
+        if (result.error.action === "abandon") {
+          throw new HttpError(409, `Cannot abandon push ${result.error.pushId} in state ${result.error.state}.`);
+        }
       }
       if (result.error instanceof HttpError) {
         throw result.error;
@@ -217,26 +226,9 @@ export class DeploymentDO extends DurableObject<Env> {
   }
 
   private async abandonPush(pushId: string, request: AbandonPushRequest): Promise<PushStatus> {
-    return this.ctx.storage.transaction(async () => {
-      const status = this.getPush(pushId);
-      if (!status) throw new HttpError(404, `Unknown push: ${pushId}`);
-      if (status.state !== "pending" && status.state !== "analyzed") {
-        throw new HttpError(409, `Cannot abandon push ${pushId} in state ${status.state}.`);
-      }
-      const now = Date.now();
-      const reason = typeof request.reason === "string" && request.reason.length > 0
-        ? request.reason.slice(0, 1000)
-        : "Push abandoned before activation.";
-      this.sql.exec(
-        "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
-        reason,
-        now,
-        pushId,
-      );
-      const abandoned = this.getPush(pushId);
-      if (!abandoned) throw new Error(`Abandoned push ${pushId} disappeared.`);
-      return abandoned;
-    });
+    return this.runDeployment(
+      DeploymentService.use(service => service.abandonPush(pushId, request)),
+    );
   }
 
   private getActiveDeployment(): ActiveDeploymentStatus | null {

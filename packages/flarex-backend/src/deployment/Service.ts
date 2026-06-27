@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import type { HttpError } from "../http";
 import type {
+  AbandonPushRequest,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   FinishPushResponse,
@@ -31,11 +32,24 @@ export class DeploymentPushNotFoundError extends Schema.TaggedErrorClass<Deploym
   },
 ) {}
 
+export class DeploymentPushInvalidStateError extends Schema.TaggedErrorClass<DeploymentPushInvalidStateError>()(
+  "DeploymentPushInvalidStateError",
+  {
+    action: Schema.Literal("abandon"),
+    pushId: Schema.String,
+    state: Schema.String,
+  },
+) {}
+
 export class DeploymentService extends Context.Service<DeploymentService, {
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
     DeploymentPushNotFoundError | DeploymentSqlError | HttpError
+  >;
+  abandonPush(pushId: string, request: AbandonPushRequest): Effect.Effect<
+    PushStatus,
+    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | HttpError
   >;
 }>()("flarex-backend/deployment/DeploymentService") {
   static readonly layer = Layer.effect(
@@ -88,9 +102,41 @@ export class DeploymentService extends Context.Service<DeploymentService, {
         },
       );
 
+      const abandonPush = Effect.fn("DeploymentService.abandonPush")(
+        function* (
+          pushId: string,
+          request: AbandonPushRequest,
+        ): Effect.fn.Return<
+          PushStatus,
+          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | HttpError
+        > {
+          const status = yield* store.getPush(pushId);
+          if (status === null) {
+            return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
+          }
+          if (status.state !== "pending" && status.state !== "analyzed") {
+            return yield* Effect.fail(new DeploymentPushInvalidStateError({
+              action: "abandon",
+              pushId,
+              state: status.state,
+            }));
+          }
+          const now = yield* clock.currentTimeMillis;
+          const reason = typeof request.reason === "string" && request.reason.length > 0
+            ? request.reason.slice(0, 1000)
+            : "Push abandoned before activation.";
+          return yield* store.abandonPush({
+            pushId,
+            now,
+            reason,
+          });
+        },
+      );
+
       return DeploymentService.of({
         startAnalyzedPush,
         finishPush,
+        abandonPush,
       });
     }),
   );

@@ -2,12 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `224f097` Extract deployment push-start service.
-- Active checkpoint: extract finish-push orchestration into `DeploymentService` while preserving `DeploymentDO` HTTP status mapping, `FinishPushResponse` shapes, activation metadata writes, and schema/function application behavior.
+- Previous completed checkpoint: `42cccd5` Extract deployment finish service.
+- Active checkpoint: extract abandon-push orchestration into `DeploymentService` while preserving `DeploymentDO` route parsing, HTTP status mapping, reason normalization, and push state semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
+- Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 8 slice:
+Current Goal 9 slice:
+
+1. Add `DeploymentService.abandonPush(pushId, request)` for abandon-push orchestration.
+2. Keep `DeploymentDO.fetch()` and `parseAbandonPushRequest` as the HTTP/body boundary; do not change abandon request schema behavior.
+3. Model unknown pushes as `DeploymentPushNotFoundError` and terminal-state abandons as typed `DeploymentPushInvalidStateError`, then map them at `DeploymentDO.runDeployment` to the existing 404/409 messages.
+4. Move controlled timestamp acquisition, default/truncated reason normalization, SQL update, transaction-level state guard, and abandoned push read behind `DeploymentPushStore.abandonPush`.
+5. Preserve existing behavior for analyzed/pending abandon success, terminal push rejection, unknown push rejection, encoded push IDs, and malformed abandon request bodies.
+6. Add service/store tests for controlled clock/reason writes, default/truncated reason handling, typed not-found, typed invalid-state, typed storage failure propagation, and transaction `HttpError` passthrough.
+
+Completed Goal 8 slice:
 
 1. Add `DeploymentArtifacts` as an Effect runtime dependency for execution artifact lookup instead of letting `DeploymentDO.finishPush` call artifact code directly.
 2. Add `DeploymentService.finishPush(pushId)` with typed `DeploymentPushNotFoundError` and existing `DeploymentSqlError` storage failure propagation.
@@ -70,11 +80,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 8 should be one of:
+Next checkpoint after Goal 9 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
-- Extract abandon-push into `DeploymentService` so the push lifecycle write paths share one typed service/store boundary.
 - Extract active deployment reads into `DeploymentService` after activation metadata writes are proven stable.
+- Consolidate deployment push state errors into a shared deployment error module if more service methods need the same not-found/invalid-state types.
 - Move deployment semantic validators into a typed domain/parser module only if exact error-message parity can be preserved.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 

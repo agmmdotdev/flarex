@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
 import {
+  DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentService,
   type StartAnalyzedPushInput,
@@ -9,6 +10,7 @@ import {
 import {
   DeploymentPushStore,
   DeploymentSqlError,
+  type AbandonPushStoreInput,
   type DeploymentSqlStorage,
   type DeploymentTransactionStorage,
   type FinishPushStoreInput,
@@ -288,12 +290,215 @@ describe("DeploymentService", () => {
       await runtime.dispose();
     }
   });
+
+  it("abandons eligible pushes with controlled clock and normalized reasons", async () => {
+    const preflight = analyzedPushStatus("push-abandon");
+    const abandoned: PushStatus = {
+      ...preflight,
+      state: "abandoned",
+      error: "typecheck failed",
+      updatedAt: 2_500_000,
+    };
+    const writes: AbandonPushStoreInput[] = [];
+
+    const result = await runDeployment(
+      DeploymentService.use(service => service.abandonPush("push-abandon", { reason: "typecheck failed" })),
+      {
+        now: 2_500_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: pushId => Effect.succeed(pushId === "push-abandon" ? preflight : null),
+          abandonPush: input =>
+            Effect.sync(() => {
+              writes.push(input);
+              return abandoned;
+            }),
+        },
+      },
+    );
+
+    expect(writes).toEqual([
+      {
+        pushId: "push-abandon",
+        now: 2_500_000,
+        reason: "typecheck failed",
+      },
+    ]);
+    expect(result).toBe(abandoned);
+  });
+
+  it("defaults and truncates abandon reasons before storage", async () => {
+    const writes: AbandonPushStoreInput[] = [];
+
+    await runDeployment(
+      DeploymentService.use(service => service.abandonPush("push-default-reason", {})),
+      {
+        now: 2_600_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(analyzedPushStatus("push-default-reason")),
+          abandonPush: input =>
+            Effect.sync(() => {
+              writes.push(input);
+              return { ...analyzedPushStatus(input.pushId), state: "abandoned", error: input.reason };
+            }),
+        },
+      },
+    );
+
+    await runDeployment(
+      DeploymentService.use(service => service.abandonPush("push-long-reason", { reason: "x".repeat(1_100) })),
+      {
+        now: 2_700_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(analyzedPushStatus("push-long-reason")),
+          abandonPush: input =>
+            Effect.sync(() => {
+              writes.push(input);
+              return { ...analyzedPushStatus(input.pushId), state: "abandoned", error: input.reason };
+            }),
+        },
+      },
+    );
+
+    expect(writes[0]).toMatchObject({
+      pushId: "push-default-reason",
+      reason: "Push abandoned before activation.",
+    });
+    expect(writes[1]).toMatchObject({
+      pushId: "push-long-reason",
+      reason: "x".repeat(1_000),
+    });
+  });
+
+  it("returns a typed not-found error before abandon storage work", async () => {
+    let abandonCalled = false;
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.abandonPush("missing-push", {})).pipe(
+        Effect.catchTag("DeploymentPushNotFoundError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 2_800_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(null),
+          abandonPush: () =>
+            Effect.sync(() => {
+              abandonCalled = true;
+              return failedPushStatus("missing-push");
+            }),
+        },
+      },
+    );
+
+    if (!(error instanceof DeploymentPushNotFoundError)) {
+      throw new Error("Expected DeploymentPushNotFoundError.");
+    }
+    expect(error.pushId).toBe("missing-push");
+    expect(abandonCalled).toBe(false);
+  });
+
+  it("returns a typed invalid-state error before abandon storage work", async () => {
+    const preflight: PushStatus = { ...analyzedPushStatus("push-activated"), state: "activated" };
+    let abandonCalled = false;
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.abandonPush("push-activated", {})).pipe(
+        Effect.catchTag("DeploymentPushInvalidStateError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 2_900_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(preflight),
+          abandonPush: () =>
+            Effect.sync(() => {
+              abandonCalled = true;
+              return preflight;
+            }),
+        },
+      },
+    );
+
+    if (!(error instanceof DeploymentPushInvalidStateError)) {
+      throw new Error("Expected DeploymentPushInvalidStateError.");
+    }
+    expect(error).toMatchObject({
+      action: "abandon",
+      pushId: "push-activated",
+      state: "activated",
+    });
+    expect(abandonCalled).toBe(false);
+  });
+
+  it("preserves typed DeploymentSqlError failures from abandon storage", async () => {
+    const failure = new DeploymentSqlError({
+      operation: "abandonPush",
+      cause: new Error("abandon failed"),
+    });
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.abandonPush("push-abandon-storage-failed", {})).pipe(
+        Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 3_000_000,
+        pushId: "unused-push-id",
+        store: {
+          getPush: () => Effect.succeed(analyzedPushStatus("push-abandon-storage-failed")),
+          abandonPush: () => Effect.fail(failure),
+        },
+      },
+    );
+
+    expect(error).toBe(failure);
+  });
+
+  it("preserves abandon HttpError failures from the storage transaction", async () => {
+    const status: PushStatus = { ...analyzedPushStatus("push-already-activated"), state: "activated" };
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const sql = {
+      exec: () => undefined,
+    } as unknown as DeploymentSqlStorage;
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+        pushId => (pushId === status.pushId ? status : null),
+        schema => schema,
+        functions => functions,
+        () => undefined,
+      ),
+    );
+
+    try {
+      await expect(runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.abandonPush({
+            pushId: status.pushId,
+            now: 3_100_000,
+            reason: "too late",
+          }),
+        ),
+      )).rejects.toMatchObject({
+        status: 409,
+        message: `Cannot abandon push ${status.pushId} in state activated.`,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });
 
 interface DeploymentTestStore {
   getPush?(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
   startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
+  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | HttpError>;
 }
 
 interface DeploymentTestLayerOptions {
@@ -326,6 +531,7 @@ function deploymentTestLayer(options: DeploymentTestLayerOptions) {
           getPush: store.getPush,
           startAnalyzedPush: store.startAnalyzedPush,
           finishPush: store.finishPush,
+          abandonPush: store.abandonPush,
         }),
       ),
     ),
@@ -367,6 +573,12 @@ function testStore(store: DeploymentTestStore): Required<DeploymentTestStore> {
     finishPush: store.finishPush ?? (() => Effect.succeed({
       result: "activated",
       push: analyzedPushStatus("default-finished-push"),
+    })),
+    abandonPush: store.abandonPush ?? (input => Effect.succeed({
+      ...analyzedPushStatus(input.pushId),
+      state: "abandoned",
+      error: input.reason,
+      updatedAt: input.now,
     })),
   };
 }

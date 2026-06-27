@@ -1,5 +1,58 @@
 # Package Boundaries
 
+## Deployment Abandon Service Boundary
+
+Previous completed checkpoint: `42cccd5` Extract deployment finish service.
+
+What changed:
+
+- Extended the deployment Effect service boundary to abandon-push.
+- Added `DeploymentPushInvalidStateError` for terminal-state abandon attempts,
+  keeping state-machine rejection explicit instead of throwing directly from
+  the Durable Object route.
+- Expanded the deployment store port with `abandonPush` so the SQL update and
+  post-update push read live with the other deployment write operations.
+- Preserved transaction-level `HttpError` passthrough so store guards for
+  unknown or terminal pushes do not become storage failures.
+- Kept the Durable Object boundary responsible for route parsing, request body
+  decoding, and HTTP conversion of typed service errors.
+
+Why it changed:
+
+Abandon-push is a state-machine write path with stable behavior and narrow
+inputs. Moving it behind the service completes the main push lifecycle write
+surface before taking on active deployment reads or deeper validation moves.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex
+  Cloudflare-specific package boundary around the existing push state model.
+
+Flarex differences:
+
+- Flarex still stores deployment push state in Durable Object SQLite and
+  composes the Effect service per DO instance. This slice does not introduce a
+  global deployment service.
+
+Known limitations:
+
+- The store still receives `readPush` as a callback for row-to-status
+  normalization.
+- Active deployment reads and semantic validator extraction remain future
+  checkpoints.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Finish Service Boundary
 
 Previous completed checkpoint: `224f097` Extract deployment push-start
