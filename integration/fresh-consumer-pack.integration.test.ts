@@ -120,6 +120,15 @@ describe("fresh consumer packed install", () => {
       expect(consumerRuntime.error).toBeUndefined();
       expect(consumerRuntime.status, commandOutput(consumerRuntime)).toBe(0);
       expect(consumerRuntime.stdout).toContain("packed-smoke ok");
+
+      const testSdkInvocation = runPnpm(
+        consumerDir,
+        ["exec", "tsx", "packed-flarex-test.ts"],
+        120_000,
+      );
+      expect(testSdkInvocation.error).toBeUndefined();
+      expect(testSdkInvocation.status, commandOutput(testSdkInvocation)).toBe(0);
+      expect(testSdkInvocation.stdout).toContain("packed-flarex-test ok");
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -130,16 +139,33 @@ async function writeMinimalFlarexProject(root: string): Promise<void> {
   await mkdir(join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     join(root, "flarex/schema.ts"),
-    `import { defineGlobalTable, defineSchema } from "flarex/server";
+    `import { defineColocatedTable, definePartitionTable, defineSchema } from "flarex/server";
 import { v } from "flarex/values";
-export default defineSchema({ messages: defineGlobalTable({ body: v.string() }) });
+export default defineSchema({
+  users: definePartitionTable({ name: v.string() }),
+  messages: defineColocatedTable("users", "userId", {
+    userId: v.id("users"),
+    body: v.string(),
+  }).index("by_user", ["userId"]),
+});
 `,
     "utf8",
   );
   await writeFile(
     join(root, "flarex/functions/messages.ts"),
-    `import { query } from "../_generated/server";
-export const list = query({ args: {}, handler: async () => [] });
+    `import { model, query } from "../_generated/server";
+import { v } from "flarex/values";
+
+export const list = query({
+  partition: model.users,
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    return ctx.db
+      .query("messages")
+      .withIndex("by_user", q => q.eq("userId", args.userId))
+      .collect();
+  },
+});
 `,
     "utf8",
   );
@@ -163,7 +189,7 @@ async function writePackedConsumerSmoke(root: string): Promise<void> {
           target: "ES2022",
           types: ["@cloudflare/workers-types"],
         },
-        include: ["packed-smoke.ts"],
+        include: ["packed-smoke.ts", "packed-flarex-test.ts"],
       },
       null,
       2,
@@ -199,6 +225,37 @@ console.log("packed-smoke ok");
 `,
     "utf8",
   );
+  await writeFile(
+    join(root, "packed-flarex-test.ts"),
+    `import { flarexTest } from "flarex-test";
+import { encodeFlarexId } from "flarex/server";
+import { api } from "./flarex/_generated/api";
+import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
+import type { TableNames } from "./flarex/_generated/dataModel";
+
+const usersTable = "users" satisfies TableNames;
+const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "u1");
+const t = await flarexTest();
+try {
+  const messages = await t.query(api.messages.list, { userId });
+  if (!Array.isArray(messages) || messages.length !== 0) {
+    throw new Error(\`Expected empty messages list, got \${JSON.stringify(messages)}\`);
+  }
+  console.log("packed-flarex-test ok");
+} finally {
+  await t.dispose();
+}
+
+function tableId(tableName: TableNames): number {
+  const table = deploymentSchema.tables.find(candidate => candidate.name === tableName);
+  if (table === undefined) {
+    throw new Error(\`Missing generated table metadata for \${tableName}.\`);
+  }
+  return table.tableId;
+}
+`,
+    "utf8",
+  );
 }
 
 function freshConsumerManifest(): Record<string, unknown> {
@@ -213,6 +270,7 @@ function freshConsumerManifest(): Record<string, unknown> {
       flarex: internalPackedPackageSpecifier("flarex"),
       "flarex-dev": internalPackedPackageSpecifier("flarex-dev"),
       "flarex-test": internalPackedPackageSpecifier("flarex-test"),
+      tsx: workspacePackageLink("tsx"),
       typescript: workspacePackageLink("typescript"),
       vite: workspacePackageLink("vite"),
     },

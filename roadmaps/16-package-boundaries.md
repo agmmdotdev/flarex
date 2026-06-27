@@ -1,5 +1,64 @@
 # Package Boundaries
 
+## Packed Test SDK Invocation Boundary
+
+Previous completed checkpoint: `44878a0` Add packed consumer smokes for test
+and Nitro packages.
+
+What changed:
+
+- Added a packed-consumer `flarexTest()` invocation script to
+  `integration/fresh-consumer-pack.integration.test.ts`.
+- The fresh consumer now generates `_generated/api`, imports it from the temp
+  app, boots the installed packed `flarex-test` runtime, invokes
+  `api.messages.list`, and disposes the harness.
+- The invocation uses the installed SDK's `encodeFlarexId` helper so the packed
+  package graph proves branded ID construction as well as function invocation.
+- The packed script reads the generated `deploymentSchema` table metadata for
+  the table id instead of hard-coding the analyzer's current numeric table
+  assignment.
+- The table name is checked against generated `TableNames` before constructing
+  the ID, keeping source package, generated metadata, and public ID helper
+  usage in one consumer path.
+- The packed consumer declares `tsx` directly for runtime smokes instead of
+  relying on transitive dev-tool availability.
+
+Why it changed:
+
+Package boundaries should prove more than importability for app-facing helper
+packages. `flarex-test` is intended to be used from application test code, so a
+clean consumer must be able to run the harness against generated Flarex app
+code.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - installed SDK exports are the consumer boundary.
+- Convex test-helper ergonomics remain the mental model for a compact app test
+  harness.
+
+Flarex differences:
+
+- Flarex validates the source-mode package through a temp consumer and local
+  Miniflare/dev runtime. Convex publishes built artifacts and targets its own
+  backend environment.
+
+Known limitations:
+
+- This proves a read-only query invocation from a packed app. Mutation,
+  subscription, and identity helper coverage remain future package-boundary
+  gates.
+- Built NodeNext artifact validation remains future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Test SDK And Nitro Fresh-Consumer Boundary
 
 Previous completed checkpoint: `fad789f` Add test SDK and Nitro package

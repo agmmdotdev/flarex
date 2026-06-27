@@ -1,5 +1,68 @@
 # Test SDK
 
+## Packed Consumer Test SDK Invocation
+
+Previous completed test-SDK checkpoint: `44878a0` Add packed consumer smokes
+for test and Nitro packages.
+
+What changed:
+
+- Extended the fresh-consumer packed install fixture with a
+  `packed-flarex-test.ts` script.
+- After packed `flarex-dev` generates `_generated/api`, the temp consumer now
+  runs `flarexTest()` from the installed `flarex-test` tarball.
+- The script invokes `api.messages.list` through the test SDK and asserts the
+  generated app returns an empty list, then disposes the runtime.
+- The packed script uses the public `encodeFlarexId` helper instead of casting
+  a string to a branded ID.
+- The script derives the numeric `users` table id from generated
+  `deploymentSchema` before calling `encodeFlarexId`, avoiding a duplicated
+  analyzer table-id convention.
+- The table name is typed with generated `TableNames`, so the branded ID type
+  and generated metadata lookup stay aligned in the packed consumer script.
+- The temp consumer manifest declares `tsx` directly because the packed test
+  SDK smoke runs through `pnpm exec tsx`.
+
+Why it changed:
+
+The previous checkpoint proved install, import, and runtime resolution for the
+test SDK, but it did not prove the packed `flarex-test` factory could actually
+boot a generated Flarex app from a clean consumer install. This closes that
+package-consumer gap without adding a second test framework inside the temp
+app.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration: app tests should call a compact harness rather than manually
+  wiring the backend.
+- `npm-packages/convex/package.json`
+  - installed package exports define the consumer-facing test contract.
+
+Flarex differences:
+
+- Flarex's packed consumer harness runs against the local Miniflare/dev runtime
+  path. Convex's test helpers target Convex's own backend/test environment.
+
+Known limitations:
+
+- The packed test SDK invocation covers a read-only query with no writes.
+  Mutation and subscription invocation from packed `flarex-test` remain future
+  consumer gates.
+- Identity helpers, reset helpers, and richer test harness APIs remain future
+  work.
+- The typecheck is still a Vite/Bundler-style source-package check until Flarex
+  publishes built artifacts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Test SDK Fresh-Consumer Smoke
 
 Previous completed test-SDK checkpoint: `fad789f` Add test SDK and Nitro

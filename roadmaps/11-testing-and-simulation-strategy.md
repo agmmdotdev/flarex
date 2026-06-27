@@ -1,5 +1,61 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Test SDK Invocation
+
+Previous completed checkpoint: `44878a0` Add packed consumer smokes for test
+and Nitro packages.
+
+What changed:
+
+- Added a second temp consumer runtime script,
+  `packed-flarex-test.ts`, to the packed install integration.
+- The script imports generated `api` from the temp consumer app and invokes
+  `api.messages.list` through `flarexTest()` from the packed `flarex-test`
+  tarball.
+- The script constructs the user ID through the packed SDK's public
+  `encodeFlarexId` helper.
+- The numeric table id comes from generated `deploymentSchema`, so the fixture
+  remains coupled to generated metadata rather than a magic table-id constant.
+- The table name is constrained by generated `TableNames`, preventing the
+  fixture from pairing one table brand with another table's generated id.
+- The temp consumer declares `tsx` directly because the packed runtime smokes
+  execute scripts with `pnpm exec tsx`.
+
+Why it changed:
+
+Import smokes catch package resolution failures, but they do not prove the
+test SDK can run a generated app after install. This test adds a small
+end-to-end app-test harness check while keeping the fixture deterministic and
+read-only.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in the Test SDK roadmap:
+  application tests should use a compact harness API.
+- `npm-packages/convex/package.json`
+  - installed package metadata is part of the testable consumer contract.
+
+Flarex differences:
+
+- Flarex runs the packed test SDK through the local dev runtime and Miniflare.
+  Convex's equivalent helper path is tied to Convex's backend/test runtime.
+
+Known limitations:
+
+- This covers a generated read-only query only. Mutation, subscription, and
+  identity helper tests remain future work.
+- The fixture still validates source-mode packages with Bundler-style
+  TypeScript resolution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK And Nitro Smoke
 
 Previous completed checkpoint: `fad789f` Add test SDK and Nitro package
