@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Deployment Active Read Service Boundary
+
+Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.
+
+What changed:
+
+- Extended the deployment Effect service boundary to active deployment reads.
+- Added `DeploymentActiveDeploymentNotFoundError` for the no-active-deployment
+  case, preserving route-level 404 behavior without direct reads in
+  `DeploymentDO.fetch`.
+- Expanded the deployment store port with `getActiveDeployment` so active
+  metadata assembly lives beside the push lifecycle operations.
+- Passed a `getMeta` callback into the deployment store layer while keeping
+  metadata ownership in the Durable Object instance.
+- Kept corrupt active metadata errors as `HttpError` passthrough.
+
+Why it changed:
+
+Active deployment reads consume the metadata written by finish-push. Moving
+that read behind the same service/store boundary keeps active deployment state
+coherent without moving HTTP routing or Durable Object lifecycle ownership.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex
+  Cloudflare-specific boundary around the existing active deployment metadata
+  model.
+
+Flarex differences:
+
+- Flarex still resolves active deployment state from Durable Object SQLite and
+  metadata. The Effect service remains per DO instance and callback-based for
+  this slice.
+
+Known limitations:
+
+- Single-push reads still go directly through `DeploymentDO.getPush`.
+- The store still receives `readPush` for row-to-status normalization.
+- Semantic validator extraction remains a future checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Abandon Service Boundary
 
 Previous completed checkpoint: `42cccd5` Extract deployment finish service.

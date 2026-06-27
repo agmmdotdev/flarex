@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
 import { Effect, ManagedRuntime } from "effect";
-import { validateExecutionArtifactRef } from "flarex/artifacts";
 import {
   parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
@@ -8,7 +7,12 @@ import {
   type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
-import { DeploymentPushInvalidStateError, DeploymentPushNotFoundError, DeploymentService } from "./deployment/Service";
+import {
+  DeploymentActiveDeploymentNotFoundError,
+  DeploymentPushInvalidStateError,
+  DeploymentPushNotFoundError,
+  DeploymentService,
+} from "./deployment/Service";
 import type { DeploymentSqlError } from "./deployment/Store";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import type {
@@ -27,7 +31,6 @@ import type {
   DeploymentFunctions,
   DeploymentSchema,
   Env,
-  ExecutionArtifactRef,
   FinishPushResponse,
   FinishPushRequest,
   FunctionVisibility,
@@ -50,6 +53,7 @@ export class DeploymentDO extends DurableObject<Env> {
       schema => this.applySchema(schema),
       functions => this.applyFunctions(functions),
       (key, value) => this.setMeta(key, value),
+      key => this.getMeta(key),
     ),
   );
 
@@ -113,9 +117,7 @@ export class DeploymentDO extends DurableObject<Env> {
         return json({ service: "flarex-deployment", status: "ok" });
       }
       if (url.pathname === "/deployment" && request.method === "GET") {
-        const active = this.getActiveDeployment();
-        if (!active) throw new HttpError(404, "No active deployment.");
-        return json(active);
+        return json(await this.activeDeployment());
       }
       if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
@@ -190,7 +192,11 @@ export class DeploymentDO extends DurableObject<Env> {
   private async runDeployment<A>(
     effect: Effect.Effect<
       A,
-      DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError | HttpError,
+      | DeploymentActiveDeploymentNotFoundError
+      | DeploymentPushInvalidStateError
+      | DeploymentPushNotFoundError
+      | DeploymentSqlError
+      | HttpError,
       DeploymentService
     >,
   ): Promise<A> {
@@ -203,6 +209,9 @@ export class DeploymentDO extends DurableObject<Env> {
       ),
     );
     if (!result.ok) {
+      if (result.error instanceof DeploymentActiveDeploymentNotFoundError) {
+        throw new HttpError(404, "No active deployment.");
+      }
       if (result.error instanceof DeploymentPushNotFoundError) {
         throw new HttpError(404, `Unknown push: ${result.error.pushId}`);
       }
@@ -219,6 +228,12 @@ export class DeploymentDO extends DurableObject<Env> {
     return result.value;
   }
 
+  private async activeDeployment(): Promise<ActiveDeploymentStatus> {
+    return this.runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()),
+    );
+  }
+
   private async finishPush(pushId: string, _request: FinishPushRequest): Promise<FinishPushResponse> {
     return this.runDeployment(
       DeploymentService.use(service => service.finishPush(pushId)),
@@ -229,36 +244,6 @@ export class DeploymentDO extends DurableObject<Env> {
     return this.runDeployment(
       DeploymentService.use(service => service.abandonPush(pushId, request)),
     );
-  }
-
-  private getActiveDeployment(): ActiveDeploymentStatus | null {
-    const activePushId = this.getMeta("active_push_id");
-    if (activePushId === null) return null;
-    const push = this.getPush(activePushId);
-    if (push === null) {
-      throw new Error(`Active push ${activePushId} is missing.`);
-    }
-    if (push.analysis === undefined || push.codegenAnalysis === undefined) {
-      throw new Error(`Active push ${activePushId} has no analyzed deployment metadata.`);
-    }
-    const executionArtifactRef = this.getActiveExecutionArtifactRef(activePushId);
-    return {
-      activePushId,
-      activatedAt: Number(this.getMeta("active_activated_at") ?? push.updatedAt),
-      schemaVersion: push.analysis.schema.version,
-      executionArtifactRef,
-      sourcePackage: push.sourcePackage,
-      analysis: push.analysis,
-      codegenAnalysis: push.codegenAnalysis,
-    };
-  }
-
-  private getActiveExecutionArtifactRef(activePushId: string): ExecutionArtifactRef {
-    const raw = this.getMeta("active_execution_artifact_ref");
-    if (raw === null) {
-      throw new Error(`Active push ${activePushId} has no execution artifact reference.`);
-    }
-    return validateExecutionArtifactRef(JSON.parse(raw));
   }
 
   private getPush(pushId: string): PushStatus | null {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
 import {
+  DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentService,
@@ -18,6 +19,7 @@ import {
 } from "../src/deployment/Store";
 import { HttpError } from "../src/http";
 import type {
+  ActiveDeploymentStatus,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   ExecutionArtifactRef,
@@ -27,6 +29,77 @@ import type {
 } from "../src/types";
 
 describe("DeploymentService", () => {
+  it("loads the active deployment through the store", async () => {
+    const active = activeDeploymentStatus("push-active");
+
+    const result = await runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()),
+      {
+        now: 1_600_000,
+        pushId: "unused-push-id",
+        store: {
+          getActiveDeployment: () => Effect.succeed(active),
+        },
+      },
+    );
+
+    expect(result).toBe(active);
+  });
+
+  it("returns a typed not-found error for missing active deployments", async () => {
+    const error = await runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()).pipe(
+        Effect.catchTag("DeploymentActiveDeploymentNotFoundError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 1_650_000,
+        pushId: "unused-push-id",
+        store: {
+          getActiveDeployment: () => Effect.succeed(null),
+        },
+      },
+    );
+
+    expect(error).toBeInstanceOf(DeploymentActiveDeploymentNotFoundError);
+  });
+
+  it("preserves typed DeploymentSqlError failures from active deployment storage", async () => {
+    const failure = new DeploymentSqlError({
+      operation: "getActiveDeployment",
+      cause: new Error("active read failed"),
+    });
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()).pipe(
+        Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 1_660_000,
+        pushId: "unused-push-id",
+        store: {
+          getActiveDeployment: () => Effect.fail(failure),
+        },
+      },
+    );
+
+    expect(error).toBe(failure);
+  });
+
+  it("preserves active deployment HttpError failures from storage", async () => {
+    const failure = new HttpError(500, "Active push push-active is missing.");
+
+    await expect(runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()),
+      {
+        now: 1_670_000,
+        pushId: "unused-push-id",
+        store: {
+          getActiveDeployment: () => Effect.fail(failure),
+        },
+      },
+    )).rejects.toBe(failure);
+  });
+
   it("starts analyzed pushes with the controlled clock and push id", async () => {
     const writes: StartAnalyzedPushStoreInput[] = [];
     const input: StartAnalyzedPushInput = {
@@ -273,6 +346,7 @@ describe("DeploymentService", () => {
         },
         functions => functions,
         () => undefined,
+        () => null,
       ),
     );
 
@@ -472,6 +546,7 @@ describe("DeploymentService", () => {
         schema => schema,
         functions => functions,
         () => undefined,
+        () => null,
       ),
     );
 
@@ -492,10 +567,47 @@ describe("DeploymentService", () => {
       await runtime.dispose();
     }
   });
+
+  it("preserves active deployment HttpError failures from the storage read", async () => {
+    const status = analyzedPushStatus("push-active-metadata");
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const sql = {
+      exec: () => undefined,
+    } as unknown as DeploymentSqlStorage;
+    const metadata = new Map<string, string>([
+      ["active_push_id", status.pushId],
+      ["active_activated_at", "3200000"],
+    ]);
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+        pushId => (pushId === status.pushId ? status : null),
+        schema => schema,
+        functions => functions,
+        () => undefined,
+        key => metadata.get(key) ?? null,
+      ),
+    );
+
+    try {
+      await expect(runtime.runPromise(
+        DeploymentPushStore.use(store => store.getActiveDeployment()),
+      )).rejects.toMatchObject({
+        status: 500,
+        message: `Active push ${status.pushId} has no execution artifact reference.`,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });
 
 interface DeploymentTestStore {
   getPush?(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
+  getActiveDeployment?(): Effect.Effect<ActiveDeploymentStatus | null, DeploymentSqlError | HttpError>;
   startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
   abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | HttpError>;
@@ -529,6 +641,7 @@ function deploymentTestLayer(options: DeploymentTestLayerOptions) {
         DeploymentPushStore,
         DeploymentPushStore.of({
           getPush: store.getPush,
+          getActiveDeployment: store.getActiveDeployment,
           startAnalyzedPush: store.startAnalyzedPush,
           finishPush: store.finishPush,
           abandonPush: store.abandonPush,
@@ -569,6 +682,7 @@ function deploymentTestLayer(options: DeploymentTestLayerOptions) {
 function testStore(store: DeploymentTestStore): Required<DeploymentTestStore> {
   return {
     getPush: store.getPush ?? (() => Effect.succeed(null)),
+    getActiveDeployment: store.getActiveDeployment ?? (() => Effect.succeed(null)),
     startAnalyzedPush: store.startAnalyzedPush ?? (input => Effect.succeed(pushStatusFromStoreInput(input))),
     finishPush: store.finishPush ?? (() => Effect.succeed({
       result: "activated",
@@ -627,6 +741,21 @@ function failedPushStatus(pushId: string): PushStatus {
     diagnostics: [{ level: "error", message: "failed" }],
     createdAt: 1_000,
     updatedAt: 1_000,
+  };
+}
+
+function activeDeploymentStatus(activePushId: string): ActiveDeploymentStatus {
+  const source = sourcePackage();
+  const analysis = deploymentAnalysis();
+  const codegenAnalysis = deploymentCodegenAnalysis();
+  return {
+    activePushId,
+    activatedAt: 2_000,
+    schemaVersion: analysis.schema.version,
+    executionArtifactRef: executionArtifactRef(),
+    sourcePackage: source,
+    analysis,
+    codegenAnalysis,
   };
 }
 

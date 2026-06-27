@@ -1,5 +1,62 @@
 # Runtime Validation
 
+## Deployment Active Read Service Validation
+
+Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.
+
+What changed:
+
+- Added `DeploymentService.getActiveDeployment` for active deployment read
+  orchestration.
+- Kept `DeploymentDO.fetch()` as the `GET /deployment` HTTP route boundary.
+- Added typed `DeploymentActiveDeploymentNotFoundError` and mapped it at
+  `DeploymentDO.runDeployment` to the existing `404 No active deployment.`
+  response.
+- Moved active metadata reads, active push lookup, analyzed metadata checks,
+  execution artifact reference validation, schema version extraction, and
+  active response construction behind
+  `DeploymentPushStore.getActiveDeployment`.
+- Preserved corrupt-active-state `HttpError` passthrough so missing active
+  push metadata does not collapse into a generic storage error.
+
+Why it changed:
+
+Push lifecycle writes are now behind the deployment service. Active deployment
+reads are the next narrow route because they consume the same activation
+metadata while leaving request validation and deployment analysis semantics
+unchanged.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint continues the
+  Flarex Durable Object active-deployment metadata extraction already tracked
+  in the deployment roadmap.
+
+Cloudflare differences:
+
+- The Durable Object still owns HTTP routing and the SQLite/metadata storage
+  instance. The Effect store receives callbacks for metadata and push-row
+  reads to keep DO lifecycle ownership local.
+
+Known limitations:
+
+- Single-push `GET /push/:id` reads still live in `DeploymentDO`.
+- Deep deployment analysis/codegen request validation remains in
+  `DeploymentDO`.
+- Push row normalization still goes through the existing `readPush` callback.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Abandon Service Validation
 
 Previous completed checkpoint: `42cccd5` Extract deployment finish service.

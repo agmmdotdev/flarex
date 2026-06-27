@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `42cccd5` Extract deployment finish service.
-- Active checkpoint: extract abandon-push orchestration into `DeploymentService` while preserving `DeploymentDO` route parsing, HTTP status mapping, reason normalization, and push state semantics.
+- Previous completed checkpoint: `b8c25b9` Extract deployment abandon service.
+- Active checkpoint: extract active deployment reads into `DeploymentService` while preserving `/deployment` response shape, 404 behavior, active metadata semantics, and corrupt-active-state error provenance.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 9 slice:
+Current Goal 10 slice:
+
+1. Add `DeploymentService.getActiveDeployment()` for active deployment read orchestration.
+2. Keep `DeploymentDO.fetch()` as the HTTP route boundary and preserve `GET /deployment` response shape and `404 No active deployment.` behavior.
+3. Add typed `DeploymentActiveDeploymentNotFoundError` for the missing-active-deployment case and map it in `DeploymentDO.runDeployment`.
+4. Move active metadata reads, active push lookup, analyzed metadata checks, execution artifact ref validation, schema version extraction, and active response construction behind `DeploymentPushStore.getActiveDeployment`.
+5. Preserve corrupt active deployment failures as `HttpError` passthrough instead of collapsing them into generic storage errors.
+6. Add service/store tests for successful active reads, typed not-found, typed storage failure propagation, and active metadata `HttpError` passthrough.
+
+Completed Goal 9 slice:
 
 1. Add `DeploymentService.abandonPush(pushId, request)` for abandon-push orchestration.
 2. Keep `DeploymentDO.fetch()` and `parseAbandonPushRequest` as the HTTP/body boundary; do not change abandon request schema behavior.
@@ -80,11 +89,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 9 should be one of:
+Next checkpoint after Goal 10 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
-- Extract active deployment reads into `DeploymentService` after activation metadata writes are proven stable.
 - Consolidate deployment push state errors into a shared deployment error module if more service methods need the same not-found/invalid-state types.
+- Consider moving single-push `GET /push/:id` reads into `DeploymentService` if the service should own all push-state access before deeper validator work.
 - Move deployment semantic validators into a typed domain/parser module only if exact error-message parity can be preserved.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 

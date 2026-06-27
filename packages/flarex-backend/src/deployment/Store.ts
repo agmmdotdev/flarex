@@ -1,7 +1,9 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { validateExecutionArtifactRef } from "flarex/artifacts";
 import { HttpError } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import type {
+  ActiveDeploymentStatus,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   DeploymentFunctions,
@@ -18,6 +20,7 @@ const DeploymentSqlOperation = Schema.Union([
   Schema.Literal("startPush"),
   Schema.Literal("finishPush"),
   Schema.Literal("abandonPush"),
+  Schema.Literal("getActiveDeployment"),
 ]);
 
 export class DeploymentSqlError extends Schema.TaggedErrorClass<DeploymentSqlError>()(
@@ -60,6 +63,7 @@ export interface AbandonPushStoreInput {
 
 export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
+  getActiveDeployment(): Effect.Effect<ActiveDeploymentStatus | null, DeploymentSqlError | HttpError>;
   startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
   abandonPush(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | HttpError>;
@@ -71,6 +75,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
     applySchema: (schema: DeploymentSchema) => DeploymentSchema,
     applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
     setMeta: (key: string, value: string) => void,
+    getMeta: (key: string) => string | null,
   ) {
     return Layer.effect(
       DeploymentPushStore,
@@ -80,6 +85,42 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             return yield* Effect.try({
               try: () => readPush(pushId),
               catch: cause => new DeploymentSqlError({ operation: "getPush", cause }),
+            });
+          },
+        );
+
+        const getActiveDeployment = Effect.fn("DeploymentPushStore.getActiveDeployment")(
+          function* (): Effect.fn.Return<ActiveDeploymentStatus | null, DeploymentSqlError | HttpError> {
+            return yield* Effect.try({
+              try: () => {
+                const activePushId = getMeta("active_push_id");
+                if (activePushId === null) return null;
+                const push = readPush(activePushId);
+                if (push === null) {
+                  throw new HttpError(500, `Active push ${activePushId} is missing.`);
+                }
+                if (push.analysis === undefined || push.codegenAnalysis === undefined) {
+                  throw new HttpError(500, `Active push ${activePushId} has no analyzed deployment metadata.`);
+                }
+                const rawExecutionArtifactRef = getMeta("active_execution_artifact_ref");
+                if (rawExecutionArtifactRef === null) {
+                  throw new HttpError(500, `Active push ${activePushId} has no execution artifact reference.`);
+                }
+                const executionArtifactRef = parseExecutionArtifactRef(rawExecutionArtifactRef);
+                return {
+                  activePushId,
+                  activatedAt: Number(getMeta("active_activated_at") ?? push.updatedAt),
+                  schemaVersion: push.analysis.schema.version,
+                  executionArtifactRef,
+                  sourcePackage: push.sourcePackage,
+                  analysis: push.analysis,
+                  codegenAnalysis: push.codegenAnalysis,
+                };
+              },
+              catch: cause =>
+                cause instanceof HttpError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
             });
           },
         );
@@ -204,11 +245,21 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
 
         return DeploymentPushStore.of({
           getPush,
+          getActiveDeployment,
           startAnalyzedPush,
           finishPush,
           abandonPush,
         });
       }),
     );
+  }
+}
+
+function parseExecutionArtifactRef(raw: string): ExecutionArtifactRef {
+  try {
+    return validateExecutionArtifactRef(JSON.parse(raw));
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new HttpError(500, message);
   }
 }

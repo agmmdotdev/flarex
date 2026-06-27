@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type { HttpError } from "../http";
 import type {
   AbandonPushRequest,
+  ActiveDeploymentStatus,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
   FinishPushResponse,
@@ -41,7 +42,16 @@ export class DeploymentPushInvalidStateError extends Schema.TaggedErrorClass<Dep
   },
 ) {}
 
+export class DeploymentActiveDeploymentNotFoundError extends Schema.TaggedErrorClass<DeploymentActiveDeploymentNotFoundError>()(
+  "DeploymentActiveDeploymentNotFoundError",
+  {},
+) {}
+
 export class DeploymentService extends Context.Service<DeploymentService, {
+  getActiveDeployment(): Effect.Effect<
+    ActiveDeploymentStatus,
+    DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
+  >;
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
@@ -59,6 +69,19 @@ export class DeploymentService extends Context.Service<DeploymentService, {
       const ids = yield* DeploymentIds;
       const artifacts = yield* DeploymentArtifacts;
       const store = yield* DeploymentPushStore;
+
+      const getActiveDeployment = Effect.fn("DeploymentService.getActiveDeployment")(
+        function* (): Effect.fn.Return<
+          ActiveDeploymentStatus,
+          DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
+        > {
+          const active = yield* store.getActiveDeployment();
+          if (active === null) {
+            return yield* Effect.fail(new DeploymentActiveDeploymentNotFoundError());
+          }
+          return active;
+        },
+      );
 
       const startAnalyzedPush = Effect.fn("DeploymentService.startAnalyzedPush")(
         function* (input: StartAnalyzedPushInput): Effect.fn.Return<PushStatus, DeploymentSqlError> {
@@ -134,6 +157,7 @@ export class DeploymentService extends Context.Service<DeploymentService, {
       );
 
       return DeploymentService.of({
+        getActiveDeployment,
         startAnalyzedPush,
         finishPush,
         abandonPush,

@@ -15,9 +15,10 @@ export function makeDeploymentLayer(
   applySchema: (schema: DeploymentSchema) => DeploymentSchema,
   applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
   setMeta: (key: string, value: string) => void,
+  getMeta: (key: string) => string | null,
 ) {
   return DeploymentService.layer.pipe(
-    Layer.provide(DeploymentPushStore.layer(storage, sql, readPush, applySchema, applyFunctions, setMeta)),
+    Layer.provide(DeploymentPushStore.layer(storage, sql, readPush, applySchema, applyFunctions, setMeta, getMeta)),
     Layer.provide(DeploymentArtifacts.layer),
     Layer.provide(DeploymentClock.layer),
     Layer.provide(DeploymentIds.layer),
