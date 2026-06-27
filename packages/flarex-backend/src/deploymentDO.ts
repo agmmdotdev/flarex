@@ -14,6 +14,7 @@ import {
   DeploymentService,
   type DeploymentServiceApi,
 } from "./deployment/Service";
+import { initializeDeploymentStorage } from "./deployment/StorageSchema";
 import {
   analyzedStartPushRequest,
   startAnalyzedPushInput,
@@ -35,55 +36,7 @@ export class DeploymentDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS tables (
-        table_id INTEGER PRIMARY KEY,
-        table_name TEXT NOT NULL UNIQUE,
-        state TEXT NOT NULL,
-        schema_json TEXT,
-        partition_rule_json TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS indexes (
-        index_id INTEGER PRIMARY KEY,
-        table_id INTEGER NOT NULL,
-        index_name TEXT NOT NULL,
-        fields_json TEXT NOT NULL,
-        state TEXT NOT NULL,
-        UNIQUE(table_id, index_name)
-      );
-      CREATE TABLE IF NOT EXISTS functions (
-        function_path TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        visibility TEXT NOT NULL,
-        args_json TEXT,
-        returns_json TEXT,
-        route_json TEXT,
-        partition_json TEXT,
-        position_json TEXT
-      );
-      CREATE TABLE IF NOT EXISTS pushes (
-        push_id TEXT PRIMARY KEY,
-        state TEXT NOT NULL,
-        source_package_json TEXT NOT NULL,
-        schema_json TEXT,
-        functions_json TEXT,
-        codegen_analysis_json TEXT,
-        error TEXT,
-        diagnostics_json TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-    `);
-    this.ensureFunctionPositionColumn();
-    this.ensureFunctionRouteColumn();
-    this.ensureFunctionPartitionColumn();
-    this.ensurePushCodegenAnalysisColumn();
-    this.ensurePushDiagnosticsColumn();
-    this.setMetaIfMissing("schema_version", "0");
+    initializeDeploymentStorage(this.sql);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -154,51 +107,5 @@ export class DeploymentDO extends DurableObject<Env> {
       throw deploymentFailureToHttpError(result.error);
     }
     return result.value;
-  }
-
-  private setMetaIfMissing(key: string, value: string): void {
-    this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", key, value);
-  }
-
-  private ensurePushDiagnosticsColumn(): void {
-    try {
-      this.sql.exec("ALTER TABLE pushes ADD COLUMN diagnostics_json TEXT");
-    } catch {
-      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN. Existing
-      // deployments created after the column was added will raise here.
-    }
-  }
-
-  private ensurePushCodegenAnalysisColumn(): void {
-    try {
-      this.sql.exec("ALTER TABLE pushes ADD COLUMN codegen_analysis_json TEXT");
-    } catch {
-      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN. Existing
-      // deployments created after the column was added will raise here.
-    }
-  }
-
-  private ensureFunctionPositionColumn(): void {
-    try {
-      this.sql.exec("ALTER TABLE functions ADD COLUMN position_json TEXT");
-    } catch {
-      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
-    }
-  }
-
-  private ensureFunctionRouteColumn(): void {
-    try {
-      this.sql.exec("ALTER TABLE functions ADD COLUMN route_json TEXT");
-    } catch {
-      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
-    }
-  }
-
-  private ensureFunctionPartitionColumn(): void {
-    try {
-      this.sql.exec("ALTER TABLE functions ADD COLUMN partition_json TEXT");
-    } catch {
-      // Durable Object SQLite has no IF NOT EXISTS for ADD COLUMN.
-    }
   }
 }

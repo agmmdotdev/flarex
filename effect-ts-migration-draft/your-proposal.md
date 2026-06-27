@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `169abc9` Extract deployment HTTP failure boundary.
-- Active checkpoint: centralize `DeploymentService.use(...)` in a private route helper without hiding JSON/protocol parsing or the `runDeployment()` runtime boundary.
+- Previous completed checkpoint: `884741d` Centralize deployment service route use.
+- Active checkpoint: extract deployment storage schema initialization and additive migration guards into a direct-tested helper.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 26 slice:
+Current Goal 27 slice:
+
+1. Add `deployment/StorageSchema.ts` with `initializeDeploymentStorage(sql)`.
+2. Move deployment table creation, additive `ALTER TABLE ... ADD COLUMN` guards, and initial `schema_version` seeding out of `DeploymentDO`.
+3. Keep `DeploymentDO` responsible for owning the Durable Object SQL handle and invoking initialization in the constructor.
+4. Preserve the existing behavior of swallowing additive migration failures because Durable Object SQLite has no `ADD COLUMN IF NOT EXISTS`.
+5. Add direct storage-schema tests for table creation, migration order, seed write, and continued initialization when migration columns already exist.
+6. Do not change route behavior, protocol schemas, service/store orchestration, SQL statement text, response bodies, runtime boundaries, or validation messages.
+7. Validate with focused storage-schema/deployment boundary/service/validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 26 slice:
 
 1. Add a private `DeploymentDO.runDeploymentService()` helper that wraps `DeploymentService.use(...)`.
 2. Keep `DeploymentDO.fetch()` responsible for route matching, JSON reading, protocol parsing, request adaptation, and response status choices.
@@ -240,10 +250,10 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 26 should be one of:
+Next checkpoint after Goal 27 should be one of:
 
-- Review whether `DeploymentDO` storage schema initialization should move into a deployment storage initializer helper before any broader router work.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
+- Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

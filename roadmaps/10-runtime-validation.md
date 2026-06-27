@@ -1,5 +1,55 @@
 # Runtime Validation
 
+## Deployment Storage Schema Initialization
+
+Previous completed checkpoint: `884741d` Centralize deployment service route
+use.
+
+What changed:
+
+- Added `deployment/StorageSchema.ts` with `initializeDeploymentStorage(sql)`.
+- Moved deployment table creation, additive column guards, and initial
+  `schema_version` seeding out of `DeploymentDO`.
+- Added direct tests for creation/migration ordering and for continuing when
+  additive column migrations fail because the column already exists.
+
+Why it changed:
+
+`DeploymentDO` should own the Durable Object SQL handle and runtime boundary,
+but the schema bootstrap details are storage infrastructure. Extracting them
+keeps the constructor focused on object setup while preserving the current
+plain Durable Object initialization model.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is a Flarex
+  Durable Object storage-initialization cleanup.
+
+Cloudflare differences:
+
+- Durable Object SQLite remains the storage engine.
+- Initialization still runs synchronously from the Durable Object constructor.
+- Additive migrations still swallow `ADD COLUMN` failures because Durable
+  Object SQLite has no `ADD COLUMN IF NOT EXISTS`.
+
+Known limitations:
+
+- Storage initialization is still not an Effect layer concern.
+- `HttpApiBuilder` remains a later RegistryDO spike, not part of this
+  checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Service Use Route Helper
 
 Previous completed checkpoint: `169abc9` Extract deployment HTTP failure

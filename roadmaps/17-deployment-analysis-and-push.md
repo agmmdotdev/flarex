@@ -1,5 +1,55 @@
 # Deployment Analysis And Push
 
+## Deployment Storage Schema Initialization
+
+Previous completed checkpoint: `884741d` Centralize deployment service route
+use.
+
+What changed:
+
+- Extracted deployment storage bootstrap SQL into
+  `deployment/StorageSchema.ts`.
+- Removed table creation, migration guard methods, and schema-version seeding
+  helpers from `DeploymentDO`.
+- Added direct tests covering the storage initializer contract.
+
+Why it changed:
+
+After route and service boundary cleanup, the constructor still carried storage
+schema details. Moving those details beside the deployment storage modules makes
+the Durable Object boundary smaller without changing push behavior or service
+orchestration.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  deployment storage bootstrap path.
+
+Flarex differences:
+
+- `DeploymentDO` still invokes initialization synchronously with its SQL handle.
+- The deployment store still owns runtime reads/writes after initialization.
+- Request-side deep `analysis` and `codegenAnalysis` decoding remains backend
+  validation owned.
+
+Known limitations:
+
+- This is not a protocol schema change and not an HttpApi migration.
+- Storage initialization may become layer-owned later, but this checkpoint only
+  extracts the existing behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Service Use Route Helper
 
 Previous completed checkpoint: `169abc9` Extract deployment HTTP failure
