@@ -1,5 +1,54 @@
 # Testing and Simulation Strategy
 
+## Example App CLI Shim Integration
+
+Previous completed checkpoint: `a45578c` Add flarex-dev package bin.
+
+What changed:
+
+- Added `integration/cli-bin.integration.test.ts` to execute `flarex-dev help`
+  by command name with the example app's local `node_modules/.bin` on `PATH`.
+- The test is cross-platform: it uses the `.CMD` shim on Windows and the POSIX
+  shim elsewhere.
+- The spawned command has a hard timeout so a broken shim cannot hang the
+  Vitest worker.
+- The assertion checks that the shim reaches the real CLI help surface,
+  including the `codegen` and `deploy` commands.
+
+Why it changed:
+
+Package unit tests already cover the root export and direct launcher. The user
+path is one layer higher: app scripts and local development commands invoke the
+package-manager shim. Keeping this as an integration test avoids coupling
+`flarex-dev` package unit tests to the example app's install layout.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - package `bin` entries are the public command surface package managers
+    expose to applications.
+
+Flarex differences:
+
+- This is workspace-link integration coverage, not packed-package install
+  coverage.
+- The command target is still a source-mode development launcher.
+
+Known limitations:
+
+- No packed tarball install fixture exists yet.
+- Only help output is validated through the consumer shim in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-bin.integration.test.ts --testTimeout=60000 --hookTimeout=60000
+cmd /c "set PATH=%CD%\apps\example\node_modules\.bin;%PATH%&& cd apps\example && flarex-dev help"
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## CLI Bin Coverage
 
 Previous completed checkpoint: `33b4f8f` Export CLI runner from flarex-dev

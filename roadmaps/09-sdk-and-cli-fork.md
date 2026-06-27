@@ -1,5 +1,54 @@
 # SDK And CLI Fork
 
+## Consumer Bin Shim Coverage
+
+Previous completed checkpoint: `a45578c` Add flarex-dev package bin.
+
+What changed:
+
+- Added integration coverage that invokes `flarex-dev help` through command
+  lookup with the example app's local package-manager `.bin` directory on
+  `PATH`.
+- The test runs from `apps/example`, matching how a consumer script would find
+  and execute the `flarex-dev` command after workspace install.
+
+Why it changed:
+
+The previous checkpoint proved the package-owned launcher works when called
+directly. Convex users normally invoke the CLI by command name through a
+package-manager shim such as `node_modules/.bin/convex`, so Flarex needs
+coverage for that consumer-facing command path too.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - exposes `convex` through the package `bin` map, which package managers turn
+    into local command shims for app scripts.
+
+Flarex differences:
+
+- The test uses the workspace-linked `apps/example/node_modules/.bin` directory
+  on `PATH` instead of installing a packed npm artifact.
+- The command still reaches the source-mode `tsx` launcher rather than a built
+  bundled CLI.
+
+Known limitations:
+
+- This does not yet prove `pnpm pack`/published install behavior.
+- The test only checks `help`; future deploy/codegen smoke tests should use the
+  same consumer command path once those flows are stable enough for integration
+  coverage.
+
+Verification:
+
+```sh
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/cli-bin.integration.test.ts --testTimeout=60000 --hookTimeout=60000
+cmd /c "set PATH=%CD%\apps\example\node_modules\.bin;%PATH%&& cd apps\example && flarex-dev help"
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Package Bin Command Surface
 
 Previous completed checkpoint: `33b4f8f` Export CLI runner from flarex-dev
