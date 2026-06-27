@@ -13,6 +13,7 @@ import {
   type DeploymentAnalysis,
   deployFlarex,
   dryRunFlarexCodegen,
+  FlarexDeployFinishRejectedError,
   finalCodegen,
   finalGeneratedFiles,
   generateFlarex,
@@ -391,6 +392,44 @@ export const list = query({ args: {}, handler: async () => [] });
     );
     expect(error.message).toContain("Backend error: activation failed");
     expect(error.message).toContain("Backend diagnostic (error): schema rejected");
+  });
+
+  it("throws structured deploy finish rejection errors", async () => {
+    const root = await createProject();
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => ({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: backendCodegenAnalysis("query"),
+      }),
+      finish: async () => ({
+        result: "rejected",
+        push: {
+          pushId: "push1",
+          state: "failed",
+          error: "artifact missing",
+        },
+        code: "missing_artifact",
+        error: "artifact missing",
+      }),
+    };
+
+    let error: unknown;
+    try {
+      await deployFlarex({ root, pushCoordinator });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(FlarexDeployFinishRejectedError);
+    if (!(error instanceof FlarexDeployFinishRejectedError)) {
+      throw new Error("Expected a structured deploy finish rejection error.");
+    }
+    expect(error.response.code).toBe("missing_artifact");
+    expect(error.response.push.pushId).toBe("push1");
+    expect(error.remediation).toBe(
+      "Re-run deploy so the source package is uploaded before activation.",
+    );
   });
 
   it("requires backend push codegen analysis before writing final generated files", async () => {

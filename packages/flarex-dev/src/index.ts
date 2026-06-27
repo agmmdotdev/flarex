@@ -15,6 +15,7 @@ export {
   bundleFlarexSourcePackage,
   deployFlarex,
   dryRunFlarexCodegen,
+  FlarexDeployFinishRejectedError,
   finalCodegen,
   finalGeneratedFiles,
   generatedFileWrites,
@@ -30,6 +31,7 @@ export type {
   FlarexCodegenDryRun,
   FlarexCodegenOptions,
   FlarexDeployOptions,
+  FlarexDeployRejectedFinishResponse,
   FlarexDeployResult,
   FlarexGenerateOptions,
   FlarexGenerationContext,
@@ -43,6 +45,12 @@ export type {
   FlarexGeneratedOutputTypecheckOption,
   FlarexGeneratedOutputTypecheckOptions,
 } from "./generatedTypecheck.ts";
+export type {
+  FlarexDeployJsonError,
+  FlarexDeployJsonOutput,
+  FlarexDeployJsonPush,
+  FlarexDeployJsonSuccess,
+} from "./cli.ts";
 export { analyzeSourcePackageLocally } from "./analyze.ts";
 export type {
   AnalyzedFunction,

@@ -2,10 +2,12 @@ import { parseArgs } from "node:util";
 import {
   deployFlarex,
   dryRunFlarexCodegen,
+  FlarexDeployFinishRejectedError,
   generateFlarex,
   type FlarexCodegenOptions,
   type FlarexCodegenDryRun,
   type FlarexDeployOptions,
+  type FlarexDeployRejectedFinishResponse,
   type FlarexDeployResult,
   type FlarexGenerateOptions,
   type StaleGeneratedEntry,
@@ -13,6 +15,7 @@ import {
 import {
   HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,
+  type DevPushStatus,
 } from "./backendPush.ts";
 import {
   typecheckGeneratedOutput,
@@ -32,6 +35,38 @@ type CliDependencies = {
 
 type CodegenTypecheckMode = "enable" | "try" | "disable";
 type ParsedArgValues = ReturnType<typeof parseArgs>["values"];
+
+export type FlarexDeployJsonSuccess = {
+  command: "deploy";
+  result: "activated";
+  started: FlarexDeployJsonPush & { state: FlarexDeployResult["started"]["state"] };
+  finished: FlarexDeployJsonPush & { state: FlarexDeployResult["finished"]["state"] };
+};
+
+export type FlarexDeployJsonPush = {
+  pushId: string;
+  state: DevPushStatus["state"];
+  error?: string;
+  diagnostics?: NonNullable<DevPushStatus["diagnostics"]>;
+};
+
+export type FlarexDeployJsonError = {
+  command: "deploy";
+  result: "error";
+  error: {
+    name: string;
+    message: string;
+    finishRejection?: {
+      code: FlarexDeployRejectedFinishResponse["code"];
+      remediation: string;
+      push: FlarexDeployJsonPush;
+      error: string;
+      diagnostics?: NonNullable<FlarexDeployRejectedFinishResponse["diagnostics"]>;
+    };
+  };
+};
+
+export type FlarexDeployJsonOutput = FlarexDeployJsonSuccess | FlarexDeployJsonError;
 
 export type FlarexDevCliOptions = {
   argv?: string[];
@@ -87,6 +122,7 @@ async function runDeployCommand(
         cwd: { type: "string" },
         "generated-dir": { type: "string" },
         help: { type: "boolean", short: "h" },
+        json: { type: "boolean" },
         "backend-header": { type: "string", multiple: true },
         "backend-url": { type: "string" },
         "deployment-id": { type: "string" },
@@ -104,6 +140,13 @@ async function runDeployCommand(
 
     const root = rootFromArgs(parsed.values.root, options.projectRoot);
     if (root === undefined) {
+      if (parsed.values.json === true) {
+        writeDeployJsonError(
+          new Error("--root must be a non-empty path when provided."),
+          options.stdout,
+        );
+        return 1;
+      }
       options.stderr.write("--root must be a non-empty path when provided.\n\n");
       options.stderr.write(deployHelpText());
       return 1;
@@ -118,9 +161,16 @@ async function runDeployCommand(
             await maybeTypecheckGenerated(commandConfig, options);
           },
         };
-    await options.dependencies.deploy(deployOptions);
+    const result = await options.dependencies.deploy(deployOptions);
+    if (commandConfig.json) {
+      writeDeployJsonSuccess(result, options.stdout);
+    }
     return 0;
   } catch (error) {
+    if (rawJsonFlagRequested(argv)) {
+      writeDeployJsonError(error, options.stdout);
+      return 1;
+    }
     options.stderr.write(cliErrorMessage(error));
     options.stderr.write("\n");
     return 1;
@@ -237,6 +287,7 @@ type CodegenCommandConfig = {
 
 type DeployCommandConfig = {
   deployOptions: FlarexDeployOptions;
+  json: boolean;
 } & GeneratedTypecheckCommandConfig;
 
 function codegenCommandConfig(
@@ -266,6 +317,7 @@ function deployCommandConfig(
       ...baseGenerateOptions,
       pushCoordinator,
     },
+    json: values.json === true,
     ...generatedTypecheckCommandConfig(values, baseGenerateOptions),
   };
 }
@@ -415,6 +467,69 @@ function dryRunDeleteMessage(entry: StaleGeneratedEntry): string {
   return `Command would delete entry: ${entry.path}`;
 }
 
+function writeDeployJsonSuccess(result: FlarexDeployResult, stdout: CliWriter): void {
+  const output = {
+    command: "deploy",
+    result: "activated",
+    started: {
+      ...deployJsonPushStatus(result.started),
+      state: result.started.state,
+    },
+    finished: {
+      ...deployJsonPushStatus(result.finished),
+      state: result.finished.state,
+    },
+  } satisfies FlarexDeployJsonSuccess;
+  stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+}
+
+function writeDeployJsonError(error: unknown, stdout: CliWriter): void {
+  stdout.write(`${JSON.stringify(deployJsonError(error), null, 2)}\n`);
+}
+
+function deployJsonError(error: unknown): FlarexDeployJsonError {
+  const message = cliErrorMessage(error);
+  if (error instanceof FlarexDeployFinishRejectedError) {
+    const diagnostics = error.response.diagnostics ?? error.response.push.diagnostics;
+    return {
+      command: "deploy",
+      result: "error",
+      error: {
+        name: error.name,
+        message,
+        finishRejection: {
+          code: error.response.code,
+          remediation: error.remediation,
+          push: deployJsonPushStatus(error.response.push),
+          error: error.response.error,
+          ...(diagnostics === undefined ? {} : { diagnostics }),
+        },
+      },
+    };
+  }
+  return {
+    command: "deploy",
+    result: "error",
+    error: {
+      name: error instanceof Error ? error.name : "Error",
+      message,
+    },
+  };
+}
+
+function deployJsonPushStatus(push: DevPushStatus): FlarexDeployJsonPush {
+  return {
+    pushId: push.pushId,
+    state: push.state,
+    ...(push.error === undefined ? {} : { error: push.error }),
+    ...(push.diagnostics === undefined ? {} : { diagnostics: push.diagnostics }),
+  };
+}
+
+function rawJsonFlagRequested(argv: readonly string[]): boolean {
+  return argv.includes("--json");
+}
+
 function typecheckModeFromArgs(value: unknown): CodegenTypecheckMode {
   if (value === undefined) {
     return "disable";
@@ -510,6 +625,7 @@ Options:
   --backend-url <url>       Backend base URL for source-package push.
   --backend-header <n=v>    Header sent to the backend push endpoint. Can be repeated.
   --deployment-id <id>      Deployment ID to push and activate.
+  --json                    Print deploy result or error as JSON to stdout.
   --typecheck <mode>        Typecheck generated output before activation. One of enable, try, disable.
   --cwd <path>              Working directory for generated-output typecheck.
   --typescript-cli <path>   TypeScript CLI JS path for generated-output typecheck.

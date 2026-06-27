@@ -1,5 +1,60 @@
 # Testing and Simulation Strategy
 
+## Deploy JSON Output Coverage
+
+Previous completed checkpoint: `21b5e38` Add finish rejection remediation
+hints.
+
+What changed:
+
+- Added CLI coverage for `flarex-dev deploy --json` successful activation
+  output.
+- Added CLI coverage for rejected finish JSON output, including code,
+  remediation, rejected push, backend error, and diagnostics.
+- The rejected finish JSON coverage stores diagnostics only on the embedded
+  push, proving JSON mode preserves the same fallback behavior as text output.
+- JSON tests include backend-shaped analysis/codegen metadata on source
+  responses and assert that deploy JSON output omits those internal fields.
+- Added CLI coverage for generic deploy JSON failures so `--json` does not
+  silently fall back to stderr outside finish rejections.
+- Added CLI coverage for early deploy validation failures before backend option
+  construction, using an empty explicit `--root`.
+- Added programmatic deploy coverage proving rejected finishes throw
+  `FlarexDeployFinishRejectedError` with the structured response and
+  remediation hint.
+
+Why it changed:
+
+The previous tests protected human-readable finish rejection output. This
+checkpoint protects the new automation surface and the typed error that keeps
+CLI JSON output from depending on message parsing.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - deploy tests should cover the finish-push activation boundary.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push has a parsed response contract.
+- `npm-packages/convex/src/cli/lib/command.ts`
+  - machine-readable command modes deserve explicit output tests.
+
+Flarex differences:
+
+- Flarex asserts compact deploy JSON rather than Convex deploy diff/config
+  output because those hosted deploy details do not exist yet.
+
+Known limitations:
+
+- The tests cover missing backend URL as the generic JSON failure case, but not
+  every possible transport failure.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Rejection Remediation Coverage
 
 Previous completed checkpoint: `fe5a981` Surface finish rejection codes in dev

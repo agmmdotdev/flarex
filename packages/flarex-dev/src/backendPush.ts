@@ -61,7 +61,7 @@ export function devFinishPushErrorMessage(response: DevFinishPushResponse, messa
   }
   const details = [
     `Backend rejection code: ${response.code}`,
-    `Backend remediation: ${finishPushRejectionHint(response.code)}`,
+    `Backend remediation: ${devFinishPushRejectionHint(response.code)}`,
     `Backend error: ${response.error}`,
     ...(response.diagnostics ?? response.push.diagnostics ?? []).map(
       diagnostic => `Backend diagnostic (${diagnostic.level}): ${diagnostic.message}`,
@@ -71,7 +71,7 @@ export function devFinishPushErrorMessage(response: DevFinishPushResponse, messa
   return `${summary}\n${details.join("\n")}`;
 }
 
-function finishPushRejectionHint(code: FinishPushRejectionCode): string {
+export function devFinishPushRejectionHint(code: FinishPushRejectionCode): string {
   switch (code) {
     case "invalid_state":
       return "Start a new deploy because this push is no longer finishable.";

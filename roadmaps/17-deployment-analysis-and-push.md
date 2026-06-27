@@ -1,5 +1,60 @@
 # Deployment Analysis And Push
 
+## Deploy Finish Rejections Are Structured For CLI JSON
+
+Previous completed checkpoint: `21b5e38` Add finish rejection remediation
+hints.
+
+What changed:
+
+- Added `FlarexDeployFinishRejectedError` at the deploy boundary.
+- Rejected finish responses now stay available as structured data when
+  `deployFlarex(...)` fails, including the rejected response and remediation
+  hint.
+- `flarex-dev deploy --json` uses that typed error to report finish rejection
+  code, remediation, rejected push, backend error, and diagnostics without
+  parsing the human error string.
+- JSON finish rejection diagnostics use the same envelope-then-push fallback as
+  the human-readable formatter.
+- JSON output maps internal push status to a compact DTO so backend analysis and
+  codegen metadata stay out of the public CLI output.
+
+Why it changed:
+
+The previous checkpoint gave developers plain-text remediation, but deploy
+finish rejection is already a typed backend contract. The CLI should preserve
+that structured result for automation and future adapters instead of reducing
+it to a string.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - finish-push is a separate activation boundary whose response is parsed
+    before deploy reporting.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - finish-push response shape is a distinct deploy API contract.
+- `npm-packages/convex/src/cli/lib/components.ts`
+  - structured finish output is passed through deploy orchestration.
+
+Flarex differences:
+
+- Convex's finish output includes richer deployment diff/config data. Flarex's
+  structured error object is limited to compact finish rejection metadata.
+- The typed error is a dev-package boundary, not a backend protocol change.
+
+Known limitations:
+
+- Generic HTTP/transport errors are represented as generic JSON errors, not
+  finish rejection objects.
+- No deploy success diff is available yet, only started/finished push metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Finish Rejection Codes Include Remediation Hints
 
 Previous completed checkpoint: `fe5a981` Surface finish rejection codes in dev

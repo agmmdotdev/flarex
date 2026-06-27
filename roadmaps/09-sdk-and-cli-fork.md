@@ -1,5 +1,62 @@
 # SDK And CLI Fork
 
+## Deploy Command JSON Output
+
+Previous completed checkpoint: `21b5e38` Add finish rejection remediation
+hints.
+
+What changed:
+
+- Added deploy-only `--json` output to `flarex-dev deploy`.
+- Successful deploys now write a structured `{ command, result, started,
+  finished }` JSON object to stdout.
+- Failed deploy finish rejections now write a structured JSON error object to
+  stdout with the rejected finish code, remediation hint, rejected push, backend
+  error, and diagnostics.
+- Non-finish failures in JSON mode still produce a structured generic CLI error
+  object instead of plain stderr text.
+- Deploy JSON push fields use a compact DTO: `pushId`, `state`, optional
+  `error`, and optional diagnostics. Backend analysis/codegen metadata is not
+  leaked into command output.
+
+Why it changed:
+
+The previous checkpoint made finish rejection codes and remediation visible in
+plain text, but automation still had to scrape stderr. Convex parses finish
+responses into structured deploy data before CLI reporting, and Flarex should
+provide a narrow structured command surface for the activation boundary.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/cli/lib/deploy2.ts`
+  - parses finish-push responses before reporting deploy completion/failure.
+- `npm-packages/convex/src/cli/lib/deployApi/finishPush.ts`
+  - defines the structured finish-push response contract.
+- `npm-packages/convex/src/cli/lib/command.ts`
+  - shows explicit output-mode flags for commands that need machine-readable
+    output.
+
+Flarex differences:
+
+- Convex deploy does not currently expose a direct deploy `--json` flag in the
+  checked source. Flarex adds one because it does not yet have Convex's richer
+  command context/error system and needs a stable automation boundary.
+- The JSON mode is deploy-only for now; codegen and dry-run keep their existing
+  text output.
+
+Known limitations:
+
+- The JSON shape is still compact and Flarex-specific. It does not include
+  Convex-style deploy diffs, component diffs, or hosted project metadata.
+- JSON mode is only implemented for CLI deploy output, not dev server logs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Codegen CLI Can Use HTTP Backend Analyzer
 
 Previous completed checkpoint: `5aff422` Add HTTP backend source analyzer.

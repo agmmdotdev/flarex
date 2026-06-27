@@ -337,6 +337,64 @@ describe("runFlarexDevCli", () => {
     }
   }, 30000);
 
+  it("prints deploy activation result as JSON", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-json-");
+    const stdout = new StringWriter();
+    const analysis = cliAnalysis();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/push/start")) {
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          analysis: { schema: analysis.schema, functions: { functions: [] } },
+          codegenAnalysis: analysis,
+        });
+      }
+      if (url.pathname.endsWith("/push/push1/finish")) {
+        return Response.json({
+          result: "activated",
+          push: {
+            pushId: "push1",
+            state: "activated",
+          },
+        });
+      }
+      return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+    });
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+          "--json",
+        ],
+        stdout,
+      })).resolves.toBe(0);
+
+      const output: unknown = JSON.parse(stdout.value);
+      expect(output).toEqual({
+        command: "deploy",
+        result: "activated",
+        started: {
+          pushId: "push1",
+          state: "analyzed",
+        },
+        finished: {
+          pushId: "push1",
+          state: "activated",
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it("does not finish deploy pushes when generated-output typecheck fails", async () => {
     const root = await createMinimalFlarexProject("flarex-cli-deploy-fail-");
     const stderr = new StringWriter();
@@ -349,6 +407,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
+          analysis: { schema: analysis.schema, functions: { functions: [] } },
           codegenAnalysis: analysis,
         });
       }
@@ -503,6 +562,140 @@ describe("runFlarexDevCli", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30000);
+
+  it("prints rejected deploy finish errors as JSON", async () => {
+    const root = await createMinimalFlarexProject("flarex-cli-deploy-json-fail-");
+    const stdout = new StringWriter();
+    const stderr = new StringWriter();
+    const analysis = cliAnalysis();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/push/start")) {
+        return Response.json({
+          pushId: "push1",
+          state: "analyzed",
+          codegenAnalysis: analysis,
+        });
+      }
+      if (url.pathname.endsWith("/push/push1/finish")) {
+        return Response.json(
+          {
+            result: "rejected",
+            push: {
+              pushId: "push1",
+              state: "analyzed",
+              diagnostics: [{ level: "error", message: "artifact missing" }],
+              analysis: { schema: analysis.schema, functions: { functions: [] } },
+              codegenAnalysis: analysis,
+            },
+            code: "missing_artifact",
+            error: "activation failed",
+          },
+          { status: 409 },
+        );
+      }
+      return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+    });
+    try {
+      await expect(runFlarexDevCli({
+        projectRoot: root,
+        argv: [
+          "deploy",
+          "--backend-url",
+          "https://flarex.example",
+          "--deployment-id",
+          "deployment1",
+          "--json",
+        ],
+        stdout,
+        stderr,
+      })).resolves.toBe(1);
+
+      expect(stderr.value).toBe("");
+      const output: unknown = JSON.parse(stdout.value);
+      expect(output).toEqual({
+        command: "deploy",
+        result: "error",
+        error: {
+          name: "FlarexDeployFinishRejectedError",
+          message: expect.stringContaining("Flarex push push1 did not activate: analyzed."),
+          finishRejection: {
+            code: "missing_artifact",
+            remediation: "Re-run deploy so the source package is uploaded before activation.",
+            push: {
+              pushId: "push1",
+              state: "analyzed",
+              diagnostics: [{ level: "error", message: "artifact missing" }],
+            },
+            error: "activation failed",
+            diagnostics: [{ level: "error", message: "artifact missing" }],
+          },
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("prints generic deploy errors as JSON", async () => {
+    const stdout = new StringWriter();
+    const stderr = new StringWriter();
+    let deployCalls = 0;
+
+    await expect(runFlarexDevCli({
+      argv: ["deploy", "--root", "/app", "--json"],
+      stdout,
+      stderr,
+      dependencies: {
+        deploy: async options => {
+          deployCalls += 1;
+          return {
+            started: {
+              pushId: "push1",
+              state: "analyzed",
+              codegenAnalysis: cliAnalysis(),
+            },
+            finished: { pushId: "push1", state: "activated" },
+          };
+        },
+      },
+    })).resolves.toBe(1);
+
+    expect(deployCalls).toBe(0);
+    expect(stderr.value).toBe("");
+    const output: unknown = JSON.parse(stdout.value);
+    expect(output).toEqual({
+      command: "deploy",
+      result: "error",
+      error: {
+        name: "Error",
+        message: "--backend-url must be provided when deploying.",
+      },
+    });
+  });
+
+  it("prints early deploy validation errors as JSON", async () => {
+    const stdout = new StringWriter();
+    const stderr = new StringWriter();
+
+    await expect(runFlarexDevCli({
+      argv: ["deploy", "--root", "", "--json"],
+      stdout,
+      stderr,
+    })).resolves.toBe(1);
+
+    expect(stderr.value).toBe("");
+    const output: unknown = JSON.parse(stdout.value);
+    expect(output).toEqual({
+      command: "deploy",
+      result: "error",
+      error: {
+        name: "Error",
+        message: "--root must be a non-empty path when provided.",
+      },
+    });
+  });
 
   it("rejects deploy without backend push options before codegen", async () => {
     const stderr = new StringWriter();

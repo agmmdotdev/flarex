@@ -14,6 +14,7 @@ import {
 } from "./analyze.ts";
 import {
   devFinishPushErrorMessage,
+  devFinishPushRejectionHint,
   devPushStatusErrorMessage,
   LocalExecutionArtifactBackendAnalyzer,
   type BackendPushCoordinator,
@@ -55,6 +56,21 @@ export type FlarexDeployResult = {
   started: FlarexAnalyzedPushStatus;
   finished: FlarexActivatedPushStatus;
 };
+
+export type FlarexDeployRejectedFinishResponse =
+  Extract<DevFinishPushResponse, { result: "rejected" }>;
+
+export class FlarexDeployFinishRejectedError extends Error {
+  readonly response: FlarexDeployRejectedFinishResponse;
+  readonly remediation: string;
+
+  constructor(response: FlarexDeployRejectedFinishResponse, message: string) {
+    super(devFinishPushErrorMessage(response, message));
+    this.name = "FlarexDeployFinishRejectedError";
+    this.response = response;
+    this.remediation = devFinishPushRejectionHint(response.code);
+  }
+}
 
 export type FlarexGenerationContext = {
   options: FlarexGenerateOptions;
@@ -1150,11 +1166,9 @@ function analyzedPushStatus(started: DevPushStatus): FlarexAnalyzedPushStatus {
 
 function activatedPushStatus(finished: DevFinishPushResponse): FlarexActivatedPushStatus {
   if (finished.result !== "activated") {
-    throw new Error(
-      devFinishPushErrorMessage(
-        finished,
-        `Flarex push ${finished.push.pushId} did not activate`,
-      ),
+    throw new FlarexDeployFinishRejectedError(
+      finished,
+      `Flarex push ${finished.push.pushId} did not activate`,
     );
   }
   return {
