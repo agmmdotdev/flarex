@@ -1,5 +1,59 @@
 # Test SDK
 
+## Packed Consumer Postgres Test SDK Invoke
+
+Previous completed test-SDK checkpoint: `d133982` Cover packed test SDK live
+query flow.
+
+What changed:
+
+- Added `packed-flarex-postgres-test.ts` to the fresh packed-consumer fixture.
+- The installed `flarex-test` package is now exercised with
+  `flarexTest({ executorTransport: "postgres", deploymentId: "packed-postgres" })`.
+- The packed script uses generated `api.messages.list` and `api.messages.send`
+  references, verifies the initial query is empty, runs a mutation, and then
+  verifies a follow-up query observes the committed Postgres/PGlite document.
+
+Why it changed:
+
+The test SDK package boundary already proved direct invoke and live-query
+behavior on the default local runtime. The forward architecture is the trusted
+Postgres executor, so a clean installed consumer also needs to prove that the
+public harness can select and run the Postgres transport without repo-local
+imports.
+
+Convex references inspected:
+
+- Convex testing helper ergonomics recorded in this roadmap remain the API
+  inspiration: app tests should call generated function references through a
+  compact harness.
+- `npm-packages/convex/package.json`
+  - installed package exports define the consumer-facing test contract.
+
+Flarex differences:
+
+- Flarex exposes `executorTransport: "postgres"` during migration because the
+  local runtime still has both legacy and Postgres execution paths. Convex's
+  test helper targets a unified Convex backend/test runtime.
+- This packed consumer uses PGlite through the local Postgres executor path,
+  not a real Postgres server.
+
+Known limitations:
+
+- This proves direct Postgres query/mutation/read-after-write from a packed
+  consumer, not Postgres live-query delivery from a packed consumer.
+- Identity helper, reset helper, and built-artifact package validation remain
+  future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Subscription
 
 Previous completed test-SDK checkpoint: `a738186` Cover packed test SDK

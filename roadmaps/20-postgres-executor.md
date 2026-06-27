@@ -1,5 +1,55 @@
 # Postgres Executor
 
+## Packed Test SDK Postgres Invoke
+
+Previous completed checkpoint: `d133982` Cover packed test SDK live query
+flow.
+
+What changed:
+
+- Added a fresh-consumer packed test that runs `flarex-test` with
+  `executorTransport: "postgres"`.
+- The test exercises generated query and mutation references over the
+  Postgres/PGlite executor path from an installed package graph.
+- It verifies direct read-after-write persistence through the trusted executor
+  path, not the legacy Durable Object runtime.
+
+Why it changed:
+
+The Postgres executor is the forward path for OCC, documents, indexes, and sync
+freshness. A clean consumer package gate should prove that app tests can reach
+that executor through the same public `flarex-test` API developers will use.
+
+Convex references inspected:
+
+- Convex's test-helper model remains the ergonomic target: generated
+  references plus a compact harness API.
+- `crates/database/src/transaction.rs`
+  - read and write operations belong to a transaction view before commit.
+
+Flarex differences:
+
+- Flarex has a transport selector because the project is migrating from the
+  legacy DO runtime to the trusted Postgres executor. Convex keeps this behind
+  one backend runtime boundary.
+- The packed test uses local PGlite. Real Postgres latency, lock, and isolation
+  behavior are intentionally tested elsewhere.
+
+Known limitations:
+
+- No packed Postgres live-query delivery assertion yet.
+- This does not add new executor semantics; it hardens the installed test SDK
+  path that reaches existing semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Nitro Adapter Fresh-Consumer Smoke
 
 Previous completed checkpoint: `fad789f` Add test SDK and Nitro package

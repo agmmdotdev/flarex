@@ -129,6 +129,15 @@ describe("fresh consumer packed install", () => {
       expect(testSdkInvocation.error).toBeUndefined();
       expect(testSdkInvocation.status, commandOutput(testSdkInvocation)).toBe(0);
       expect(testSdkInvocation.stdout).toContain("packed-flarex-test ok");
+
+      const postgresTestSdkInvocation = runPnpm(
+        consumerDir,
+        ["exec", "tsx", "packed-flarex-postgres-test.ts"],
+        120_000,
+      );
+      expect(postgresTestSdkInvocation.error).toBeUndefined();
+      expect(postgresTestSdkInvocation.status, commandOutput(postgresTestSdkInvocation)).toBe(0);
+      expect(postgresTestSdkInvocation.stdout).toContain("packed-flarex-postgres-test ok");
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
@@ -200,7 +209,11 @@ async function writePackedConsumerSmoke(root: string): Promise<void> {
           target: "ES2022",
           types: ["@cloudflare/workers-types"],
         },
-        include: ["packed-smoke.ts", "packed-flarex-test.ts"],
+        include: [
+          "packed-smoke.ts",
+          "packed-flarex-test.ts",
+          "packed-flarex-postgres-test.ts",
+        ],
       },
       null,
       2,
@@ -332,6 +345,61 @@ async function waitFor(predicate: () => boolean, errors: readonly Error[]): Prom
     }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
+}
+
+function tableId(tableName: TableNames): number {
+  const table = deploymentSchema.tables.find(candidate => candidate.name === tableName);
+  if (table === undefined) {
+    throw new Error(\`Missing generated table metadata for \${tableName}.\`);
+  }
+  return table.tableId;
+}
+`,
+    "utf8",
+  );
+  await writeFile(
+    join(root, "packed-flarex-postgres-test.ts"),
+    `import { flarexTest } from "flarex-test";
+import { encodeFlarexId } from "flarex/server";
+import { api } from "./flarex/_generated/api";
+import { deploymentSchema } from "./flarex/_generated/deploymentSchema";
+import type { TableNames } from "./flarex/_generated/dataModel";
+
+const usersTable = "users" satisfies TableNames;
+const userId = encodeFlarexId<typeof usersTable>(tableId(usersTable), "pg-u1");
+const t = await flarexTest({
+  deploymentId: "packed-postgres",
+  executorTransport: "postgres",
+});
+
+try {
+  const messages = await t.query(api.messages.list, { userId });
+  if (!Array.isArray(messages) || messages.length !== 0) {
+    throw new Error(\`Expected empty Postgres messages list, got \${JSON.stringify(messages)}\`);
+  }
+
+  const messageId = await t.mutation(api.messages.send, {
+    userId,
+    body: "postgres",
+  });
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    throw new Error(\`Expected Postgres message id, got \${JSON.stringify(messageId)}\`);
+  }
+
+  const updatedMessages = await t.query(api.messages.list, { userId });
+  if (
+    !Array.isArray(updatedMessages) ||
+    updatedMessages.length !== 1 ||
+    updatedMessages[0]?._id !== messageId ||
+    updatedMessages[0]?.userId !== userId ||
+    updatedMessages[0]?.body !== "postgres"
+  ) {
+    throw new Error(\`Expected persisted Postgres message, got \${JSON.stringify(updatedMessages)}\`);
+  }
+
+  console.log("packed-flarex-postgres-test ok");
+} finally {
+  await t.dispose();
 }
 
 function tableId(tableName: TableNames): number {

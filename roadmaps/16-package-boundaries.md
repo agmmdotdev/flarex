@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Packed Test SDK Postgres Transport Boundary
+
+Previous completed checkpoint: `d133982` Cover packed test SDK live query
+flow.
+
+What changed:
+
+- Added a second packed consumer `flarex-test` runtime script for the
+  Postgres/PGlite transport.
+- The fresh install now proves the installed package graph can resolve
+  `flarex-test -> flarex-dev -> @flarex/executor -> @flarex/persistence-postgres`
+  and execute generated app functions through that graph.
+- The smoke uses only public package exports and generated app files from the
+  temp consumer.
+
+Why it changed:
+
+The Postgres executor is the forward authoritative path. Package-boundary tests
+should prove that path in a clean consumer install, not only through workspace
+tests where source imports and dependency resolution are more forgiving.
+
+Convex references inspected:
+
+- `npm-packages/convex/package.json`
+  - installed package exports are the consumer boundary.
+- Convex's generated-reference test ergonomics remain the model for the
+  `flarex-test` consumer surface.
+
+Flarex differences:
+
+- Convex does not expose a second transport selector to app tests. Flarex does
+  while the legacy Durable Object prototype and Postgres executor coexist.
+- The packed consumer validates source-mode package exports with linked
+  external dependencies; final built-output package validation remains separate.
+
+Known limitations:
+
+- Packed Postgres live-query delivery is still not covered here.
+- This does not prove Nitro/Vercel deployment behavior; it proves the installed
+  local test SDK package boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Test SDK Subscription Boundary
 
 Previous completed checkpoint: `a738186` Cover packed test SDK mutation flow.

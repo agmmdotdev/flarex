@@ -1,5 +1,55 @@
 # Testing and Simulation Strategy
 
+## Packed Consumer Postgres Invoke
+
+Previous completed checkpoint: `d133982` Cover packed test SDK live query
+flow.
+
+What changed:
+
+- Extended the fresh packed-consumer integration with a Postgres transport
+  `flarex-test` script.
+- The new script runs generated query and mutation references through
+  `flarexTest({ executorTransport: "postgres" })` and verifies persisted
+  read-after-write behavior.
+- The existing consumer TypeScript gate now includes the Postgres packed
+  script.
+
+Why it changed:
+
+The workspace already had Postgres executor tests and example E2E coverage, but
+the app-testing strategy also needs a clean installed-consumer lane. This keeps
+package-boundary regressions from hiding behind workspace source resolution.
+
+Convex references inspected:
+
+- Convex test helper ergonomics recorded in the Test SDK roadmap:
+  application tests should use generated references and a compact harness API.
+- `npm-packages/convex/package.json`
+  - package export boundaries are part of what testing should protect.
+
+Flarex differences:
+
+- Flarex's local test harness currently lets tests choose the legacy or
+  Postgres transport. Convex has one backend runtime model for this surface.
+- The Postgres lane uses PGlite for fast local package validation. Real
+  Postgres correctness remains a separate lane for locks and isolation.
+
+Known limitations:
+
+- This is direct invoke coverage only; packed Postgres live-query delivery is
+  still a future test.
+- Identity, reset, and seed helper tests remain future work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-test typecheck
+corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
+git diff --check
+```
+
 ## Packed Consumer Test SDK Subscription
 
 Previous completed checkpoint: `a738186` Cover packed test SDK mutation flow.
