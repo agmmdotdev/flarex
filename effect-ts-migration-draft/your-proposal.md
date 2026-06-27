@@ -2,12 +2,20 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `1a7112a` Refactor registry behind Effect service.
-- Active checkpoint: add focused `RegistryService` tests with controlled Effect test layers before copying the service pattern into larger Durable Objects.
+- Previous completed checkpoint: `90f4383` Test registry Effect service.
+- Active checkpoint: extend `flarex-protocol` to the DeploymentDO abandon-push boundary while keeping DeploymentDO SQL/router behavior unchanged.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 
-Current Goal 3 slice:
+Current Goal 4 slice:
+
+1. Add `flarex-protocol/deployment` for the narrow `POST /push/:id/abandon` boundary.
+2. Define `AbandonPushRequest`, `PushStatus`, and `DeploymentProtocolValidationError` with Effect Schema.
+3. Convert only DeploymentDO abandon body decoding to the protocol parser; keep SQL, push state transitions, and route shape unchanged.
+4. Parse successful abandon responses in focused backend tests through `parsePushStatus`.
+5. Keep deep deployment `analysis` and `codegenAnalysis` payload schemas for a later deployment-analysis slice; this checkpoint validates the stable PushStatus envelope and abandon request.
+
+Completed Goal 3 slice:
 
 1. Add service-level tests for `RegistryService` without Miniflare.
 2. Provide `RegistryStore`, `RegistryClock`, and `RegistryIds` through test layers.
@@ -27,9 +35,9 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 3 should be one of:
+Next checkpoint after Goal 4 should be one of:
 
-- Extend `flarex-protocol` to the next small DeploymentDO boundary only after Registry service extraction is reviewed and committed.
+- Extend `flarex-protocol/deployment` to source package and analyzed push start schemas.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

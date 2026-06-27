@@ -1,5 +1,59 @@
 # Runtime Validation
 
+## Deployment Abandon Protocol Validation
+
+Previous completed checkpoint: `90f4383` Test registry Effect service.
+
+What changed:
+
+- DeploymentDO abandon-push request bodies now decode through
+  `flarex-protocol/deployment`.
+- Invalid JSON still fails at the shared HTTP JSON boundary with the existing
+  `Request body must be JSON.` response.
+- Schema-invalid abandon bodies keep the existing HTTP 400 messages for null
+  bodies and non-string `reason` fields.
+- Successful abandon responses are parsed in the focused push lifecycle test
+  with `parsePushStatus`.
+
+Why it changed:
+
+The Effect migration needs to prove that protocol schemas can be introduced
+into a larger Durable Object without changing its SQL or state-machine
+behavior. Abandon-push is the smallest useful DeploymentDO route for that
+proof.
+
+Convex references inspected:
+
+- No new Convex source files were required. The semantic behavior of push
+  abandonment is unchanged; this is a transport validation boundary.
+
+Cloudflare differences:
+
+- Validation still happens inside a Durable Object `fetch()` handler. The
+  handler maps `DeploymentProtocolValidationError` to HTTP 400 before falling
+  back to the existing error response helper.
+
+Known limitations:
+
+- This slice does not schema-validate the full deployment analysis or codegen
+  analysis payloads inside `PushStatus`; those remain future protocol modules.
+- Finish-push and start-analyzed still use their existing manual validators.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "pending delivery reconciles"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Registry Service Test Coverage
 
 Previous completed checkpoint: `1a7112a` Refactor registry behind Effect

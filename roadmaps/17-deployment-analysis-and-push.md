@@ -1,5 +1,59 @@
 # Deployment Analysis And Push
 
+## Abandon Push Protocol Boundary
+
+Previous completed checkpoint: `90f4383` Test registry Effect service.
+
+What changed:
+
+- `POST /push/:id/abandon` now uses the deployment protocol package to decode
+  its request body.
+- The route still performs the same state transition: only pending or analyzed
+  pushes can become abandoned, and terminal/unknown pushes keep their existing
+  409/404 behavior.
+- Focused push lifecycle tests now cover invalid JSON, invalid abandon body,
+  and successful abandon response parsing through the protocol schema.
+
+Why it changed:
+
+DeploymentDO owns the risky push activation state machine. The Effect
+migration should first wrap a small non-activation route before moving larger
+push-start or finish contracts into the protocol package.
+
+Convex references inspected:
+
+- No new Convex source files were required for this route-boundary slice.
+- The existing roadmap entries still describe Convex's deploy start/finish
+  direction; this checkpoint only changes Flarex transport validation.
+
+Flarex differences:
+
+- Flarex is validating this route inside a Cloudflare Durable Object rather
+  than a central Rust/backend deploy service.
+- The abandon request is intentionally smaller than Convex's full deployment
+  API surface while the protocol package is being proven.
+
+Known limitations:
+
+- Full `AnalyzedStartPushRequest`, `FinishPushResponse`, `ActiveDeployment`,
+  deployment analysis, codegen analysis, schema, and function metadata schemas
+  are not introduced here.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "pending delivery reconciles"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deploy Finish Rejections Are Structured For CLI JSON
 
 Previous completed checkpoint: `21b5e38` Add finish rejection remediation

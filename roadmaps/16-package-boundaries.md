@@ -1,5 +1,63 @@
 # Package Boundaries
 
+## Deployment Abandon Protocol Boundary
+
+Previous completed checkpoint: `90f4383` Test registry Effect service.
+
+What changed:
+
+- Added `flarex-protocol/deployment` as the second protocol subpath.
+- The new protocol module owns the narrow DeploymentDO abandon-push boundary:
+  `AbandonPushRequest`, `PushStatus`, and
+  `DeploymentProtocolValidationError`.
+- `packages/flarex-backend/src/deploymentDO.ts` now decodes
+  `POST /push/:id/abandon` request bodies through the protocol parser.
+- `packages/flarex-backend/test/push.test.ts` parses successful abandon
+  responses through `parsePushStatus`.
+
+Why it changed:
+
+Registry proved the protocol package pattern on a tiny object. DeploymentDO is
+larger and correctness-sensitive, so the next package-boundary proof should be
+the smallest stable route that exercises real deployment metadata behavior
+without touching activation SQL.
+
+Convex references inspected:
+
+- No new Convex source files were required for this slice. It preserves the
+  existing deployment push state machine and only changes the TypeScript
+  transport contract for abandon-push.
+
+Flarex differences:
+
+- Convex deployment APIs are backend-owned service contracts. Flarex is
+  introducing the same idea incrementally as Effect Schema modules because the
+  current Cloudflare Durable Object router is hand-written.
+
+Known limitations:
+
+- `PushStatus` validates the stable push envelope and source package shape, but
+  keeps deep `analysis` and `codegenAnalysis` payloads as unknown for this
+  narrow boundary. Full deployment analysis/codegen schemas belong in a later
+  push-start or active-deployment slice.
+- DeploymentDO still uses a plain fetch router and backend-local validation for
+  the larger push start/finish surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "pending delivery reconciles"
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Registry Effect Service Test Boundary
 
 Previous completed checkpoint: `1a7112a` Refactor registry behind Effect

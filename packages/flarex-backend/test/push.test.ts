@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { parsePushStatus } from "flarex-protocol/deployment";
 import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
@@ -554,6 +555,19 @@ describe("deployment push lifecycle", () => {
   it("rejects malformed abandon request bodies", async () => {
     const start = await startPush("push-abandon-bad-body", analyzedPush(candidateSchema(), candidateFunctions()));
 
+    const invalidJson = await harness.mf.dispatchFetch(
+      `http://flarex.test/deployments/push-abandon-bad-body/push/${start.pushId}/abandon`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(invalidJson.status).toBe(400);
+    await expect(invalidJson.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
     const nullBody = await harness.mf.dispatchFetch(
       `http://flarex.test/deployments/push-abandon-bad-body/push/${start.pushId}/abandon`,
       {
@@ -1072,7 +1086,7 @@ async function abandonPush(
 ): Promise<PushStatus> {
   const response = await abandonPushResponse(deploymentId, pushId, body);
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  return parsePushStatus(await response.json()) as PushStatus;
 }
 
 async function abandonPushResponse(

@@ -3,6 +3,10 @@ import {
   executionArtifactRefForSourcePackage,
   validateExecutionArtifactRef,
 } from "flarex/artifacts";
+import {
+  DeploymentProtocolValidationError,
+  parseAbandonPushRequest,
+} from "flarex-protocol/deployment";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import type {
@@ -118,11 +122,18 @@ export class DeploymentDO extends DurableObject<Env> {
           return json(response, { status: response.result === "rejected" ? 409 : 200 });
         }
         if (action === "abandon" && request.method === "POST") {
-          return json(await this.abandonPush(pushId, abandonPushRequest(await readJson(request))));
+          const body = parseAbandonPushRequest(await readJson(request));
+          return json(await this.abandonPush(
+            pushId,
+            body.reason === undefined ? {} : { reason: body.reason },
+          ));
         }
       }
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
+      if (error instanceof DeploymentProtocolValidationError) {
+        return json({ error: error.message }, { status: 400 });
+      }
       return errorResponse(error);
     }
   }
@@ -1051,17 +1062,6 @@ function validateDiagnostics(value: unknown): PushDiagnostic[] {
       message: record.message,
     };
   });
-}
-
-function abandonPushRequest(value: unknown): AbandonPushRequest {
-  if (!isRecord(value)) {
-    throw new HttpError(400, "Abandon push request must be an object.");
-  }
-  if (value.reason === undefined) return {};
-  if (typeof value.reason !== "string") {
-    throw new HttpError(400, "Abandon push reason must be a string.");
-  }
-  return { reason: value.reason };
 }
 
 function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {
