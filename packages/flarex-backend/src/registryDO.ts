@@ -6,6 +6,7 @@ import {
   type ListDeploymentsResponse,
 } from "flarex-protocol/registry";
 import { errorResponse, json, readJson } from "./http";
+import { registryFailureToHttpError } from "./registry/HttpBoundary";
 import { makeRegistryLayer } from "./registry/Layer";
 import { RegistryService } from "./registry/Service";
 import type { RegistrySqlError } from "./registry/Store";
@@ -64,7 +65,7 @@ export class RegistryDO extends DurableObject<Env> {
     return this.registryRuntime.runPromise(
       effect.pipe(
         Effect.match({
-          onFailure: () => json({ error: "Registry storage error." }, { status: 500 }),
+          onFailure: error => errorResponse(registryFailureToHttpError(error)),
           onSuccess,
         }),
       ),
