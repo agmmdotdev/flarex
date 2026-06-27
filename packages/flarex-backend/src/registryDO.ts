@@ -3,6 +3,7 @@ import { Effect, ManagedRuntime } from "effect";
 import {
   parseCreateDeploymentRequest,
   ProtocolValidationError,
+  RegistryRoute,
   type ListDeploymentsResponse,
 } from "flarex-protocol/registry";
 import { errorResponse, json, readJson } from "./http";
@@ -25,17 +26,17 @@ export class RegistryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (url.pathname === "/health") {
+      if (url.pathname === RegistryRoute.health) {
         return json({ service: "flarex-registry", status: "ok" });
       }
-      if (url.pathname === "/deployments" && request.method === "POST") {
+      if (url.pathname === RegistryRoute.deployments && request.method === "POST") {
         const body = parseCreateDeploymentRequest(await readJson(request));
         return await this.runRegistryService(
           service => service.createDeployment(body),
           deployment => json(deployment),
         );
       }
-      if (url.pathname === "/deployments" && request.method === "GET") {
+      if (url.pathname === RegistryRoute.deployments && request.method === "GET") {
         return await this.runRegistryService(
           service => service.listDeployments(),
           response => json(response satisfies ListDeploymentsResponse),

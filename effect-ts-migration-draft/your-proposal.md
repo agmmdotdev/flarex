@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `cd9cb59` Extract registry storage schema initialization.
-- Active checkpoint: centralize RegistryDO service route bridging behind a `runRegistryService()` helper.
+- Previous completed checkpoint: `71d9ae9` Centralize registry service route use.
+- Active checkpoint: move stable RegistryDO route paths into `flarex-protocol` before the HttpApiBuilder spike.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 32 slice:
+Current Goal 33 slice:
+
+1. Export stable `RegistryRoute` path constants from `flarex-protocol/registry`.
+2. Use those constants in `RegistryDO.fetch()` for current plain-router matching.
+3. Use the same constants in RegistryDO route tests so the public path contract is exercised from the shared protocol package.
+4. Add a small registry protocol test locking the health and deployments route paths.
+5. Do not introduce `HttpApiBuilder`, new platform dependencies, or HttpApi server wiring in this slice.
+6. Do not change protocol schemas, SQL initialization, service/store orchestration, response bodies, runtime boundaries, or validation messages.
+7. Validate with focused registry protocol/backend tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 32 slice:
 
 1. Export a narrow `RegistryServiceApi` interface from `registry/Service.ts`, matching the deployment service pattern.
 2. Add a private `RegistryDO.runRegistryService()` helper that wraps `RegistryService.use(...)`.
@@ -297,7 +307,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 32 should be one of:
+Next checkpoint after Goal 33 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.

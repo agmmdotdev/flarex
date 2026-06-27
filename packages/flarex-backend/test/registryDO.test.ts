@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   parseDeploymentRecord,
   parseListDeploymentsResponse,
+  RegistryRoute,
 } from "flarex-protocol/registry";
 import type { DeploymentRecord, Env } from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
@@ -43,7 +44,7 @@ describe("registry deployment routes", () => {
   });
 
   it("rejects invalid JSON before schema decoding", async () => {
-    const response = await harness.mf.dispatchFetch("http://flarex.test/deployments", {
+    const response = await harness.mf.dispatchFetch(registryUrl(RegistryRoute.deployments), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{",
@@ -101,7 +102,7 @@ async function postDeployment(body: unknown): Promise<DeploymentRecord> {
 }
 
 async function postDeploymentRaw(body: unknown) {
-  return harness.mf.dispatchFetch("http://flarex.test/deployments", {
+  return harness.mf.dispatchFetch(registryUrl(RegistryRoute.deployments), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -109,8 +110,12 @@ async function postDeploymentRaw(body: unknown) {
 }
 
 async function listDeployments(): Promise<ReadonlyArray<DeploymentRecord>> {
-  const response = await harness.mf.dispatchFetch("http://flarex.test/deployments");
+  const response = await harness.mf.dispatchFetch(registryUrl(RegistryRoute.deployments));
   expect(response.ok).toBe(true);
   const body = parseListDeploymentsResponse(await response.json());
   return body.deployments;
+}
+
+function registryUrl(pathname: string): string {
+  return `http://flarex.test${pathname}`;
 }

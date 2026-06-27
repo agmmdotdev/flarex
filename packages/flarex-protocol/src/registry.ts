@@ -1,5 +1,12 @@
 import { Schema } from "effect";
 
+export const RegistryRoute = {
+  health: "/health",
+  deployments: "/deployments",
+} as const;
+
+export type RegistryRoutePath = typeof RegistryRoute[keyof typeof RegistryRoute];
+
 export class ProtocolValidationError extends Schema.TaggedErrorClass<ProtocolValidationError>()(
   "ProtocolValidationError",
   {
