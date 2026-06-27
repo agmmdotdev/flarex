@@ -7,10 +7,14 @@ import type {
 import { RegistryClock, RegistryIds } from "./Runtime";
 import { RegistrySqlError, RegistryStore } from "./Store";
 
-export class RegistryService extends Context.Service<RegistryService, {
+export interface RegistryServiceApi {
   createDeployment(request: CreateDeploymentRequest): Effect.Effect<DeploymentRecord, RegistrySqlError>;
   listDeployments(): Effect.Effect<ListDeploymentsResponse, RegistrySqlError>;
-}>()("flarex-backend/registry/RegistryService") {
+}
+
+export class RegistryService extends Context.Service<RegistryService, RegistryServiceApi>()(
+  "flarex-backend/registry/RegistryService",
+) {
   static readonly layer = Layer.effect(
     RegistryService,
     Effect.gen(function* () {

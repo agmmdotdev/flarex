@@ -8,7 +8,7 @@ import {
 import { errorResponse, json, readJson } from "./http";
 import { registryFailureToHttpError } from "./registry/HttpBoundary";
 import { makeRegistryLayer } from "./registry/Layer";
-import { RegistryService } from "./registry/Service";
+import { RegistryService, type RegistryServiceApi } from "./registry/Service";
 import { initializeRegistryStorage } from "./registry/StorageSchema";
 import type { RegistrySqlError } from "./registry/Store";
 import type { Env } from "./types";
@@ -30,14 +30,14 @@ export class RegistryDO extends DurableObject<Env> {
       }
       if (url.pathname === "/deployments" && request.method === "POST") {
         const body = parseCreateDeploymentRequest(await readJson(request));
-        return await this.runRegistryResponse(
-          RegistryService.use(service => service.createDeployment(body)),
+        return await this.runRegistryService(
+          service => service.createDeployment(body),
           deployment => json(deployment),
         );
       }
       if (url.pathname === "/deployments" && request.method === "GET") {
-        return await this.runRegistryResponse(
-          RegistryService.use(service => service.listDeployments()),
+        return await this.runRegistryService(
+          service => service.listDeployments(),
           response => json(response satisfies ListDeploymentsResponse),
         );
       }
@@ -48,6 +48,13 @@ export class RegistryDO extends DurableObject<Env> {
       }
       return errorResponse(error);
     }
+  }
+
+  private runRegistryService<A>(
+    use: (service: RegistryServiceApi) => Effect.Effect<A, RegistrySqlError>,
+    onSuccess: (value: A) => Response,
+  ): Promise<Response> {
+    return this.runRegistryResponse(RegistryService.use(use), onSuccess);
   }
 
   private runRegistryResponse<A>(
