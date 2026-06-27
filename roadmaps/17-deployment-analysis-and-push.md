@@ -1,5 +1,54 @@
 # Deployment Analysis And Push
 
+## Deployment Service Failure HTTP Boundary
+
+Previous completed checkpoint: `a1f4eb4` Lock deployment deep request
+boundary.
+
+What changed:
+
+- Extracted deployment service failure mapping from `DeploymentDO.runDeployment`
+  into a small tested HTTP-boundary helper.
+- Preserved exact active deployment, push-not-found, abandon invalid-state,
+  `HttpError` passthrough, and storage failure messages.
+- Left protocol request parsing and deep deployment validation untouched.
+
+Why it changed:
+
+The service/store split is now stable enough that the boundary from typed
+Effect failures to HTTP errors should be its own narrow, testable contract.
+This advances the Effect migration without moving JSON parsing, protocol
+decoding, or deployment semantic validation.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is local to
+  Flarex's deployment push HTTP boundary.
+
+Flarex differences:
+
+- Deployment service failures remain process-local typed failures until
+  `DeploymentDO.runDeployment()` converts them to HTTP errors.
+- Request-side deep `analysis` and `codegenAnalysis` decoding remains backend
+  validation owned.
+
+Known limitations:
+
+- Route branches still call `DeploymentService.use(...)` directly.
+- This is not an HttpApi migration and not a protocol schema expansion.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deep Request Decoding Decision
 
 Previous completed checkpoint: `7baf8e0` Inline deployment route service

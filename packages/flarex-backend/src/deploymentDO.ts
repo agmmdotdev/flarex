@@ -7,17 +7,15 @@ import {
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
 import {
-  DeploymentActiveDeploymentNotFoundError,
-  DeploymentPushInvalidStateError,
-  DeploymentPushNotFoundError,
-} from "./deployment/Errors";
+  deploymentFailureToHttpError,
+  type DeploymentServiceFailure,
+} from "./deployment/HttpBoundary";
 import { DeploymentService } from "./deployment/Service";
-import type { DeploymentSqlError } from "./deployment/Store";
 import {
   analyzedStartPushRequest,
   startAnalyzedPushInput,
 } from "./deployment/Validation";
-import { errorResponse, HttpError, json, readJson } from "./http";
+import { errorResponse, json, readJson } from "./http";
 import type {
   Env,
   FinishPushRequest,
@@ -141,11 +139,7 @@ export class DeploymentDO extends DurableObject<Env> {
   private async runDeployment<A>(
     effect: Effect.Effect<
       A,
-      | DeploymentActiveDeploymentNotFoundError
-      | DeploymentPushInvalidStateError
-      | DeploymentPushNotFoundError
-      | DeploymentSqlError
-      | HttpError,
+      DeploymentServiceFailure,
       DeploymentService
     >,
   ): Promise<A> {
@@ -158,21 +152,7 @@ export class DeploymentDO extends DurableObject<Env> {
       ),
     );
     if (!result.ok) {
-      if (result.error instanceof DeploymentActiveDeploymentNotFoundError) {
-        throw new HttpError(404, "No active deployment.");
-      }
-      if (result.error instanceof DeploymentPushNotFoundError) {
-        throw new HttpError(404, `Unknown push: ${result.error.pushId}`);
-      }
-      if (result.error instanceof DeploymentPushInvalidStateError) {
-        if (result.error.action === "abandon") {
-          throw new HttpError(409, `Cannot abandon push ${result.error.pushId} in state ${result.error.state}.`);
-        }
-      }
-      if (result.error instanceof HttpError) {
-        throw result.error;
-      }
-      throw new HttpError(500, "Deployment storage error.");
+      throw deploymentFailureToHttpError(result.error);
     }
     return result.value;
   }
