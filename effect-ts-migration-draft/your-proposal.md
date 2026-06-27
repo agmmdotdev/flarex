@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `7726832` Move finish push status mapping to boundary.
-- Active checkpoint: extract RegistryDO's typed service failure mapping into a dedicated registry HTTP-boundary helper.
+- Previous completed checkpoint: `6d8424f` Extract registry HTTP failure boundary.
+- Active checkpoint: extract RegistryDO storage schema initialization into a dedicated registry storage-schema helper.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 30 slice:
+Current Goal 31 slice:
+
+1. Add `registry/StorageSchema.ts` with `initializeRegistryStorage(sql)`.
+2. Move the registry deployments table and slug index creation out of `RegistryDO`.
+3. Keep `RegistryDO` responsible for owning the Durable Object SQL handle and invoking initialization in the constructor.
+4. Preserve exact SQL initialization text, route behavior, service/store orchestration, response bodies, runtime boundaries, protocol schemas, and validation messages.
+5. Add direct storage-schema coverage for deployment table and slug index creation.
+6. Validate with focused registry storage/boundary/service/DO tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 30 slice:
 
 1. Add a small registry HTTP-boundary helper that converts typed `RegistryService` failures into the existing generic `HttpError(500, "Registry storage error.")` response.
 2. Keep `RegistryDO.runRegistryResponse()` as the single `ManagedRuntime.runPromise` boundary and use the helper only after the Effect exits.
@@ -279,7 +288,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 30 should be one of:
+Next checkpoint after Goal 31 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.

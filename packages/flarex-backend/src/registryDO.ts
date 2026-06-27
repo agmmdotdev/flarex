@@ -9,6 +9,7 @@ import { errorResponse, json, readJson } from "./http";
 import { registryFailureToHttpError } from "./registry/HttpBoundary";
 import { makeRegistryLayer } from "./registry/Layer";
 import { RegistryService } from "./registry/Service";
+import { initializeRegistryStorage } from "./registry/StorageSchema";
 import type { RegistrySqlError } from "./registry/Store";
 import type { Env } from "./types";
 
@@ -18,16 +19,7 @@ export class RegistryDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS deployments (
-        deployment_id TEXT PRIMARY KEY,
-        slug TEXT UNIQUE,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        schema_version INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS deployments_by_slug ON deployments(slug);
-    `);
+    initializeRegistryStorage(this.sql);
   }
 
   async fetch(request: Request): Promise<Response> {
