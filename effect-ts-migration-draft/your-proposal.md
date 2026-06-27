@@ -2,12 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `6d026a9` Add deployment abandon protocol schema.
-- Active checkpoint: extend `flarex-protocol/deployment` to source package, diagnostics, and analyzed push-start wrapper schemas while keeping deep deployment and diagnostics item validators in DeploymentDO.
+- Previous completed checkpoint: `bc2d552` Add deployment push-start protocol schema.
+- Active checkpoint: extend `flarex-protocol/deployment` to deep deployment analysis, codegen analysis, active deployment, and finish response schemas without changing DeploymentDO route semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 
-Current Goal 5 slice:
+Current Goal 6 slice:
+
+1. Add `ValidatorJson`, deployment schema/table/index placement, function metadata, deployment analysis, codegen analysis, active deployment, and finish-push response schemas to `flarex-protocol/deployment`.
+2. Keep `parseAnalyzedStartPushRequest` wrapper-oriented; do not decode deep `analysis` or `codegenAnalysis` at the request boundary yet.
+3. Tighten `parsePushStatus` so successful response parsing validates deep `analysis` and `codegenAnalysis` payloads.
+4. Add parser exports for deployment analysis, codegen analysis, active deployment status, and finish-push responses.
+5. Update backend tests to parse push, active deployment, and activated finish responses through the shared protocol parsers.
+6. Add focused protocol tests for deep analysis/codegen payload parsing and malformed deep codegen rejection.
+
+Completed Goal 5 slice:
 
 1. Add `PushSourceModule`, `PushSourcePackage`, `PushDiagnostic`, and `AnalyzedStartPushRequest` schemas to `flarex-protocol/deployment`.
 2. Convert only `POST /push/start-analyzed` body decoding to `parseAnalyzedStartPushRequest`.
@@ -43,9 +52,10 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 5 should be one of:
+Next checkpoint after Goal 6 should be one of:
 
-- Extend `flarex-protocol/deployment` to deep deployment schema/function metadata and codegen analysis contracts.
+- Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
+- Start the first narrow `DeploymentService` extraction around push-start after the protocol contract has enough test coverage.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

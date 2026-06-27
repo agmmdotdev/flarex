@@ -1,5 +1,68 @@
 # Deployment Analysis And Push
 
+## Deep Analysis Protocol Schemas
+
+Previous completed checkpoint: `bc2d552` Add deployment push-start protocol
+schema.
+
+What changed:
+
+- Added Effect Schema contracts for the deep deployment analysis payload:
+  schema tables/indexes, placements, function metadata, routes, partition
+  metadata, source positions, and `ValidatorJson`.
+- Added codegen analysis schemas for module/function metadata used by final
+  codegen.
+- Added active deployment and finish-push response schemas, then exported
+  parser helpers for each new response contract.
+- Tightened push status response parsing so `analysis` and `codegenAnalysis`
+  are no longer `unknown` at that protocol boundary.
+- Added protocol tests for valid deep payloads and malformed codegen payloads;
+  backend push tests now parse active deployment and activated finish responses
+  through the shared protocol package.
+
+Why it changed:
+
+The push-start wrapper is now stable enough to validate the deep response
+payloads that downstream codegen and activation already rely on. Proving the
+response contract first keeps this as a parser/test checkpoint rather than a
+behavioral rewrite of deployment analysis.
+
+Convex references inspected:
+
+- No new Convex source files were required for this slice. Existing notes in
+  this roadmap still track Convex's backend-authoritative deploy analysis and
+  final-codegen direction.
+
+Flarex differences:
+
+- Flarex still validates deployment metadata inside `DeploymentDO` and stores
+  push state in Durable Object SQLite. The shared protocol package now
+  describes the response shape that Convex-like backend services will later
+  expose more directly.
+
+Known limitations:
+
+- `DeploymentDO` request validation still owns source package semantics,
+  diagnostics item validation, partition/schema consistency, codegen coverage,
+  and exact HTTP 400 messages.
+- The protocol schemas are structural. They do not yet replace semantic checks
+  such as "codegen analysis schema must match deployment analysis schema."
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Analyzed Push Start Protocol Boundary
 
 Previous completed checkpoint: `6d026a9` Add deployment abandon protocol

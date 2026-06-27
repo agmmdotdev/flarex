@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+
 const PushState = Schema.Union([
   Schema.Literal("pending"),
   Schema.Literal("analyzed"),
@@ -7,6 +8,87 @@ const PushState = Schema.Union([
   Schema.Literal("abandoned"),
   Schema.Literal("superseded"),
 ]);
+const TableState = Schema.Union([
+  Schema.Literal("active"),
+  Schema.Literal("hidden"),
+  Schema.Literal("deleted"),
+]);
+const IndexState = Schema.Union([
+  Schema.Literal("enabled"),
+  Schema.Literal("staged"),
+  Schema.Literal("disabled"),
+]);
+const DeploymentFunctionKind = Schema.Union([
+  Schema.Literal("query"),
+  Schema.Literal("mutation"),
+  Schema.Literal("action"),
+  Schema.Literal("workflowMutation"),
+]);
+const FunctionVisibility = Schema.Union([
+  Schema.Literal("public"),
+  Schema.Literal("internal"),
+]);
+const FinishPushRejectionCode = Schema.Union([
+  Schema.Literal("invalid_state"),
+  Schema.Literal("missing_analysis"),
+  Schema.Literal("missing_artifact"),
+]);
+
+export type ValidatorJson =
+  | { readonly type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }
+  | { readonly type: "id"; readonly tableName: string }
+  | { readonly type: "literal"; readonly value: string | number | boolean }
+  | { readonly type: "array"; readonly value: ValidatorJson }
+  | {
+      readonly type: "object";
+      readonly value: Readonly<Record<string, { readonly fieldType: ValidatorJson; readonly optional: boolean }>>;
+    }
+  | { readonly type: "record"; readonly keys: ValidatorJson; readonly values: ValidatorJson }
+  | { readonly type: "union"; readonly value: ReadonlyArray<ValidatorJson> };
+
+export const ValidatorJson: Schema.Codec<ValidatorJson> = Schema.suspend(() =>
+  Schema.Union([
+    Schema.Struct({
+      type: Schema.Union([
+        Schema.Literal("null"),
+        Schema.Literal("number"),
+        Schema.Literal("bigint"),
+        Schema.Literal("boolean"),
+        Schema.Literal("string"),
+        Schema.Literal("bytes"),
+        Schema.Literal("any"),
+      ]),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("id"),
+      tableName: Schema.String,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("literal"),
+      value: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("array"),
+      value: ValidatorJson,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("object"),
+      value: Schema.Record(Schema.String, Schema.Struct({
+        fieldType: ValidatorJson,
+        optional: Schema.Boolean,
+      })),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("record"),
+      keys: ValidatorJson,
+      values: ValidatorJson,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("union"),
+      value: Schema.Array(ValidatorJson),
+    }),
+  ]),
+);
 
 export class PushSourceModule extends Schema.Class<PushSourceModule>(
   "PushSourceModule",
@@ -52,6 +134,146 @@ export class PushDiagnostic extends Schema.Class<PushDiagnostic>("PushDiagnostic
   message: Schema.String,
 }) {}
 
+export class TablePartitionPlacement extends Schema.Class<TablePartitionPlacement>(
+  "TablePartitionPlacement",
+)({
+  kind: Schema.Literal("partitionBy"),
+  field: Schema.String,
+}) {}
+
+export class TableColocationPlacement extends Schema.Class<TableColocationPlacement>(
+  "TableColocationPlacement",
+)({
+  kind: Schema.Literal("colocateWith"),
+  table: Schema.String,
+  field: Schema.String,
+}) {}
+
+export class TableGlobalPlacement extends Schema.Class<TableGlobalPlacement>(
+  "TableGlobalPlacement",
+)({
+  kind: Schema.Literal("global"),
+}) {}
+
+export const TablePlacement = Schema.Union([
+  TablePartitionPlacement,
+  TableColocationPlacement,
+  TableGlobalPlacement,
+]);
+
+export class SchemaTable extends Schema.Class<SchemaTable>("SchemaTable")({
+  tableId: Schema.Number,
+  name: Schema.String,
+  state: Schema.optional(TableState),
+  validator: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  placement: TablePlacement,
+}) {}
+
+export class SchemaIndex extends Schema.Class<SchemaIndex>("SchemaIndex")({
+  indexId: Schema.Number,
+  tableId: Schema.Number,
+  name: Schema.String,
+  fields: Schema.Array(Schema.String),
+  state: Schema.optional(IndexState),
+}) {}
+
+export class DeploymentSchema extends Schema.Class<DeploymentSchema>("DeploymentSchema")({
+  version: Schema.Number,
+  tables: Schema.Array(SchemaTable),
+  indexes: Schema.Array(SchemaIndex),
+}) {}
+
+export class AnalyzedSourcePosition extends Schema.Class<AnalyzedSourcePosition>(
+  "AnalyzedSourcePosition",
+)({
+  path: Schema.String,
+  startLine: Schema.Number,
+  startColumn: Schema.Number,
+}) {}
+
+export class FunctionRoutePolicy extends Schema.Class<FunctionRoutePolicy>(
+  "FunctionRoutePolicy",
+)({
+  type: Schema.Literal("args"),
+  field: Schema.String,
+}) {}
+
+export class FunctionPartitionPolicy extends Schema.Class<FunctionPartitionPolicy>(
+  "FunctionPartitionPolicy",
+)({
+  type: Schema.Literal("partition"),
+  table: Schema.String,
+  selector: Schema.String,
+  partitionField: Schema.String,
+  argField: Schema.String,
+}) {}
+
+export class FunctionPartitionCreateRootPolicy extends Schema.Class<FunctionPartitionCreateRootPolicy>(
+  "FunctionPartitionCreateRootPolicy",
+)({
+  type: Schema.Literal("partitionCreateRoot"),
+  table: Schema.String,
+  partitionField: Schema.Literal("_id"),
+}) {}
+
+export const FunctionPartitionMetadata = Schema.Union([
+  FunctionPartitionPolicy,
+  FunctionPartitionCreateRootPolicy,
+]);
+
+export class DeploymentFunctionMetadata extends Schema.Class<DeploymentFunctionMetadata>(
+  "DeploymentFunctionMetadata",
+)({
+  path: Schema.String,
+  kind: DeploymentFunctionKind,
+  visibility: Schema.optional(FunctionVisibility),
+  args: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  returns: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  route: Schema.optional(Schema.Union([FunctionRoutePolicy, Schema.Null])),
+  partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
+  position: Schema.optional(AnalyzedSourcePosition),
+}) {}
+
+export class DeploymentFunctions extends Schema.Class<DeploymentFunctions>(
+  "DeploymentFunctions",
+)({
+  functions: Schema.Array(DeploymentFunctionMetadata),
+}) {}
+
+export class DeploymentAnalysis extends Schema.Class<DeploymentAnalysis>(
+  "DeploymentAnalysis",
+)({
+  schema: DeploymentSchema,
+  functions: DeploymentFunctions,
+}) {}
+
+export class DeploymentCodegenFunction extends Schema.Class<DeploymentCodegenFunction>(
+  "DeploymentCodegenFunction",
+)({
+  moduleName: Schema.String,
+  exportName: Schema.String,
+  kind: DeploymentFunctionKind,
+  visibility: FunctionVisibility,
+  args: ValidatorJson,
+  returns: Schema.Union([ValidatorJson, Schema.Null]),
+  partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
+  position: Schema.optional(AnalyzedSourcePosition),
+}) {}
+
+export class DeploymentCodegenModule extends Schema.Class<DeploymentCodegenModule>(
+  "DeploymentCodegenModule",
+)({
+  moduleName: Schema.String,
+  functions: Schema.Array(DeploymentCodegenFunction),
+}) {}
+
+export class DeploymentCodegenAnalysis extends Schema.Class<DeploymentCodegenAnalysis>(
+  "DeploymentCodegenAnalysis",
+)({
+  schema: DeploymentSchema,
+  functions: Schema.Array(DeploymentCodegenModule),
+}) {}
+
 export class AnalyzedStartPushRequest extends Schema.Class<AnalyzedStartPushRequest>(
   "AnalyzedStartPushRequest",
 )({
@@ -66,16 +288,59 @@ export class PushStatus extends Schema.Class<PushStatus>("PushStatus")({
   pushId: Schema.String,
   state: PushState,
   sourcePackage: PushSourcePackage,
-  analysis: Schema.optional(Schema.Unknown),
-  codegenAnalysis: Schema.optional(Schema.Unknown),
+  analysis: Schema.optional(DeploymentAnalysis),
+  codegenAnalysis: Schema.optional(DeploymentCodegenAnalysis),
   error: Schema.optional(Schema.String),
   diagnostics: Schema.optional(Schema.Array(PushDiagnostic)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 }) {}
 
+export class ActivatedFinishPushResponse extends Schema.Class<ActivatedFinishPushResponse>(
+  "ActivatedFinishPushResponse",
+)({
+  result: Schema.Literal("activated"),
+  push: PushStatus,
+}) {}
+
+export class RejectedFinishPushResponse extends Schema.Class<RejectedFinishPushResponse>(
+  "RejectedFinishPushResponse",
+)({
+  result: Schema.Literal("rejected"),
+  push: PushStatus,
+  code: FinishPushRejectionCode,
+  error: Schema.String,
+  diagnostics: Schema.optional(Schema.Array(PushDiagnostic)),
+}) {}
+
+export const FinishPushResponse = Schema.Union([
+  ActivatedFinishPushResponse,
+  RejectedFinishPushResponse,
+]);
+
+export class ActiveDeploymentStatus extends Schema.Class<ActiveDeploymentStatus>(
+  "ActiveDeploymentStatus",
+)({
+  activePushId: Schema.String,
+  activatedAt: Schema.Number,
+  schemaVersion: Schema.Number,
+  executionArtifactRef: Schema.Struct({
+    runtime: Schema.Literal("dynamic-worker"),
+    artifactId: Schema.String,
+    sourcePackageHash: Schema.String,
+    executionModule: Schema.String,
+  }),
+  sourcePackage: PushSourcePackage,
+  analysis: DeploymentAnalysis,
+  codegenAnalysis: DeploymentCodegenAnalysis,
+}) {}
+
 const decodeAbandonPushRequest = Schema.decodeUnknownSync(AbandonPushRequest);
 const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPushRequest);
+const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
+const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
+const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
+const decodeFinishPushResponse = Schema.decodeUnknownSync(FinishPushResponse);
 const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
 const decodePushStatus = Schema.decodeUnknownSync(PushStatus);
 
@@ -112,6 +377,30 @@ export function parsePushSourcePackage(value: unknown): PushSourcePackage {
     throw new DeploymentProtocolValidationError({
       schema: "PushSourcePackage",
       message: "Source package must include modules, functions, and execution fields with valid module entries.",
+      cause,
+    });
+  }
+}
+
+export function parseDeploymentAnalysis(value: unknown): DeploymentAnalysis {
+  try {
+    return decodeDeploymentAnalysis(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "DeploymentAnalysis",
+      message: "Deployment analysis did not match the deployment protocol.",
+      cause,
+    });
+  }
+}
+
+export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodegenAnalysis {
+  try {
+    return decodeDeploymentCodegenAnalysis(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "DeploymentCodegenAnalysis",
+      message: "Deployment codegen analysis did not match the deployment protocol.",
       cause,
     });
   }
@@ -173,6 +462,18 @@ export function parseAnalyzedStartPushRequest(value: unknown): AnalyzedStartPush
   }
 }
 
+export function parseActiveDeploymentStatus(value: unknown): ActiveDeploymentStatus {
+  try {
+    return decodeActiveDeploymentStatus(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "ActiveDeploymentStatus",
+      message: "Active deployment status response did not match the deployment protocol.",
+      cause,
+    });
+  }
+}
+
 export function parsePushStatus(value: unknown): PushStatus {
   try {
     return decodePushStatus(value);
@@ -180,6 +481,18 @@ export function parsePushStatus(value: unknown): PushStatus {
     throw new DeploymentProtocolValidationError({
       schema: "PushStatus",
       message: "Push status response did not match the deployment protocol.",
+      cause,
+    });
+  }
+}
+
+export function parseFinishPushResponse(value: unknown) {
+  try {
+    return decodeFinishPushResponse(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "FinishPushResponse",
+      message: "Finish push response did not match the deployment protocol.",
       cause,
     });
   }

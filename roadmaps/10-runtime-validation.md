@@ -1,5 +1,65 @@
 # Runtime Validation
 
+## Deployment Analysis Response Protocol Validation
+
+Previous completed checkpoint: `bc2d552` Add deployment push-start protocol
+schema.
+
+What changed:
+
+- `flarex-protocol/deployment` now contains structural Effect Schema contracts
+  for `ValidatorJson`, deployment schema tables/indexes, function metadata,
+  deployment analysis, codegen analysis, active deployment status, and
+  finish-push responses.
+- `parsePushStatus` now validates deep `analysis` and `codegenAnalysis`
+  response payloads instead of leaving them as `unknown`.
+- Backend push tests now parse successful push status, active deployment, and
+  activated finish response bodies through the shared protocol parsers.
+- Focused protocol tests cover valid deep deployment/codegen analysis payloads,
+  push/finish response parsing, and malformed deep codegen rejection.
+
+Why it changed:
+
+Goal 5 proved the analyzed push-start wrapper boundary. The next safe step is
+to make response parsing validate the deep deployment payloads before moving
+those checks into write-route request handling.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint mirrors Flarex's
+  current backend-owned deployment metadata shape; Convex deployment analysis
+  references remain tracked in the deployment roadmap.
+
+Cloudflare differences:
+
+- The runtime still validates writes inside the Cloudflare Durable Object. The
+  new schemas are shared response/parser contracts and do not replace
+  `DeploymentDO` semantic validators.
+
+Known limitations:
+
+- `parseAnalyzedStartPushRequest` still keeps `analysis`, `codegenAnalysis`,
+  source package semantics, and diagnostics item validation with
+  `DeploymentDO` helpers so existing HTTP 400 messages remain stable.
+- Structural schemas do not yet encode cross-field semantics such as partition
+  metadata matching table placement or codegen functions covering every
+  deployment function.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deployment Push Start Protocol Validation
 
 Previous completed checkpoint: `6d026a9` Add deployment abandon protocol

@@ -1,5 +1,62 @@
 # Package Boundaries
 
+## Deployment Analysis Protocol Boundary
+
+Previous completed checkpoint: `bc2d552` Add deployment push-start protocol
+schema.
+
+What changed:
+
+- `flarex-protocol/deployment` now exports deep deployment metadata schemas:
+  `ValidatorJson`, placement/schema/function metadata, deployment analysis,
+  codegen analysis, active deployment status, and finish-push response
+  contracts.
+- `PushStatus` response parsing now depends on those deep schemas for
+  `analysis` and `codegenAnalysis`.
+- Backend tests consume the new parser exports at JSON boundaries for push
+  status, active deployment status, and activated finish responses.
+- The protocol package has its own focused deployment schema tests.
+
+Why it changed:
+
+This keeps shared transport contracts in the protocol package and gives the
+next service-extraction slice a typed response surface without moving
+Durable Object write semantics yet.
+
+Convex references inspected:
+
+- No new Convex source files were required. The shape is Flarex's current
+  backend analysis contract, which remains the Cloudflare-side analogue to
+  backend-authoritative deployment metadata.
+
+Flarex differences:
+
+- Flarex is extracting these contracts from a Durable Object implementation.
+  Convex already has mature deploy API/service boundaries, while Flarex is
+  proving the protocol package incrementally.
+
+Known limitations:
+
+- Deep request decoding for `/push/start-analyzed` is intentionally deferred.
+  `DeploymentDO` still owns semantic checks and exact validation messages.
+- `ValidatorJson` is represented structurally for transport parsing only; user
+  document/function validation still uses the existing validator runtime.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deployment Push Start Protocol Boundary
 
 Previous completed checkpoint: `6d026a9` Add deployment abandon protocol

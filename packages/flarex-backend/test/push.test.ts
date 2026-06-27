@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { parsePushStatus } from "flarex-protocol/deployment";
+import {
+  parseActiveDeploymentStatus,
+  parseFinishPushResponse,
+  parsePushStatus,
+} from "flarex-protocol/deployment";
 import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
@@ -176,7 +180,7 @@ describe("deployment push lifecycle", () => {
         { sourcePackage: package_ },
       );
       expect(response.ok).toBe(true);
-      const started = await response.json() as PushStatus;
+      const started = parsePushStatus(await response.json()) as PushStatus;
 
       expect(analyzerRequest).toEqual({
         deploymentId: "push-source-analyzed",
@@ -219,7 +223,7 @@ describe("deployment push lifecycle", () => {
         { sourcePackage: sourcePackage() },
       );
       expect(response.ok).toBe(true);
-      const started = await response.json() as PushStatus;
+      const started = parsePushStatus(await response.json()) as PushStatus;
 
       expect(started.state).toBe("failed");
       expect(started.error).toBe("Backend analyzer response did not include codegenAnalysis.");
@@ -249,7 +253,7 @@ describe("deployment push lifecycle", () => {
         { sourcePackage: sourcePackage() },
       );
       expect(response.ok).toBe(true);
-      const started = await response.json() as PushStatus;
+      const started = parsePushStatus(await response.json()) as PushStatus;
 
       expect(started.state).toBe("failed");
       expect(started.error).toBe("Analyzer request failed with status 200");
@@ -1084,7 +1088,7 @@ async function getPush(deploymentId: string, pushId: string): Promise<PushStatus
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}`,
   );
   expect(response.ok).toBe(true);
-  return response.json() as Promise<PushStatus>;
+  return parsePushStatus(await response.json()) as PushStatus;
 }
 
 async function getActiveDeployment(deploymentId: string): Promise<ActiveDeploymentStatus> {
@@ -1097,7 +1101,7 @@ async function getActiveDeploymentWithHarness(
 ): Promise<ActiveDeploymentStatus> {
   const response = await getActiveDeploymentResponseWithHarness(target, deploymentId);
   expect(response.ok).toBe(true);
-  return response.json() as Promise<ActiveDeploymentStatus>;
+  return parseActiveDeploymentStatus(await response.json()) as ActiveDeploymentStatus;
 }
 
 async function getActiveDeploymentResponse(
@@ -1126,7 +1130,7 @@ async function finishPushWithHarness(
 ): Promise<PushStatus> {
   const response = await finishPushResponseWithHarness(target, deploymentId, pushId);
   expect(response.ok).toBe(true);
-  const body = await response.json() as FinishPushResponse;
+  const body = parseFinishPushResponse(await response.json()) as FinishPushResponse;
   expect(body.result).toBe("activated");
   return body.push;
 }
