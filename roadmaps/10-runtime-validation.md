@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Deployment Finish Response HTTP Status Boundary
+
+Previous completed checkpoint: `78f0661` Add finish push request protocol
+parser.
+
+What changed:
+
+- Added `finishPushHttpStatus(response)` to the deployment HTTP-boundary helper.
+- Replaced route-local finish response status selection with the helper.
+- Added direct tests for activated and rejected finish response status mapping.
+
+Why it changed:
+
+Finish-push status selection is HTTP-boundary behavior, not service
+orchestration. Moving it beside deployment failure mapping keeps
+`DeploymentDO.fetch()` focused on routing, parsing, and response construction
+while preserving the same runtime boundary.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint is a Flarex
+  response-boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object runtime behavior is unchanged. `DeploymentDO.runDeployment()`
+  remains the only `ManagedRuntime.runPromise` boundary.
+
+Known limitations:
+
+- This is not an HttpApi migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Finish Request Protocol Boundary
 
 Previous completed checkpoint: `817f1f3` Extract deployment storage schema

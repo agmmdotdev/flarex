@@ -5,6 +5,7 @@ import {
   DeploymentPushNotFoundError,
 } from "./Errors";
 import type { DeploymentSqlError } from "./Store";
+import type { FinishPushResponse } from "../types";
 
 export type DeploymentServiceFailure =
   | DeploymentActiveDeploymentNotFoundError
@@ -27,4 +28,8 @@ export function deploymentFailureToHttpError(error: DeploymentServiceFailure): H
     return error;
   }
   return new HttpError(500, "Deployment storage error.");
+}
+
+export function finishPushHttpStatus(response: FinishPushResponse): 200 | 409 {
+  return response.result === "rejected" ? 409 : 200;
 }

@@ -1,5 +1,53 @@
 # Deployment Analysis And Push
 
+## Deployment Finish Response HTTP Status Boundary
+
+Previous completed checkpoint: `78f0661` Add finish push request protocol
+parser.
+
+What changed:
+
+- Moved finish response HTTP status selection into
+  `deployment/HttpBoundary.ts`.
+- Preserved `200` for activated finish responses and `409` for rejected finish
+  responses.
+- Added direct tests for the status mapping.
+
+Why it changed:
+
+The finish route now has protocol-owned request parsing and service-owned
+activation orchestration. The remaining status mapping is HTTP-boundary logic,
+so keeping it in the deployment boundary helper makes the route branch smaller
+without changing behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  deployment push HTTP boundary.
+
+Flarex differences:
+
+- This is not a protocol schema change and not a service/store orchestration
+  change.
+- Request-side deep `analysis` and `codegenAnalysis` decoding remains backend
+  validation owned.
+
+Known limitations:
+
+- This is not an HttpApi migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentStorageSchema.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Finish Request Protocol Boundary
 
 Previous completed checkpoint: `817f1f3` Extract deployment storage schema

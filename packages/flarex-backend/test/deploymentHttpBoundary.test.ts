@@ -4,9 +4,13 @@ import {
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
 } from "../src/deployment/Errors";
-import { deploymentFailureToHttpError } from "../src/deployment/HttpBoundary";
+import {
+  deploymentFailureToHttpError,
+  finishPushHttpStatus,
+} from "../src/deployment/HttpBoundary";
 import { DeploymentSqlError } from "../src/deployment/Store";
 import { HttpError } from "../src/http";
+import type { PushStatus } from "../src/types";
 
 describe("deployment HTTP boundary", () => {
   it("maps typed service failures to preserved HTTP errors", () => {
@@ -51,10 +55,44 @@ describe("deployment HTTP boundary", () => {
       "Deployment storage error.",
     );
   });
+
+  it("maps finish push responses to preserved HTTP statuses", () => {
+    expect(finishPushHttpStatus({
+      result: "activated",
+      push: pushStatus("push-activated", "activated"),
+    })).toBe(200);
+
+    expect(finishPushHttpStatus({
+      result: "rejected",
+      push: pushStatus("push-rejected", "failed"),
+      code: "invalid_state",
+      error: "Cannot finish push push-rejected in state failed.",
+    })).toBe(409);
+  });
 });
 
 function expectHttpError(error: HttpError, status: number, message: string): void {
   expect(error).toBeInstanceOf(HttpError);
   expect(error.status).toBe(status);
   expect(error.message).toBe(message);
+}
+
+function pushStatus(pushId: string, state: PushStatus["state"]): PushStatus {
+  return {
+    pushId,
+    state,
+    sourcePackage: {
+      modules: [
+        {
+          path: "__execution.ts",
+          environment: "isolate",
+          sha256: "a".repeat(64),
+        },
+      ],
+      functions: [],
+      execution: "__execution.ts",
+    },
+    createdAt: 1,
+    updatedAt: 2,
+  };
 }
