@@ -1,5 +1,55 @@
 # Runtime Validation
 
+## Deployment Store Schema Function Application
+
+Previous completed checkpoint: `e739957` Move deployment push reads into
+store.
+
+What changed:
+
+- Moved deployment schema and function application SQL writes into
+  `DeploymentPushStore`.
+- Removed `applySchema` and `applyFunctions` callbacks from
+  `DeploymentPushStore.layer` and `makeDeploymentLayer`.
+- Kept `DeploymentDO` responsible for SQL handle ownership, HTTP routing,
+  runtime construction, and metadata callbacks.
+- Updated direct store tests so finish-push validation failures occur through
+  the store-owned application path.
+
+Why it changed:
+
+Push reads already moved into the store. The matching activation writes belong
+at the same storage boundary so finish-push transaction behavior is owned in
+one place while the Durable Object remains the host/runtime boundary.
+
+Convex references inspected:
+
+- No new Convex source files were required. This checkpoint remains a
+  Flarex-internal store boundary cleanup.
+
+Cloudflare differences:
+
+- Durable Object SQLite storage is still the underlying database. The store
+  performs the activation writes through the SQL handle passed into its layer.
+
+Known limitations:
+
+- Metadata access still uses callbacks supplied by `DeploymentDO`.
+- Deep protocol decoding remains intentionally separate from backend
+  validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Store Push Read Validation
 
 Previous completed checkpoint: `ce58f78` Extract deployment push row

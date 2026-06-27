@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ce58f78` Extract deployment push row normalization.
-- Active checkpoint: move push-row SQL reads into `DeploymentPushStore` so `DeploymentDO` no longer supplies a `readPush` callback.
+- Previous completed checkpoint: `e739957` Move deployment push reads into store.
+- Active checkpoint: move schema/function application SQL writes into `DeploymentPushStore` while leaving deployment metadata callbacks in `DeploymentDO`.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 18 slice:
+Current Goal 19 slice:
+
+1. Move schema/function application SQL writes from `DeploymentDO` callbacks into `DeploymentPushStore`.
+2. Remove `applySchema` and `applyFunctions` from `makeDeploymentLayer` and `DeploymentPushStore.layer`.
+3. Keep `DeploymentDO` responsible for SQL handle ownership, HTTP routing, runtime construction, and metadata callbacks.
+4. Preserve schema/function validation `HttpError` passthrough and `DeploymentSqlError` mapping for non-HTTP finish transaction failures.
+5. Update direct store tests to exercise the store-owned schema/function application path.
+6. Do not change route behavior, protocol schemas, row normalization, service orchestration, metadata semantics, or deployment SQL schema in this slice.
+7. Validate with focused deployment service/validation/push tests, full backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 18 slice:
 
 1. Move the `SELECT push_id, ... FROM pushes WHERE push_id = ?` read into `DeploymentPushStore`.
 2. Remove the `readPush` callback from `makeDeploymentLayer` and `DeploymentPushStore.layer`.
@@ -162,11 +172,11 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 18 should be one of:
+Next checkpoint after Goal 19 should be one of:
 
 - Decide whether to move deep `analysis` and `codegenAnalysis` request decoding into `parseAnalyzedStartPushRequest` while preserving DeploymentDO's exact validation messages.
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
-- Review whether schema/function application callbacks should stay in `DeploymentDO` or move behind store methods with exact `HttpError` behavior preserved.
+- Review whether metadata callbacks (`setMeta`/`getMeta`) should stay on `DeploymentDO` or move behind store-owned helpers without changing active deployment semantics.
 - Spike `HttpApiBuilder` for RegistryDO only if the current plain-router + Effect-service split remains clean.
 
 My take: yes, this is the right **roadmap direction**, but I would not execute it as written. It is too large to be an implementation plan.

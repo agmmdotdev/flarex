@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Deployment Store Activation Write Boundary
+
+Previous completed checkpoint: `e739957` Move deployment push reads into
+store.
+
+What changed:
+
+- Moved schema table/index writes and function metadata writes into
+  `DeploymentPushStore`.
+- Removed schema/function application callbacks from the deployment layer
+  constructor surface.
+- Kept `DeploymentDO` as the owner of the SQL handle, route/runtime boundary,
+  and deployment metadata callbacks.
+- Updated direct store tests to prove store-owned activation application still
+  preserves `HttpError` passthrough.
+
+Why it changed:
+
+The store should own the storage operations that activate a deployment push.
+This reduces callback surface while keeping route behavior and service
+orchestration unchanged.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex package
+  boundary refinement.
+
+Flarex differences:
+
+- This does not introduce a global repository abstraction. Activation writes
+  still execute against the current Durable Object SQLite handle.
+
+Known limitations:
+
+- Metadata access remains callback-based for this slice.
+- A later slice can evaluate whether metadata helpers should move into the
+  store.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/push.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Store Push Read Boundary
 
 Previous completed checkpoint: `ce58f78` Extract deployment push row

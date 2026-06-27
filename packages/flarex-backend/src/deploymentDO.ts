@@ -19,8 +19,6 @@ import {
   validateAnalysis,
   validateCodegenAnalysis,
   validateDiagnostics,
-  validateFunctions,
-  validateSchema,
   validateSourcePackage,
 } from "./deployment/Validation";
 import { errorResponse, HttpError, json, readJson } from "./http";
@@ -28,8 +26,6 @@ import type {
   ActiveDeploymentStatus,
   AbandonPushRequest,
   AnalyzedStartPushRequest,
-  DeploymentFunctions,
-  DeploymentSchema,
   Env,
   FinishPushResponse,
   FinishPushRequest,
@@ -42,8 +38,6 @@ export class DeploymentDO extends DurableObject<Env> {
     makeDeploymentLayer(
       this.ctx.storage,
       this.sql,
-      schema => this.applySchema(schema),
-      functions => this.applyFunctions(functions),
       (key, value) => this.setMeta(key, value),
       key => this.getMeta(key),
     ),
@@ -240,62 +234,6 @@ export class DeploymentDO extends DurableObject<Env> {
     return this.runDeployment(
       DeploymentService.use(service => service.abandonPush(pushId, request)),
     );
-  }
-
-  private applySchema(schema: DeploymentSchema): DeploymentSchema {
-    const normalized = validateSchema(schema);
-    this.sql.exec("DELETE FROM indexes");
-    this.sql.exec("DELETE FROM tables");
-    for (const table of normalized.tables) {
-      this.sql.exec(
-        `
-        INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
-        VALUES (?, ?, ?, ?, ?)
-        `,
-        table.tableId,
-        table.name,
-        table.state ?? "active",
-        JSON.stringify(table.validator ?? null),
-        JSON.stringify(table.placement),
-      );
-    }
-    for (const index of normalized.indexes) {
-      this.sql.exec(
-        `
-        INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
-        VALUES (?, ?, ?, ?, ?)
-        `,
-        index.indexId,
-        index.tableId,
-        index.name,
-        JSON.stringify(index.fields),
-        index.state ?? "enabled",
-      );
-    }
-    this.setMeta("schema_version", String(normalized.version));
-    return normalized;
-  }
-
-  private applyFunctions(functions: DeploymentFunctions): DeploymentFunctions {
-    const normalized = validateFunctions(functions);
-    this.sql.exec("DELETE FROM functions");
-    for (const metadata of normalized.functions) {
-      this.sql.exec(
-        `
-        INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        metadata.path,
-        metadata.kind,
-        metadata.visibility,
-        JSON.stringify(metadata.args),
-        JSON.stringify(metadata.returns),
-        JSON.stringify(metadata.route ?? null),
-        JSON.stringify(metadata.partition ?? null),
-        metadata.position === undefined ? null : JSON.stringify(metadata.position),
-      );
-    }
-    return normalized;
   }
 
   private setMetaIfMissing(key: string, value: string): void {

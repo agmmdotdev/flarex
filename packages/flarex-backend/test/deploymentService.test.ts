@@ -398,15 +398,17 @@ describe("DeploymentService", () => {
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
-    const sql = sqlWithPushes([status]);
+    const sql = sqlWithPushes([status], {
+      onExec: query => {
+        if (query.includes("DELETE FROM indexes")) {
+          throw failure;
+        }
+      },
+    });
     const runtime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         storage,
         sql,
-        () => {
-          throw failure;
-        },
-        functions => functions,
         () => undefined,
         () => null,
       ),
@@ -602,8 +604,6 @@ describe("DeploymentService", () => {
       DeploymentPushStore.layer(
         storage,
         sql,
-        schema => schema,
-        functions => functions,
         () => undefined,
         () => null,
       ),
@@ -641,8 +641,6 @@ describe("DeploymentService", () => {
       DeploymentPushStore.layer(
         storage,
         sql,
-        schema => schema,
-        functions => functions,
         () => undefined,
         key => metadata.get(key) ?? null,
       ),
@@ -776,16 +774,22 @@ function pushStatusFromStoreInput(input: StartAnalyzedPushStoreInput): PushStatu
   };
 }
 
-function sqlWithPushes(pushes: ReadonlyArray<PushStatus>): DeploymentSqlStorage {
+function sqlWithPushes(
+  pushes: ReadonlyArray<PushStatus>,
+  options: { readonly onExec?: (query: string) => void } = {},
+): DeploymentSqlStorage {
   const rows = new Map(pushes.map(push => [push.pushId, pushStatusRow(push)]));
   return {
-    exec: (_query: string, pushId?: string) => ({
-      toArray: () => {
-        if (typeof pushId !== "string") return [];
-        const row = rows.get(pushId);
-        return row === undefined ? [] : [row];
-      },
-    }),
+    exec: (query: string, pushId?: string) => {
+      options.onExec?.(query);
+      return {
+        toArray: () => {
+          if (typeof pushId !== "string") return [];
+          const row = rows.get(pushId);
+          return row === undefined ? [] : [row];
+        },
+      };
+    },
   } as unknown as DeploymentSqlStorage;
 }
 

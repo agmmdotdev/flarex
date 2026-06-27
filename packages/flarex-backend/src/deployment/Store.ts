@@ -2,7 +2,12 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { validateExecutionArtifactRef } from "flarex/artifacts";
 import { HttpError } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
-import { pushStatusFromRow, type DeploymentPushStatusRow } from "./Validation";
+import {
+  pushStatusFromRow,
+  validateFunctions,
+  validateSchema,
+  type DeploymentPushStatusRow,
+} from "./Validation";
 import type {
   ActiveDeploymentStatus,
   DeploymentAnalysis,
@@ -72,8 +77,6 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   static layer(
     storage: DeploymentTransactionStorage,
     sql: DeploymentSqlStorage,
-    applySchema: (schema: DeploymentSchema) => DeploymentSchema,
-    applyFunctions: (functions: DeploymentFunctions) => DeploymentFunctions,
     setMeta: (key: string, value: string) => void,
     getMeta: (key: string) => string | null,
   ) {
@@ -92,6 +95,62 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             )
             .toArray()[0];
           return row === undefined ? null : pushStatusFromRow(row);
+        };
+
+        const applySchema = (schema: DeploymentSchema): DeploymentSchema => {
+          const normalized = validateSchema(schema);
+          sql.exec("DELETE FROM indexes");
+          sql.exec("DELETE FROM tables");
+          for (const table of normalized.tables) {
+            sql.exec(
+              `
+              INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
+              VALUES (?, ?, ?, ?, ?)
+              `,
+              table.tableId,
+              table.name,
+              table.state ?? "active",
+              JSON.stringify(table.validator ?? null),
+              JSON.stringify(table.placement),
+            );
+          }
+          for (const index of normalized.indexes) {
+            sql.exec(
+              `
+              INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
+              VALUES (?, ?, ?, ?, ?)
+              `,
+              index.indexId,
+              index.tableId,
+              index.name,
+              JSON.stringify(index.fields),
+              index.state ?? "enabled",
+            );
+          }
+          setMeta("schema_version", String(normalized.version));
+          return normalized;
+        };
+
+        const applyFunctions = (functions: DeploymentFunctions): DeploymentFunctions => {
+          const normalized = validateFunctions(functions);
+          sql.exec("DELETE FROM functions");
+          for (const metadata of normalized.functions) {
+            sql.exec(
+              `
+              INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `,
+              metadata.path,
+              metadata.kind,
+              metadata.visibility,
+              JSON.stringify(metadata.args),
+              JSON.stringify(metadata.returns),
+              JSON.stringify(metadata.route ?? null),
+              JSON.stringify(metadata.partition ?? null),
+              metadata.position === undefined ? null : JSON.stringify(metadata.position),
+            );
+          }
+          return normalized;
         };
 
         const getPush = Effect.fn("DeploymentPushStore.getPush")(
