@@ -393,8 +393,9 @@ describe("deployment validation", () => {
       functions: simpleFunctions(),
     });
 
-    expect(() => validateCodegenAnalysis("not-codegen", analysis)).toThrow(
-      new HttpError(400, "Codegen analysis must be an object."),
+    expectDeploymentValidationFailure(
+      () => validateCodegenAnalysis("not-codegen", analysis),
+      "Codegen analysis must be an object.",
     );
     expect(() =>
       validateCodegenAnalysis({

@@ -1,5 +1,43 @@
 # Deployment Analysis And Push
 
+## Deployment Codegen Analysis Object Validation Typed Error
+
+Previous completed checkpoint: `4363eea` Type deployment analysis validation failures.
+
+What changed:
+
+- `validateCodegenAnalysis(...)` now emits `DeploymentValidationError` instead
+  of raw `HttpError(400)` when codegen analysis is not an object.
+- Generated start-analyzed handler behavior is unchanged: non-object codegen
+  analysis still returns `400` with the same message.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis validation, schema, function metadata,
+  codegen detail validation, finish/abandon/active-deployment behavior,
+  route-boundary JSON/protocol decoders, generated Deployment HttpApi routing,
+  public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+The top-level codegen-analysis shape check is part of deployment domain
+validation. Keeping it as `HttpError(400)` made the domain layer depend on an
+adapter-shaped error. This checkpoint moves that failure to
+`DeploymentValidationError` and leaves HTTP conversion at the generated handler
+boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "codegen analysis validation|invalid analyzed start-push|typed analyzed start-push|maps service failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Analysis Object Validation Typed Error
 
 Previous completed checkpoint: `4aa2aa9` Type failed start validation failures.

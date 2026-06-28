@@ -489,7 +489,7 @@ export function validateCodegenAnalysis(
   analysis: DeploymentAnalysis,
 ): DeploymentCodegenAnalysis {
   if (!isRecord(codegenAnalysis)) {
-    throw new HttpError(400, "Codegen analysis must be an object.");
+    throwDeploymentValidation("Codegen analysis must be an object.");
   }
   const schema = validateSchema(codegenAnalysis.schema);
   if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
