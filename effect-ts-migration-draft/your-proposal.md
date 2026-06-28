@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f21421f` Document execution abort boundary.
-- Active checkpoint: add a public execution action forwarding boundary so Worker forwarding validates syscall and finish bodies before Durable Object dispatch while preserving abort compatibility.
+- Previous completed checkpoint: `94e9d0c` Decode public execution action bodies.
+- Active checkpoint: decode `ConnectionDO` live-query delivery bodies at a dedicated route boundary and return JSON 400s for malformed or invalid delivery requests.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 61 slice:
+Current Goal 62 slice:
+
+1. Add a backend-only `connection/RouteBoundary.ts` helper that reads `/deliver/live-query` JSON once through the shared `readJson` boundary.
+2. Decode the delivery envelope through the existing `liveQueryDeliveryChangesFromBody(...)` parser and map invalid delivery bodies to `HttpError(400, ...)`.
+3. Use the decoded `LiveQueryDeliveryChange[]` in `ConnectionDO.deliverLiveQueryChanges(...)` so that route parsing is separated from socket fanout and skip accounting.
+4. Scope `errorResponse(...)` handling to the live-query delivery route so malformed JSON and invalid delivery envelopes return JSON 400s without changing `/invalidate`, WebSocket setup, heartbeat, or force-reconnect behavior.
+5. Keep `DeliveryDO`, Worker public routes, PartitionDO, executor-http, execution sessions, and `ValidatorJson` untouched.
+6. Add focused boundary tests for successful decode, invalid envelope mapping, malformed JSON handling, and a route-level sync test proving malformed delivery JSON returns `400 { error }`.
+7. Validate with focused connection boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 61 slice:
 
 1. Add a backend-only public execution action route-boundary helper that reads JSON once for `syscall`, `finish`, and `abort` forwarding.
 2. Decode public `syscall` bodies through the existing `parseExecutionSyscallRouteRequest` adapter before forwarding to `ExecutionDO`.

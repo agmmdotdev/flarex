@@ -1,14 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
-import { json } from "./http";
+import { readConnectionLiveQueryDeliveryRequest } from "./connection/RouteBoundary";
+import { errorResponse, json } from "./http";
 import {
   executeInvoke,
   loadActiveDeployment,
 } from "./invoke";
 import {
   addLiveQueryDeliverySkipReason,
-  liveQueryDeliveryChangesFromBody,
   liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliverySkipReasons,
@@ -86,7 +86,13 @@ export class ConnectionDO extends DurableObject<Env> {
       return this.invalidate(await request.json());
     }
     if (url.pathname === "/deliver/live-query" && request.method === "POST") {
-      return this.deliverLiveQueryChanges(await request.json());
+      let deliveries: LiveQueryDeliveryChange[];
+      try {
+        deliveries = await readConnectionLiveQueryDeliveryRequest(request);
+      } catch (error) {
+        return errorResponse(error);
+      }
+      return this.deliverLiveQueryChanges(deliveries);
     }
     if (url.pathname === "/force-reconnect" && request.method === "POST") {
       return this.forceReconnect();
@@ -396,8 +402,9 @@ export class ConnectionDO extends DurableObject<Env> {
     return json({ invalidated: true });
   }
 
-  private async deliverLiveQueryChanges(body: unknown): Promise<Response> {
-    const deliveries = liveQueryDeliveryChangesFromBody(body);
+  private async deliverLiveQueryChanges(
+    deliveries: LiveQueryDeliveryChange[],
+  ): Promise<Response> {
     const startVersion = this.currentVersion();
     const modifications: StateModification[] = [];
     let skipped = 0;

@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Connection Live Query Delivery Boundary
+
+Previous completed checkpoint: `94e9d0c` Decode public execution action bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/connection/RouteBoundary.ts` to own
+  `ConnectionDO` live-query delivery body reads.
+- `POST /deliver/live-query` now decodes request JSON through the shared
+  `readJson` boundary, then validates the delivery envelope through the
+  existing live-query delivery parser.
+- Invalid delivery envelopes and malformed JSON now return JSON `400` responses
+  from the connection route instead of escaping as unhandled Durable Object
+  failures.
+- `ConnectionDO.deliverLiveQueryChanges(...)` now receives decoded
+  `LiveQueryDeliveryChange[]` values and remains responsible for socket fanout,
+  stale-skip accounting, and transition emission.
+- `/invalidate`, WebSocket setup, heartbeat, force-reconnect, DeliveryDO,
+  PartitionDO, executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After execution start/syscall/finish/action forwarding moved behind explicit
+route boundaries, `ConnectionDO /deliver/live-query` remained a small unchecked
+internal body read. This checkpoint moves the delivery JSON edge into a named
+boundary without changing live-query delivery semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "connection route boundary|rejects malformed live query delivery JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Execution Action Forwarding Boundary
 
 Previous completed checkpoint: `f21421f` Document execution abort boundary.

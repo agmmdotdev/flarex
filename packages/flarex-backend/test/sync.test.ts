@@ -1548,6 +1548,46 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("rejects malformed live query delivery JSON at the connection route boundary", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-delivery-boundary-deployment:delivery-session",
+    );
+
+    const response = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid live query delivery envelopes at the connection route boundary", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-delivery-envelope-boundary-deployment:delivery-session",
+    );
+
+    const response = await connection.fetch("https://flarex.internal/deliver/live-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deliveries: [{ queryId: 1 }] }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+  });
+
   it("skips stale failed live query deliveries after a newer result is active", async () => {
     const runtimeCalls: unknown[] = [];
     const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));

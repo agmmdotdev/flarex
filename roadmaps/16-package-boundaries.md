@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Connection Live Query Delivery Route Boundary
+
+Previous completed checkpoint: `94e9d0c` Decode public execution action bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/connection/RouteBoundary.ts` now owns the
+  `ConnectionDO` live-query delivery request-body boundary.
+- The boundary delegates delivery-envelope validation to the existing
+  `liveQueryDeliveryChangesFromBody(...)` parser and maps invalid delivery
+  requests to the shared `HttpError(400, ...)` response path.
+- `ConnectionDO` still owns route matching, live WebSocket state, delivery
+  skip reasons, and transition emission.
+
+Boundary decision:
+
+`ConnectionDO /deliver/live-query` is an internal fanout endpoint, but it is
+still a transport boundary. Body reads should be centralized in a route helper
+before delivery arrays reach mutable connection state. The existing
+live-query delivery parser remains the single shape checker for this slice
+until a future protocol package contract replaces it.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "connection route boundary|rejects malformed live query delivery JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Execution Action Route Boundary
 
 Previous completed checkpoint: `f21421f` Document execution abort boundary.
