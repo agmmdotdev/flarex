@@ -10,6 +10,7 @@ import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
 import { DeploymentPushStore, type DeploymentSqlError } from "./Store";
 import type { StartAnalyzedPushServiceInput } from "./Validation";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
@@ -20,7 +21,7 @@ export type StartAnalyzedPushInput = StartAnalyzedPushServiceInput;
 export interface DeploymentServiceApi {
   getActiveDeployment(): Effect.Effect<
     ActiveDeploymentStatus,
-    DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
+    DeploymentActiveDeploymentInvalidError | DeploymentActiveDeploymentNotFoundError | DeploymentSqlError
   >;
   getPush(pushId: string): Effect.Effect<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError>;
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
@@ -48,7 +49,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
       const getActiveDeployment = Effect.fn("DeploymentService.getActiveDeployment")(
         function* (): Effect.fn.Return<
           ActiveDeploymentStatus,
-          DeploymentActiveDeploymentNotFoundError | DeploymentSqlError | HttpError
+          DeploymentActiveDeploymentInvalidError | DeploymentActiveDeploymentNotFoundError | DeploymentSqlError
         > {
           const active = yield* store.getActiveDeployment();
           if (active === null) {

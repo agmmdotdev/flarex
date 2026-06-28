@@ -1,5 +1,47 @@
 # Package Boundaries
 
+## Deployment Active Metadata Typed Error
+
+Previous completed checkpoint: `7b54f17` Treat missing finish rows as storage failures.
+
+What changed:
+
+- Added `DeploymentActiveDeploymentInvalidError` for corrupt or incomplete
+  active-deployment metadata.
+- `DeploymentPushStore.getActiveDeployment(...)` now emits that typed error
+  for missing active push rows, missing analyzed deployment metadata, missing
+  execution artifact refs, and invalid stored artifact refs.
+- `DeploymentService.getActiveDeployment(...)` and
+  `mapDeploymentReadFailure(...)` keep active metadata failures typed until
+  adapter-level HTTP conversion.
+- `deploymentFailureToHttpError(...)` preserves the existing HTTP behavior:
+  missing active deployments return `404 No active deployment.`, invalid active
+  metadata returns the same `500` message, and storage failures return
+  `500 Deployment storage error.`.
+- Finish/start/abandon behavior, generated Deployment HttpApi handlers, public
+  Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  remain in their existing owners.
+
+Boundary decision:
+
+The store owns detection of invalid persisted active-deployment metadata and
+emits a typed failure. The service propagates that failure without remapping.
+HTTP response conversion remains at `deploymentFailureToHttpError(...)` and
+the generated handler response adapters.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "active deployment|typed service failures|maps service failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Finish Prevalidated Missing Error
 
 Previous completed checkpoint: `0008080` Keep abandon failures in deployment service.

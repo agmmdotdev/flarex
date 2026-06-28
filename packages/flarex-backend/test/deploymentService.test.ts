@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
@@ -91,11 +92,15 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
-  it("preserves active deployment HttpError failures from storage", async () => {
-    const failure = new HttpError(500, "Active push push-active is missing.");
+  it("preserves typed invalid active deployment failures from storage", async () => {
+    const failure = new DeploymentActiveDeploymentInvalidError({
+      message: "Active push push-active is missing.",
+    });
 
-    await expect(runDeployment(
-      DeploymentService.use(service => service.getActiveDeployment()),
+    const error = await runDeployment(
+      DeploymentService.use(service => service.getActiveDeployment()).pipe(
+        Effect.catchTag("DeploymentActiveDeploymentInvalidError", error => Effect.succeed(error)),
+      ),
       {
         now: 1_670_000,
         pushId: "unused-push-id",
@@ -103,7 +108,9 @@ describe("DeploymentService", () => {
           getActiveDeployment: () => Effect.fail(failure),
         },
       },
-    )).rejects.toBe(failure);
+    );
+
+    expect(error).toBe(failure);
   });
 
   it("loads push status through the store", async () => {
@@ -710,7 +717,7 @@ describe("DeploymentService", () => {
     }
   });
 
-  it("preserves active deployment HttpError failures from the storage read", async () => {
+  it("reports invalid active deployment metadata as typed storage metadata failure", async () => {
     const status = analyzedPushStatus("push-active-metadata");
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
@@ -728,12 +735,16 @@ describe("DeploymentService", () => {
     );
 
     try {
-      await expect(runtime.runPromise(
-        DeploymentPushStore.use(store => store.getActiveDeployment()),
-      )).rejects.toMatchObject({
-        status: 500,
-        message: `Active push ${status.pushId} has no execution artifact reference.`,
-      });
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store => store.getActiveDeployment()).pipe(
+          Effect.catchTag("DeploymentActiveDeploymentInvalidError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(error instanceof DeploymentActiveDeploymentInvalidError)) {
+        throw new Error("Expected DeploymentActiveDeploymentInvalidError.");
+      }
+      expect(error).toBeInstanceOf(DeploymentActiveDeploymentInvalidError);
+      expect(error.message).toBe(`Active push ${status.pushId} has no execution artifact reference.`);
     } finally {
       await runtime.dispose();
     }
@@ -742,7 +753,10 @@ describe("DeploymentService", () => {
 
 interface DeploymentTestStore {
   getPush?(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
-  getActiveDeployment?(): Effect.Effect<ActiveDeploymentStatus | null, DeploymentSqlError | HttpError>;
+  getActiveDeployment?(): Effect.Effect<
+    ActiveDeploymentStatus | null,
+    DeploymentActiveDeploymentInvalidError | DeploymentSqlError
+  >;
   startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
   abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;

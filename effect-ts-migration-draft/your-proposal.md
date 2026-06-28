@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `0008080` Keep abandon failures in deployment service.
-- Active checkpoint: remove the redundant HTTP-shaped finish-push not-found branch from the deployment store while preserving service-level typed not-found responses and finish activation validation behavior.
+- Previous completed checkpoint: `7b54f17` Treat missing finish rows as storage failures.
+- Active checkpoint: replace active-deployment metadata `HttpError(500)` failures from the deployment store with a typed `DeploymentActiveDeploymentInvalidError` while preserving read-route HTTP response bodies.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 104 slice:
+Current Goal 105 slice:
+
+1. Add `DeploymentActiveDeploymentInvalidError` for active-deployment metadata corruption or missing internal metadata.
+2. Change `DeploymentPushStore.getActiveDeployment(...)` so missing active push rows, missing analyzed metadata, missing execution artifact refs, and invalid stored artifact refs fail through `DeploymentActiveDeploymentInvalidError` instead of raw `HttpError(500)`.
+3. Narrow `DeploymentService.getActiveDeployment(...)` and `mapDeploymentReadFailure(...)` so active-deployment metadata failures are typed until the HTTP adapter boundary.
+4. Preserve HTTP read-route behavior through `deploymentFailureToHttpError(...)`: missing active deployment still returns `404 No active deployment.`, invalid active metadata still returns the existing `500` message, and storage failures still return `500 Deployment storage error.`.
+5. Keep finish/start/abandon behavior, generated Deployment HttpApi handlers, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused active-deployment service/store/HTTP-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 104 slice:
 
 1. Keep `DeploymentService.finishPush(...)` as the owner of public missing-push preflight with `DeploymentPushNotFoundError` before artifact lookup and persistence.
 2. Change `DeploymentPushStore.finishPush(...)` so a missing row during the prevalidated persistence transaction is treated as an internal storage/invariant failure (`DeploymentSqlError`) instead of `HttpError(404)`.

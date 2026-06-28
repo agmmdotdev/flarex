@@ -1,5 +1,6 @@
 import { HttpError } from "../http";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
@@ -8,6 +9,7 @@ import type { DeploymentSqlError } from "./Store";
 import type { FinishPushResponse } from "../types";
 
 export type DeploymentServiceFailure =
+  | DeploymentActiveDeploymentInvalidError
   | DeploymentActiveDeploymentNotFoundError
   | DeploymentPushInvalidStateError
   | DeploymentPushNotFoundError
@@ -17,6 +19,9 @@ export type DeploymentServiceFailure =
 export function deploymentFailureToHttpError(error: DeploymentServiceFailure): HttpError {
   if (error instanceof DeploymentActiveDeploymentNotFoundError) {
     return new HttpError(404, "No active deployment.");
+  }
+  if (error instanceof DeploymentActiveDeploymentInvalidError) {
+    return new HttpError(500, error.message);
   }
   if (error instanceof DeploymentPushNotFoundError) {
     return new HttpError(404, `Unknown push: ${error.pushId}`);

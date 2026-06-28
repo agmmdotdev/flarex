@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
@@ -18,6 +19,13 @@ describe("deployment HTTP boundary", () => {
       deploymentFailureToHttpError(new DeploymentActiveDeploymentNotFoundError()),
       404,
       "No active deployment.",
+    );
+    expectHttpError(
+      deploymentFailureToHttpError(new DeploymentActiveDeploymentInvalidError({
+        message: "Active push push-active has no execution artifact reference.",
+      })),
+      500,
+      "Active push push-active has no execution artifact reference.",
     );
 
     expectHttpError(

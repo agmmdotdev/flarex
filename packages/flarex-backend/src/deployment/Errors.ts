@@ -20,3 +20,10 @@ export class DeploymentActiveDeploymentNotFoundError extends Schema.TaggedErrorC
   "DeploymentActiveDeploymentNotFoundError",
   {},
 ) {}
+
+export class DeploymentActiveDeploymentInvalidError extends Schema.TaggedErrorClass<DeploymentActiveDeploymentInvalidError>()(
+  "DeploymentActiveDeploymentInvalidError",
+  {
+    message: Schema.String,
+  },
+) {}

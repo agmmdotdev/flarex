@@ -16,6 +16,7 @@ import {
 } from "flarex-protocol/deployment";
 import { HttpError } from "../http";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
@@ -92,7 +93,10 @@ export const DeploymentApiHandlers = HttpApiBuilder.group(
 export function mapDeploymentReadFailure<A>(
   effect: Effect.Effect<
     A,
-    DeploymentActiveDeploymentNotFoundError | DeploymentPushNotFoundError | DeploymentSqlError | HttpError
+    | DeploymentActiveDeploymentInvalidError
+    | DeploymentActiveDeploymentNotFoundError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
   >,
 ): Effect.Effect<A, DeploymentReadErrorResponse> {
   return effect.pipe(

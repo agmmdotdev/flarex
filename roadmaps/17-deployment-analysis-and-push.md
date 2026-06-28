@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment Active Metadata Typed Error
+
+Previous completed checkpoint: `7b54f17` Treat missing finish rows as storage failures.
+
+What changed:
+
+- Added `DeploymentActiveDeploymentInvalidError` for invalid persisted active
+  deployment metadata.
+- `DeploymentPushStore.getActiveDeployment(...)` now reports missing active
+  push rows, missing analyzed deployment metadata, missing execution artifact
+  refs, and invalid stored artifact refs as that typed failure instead of raw
+  `HttpError(500)`.
+- `DeploymentService.getActiveDeployment(...)` and the Deployment HttpApi read
+  failure mapper keep the failure typed until adapter conversion.
+- HTTP read-route behavior is preserved through `deploymentFailureToHttpError`:
+  no active deployment remains `404`, invalid active metadata keeps its
+  specific `500` message, and generic storage failures remain
+  `Deployment storage error.`.
+- Finish/start/abandon behavior, generated Deployment HttpApi handlers, public
+  Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+Active deployment reads still leaked HTTP-shaped internal metadata failures
+from the store. This checkpoint keeps persisted metadata validation typed in the
+deployment boundary and leaves HTTP status/body conversion at the adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "active deployment|typed service failures|maps service failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Finish Prevalidated Missing Error
 
 Previous completed checkpoint: `0008080` Keep abandon failures in deployment service.
