@@ -496,7 +496,7 @@ export function validateCodegenAnalysis(
     throw new HttpError(400, "Codegen analysis schema must match deployment analysis schema.");
   }
   if (!Array.isArray(codegenAnalysis.functions)) {
-    throw new HttpError(400, "Codegen analysis functions must be an array.");
+    throwDeploymentValidation("Codegen analysis functions must be an array.");
   }
 
   const metadataByPath = new Map(analysis.functions.functions.map(metadata => [metadata.path, metadata]));

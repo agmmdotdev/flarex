@@ -403,6 +403,15 @@ describe("deployment validation", () => {
         functions: [],
       }, analysis)
     ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: "not-functions",
+        }, analysis),
+      "Codegen analysis functions must be an array.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {
