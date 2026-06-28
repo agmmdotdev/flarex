@@ -1985,6 +1985,54 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("rejects malformed public live query delivery JSON at the Worker boundary", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-boundary-deployment/sync/deliver-live-query",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid public live query delivery envelopes at the Worker boundary", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-envelope-boundary-deployment/sync/deliver-live-query",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({ deliveries: [{ queryId: 1 }] }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+  });
+
   it("wakes DeliveryDO to claim, fanout, and ack live query deliveries", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

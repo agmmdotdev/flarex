@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a9d1e67` Decode partition subscription bodies.
-- Active checkpoint: decode PartitionDO commit bodies at the partition route boundary before commit/OCC execution runs.
+- Previous completed checkpoint: `ac853a0` Decode partition commit bodies.
+- Active checkpoint: decode public Worker live-query delivery bodies before connection fanout.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 73 slice:
+Current Goal 74 slice:
+
+1. Add a backend-only `liveQueryDelivery/RouteBoundary.ts` helper that reads public live-query delivery JSON once through the shared `readJson` boundary.
+2. Decode the existing public delivery envelope through `liveQueryDeliveryChangesFromBody(...)` and map parser errors to JSON `400 { error }` responses.
+3. Use the decoded deliveries in `routeLiveQueryDelivery(...)` before calling `deliverLiveQueryChangesToConnections(...)`.
+4. Keep authorization order, deployment target validation, connection fanout, `ConnectionDO` delivery routing, skip accounting, `DeliveryDO` wake/drain behavior, scheduler routes, partition routes, executor-http routes, and `ValidatorJson` untouched.
+5. Add focused helper tests for valid updated/failed deliveries, invalid envelopes, malformed JSON, and public Worker route tests proving malformed/invalid delivery JSON returns `400 { error }` before fanout.
+6. Validate with focused delivery boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 73 slice:
 
 1. Extend the backend-only `partition/RouteBoundary.ts` helper to read `POST /commit` JSON once through the shared `readJson` boundary.
 2. Decode only the commit request transport envelope: required integer `beginTs`, optional integer `schemaVersion`, optional string `source`, optional string `idempotencyKey`, optional object `readSet` with document/table/index read arrays, and required `writes` array with integer `tableId`, optional non-empty `id`, and JSON `value`.

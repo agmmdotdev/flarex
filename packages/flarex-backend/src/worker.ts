@@ -41,8 +41,8 @@ import {
 import { readPublicInvokeRequest } from "./invoke/PublicInvokeRouteBoundary";
 import {
   deliverLiveQueryChangesToConnections,
-  liveQueryDeliveryChangesFromBody,
 } from "./liveQueryDelivery";
+import { readPublicLiveQueryDeliveryRequest } from "./liveQueryDelivery/RouteBoundary";
 import { readPartitionCommitRequest } from "./partition/RouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
@@ -581,7 +581,7 @@ async function routeLiveQueryDelivery(
   deploymentId: string,
 ): Promise<Response> {
   authorizeLiveQueryDeliveryRequest(request, env);
-  const deliveries = liveQueryDeliveryChangesFromBody(await readJson(request));
+  const deliveries = await readPublicLiveQueryDeliveryRequest(request);
   return json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries));
 }
 

@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Live Query Delivery Route Boundary
+
+Previous completed checkpoint: `ac853a0` Decode partition commit bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/liveQueryDelivery/RouteBoundary.ts` now owns the
+  public Worker live-query delivery request-body boundary.
+- `POST /deployments/:deploymentId/sync/deliver-live-query` decodes through the
+  shared `readJson` boundary before `deliverLiveQueryChangesToConnections(...)`
+  groups deliveries and calls `ConnectionDO`.
+- The boundary extracts only the existing delivery transport envelope and keeps
+  the existing delivery parser messages.
+- Authorization, deployment scoping, fanout, `ConnectionDO` delivery behavior,
+  skip accounting, `DeliveryDO`, scheduler routes, partition routes,
+  executor-http routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The public Worker delivery callback is a transport boundary, but delivery
+fanout remains backend runtime behavior. This checkpoint gives the route a
+named decoder without moving connection fanout or Durable Object state logic.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public live query delivery route boundary|rejects malformed public live query delivery JSON|rejects invalid public live query delivery envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Partition Commit Route Boundary
 
 Previous completed checkpoint: `a9d1e67` Decode partition subscription bodies.
