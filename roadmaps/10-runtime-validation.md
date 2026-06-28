@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Partition Subscription Boundary
+
+Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/partition/RouteBoundary.ts` to own
+  `PartitionDO` subscription body reads.
+- `POST /subscriptions/register`, `POST /subscriptions/unregister`, and
+  `POST /subscriptions/unregister-connection` now decode request JSON through
+  the shared `readJson` boundary before subscription table mutations run.
+- Registration keeps the current required non-empty `connectionName`, integer
+  `queryId`, and object `readSet`; unregister keeps required non-empty
+  `connectionName` and integer `queryId`; unregister-connection keeps required
+  non-empty `connectionName`.
+- Existing validation messages for `connectionName`, `queryId`, `readSet`, and
+  malformed JSON are preserved.
+- SQL insert/delete ownership, invalidation scanning, commit/OCC behavior,
+  schema-cache, document/index reads, ConnectionDO callers, public Worker
+  forwarding, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After the schema-cache body moved behind the partition route boundary, the
+subscription routes were the next small direct JSON reads in `PartitionDO`.
+This checkpoint moves only those transport envelopes and leaves the
+subscription table mutations and invalidation logic in the Durable Object.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition subscription registration JSON|rejects invalid partition subscription unregister-connection envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Partition Schema Cache Boundary
 
 Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.

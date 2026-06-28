@@ -54,6 +54,60 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("rejects malformed partition subscription registration JSON at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("subscription-register-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/subscriptions/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid partition subscription unregister-connection envelopes at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("subscription-unregister-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/subscriptions/unregister-connection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ connectionName: "" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "connectionName must be a non-empty string.",
+    });
+  });
+
+  it("rejects invalid partition subscription unregister targets at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("subscription-unregister-target-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/subscriptions/unregister", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        connectionName: "connection-a",
+        queryId: 1.5,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "queryId must be an integer.",
+    });
+  });
+
   it("generates ids, exposes read-your-writes, and coalesces document writes", async () => {
     const tx = await SingleShardTransaction.begin(env, "tx-deployment", "user:u1");
 

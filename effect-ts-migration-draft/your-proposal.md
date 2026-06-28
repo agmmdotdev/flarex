@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.
-- Active checkpoint: decode PartitionDO schema-cache bodies at a partition route boundary before schema-cache validation and SQL writes run.
+- Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.
+- Active checkpoint: decode PartitionDO subscription bodies at the partition route boundary before subscription table mutations run.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 71 slice:
+Current Goal 72 slice:
+
+1. Extend the backend-only `partition/RouteBoundary.ts` helper to read `POST /subscriptions/register`, `POST /subscriptions/unregister`, and `POST /subscriptions/unregister-connection` JSON once through the shared `readJson` boundary.
+2. Move only the subscription request-envelope parsers into that helper: registration requires non-empty `connectionName`, integer `queryId`, and object `readSet`; unregister requires non-empty `connectionName` and integer `queryId`; unregister-connection requires non-empty `connectionName`.
+3. Preserve existing validation messages for `connectionName`, `queryId`, `readSet`, and malformed JSON.
+4. Use the decoded subscription requests in `PartitionDO.fetch()` while keeping SQL insert/delete ownership, invalidation scanning, commit/OCC behavior, schema-cache, document/index reads, ConnectionDO callers, public Worker forwarding, and `ValidatorJson` untouched.
+5. Add focused boundary tests for successful registration, target unregister, connection unregister, invalid field mapping, malformed JSON handling, and direct PartitionDO route tests proving malformed/invalid subscription JSON returns `400 { error }`.
+6. Validate with focused partition boundary/transaction tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 71 slice:
 
 1. Add a backend-only `partition/RouteBoundary.ts` helper that reads `PUT /schema-cache` JSON once through the shared `readJson` boundary.
 2. Decode only the schema-cache transport envelope as a JSON object, preserving both current wrapped `{ partitionKey, schema }` bodies and legacy flat `{ partitionKey, version, tables, indexes }` bodies for `PartitionDO.putSchemaCache(...)`.

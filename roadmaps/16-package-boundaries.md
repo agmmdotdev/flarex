@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Partition Subscription Route Boundary
+
+Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/partition/RouteBoundary.ts` now owns the
+  `PartitionDO` subscription request-body boundaries.
+- `POST /subscriptions/register`, `POST /subscriptions/unregister`, and
+  `POST /subscriptions/unregister-connection` decode through the shared
+  `readJson` boundary.
+- The boundary extracts only the subscription request envelopes:
+  registration requires non-empty `connectionName`, integer `queryId`, and
+  object `readSet`; unregister requires non-empty `connectionName` and integer
+  `queryId`; unregister-connection requires non-empty `connectionName`.
+- Subscription SQL insert/delete ownership, invalidation scanning, commit/OCC
+  behavior, schema-cache, document/index reads, ConnectionDO callers, Worker
+  forwarding, and `ValidatorJson` remain unchanged.
+
+Boundary decision:
+
+Partition subscription routes cross an HTTP/JSON boundary before mutating
+`sync_subscriptions`. Moving the request parsers into a backend route-boundary
+helper narrows the transport edge while keeping subscription state ownership
+and invalidation behavior inside `PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition subscription registration JSON|rejects invalid partition subscription unregister-connection envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Partition Schema Cache Route Boundary
 
 Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.

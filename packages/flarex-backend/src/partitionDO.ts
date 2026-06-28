@@ -4,8 +4,14 @@ import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
 import {
+  readPartitionConnectionUnregisterRequest,
   readPartitionSchemaCacheRequest,
+  readPartitionSubscriptionRegistrationRequest,
+  readPartitionSubscriptionTargetRequest,
+  type PartitionConnectionUnregisterRequest,
   type PartitionSchemaCacheRequest,
+  type PartitionSubscriptionRegistrationRequest,
+  type PartitionSubscriptionTargetRequest,
 } from "./partition/RouteBoundary";
 import type {
   BeginResponse,
@@ -192,13 +198,19 @@ export class PartitionDO extends DurableObject<Env> {
         return json(result, { status: result.replayed ? 200 : 201 });
       }
       if (url.pathname === "/subscriptions/register" && request.method === "POST") {
-        return json(this.registerSubscription(await readJson(request)));
+        return json(this.registerSubscription(
+          await readPartitionSubscriptionRegistrationRequest(request),
+        ));
       }
       if (url.pathname === "/subscriptions/unregister" && request.method === "POST") {
-        return json(this.unregisterSubscription(await readJson(request)));
+        return json(this.unregisterSubscription(
+          await readPartitionSubscriptionTargetRequest(request),
+        ));
       }
       if (url.pathname === "/subscriptions/unregister-connection" && request.method === "POST") {
-        return json(this.unregisterConnection(await readJson(request)));
+        return json(this.unregisterConnection(
+          await readPartitionConnectionUnregisterRequest(request),
+        ));
       }
       if (url.pathname === "/document" && request.method === "GET") {
         const tableId = Number(url.searchParams.get("tableId"));
@@ -367,8 +379,9 @@ export class PartitionDO extends DurableObject<Env> {
     return result.response;
   }
 
-  private registerSubscription(body: unknown): { registered: true } {
-    const request = parseSubscriptionRegistration(body);
+  private registerSubscription(
+    request: PartitionSubscriptionRegistrationRequest,
+  ): { registered: true } {
     this.sql.exec(
       `
       INSERT INTO sync_subscriptions (connection_name, query_id, read_set_json)
@@ -383,8 +396,9 @@ export class PartitionDO extends DurableObject<Env> {
     return { registered: true };
   }
 
-  private unregisterSubscription(body: unknown): { unregistered: true } {
-    const request = parseSubscriptionTarget(body);
+  private unregisterSubscription(
+    request: PartitionSubscriptionTargetRequest,
+  ): { unregistered: true } {
     this.sql.exec(
       "DELETE FROM sync_subscriptions WHERE connection_name = ? AND query_id = ?",
       request.connectionName,
@@ -393,11 +407,12 @@ export class PartitionDO extends DurableObject<Env> {
     return { unregistered: true };
   }
 
-  private unregisterConnection(body: unknown): { unregistered: true } {
-    const connectionName = requiredStringField(body, "connectionName");
+  private unregisterConnection(
+    request: PartitionConnectionUnregisterRequest,
+  ): { unregistered: true } {
     this.sql.exec(
       "DELETE FROM sync_subscriptions WHERE connection_name = ?",
-      connectionName,
+      request.connectionName,
     );
     return { unregistered: true };
   }
@@ -992,48 +1007,6 @@ export class PartitionDO extends DurableObject<Env> {
     const row = this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
     return row?.value ?? null;
   }
-}
-
-function parseSubscriptionRegistration(body: unknown): {
-  connectionName: string;
-  queryId: number;
-  readSet: ReadSet;
-} {
-  return {
-    ...parseSubscriptionTarget(body),
-    readSet: requiredReadSet(body, "readSet"),
-  };
-}
-
-function parseSubscriptionTarget(body: unknown): {
-  connectionName: string;
-  queryId: number;
-} {
-  return {
-    connectionName: requiredStringField(body, "connectionName"),
-    queryId: requiredIntegerField(body, "queryId"),
-  };
-}
-
-function requiredStringField(body: unknown, field: string): string {
-  if (!isRecord(body) || typeof body[field] !== "string" || body[field].length === 0) {
-    throw new HttpError(400, `${field} must be a non-empty string.`);
-  }
-  return body[field];
-}
-
-function requiredIntegerField(body: unknown, field: string): number {
-  if (!isRecord(body) || typeof body[field] !== "number" || !Number.isInteger(body[field])) {
-    throw new HttpError(400, `${field} must be an integer.`);
-  }
-  return body[field];
-}
-
-function requiredReadSet(body: unknown, field: string): ReadSet {
-  if (!isRecord(body) || !isRecord(body[field])) {
-    throw new HttpError(400, `${field} must be an object.`);
-  }
-  return body[field] as ReadSet;
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {
