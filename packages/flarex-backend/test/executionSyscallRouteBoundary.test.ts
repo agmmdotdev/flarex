@@ -1,7 +1,11 @@
+import { Effect } from "effect";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeExecutionSyscallRouteRequest,
   parseExecutionSyscallRouteRequest,
+  parseExecutionSyscallRouteRequestEffect,
   readExecutionSyscallRequest,
 } from "../src/execution/SyscallRouteBoundary";
 
@@ -36,6 +40,13 @@ describe("execution syscall route boundary", () => {
         order: "asc",
       },
     });
+    await expect(Effect.runPromise(decodeExecutionSyscallRouteRequest(jsonRequest({
+      op: "get",
+      id: "1:progress",
+    })))).resolves.toEqual({
+      op: "get",
+      id: "1:progress",
+    });
 
     expect(parseExecutionSyscallRouteRequest({
       op: "patch",
@@ -45,6 +56,15 @@ describe("execution syscall route boundary", () => {
       op: "patch",
       id: "1:progress",
       value: { completed: true },
+    });
+    await expect(Effect.runPromise(parseExecutionSyscallRouteRequestEffect({
+      op: "replace",
+      id: "1:progress",
+      value: { completed: false },
+    }))).resolves.toEqual({
+      op: "replace",
+      id: "1:progress",
+      value: { completed: false },
     });
   });
 
@@ -67,6 +87,18 @@ describe("execution syscall route boundary", () => {
     }
   });
 
+  it("exposes typed protocol failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeExecutionSyscallRouteRequest(jsonRequest({
+      op: "query",
+      request: {
+        table: "lessonProgress",
+        order: "sideways",
+      },
+    })))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(parseExecutionSyscallRouteRequestEffect(null)))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+  });
+
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readExecutionSyscallRequest(new Request("https://flarex.test/syscall", {
       method: "POST",
@@ -76,6 +108,11 @@ describe("execution syscall route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodeExecutionSyscallRouteRequest(new Request("https://flarex.test/syscall", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 });
 

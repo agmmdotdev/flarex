@@ -1,17 +1,35 @@
+import { Effect } from "effect";
 import {
   ExecutionProtocolValidationError,
   parseExecutionSyscallRequest,
   type ExecutionIndexRangeExpression as ProtocolExecutionIndexRangeExpression,
   type ExecutionSyscallRequest as ProtocolExecutionSyscallRequest,
 } from "flarex-protocol/execution";
-import { HttpError, readJson } from "../http";
+import {
+  HttpError,
+  readJsonEffect,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+} from "../http";
 import type { ExecutionSyscallRequest, Json } from "../types";
 import { backendJson, backendJsonRecord } from "./JsonRouteBoundary";
 
 export async function readExecutionSyscallRequest(
   request: Request,
 ): Promise<ExecutionSyscallRequest> {
-  return parseExecutionSyscallRouteRequest(await readJson(request));
+  return await Effect.runPromise(
+    decodeExecutionSyscallRouteRequest(request).pipe(
+      Effect.mapError(executionSyscallRouteErrorToHttpError),
+    ),
+  );
+}
+
+export function decodeExecutionSyscallRouteRequest(
+  request: Request,
+): Effect.Effect<ExecutionSyscallRequest, RequestJsonError | ExecutionProtocolValidationError> {
+  return readJsonEffect(request).pipe(
+    Effect.flatMap(parseExecutionSyscallRouteRequestEffect),
+  );
 }
 
 export function parseExecutionSyscallRouteRequest(
@@ -25,6 +43,30 @@ export function parseExecutionSyscallRouteRequest(
     }
     throw error;
   }
+}
+
+export function parseExecutionSyscallRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(backendExecutionSyscallRequest(parseExecutionSyscallRequest(value)));
+    } catch (error) {
+      if (error instanceof ExecutionProtocolValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
+}
+
+function executionSyscallRouteErrorToHttpError(
+  error: RequestJsonError | ExecutionProtocolValidationError,
+): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return new HttpError(400, error.message);
 }
 
 function backendExecutionSyscallRequest(
