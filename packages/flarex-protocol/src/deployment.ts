@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 
 export const DeploymentRoute = {
   health: "/health",
@@ -15,6 +16,16 @@ export const DeploymentPushAction = {
 } as const;
 
 export type DeploymentPushAction = typeof DeploymentPushAction[keyof typeof DeploymentPushAction];
+
+export const DeploymentApiPath = {
+  pushStatus: `${DeploymentRoute.push}/:pushId`,
+} as const;
+
+export class DeploymentPushParams extends Schema.Class<DeploymentPushParams>(
+  "DeploymentPushParams",
+)({
+  pushId: Schema.String,
+}) {}
 
 const PushState = Schema.Union([
   Schema.Literal("pending"),
@@ -125,6 +136,13 @@ export class DeploymentProtocolValidationError
       cause: Schema.Defect(),
     },
   ) {}
+
+export class DeploymentHealthResponse extends Schema.Class<DeploymentHealthResponse>(
+  "DeploymentHealthResponse",
+)({
+  service: Schema.Literal("flarex-deployment"),
+  status: Schema.Literal("ok"),
+}) {}
 
 export class AbandonPushRequest extends Schema.Class<AbandonPushRequest>(
   "AbandonPushRequest",
@@ -357,9 +375,25 @@ export class ActiveDeploymentStatus extends Schema.Class<ActiveDeploymentStatus>
   codegenAnalysis: DeploymentCodegenAnalysis,
 }) {}
 
+export class DeploymentApiReadGroup extends HttpApiGroup.make("deployment", { topLevel: true }).add(
+  HttpApiEndpoint.get("health", DeploymentRoute.health, {
+    success: DeploymentHealthResponse,
+  }),
+  HttpApiEndpoint.get("getActiveDeployment", DeploymentRoute.activeDeployment, {
+    success: ActiveDeploymentStatus,
+  }),
+  HttpApiEndpoint.get("getPush", DeploymentApiPath.pushStatus, {
+    params: DeploymentPushParams,
+    success: PushStatus,
+  }),
+) {}
+
+export class DeploymentApi extends HttpApi.make("flarex-deployment").add(DeploymentApiReadGroup) {}
+
 const decodeAbandonPushRequest = Schema.decodeUnknownSync(AbandonPushRequest);
 const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPushRequest);
 const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
+const decodeDeploymentHealthResponse = Schema.decodeUnknownSync(DeploymentHealthResponse);
 const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
 const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
 const decodeFinishPushRequest = Schema.decodeUnknownSync(FinishPushRequest);
@@ -450,6 +484,18 @@ export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodege
     throw new DeploymentProtocolValidationError({
       schema: "DeploymentCodegenAnalysis",
       message: "Deployment codegen analysis did not match the deployment protocol.",
+      cause,
+    });
+  }
+}
+
+export function parseDeploymentHealthResponse(value: unknown): DeploymentHealthResponse {
+  try {
+    return decodeDeploymentHealthResponse(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "DeploymentHealthResponse",
+      message: "Deployment health response did not match the deployment protocol.",
       cause,
     });
   }

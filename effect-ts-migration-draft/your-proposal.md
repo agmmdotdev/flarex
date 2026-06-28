@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `66418da` Lock abandon push protocol parser coverage.
-- Active checkpoint: export deployment route/action constants from `flarex-protocol` and use them in DeploymentDO plus worker forwarding paths.
+- Previous completed checkpoint: `83eb9c4` Share deployment route constants.
+- Active checkpoint: add a protocol-only Deployment HttpApi read contract without Durable Object server wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 37 slice:
+Current Goal 38 slice:
+
+1. Add `DeploymentHealthResponse`, `DeploymentApiPath`, `DeploymentApiReadGroup`, and `DeploymentApi` to `flarex-protocol/deployment` using `effect/unstable/httpapi`.
+2. Describe only the current read routes in this slice: `GET /health`, `GET /deployment`, and `GET /push/:pushId`.
+3. Keep the API definition protocol-only: no `HttpApiBuilder`, no `HttpRouter.toWebHandler`, no backend handler layer, and no Durable Object server wiring yet.
+4. Add protocol tests that lock read endpoint path/method metadata, path params, and health response parsing.
+5. Do not add mutation endpoints, typed error response schemas, change DeploymentDO routing, change worker forwarding, change service/store orchestration, change response bodies, or alter request validation messages in this slice.
+6. Validate with focused deployment protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 37 slice:
 
 1. Export stable `DeploymentRoute` and `DeploymentPushAction` constants from `flarex-protocol/deployment`.
 2. Use those constants in `DeploymentDO.fetch()` for health, active deployment, analyzed start-push, finish, abandon, and push route matching.
@@ -344,7 +353,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 37 should be one of:
+Next checkpoint after Goal 38 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  DeploymentApi,
+  DeploymentApiPath,
   DeploymentPushAction,
+  DeploymentPushParams,
   DeploymentProtocolValidationError,
   DeploymentRoute,
   parseAbandonPushRequest,
   parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
   parseDeploymentCodegenAnalysis,
+  parseDeploymentHealthResponse,
   parseFinishPushRequest,
   parseFinishPushResponse,
   parsePushStatus,
@@ -20,10 +24,42 @@ describe("deployment protocol schemas", () => {
       startAnalyzedPush: "/push/start-analyzed",
       push: "/push",
     });
+    expect(DeploymentApiPath).toEqual({
+      pushStatus: "/push/:pushId",
+    });
     expect(DeploymentPushAction).toEqual({
       finish: "finish",
       abandon: "abandon",
     });
+  });
+
+  it("describes the current DeploymentDO read routes as an HttpApi contract", () => {
+    const group = DeploymentApi.groups.deployment;
+
+    expect(group.topLevel).toBe(true);
+    expect(group.endpoints.health.path).toBe(DeploymentRoute.health);
+    expect(group.endpoints.health.method).toBe("GET");
+    expect(group.endpoints.getActiveDeployment.path).toBe(DeploymentRoute.activeDeployment);
+    expect(group.endpoints.getActiveDeployment.method).toBe("GET");
+    expect(group.endpoints.getPush.path).toBe(DeploymentApiPath.pushStatus);
+    expect(group.endpoints.getPush.method).toBe("GET");
+    expect(group.endpoints.getPush.params).toBeDefined();
+
+    expect(DeploymentPushParams.make({ pushId: "push_123" })).toEqual({
+      pushId: "push_123",
+    });
+  });
+
+  it("parses deployment health responses used by the HttpApi contract", () => {
+    expect(parseDeploymentHealthResponse({
+      service: "flarex-deployment",
+      status: "ok",
+    })).toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+    expect(() => parseDeploymentHealthResponse({ service: "wrong", status: "ok" }))
+      .toThrow(DeploymentProtocolValidationError);
   });
 
   it("parses deep deployment analysis and codegen analysis payloads", () => {
