@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Scheduler Connection Cleanup Route Boundary
+
+Previous completed checkpoint: `6634f8f` Decode scheduler dead-letter bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now owns the
+  live-query connection cleanup request-body boundary.
+- `POST /cleanup/live-query-connections` decodes through the shared `readJson`
+  boundary and accepts required non-empty `deploymentId`, `projectId` from
+  request or configured environment fallback, and optional ISO `expiredAt`;
+  extra fields remain ignored.
+- The boundary extracts only the cleanup request envelope and leaves executor
+  cleanup calls and response validation in `SchedulerDO`.
+- Other SchedulerDO route execution and continuation behavior remains in place.
+
+Boundary decision:
+
+Scheduler connection cleanup crosses an HTTP/JSON boundary before it enters
+executor maintenance. Decoding the request at the route edge makes the
+transport contract explicit without moving SchedulerDO's cleanup workflow or
+mixing executor-side cleanup behavior into the route parser.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query connection cleanup JSON|rejects invalid live query connection cleanup fields"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Dead Letter Delivery Route Boundary
 
 Previous completed checkpoint: `e75622d` Decode scheduler rerun bodies.

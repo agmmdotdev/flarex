@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { errorResponse, HttpError, json, readJson } from "./http";
-import { projectIdFromRequestOrEnv } from "./project";
+import { errorResponse, HttpError, json } from "./http";
 import { deliveryObjectName } from "./routing";
 import {
   DEFAULT_DELIVERY_LIMIT,
@@ -9,10 +8,12 @@ import {
   DEFAULT_PENDING_DEPLOYMENT_LIMIT,
 } from "./scheduler/Defaults";
 import {
+  readSchedulerCleanupConnectionsRequest,
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerDeliveryReconcileRequest,
   readSchedulerRerunSubscriptionsRequest,
+  type SchedulerCleanupConnectionsRequest,
   type SchedulerConnectionReconcileRequest,
   type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
@@ -171,12 +172,6 @@ type ExecutorCleanupLiveQueryConnectionsResult = {
   deletedConnections: number;
 };
 
-type ParsedCleanupLiveQueryConnectionsRequest = {
-  deploymentId: string;
-  projectId: string;
-  expiredAt?: string;
-};
-
 const PENDING_DELIVERY_RECONCILE_KEY = "pendingLiveQueryDeliveryReconcile";
 const PENDING_RERUN_KEY = "pendingLiveQueryRerun";
 const PENDING_CONNECTION_CLEANUP_KEY = "pendingLiveQueryConnectionCleanup";
@@ -243,7 +238,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.cleanupLiveQueryConnections(
-            await readJson<unknown>(request),
+            await readSchedulerCleanupConnectionsRequest(request, this.env),
           ),
         );
       }
@@ -945,9 +940,8 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async cleanupLiveQueryConnections(
-    body: unknown,
+    request: SchedulerCleanupConnectionsRequest,
   ): Promise<CleanupLiveQueryConnectionsResult> {
-    const request = cleanupConnectionsRequestFromBody(body, this.env);
     const cleanup = await this.cleanupExpiredLiveQueryConnections({
       deploymentId: request.deploymentId,
       projectId: request.projectId,
@@ -961,7 +955,7 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async cleanupExpiredLiveQueryConnections(
-    body: ParsedCleanupLiveQueryConnectionsRequest,
+    body: SchedulerCleanupConnectionsRequest,
   ): Promise<ExecutorCleanupLiveQueryConnectionsResult> {
     const response = await this.executorFetch(
       "/maintenance/live-queries/connections/cleanup",
@@ -1491,35 +1485,6 @@ function nonNegativeIntegerFromUnknown(value: unknown, field: string): number {
 function booleanFromUnknown(value: unknown, field: string): boolean {
   if (typeof value === "boolean") return value;
   throw new HttpError(502, `${field} must be a boolean.`);
-}
-
-function cleanupConnectionsRequestFromBody(
-  value: unknown,
-  env: Env,
-): ParsedCleanupLiveQueryConnectionsRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Live query connection cleanup request body must be an object.");
-  }
-  const body = value as Record<string, unknown>;
-  return {
-    deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId"),
-    projectId: projectIdFromRequestOrEnv(body.projectId, env),
-    ...(body.expiredAt === undefined
-      ? {}
-      : { expiredAt: dateStringFromRequest(body.expiredAt, "expiredAt") }),
-  };
-}
-
-function dateStringFromRequest(value: unknown, field: string): string {
-  const text = nonEmptyStringFromRequest(value, field);
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  throw new HttpError(400, `${field} must be an ISO date string.`);
-}
-
-function nonEmptyStringFromRequest(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(400, `${field} must be a non-empty string.`);
 }
 
 function executorDeadLetterResultFromUnknown(

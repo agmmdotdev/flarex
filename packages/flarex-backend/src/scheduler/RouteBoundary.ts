@@ -1,4 +1,6 @@
 import { HttpError, readJson } from "../http";
+import { projectIdFromRequestOrEnv } from "../project";
+import type { Env } from "../types";
 import {
   DEFAULT_DEAD_LETTER_REASON,
   DEFAULT_DELIVERY_LIMIT,
@@ -48,6 +50,12 @@ export type SchedulerDeadLetterDeliveriesRequest = {
   reason: string;
   deadLetteredAt: string;
   maxBatches: number;
+};
+
+export type SchedulerCleanupConnectionsRequest = {
+  deploymentId: string;
+  projectId: string;
+  expiredAt?: string;
 };
 
 export async function readSchedulerDeliveryReconcileRequest(
@@ -162,6 +170,30 @@ export function parseSchedulerDeadLetterDeliveriesRequest(
     maxBatches: body.maxBatches === undefined
       ? DEFAULT_MAX_BATCHES
       : positiveInteger(body.maxBatches, "maxBatches"),
+  };
+}
+
+export async function readSchedulerCleanupConnectionsRequest(
+  request: Request,
+  env: Env,
+): Promise<SchedulerCleanupConnectionsRequest> {
+  return parseSchedulerCleanupConnectionsRequest(await readJson(request), env);
+}
+
+export function parseSchedulerCleanupConnectionsRequest(
+  value: unknown,
+  env: Env,
+): SchedulerCleanupConnectionsRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query connection cleanup request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    deploymentId: nonEmptyString(body.deploymentId, "deploymentId"),
+    projectId: projectIdFromRequestOrEnv(body.projectId, env),
+    ...(body.expiredAt === undefined
+      ? {}
+      : { expiredAt: dateString(body.expiredAt, "expiredAt") }),
   };
 }
 

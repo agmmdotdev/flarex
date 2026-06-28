@@ -743,6 +743,75 @@ describe("sync protocol", () => {
     expect(executorRequests).toEqual([]);
   });
 
+  it("rejects malformed live query connection cleanup JSON", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deleted: 1, deletedConnections: 1 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
+  it("rejects invalid live query connection cleanup fields", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deleted: 1, deletedConnections: 1 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: "sync-connection-cleanup-invalid-expired-at",
+          expiredAt: "not a date",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "expiredAt must be an ISO date string.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("reports executor failures during expired live query connection cleanup", async () => {
     const deploymentId = "sync-connection-cleanup-executor-failure";
     const harness = await createSyncHarness(
