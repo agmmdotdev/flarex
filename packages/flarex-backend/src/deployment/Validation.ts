@@ -493,7 +493,7 @@ export function validateCodegenAnalysis(
   }
   const schema = validateSchema(codegenAnalysis.schema);
   if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
-    throw new HttpError(400, "Codegen analysis schema must match deployment analysis schema.");
+    throwDeploymentValidation("Codegen analysis schema must match deployment analysis schema.");
   }
   if (!Array.isArray(codegenAnalysis.functions)) {
     throwDeploymentValidation("Codegen analysis functions must be an array.");

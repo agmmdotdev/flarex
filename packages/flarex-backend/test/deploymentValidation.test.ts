@@ -225,19 +225,21 @@ describe("deployment validation", () => {
       "A push without analysis must include an error message.",
     );
 
-    expect(() =>
-      startAnalyzedPushInput({
-        sourcePackage: sourcePackage(),
-        analysis: {
-          schema: simpleSchema(),
-          functions: simpleFunctions(),
-        },
-        codegenAnalysis: {
-          schema: { ...simpleSchema(), version: 2 },
-          functions: [],
-        },
-      })
-    ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
+    expectDeploymentValidationFailure(
+      () =>
+        startAnalyzedPushInput({
+          sourcePackage: sourcePackage(),
+          analysis: {
+            schema: simpleSchema(),
+            functions: simpleFunctions(),
+          },
+          codegenAnalysis: {
+            schema: { ...simpleSchema(), version: 2 },
+            functions: [],
+          },
+        }),
+      "Codegen analysis schema must match deployment analysis schema.",
+    );
   });
 
   it("normalizes deployment schema metadata", () => {
@@ -397,12 +399,14 @@ describe("deployment validation", () => {
       () => validateCodegenAnalysis("not-codegen", analysis),
       "Codegen analysis must be an object.",
     );
-    expect(() =>
-      validateCodegenAnalysis({
-        schema: { ...simpleSchema(), version: 2 },
-        functions: [],
-      }, analysis)
-    ).toThrow(new HttpError(400, "Codegen analysis schema must match deployment analysis schema."));
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: { ...simpleSchema(), version: 2 },
+          functions: [],
+        }, analysis),
+      "Codegen analysis schema must match deployment analysis schema.",
+    );
 
     expectDeploymentValidationFailure(
       () =>

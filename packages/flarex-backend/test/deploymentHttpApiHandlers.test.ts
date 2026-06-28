@@ -374,6 +374,17 @@ describe("DeploymentApiHandlers", () => {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
         codegenAnalysis: {
+          schema: { ...deploymentAnalysis().schema, version: 2 },
+          functions: [],
+        },
+      },
+      "Codegen analysis schema must match deployment analysis schema.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
           schema: deploymentAnalysis().schema,
           functions: "not-functions",
         },
@@ -445,6 +456,22 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(codegenAnalysisFailure.message).toBe("Codegen analysis must be an object.");
+
+    const codegenSchemaFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: { ...deploymentAnalysis().schema, version: 2 },
+        functions: [],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenSchemaFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenSchemaFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenSchemaFailure.message).toBe("Codegen analysis schema must match deployment analysis schema.");
 
     const codegenFunctionsFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
       sourcePackage: sourcePackage(),
