@@ -16,6 +16,7 @@ import {
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import { DeploymentDO } from "./deploymentDO";
+import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary";
 import {
   deploymentProtocolValidationErrorResponse,
   parsePublicStartPushRequest,
@@ -457,11 +458,11 @@ async function routeExecution(
   if (parts[0] === "start" && request.method === "POST") {
     const sessionId = crypto.randomUUID();
     const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
-    const body = await readJson<Record<string, unknown>>(request);
+    const body = await readPublicExecutionStartRequest(request, deploymentId);
     const response = await execution.fetch("https://flarex.internal/start", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, deploymentId }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) return response;
     return json({ sessionId, ...((await response.json()) as Record<string, unknown>) });

@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `67689e2` Decode public invoke bodies.
-- Active checkpoint: add a protocol-only execution start request schema/parser before wiring Worker or ExecutionDO routes.
+- Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
+- Active checkpoint: wire execution start request decoding through the public Worker and ExecutionDO start boundaries while preserving session behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 54 slice:
+Current Goal 55 slice:
+
+1. Add a backend-only execution start route-boundary helper that reads JSON once, decodes through `parseExecutionStartRequest`, maps `ExecutionProtocolValidationError` to `HttpError(400, ...)`, and adapts protocol `Json` to the backend mutable `Json` type.
+2. Use that helper in the public Worker `POST /deployments/:deploymentId/executions/start` branch, preserving route-scoped deployment id precedence over any body `deploymentId`.
+3. Use the same helper in `ExecutionDO.fetch()` for internal `POST /start`, leaving `ExecutionDO.start(...)` session orchestration unchanged.
+4. Preserve malformed public JSON behavior: `400 { error: "Request body must be JSON." }`.
+5. Preserve successful session start response shape: `{ sessionId, beginTs, schemaVersion, kind }`.
+6. Do not touch execution syscall, finish, abort, PartitionDO, artifact runtime, public invoke, executor-http, or `ValidatorJson` in this slice.
+7. Add focused helper and execution route tests proving successful decode, route deployment id override, protocol-invalid body mapping, malformed JSON mapping, and normal session start behavior.
+8. Validate with focused execution start boundary/session tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 54 slice:
 
 1. Add a shared strict JSON schema helper in `flarex-protocol/json` so transport contracts can validate finite-number/plain-record JSON without duplicating guards.
 2. Refactor `flarex-protocol/invoke` to use that shared JSON schema while preserving the existing public invoke parser behavior.

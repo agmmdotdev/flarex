@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Execution Start Backend Route Boundary
+
+Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/StartRouteBoundary.ts` owns backend
+  JSON reading, protocol parsing, protocol-error-to-HTTP mapping, route
+  deployment id injection, and protocol JSON to backend JSON adaptation for
+  execution start requests.
+- `worker.ts` still owns public route matching and session id allocation.
+- `ExecutionDO` still owns session lifecycle and transaction orchestration.
+- `flarex-protocol/execution` remains transport-contract-only.
+
+Boundary decision:
+
+The protocol package validates the shared start-body shape. The backend route
+boundary adapts that shape to the backend runtime types and compatibility
+rules. This keeps readonly protocol JSON from leaking into mutable backend
+runtime APIs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Protocol Package Boundary
 
 Previous completed checkpoint: `67689e2` Decode public invoke bodies.

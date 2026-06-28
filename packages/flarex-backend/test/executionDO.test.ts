@@ -418,6 +418,70 @@ describe("ExecutionDO sessions", () => {
       error: "PartitionValidationError: partitionKey must match args.teamSlug for teams:create.",
     });
   });
+
+  it("decodes public execution start bodies before creating a session", async () => {
+    await activateDeployment("execution-start-boundary-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+
+    const invalid = await startExecutionResponse("execution-start-boundary-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "u1",
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error:
+        "Execution start request must include string deploymentId, string path, JSON args, and optional string partitionKey, projectId, idempotencyKey, and query or mutation kind.",
+    });
+
+    const malformed = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-start-boundary-deployment/executions/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
+    const routeDeploymentWins = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-start-boundary-deployment/executions/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: "missing-body-deployment",
+          path: "lessons:list",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        }),
+      },
+    );
+    expect(routeDeploymentWins.ok).toBe(true);
+    await expect(routeDeploymentWins.json()).resolves.toMatchObject({
+      beginTs: expect.any(Number),
+      kind: "query",
+      schemaVersion: 1,
+      sessionId: expect.any(String),
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {
@@ -561,7 +625,12 @@ async function startExecution(
 
 async function startExecutionResponse(
   deploymentId: string,
-  body: { path: string; kind: string; partitionKey?: string; args: unknown },
+  body: {
+    path: string;
+    kind: string;
+    partitionKey?: string;
+    args?: unknown;
+  },
 ): Promise<TestResponse> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/start`,

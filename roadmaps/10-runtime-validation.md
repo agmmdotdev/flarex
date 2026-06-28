@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Execution Start Worker And DO Boundary
+
+Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
+
+What changed:
+
+- Added `packages/flarex-backend/src/execution/StartRouteBoundary.ts` to read
+  execution start JSON, decode through `flarex-protocol/execution`, map
+  protocol validation failures to `HttpError(400, ...)`, and adapt protocol
+  JSON into the backend runtime `Json` type.
+- Public Worker `POST /deployments/:deploymentId/executions/start` now uses
+  the helper and still injects the route deployment id over any body
+  `deploymentId`.
+- `ExecutionDO.fetch()` now uses the same helper for internal `POST /start`.
+- `ExecutionDO.start(...)`, session lifecycle, syscalls, finish, abort, and
+  transaction behavior are unchanged.
+
+Why it changed:
+
+The previous checkpoint introduced the execution start protocol schema. This
+checkpoint removes unchecked start-body parsing from the live Worker/DO start
+boundary without broadening into syscall or finish contracts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Request Protocol Boundary
 
 Previous completed checkpoint: `67689e2` Decode public invoke bodies.

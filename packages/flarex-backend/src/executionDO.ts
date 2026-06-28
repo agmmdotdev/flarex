@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { readExecutionStartRequest } from "./execution/StartRouteBoundary";
 import { HttpError } from "./http";
 import {
   idValidatorForSchema,
@@ -46,7 +47,7 @@ export class ExecutionDO extends DurableObject<Env> {
     try {
       const url = new URL(request.url);
       if (url.pathname === "/start" && request.method === "POST") {
-        return Response.json(await this.start(await request.json<ExecutionStartRequest>()));
+        return Response.json(await this.start(await readExecutionStartRequest(request)));
       }
       if (url.pathname === "/syscall" && request.method === "POST") {
         return Response.json(await this.syscall(await request.json<ExecutionSyscallRequest>()));

@@ -1,5 +1,37 @@
 # Dynamic Worker Execution
 
+## Execution Start Decode Boundary
+
+Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
+
+What changed:
+
+- Public execution start requests now decode through the shared
+  `flarex-protocol/execution` start parser before a session id is returned.
+- The Worker still allocates the session id and injects the route deployment id.
+- `ExecutionDO` decodes its internal `/start` body through the same backend
+  helper before calling unchanged session orchestration.
+- Syscalls, finish, abort, `SingleShardTransaction`, generated execution
+  artifacts, and PartitionDO behavior are unchanged.
+
+Why it changed:
+
+Dynamic Worker execution spans multiple requests, so only the start transport
+boundary is wired in this checkpoint. The remaining syscall and finish bodies
+should be migrated separately with their own parity tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Protocol Shape
 
 Previous completed checkpoint: `67689e2` Decode public invoke bodies.
