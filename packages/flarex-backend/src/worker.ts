@@ -64,6 +64,7 @@ import {
   readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerDeliveryReconcileRequest,
   readPublicSchedulerRerunSubscriptionsRequest,
+  readPublicSchedulerTriggerSubscriptionsRequest,
 } from "./scheduler/PublicRouteBoundary";
 import {
   LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
@@ -215,8 +216,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-subscriptions/trigger" &&
     request.method === "POST"
   ) {
-    return forwardLiveQuerySchedulerRequest(
-      request,
+    authorizeLiveQueryDeliveryRequest(request, env);
+    const body = await readPublicSchedulerTriggerSubscriptionsRequest(request);
+    return forwardLiveQuerySchedulerBody(
+      body,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
     );

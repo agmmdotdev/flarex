@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Public Scheduler Subscription Trigger Boundary
+
+Previous completed checkpoint: `df60d8b` Decode public scheduler rerun bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` to
+  own the public Worker subscription trigger scheduler body read.
+- `POST /scheduler/live-query-subscriptions/trigger` now decodes request JSON
+  through the shared scheduler subscription rerun parser before forwarding to
+  `SchedulerDO`.
+- The public Worker reserializes the parsed trigger request before forwarding
+  to SchedulerDO's existing rerun path, so ignored fields are dropped at the
+  public edge.
+- Authorization remains before body parsing.
+- SchedulerDO rerun execution, stale subscription scans, DeliveryDO wake fanout,
+  continuation behavior, the `/scheduler/live-query-subscriptions/rerun` route,
+  delivery reconcile, connection reconcile, dead-letter, cleanup routes,
+  partition routes, delivery routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+After the explicit rerun route moved behind a public scheduler boundary, the
+trigger route was the last subscription scheduler forwarding route still
+accepting arbitrary JSON before SchedulerDO. This checkpoint narrows `/trigger`
+while keeping its existing implementation as a hint that forwards to the same
+durable rerun path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query subscription trigger JSON|rejects unauthorized live query subscription trigger before parsing JSON|rejects invalid live query subscription trigger envelopes|triggers stale live query reruns"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Subscription Rerun Boundary
 
 Previous completed checkpoint: `c90500c` Decode public scheduler cleanup bodies.

@@ -78,3 +78,15 @@ export function parsePublicSchedulerRerunSubscriptionsRequest(
 ): SchedulerRerunSubscriptionsRequest {
   return parseSchedulerRerunSubscriptionsRequest(value);
 }
+
+export async function readPublicSchedulerTriggerSubscriptionsRequest(
+  request: Request,
+): Promise<SchedulerRerunSubscriptionsRequest> {
+  return readSchedulerRerunSubscriptionsRequest(request);
+}
+
+export function parsePublicSchedulerTriggerSubscriptionsRequest(
+  value: unknown,
+): SchedulerRerunSubscriptionsRequest {
+  return parseSchedulerRerunSubscriptionsRequest(value);
+}

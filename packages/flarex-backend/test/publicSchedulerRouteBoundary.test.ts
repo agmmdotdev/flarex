@@ -6,11 +6,13 @@ import {
   parsePublicSchedulerDeadLetterDeliveriesRequest,
   parsePublicSchedulerDeliveryReconcileRequest,
   parsePublicSchedulerRerunSubscriptionsRequest,
+  parsePublicSchedulerTriggerSubscriptionsRequest,
   readPublicSchedulerCleanupConnectionsRequest,
   readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerConnectionReconcileRequest,
   readPublicSchedulerDeliveryReconcileRequest,
   readPublicSchedulerRerunSubscriptionsRequest,
+  readPublicSchedulerTriggerSubscriptionsRequest,
 } from "../src/scheduler/PublicRouteBoundary";
 import type { Env } from "../src/types";
 
@@ -283,6 +285,57 @@ describe("public scheduler route boundary", () => {
   it("preserves malformed rerun JSON as the shared JSON body error", async () => {
     await expect(readPublicSchedulerRerunSubscriptionsRequest(new Request(
       "https://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes trigger subscription requests", async () => {
+    await expect(readPublicSchedulerTriggerSubscriptionsRequest(jsonRequest(
+      {
+        deploymentId: "deployment-a",
+        projectId: "project-a",
+        limit: 5,
+        deliveryLimit: 10,
+        maxBatches: 2,
+        ignored: true,
+      },
+      "/scheduler/live-query-subscriptions/trigger",
+    ))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+    });
+  });
+
+  it("maps invalid trigger subscription envelopes to 400", () => {
+    expect(() => parsePublicSchedulerTriggerSubscriptionsRequest(null))
+      .toThrow(HttpError);
+    try {
+      parsePublicSchedulerTriggerSubscriptionsRequest({
+        deploymentId: "deployment-a",
+        deliveryLimit: 0,
+      });
+      throw new Error("Expected parsePublicSchedulerTriggerSubscriptionsRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "deliveryLimit must be a positive integer.",
+      });
+    }
+  });
+
+  it("preserves malformed trigger JSON as the shared JSON body error", async () => {
+    await expect(readPublicSchedulerTriggerSubscriptionsRequest(new Request(
+      "https://flarex.test/scheduler/live-query-subscriptions/trigger",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
