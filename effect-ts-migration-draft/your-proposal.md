@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `4864cd5` Decode scheduler connection reconcile bodies.
-- Active checkpoint: decode SchedulerDO live-query subscription rerun bodies at the scheduler route boundary before pending rerun persistence and delivery wake logic runs.
+- Previous completed checkpoint: `e75622d` Decode scheduler rerun bodies.
+- Active checkpoint: decode SchedulerDO live-query delivery dead-letter bodies at the scheduler route boundary before executor dead-letter scans and reconnect fanout run.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 68 slice:
+Current Goal 69 slice:
+
+1. Extend the backend-only `scheduler/RouteBoundary.ts` helper to read `POST /dead-letter/live-query-deliveries` JSON once through the shared `readJson` boundary.
+2. Move only the live-query delivery dead-letter request-envelope parser into that helper: optional non-empty `deploymentId`, optional ISO `olderThan`, optional positive integer `stuckAfterMs` only when `olderThan` is absent, optional positive integer `minAttempts`, `limit`, and `maxBatches`, optional passthrough `cursor`, optional non-empty `reason`, optional ISO `deadLetteredAt`, and ignored extra fields.
+3. Preserve existing default and precedence behavior for `olderThan`, `stuckAfterMs`, `minAttempts`, `limit`, `reason`, `deadLetteredAt`, and `maxBatches`.
+4. Use the decoded dead-letter request in `SchedulerDO.deadLetterLiveQueryDeliveries(...)` so the route boundary is separated from executor dead-letter scans, force-reconnect fanout, pagination, and result aggregation.
+5. Keep SchedulerDO delivery reconcile, connection cleanup reconcile, rerun, cleanup, continuation routes, DeliveryDO, ConnectionDO, PartitionDO, executor-http, and `ValidatorJson` untouched.
+6. Add focused boundary tests for successful decode, ignored extra fields/defaults, invalid field mapping, malformed JSON handling, and a route-level sync test proving malformed dead-letter JSON returns `400 { error }` without touching the executor.
+7. Validate with focused scheduler boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 68 slice:
 
 1. Extend the backend-only `scheduler/RouteBoundary.ts` helper to read `POST /rerun/live-query-subscriptions` JSON once through the shared `readJson` boundary.
 2. Move only the live-query subscription rerun request-envelope parser into that helper: required non-empty `deploymentId`, optional non-empty `projectId`, optional positive integer `limit`, `deliveryLimit`, and `maxBatches`, and ignored extra fields.

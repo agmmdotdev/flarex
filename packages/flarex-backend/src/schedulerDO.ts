@@ -3,10 +3,18 @@ import { errorResponse, HttpError, json, readJson } from "./http";
 import { projectIdFromRequestOrEnv } from "./project";
 import { deliveryObjectName } from "./routing";
 import {
+  DEFAULT_DELIVERY_LIMIT,
+  DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT,
+  DEFAULT_MAX_BATCHES,
+  DEFAULT_PENDING_DEPLOYMENT_LIMIT,
+} from "./scheduler/Defaults";
+import {
   readSchedulerConnectionReconcileRequest,
+  readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerDeliveryReconcileRequest,
   readSchedulerRerunSubscriptionsRequest,
   type SchedulerConnectionReconcileRequest,
+  type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
   type SchedulerRerunSubscriptionsRequest,
 } from "./scheduler/RouteBoundary";
@@ -133,18 +141,6 @@ type RerunResult = {
   };
 };
 
-type DeadLetterLiveQueryDeliveriesRequest = {
-  deploymentId?: string;
-  olderThan?: string;
-  stuckAfterMs?: number;
-  minAttempts?: number;
-  cursor?: unknown;
-  limit?: number;
-  reason?: string;
-  deadLetteredAt?: string;
-  maxBatches?: number;
-};
-
 type ExecutorDeadLetterStuckResult = {
   scanned: unknown[];
   deadLettered: unknown[];
@@ -181,13 +177,6 @@ type ParsedCleanupLiveQueryConnectionsRequest = {
   expiredAt?: string;
 };
 
-const DEFAULT_PENDING_DEPLOYMENT_LIMIT = 25;
-const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT = 100;
-const DEFAULT_DELIVERY_LIMIT = 100;
-const DEFAULT_MAX_BATCHES = 3;
-const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
-const DEFAULT_MIN_ATTEMPTS = 3;
-const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
 const PENDING_DELIVERY_RECONCILE_KEY = "pendingLiveQueryDeliveryReconcile";
 const PENDING_RERUN_KEY = "pendingLiveQueryRerun";
 const PENDING_CONNECTION_CLEANUP_KEY = "pendingLiveQueryConnectionCleanup";
@@ -244,7 +233,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.deadLetterLiveQueryDeliveries(
-            await readJson<unknown>(request),
+            await readSchedulerDeadLetterDeliveriesRequest(request),
           ),
         );
       }
@@ -894,9 +883,8 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async deadLetterLiveQueryDeliveries(
-    body: unknown,
+    request: SchedulerDeadLetterDeliveriesRequest,
   ): Promise<DeadLetterResult> {
-    const request = deadLetterRequestFromBody(body);
     const failed: DeadLetterResult["failed"] = [];
     const reconnectedConnectionIds = new Set<string>();
     let reconnectTargets = 0;
@@ -1104,18 +1092,6 @@ function executorUrl(env: Env, path: string): string {
   url.search = "";
   url.hash = "";
   return url.href;
-}
-
-function optionalPositiveInteger(
-  value: unknown,
-  fallback: number,
-  field: string,
-): number {
-  if (value === undefined) return fallback;
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  throw new HttpError(400, `${field} must be a positive integer.`);
 }
 
 function pendingDeploymentsResultFromUnknown(
@@ -1517,44 +1493,6 @@ function booleanFromUnknown(value: unknown, field: string): boolean {
   throw new HttpError(502, `${field} must be a boolean.`);
 }
 
-function deadLetterRequestFromBody(
-  value: unknown,
-): Required<Omit<DeadLetterLiveQueryDeliveriesRequest, "deploymentId" | "cursor">> & {
-  deploymentId?: string;
-  cursor?: unknown;
-} {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Dead-letter request body must be an object.");
-  }
-  const body = value as DeadLetterLiveQueryDeliveriesRequest;
-  const olderThan = olderThanFromBody(body);
-  return {
-    ...(body.deploymentId === undefined
-      ? {}
-      : { deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId") }),
-    olderThan,
-    stuckAfterMs: body.stuckAfterMs ?? DEFAULT_STUCK_AFTER_MS,
-    minAttempts: optionalPositiveInteger(
-      body.minAttempts,
-      DEFAULT_MIN_ATTEMPTS,
-      "minAttempts",
-    ),
-    ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
-    limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit"),
-    reason: body.reason === undefined
-      ? DEFAULT_DEAD_LETTER_REASON
-      : nonEmptyStringFromRequest(body.reason, "reason"),
-    deadLetteredAt: body.deadLetteredAt === undefined
-      ? new Date().toISOString()
-      : dateStringFromRequest(body.deadLetteredAt, "deadLetteredAt"),
-    maxBatches: optionalPositiveInteger(
-      body.maxBatches,
-      DEFAULT_MAX_BATCHES,
-      "maxBatches",
-    ),
-  };
-}
-
 function cleanupConnectionsRequestFromBody(
   value: unknown,
   env: Env,
@@ -1570,18 +1508,6 @@ function cleanupConnectionsRequestFromBody(
       ? {}
       : { expiredAt: dateStringFromRequest(body.expiredAt, "expiredAt") }),
   };
-}
-
-function olderThanFromBody(body: DeadLetterLiveQueryDeliveriesRequest): string {
-  if (body.olderThan !== undefined) {
-    return dateStringFromRequest(body.olderThan, "olderThan");
-  }
-  const stuckAfterMs = optionalPositiveInteger(
-    body.stuckAfterMs,
-    DEFAULT_STUCK_AFTER_MS,
-    "stuckAfterMs",
-  );
-  return new Date(Date.now() - stuckAfterMs).toISOString();
 }
 
 function dateStringFromRequest(value: unknown, field: string): string {

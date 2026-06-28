@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  parseSchedulerDeadLetterDeliveriesRequest,
   parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeliveryReconcileRequest,
   parseSchedulerRerunSubscriptionsRequest,
+  readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
   readSchedulerRerunSubscriptionsRequest,
@@ -168,6 +170,105 @@ describe("scheduler route boundary", () => {
   it("preserves malformed live query subscription rerun JSON as the shared JSON body error", async () => {
     await expect(readSchedulerRerunSubscriptionsRequest(new Request(
       "https://flarex.test/rerun/live-query-subscriptions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes dead-letter delivery requests", async () => {
+    const cursor = { deliveryId: "delivery-a" };
+    await expect(readSchedulerDeadLetterDeliveriesRequest(jsonRequest({
+      deploymentId: "deployment-a",
+      olderThan: "2026-06-23T00:00:05.000Z",
+      minAttempts: 4,
+      cursor,
+      limit: 7,
+      reason: "stuck test delivery",
+      deadLetteredAt: "2026-06-23T00:00:10.000Z",
+      maxBatches: 2,
+      ignored: true,
+    }))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      olderThan: "2026-06-23T00:00:05.000Z",
+      stuckAfterMs: 5 * 60 * 1000,
+      minAttempts: 4,
+      cursor,
+      limit: 7,
+      reason: "stuck test delivery",
+      deadLetteredAt: "2026-06-23T00:00:10.000Z",
+      maxBatches: 2,
+    });
+  });
+
+  it("preserves dead-letter request defaults", () => {
+    const before = Date.now();
+    const request = parseSchedulerDeadLetterDeliveriesRequest({});
+    const after = Date.now();
+
+    expect(request.stuckAfterMs).toBe(5 * 60 * 1000);
+    expect(request.minAttempts).toBe(3);
+    expect(request.limit).toBe(100);
+    expect(request.reason).toBe("live query delivery stuck");
+    expect(request.maxBatches).toBe(3);
+    expect(new Date(request.olderThan).getTime()).toBeGreaterThanOrEqual(
+      before - request.stuckAfterMs,
+    );
+    expect(new Date(request.olderThan).getTime()).toBeLessThanOrEqual(
+      after - request.stuckAfterMs,
+    );
+    expect(new Date(request.deadLetteredAt).getTime()).toBeGreaterThanOrEqual(before);
+    expect(new Date(request.deadLetteredAt).getTime()).toBeLessThanOrEqual(after);
+  });
+
+  it("preserves explicit dead-letter olderThan precedence over stuckAfterMs", () => {
+    expect(parseSchedulerDeadLetterDeliveriesRequest({
+      olderThan: "2026-06-23T00:00:05.000Z",
+      stuckAfterMs: 0,
+    })).toMatchObject({
+      olderThan: "2026-06-23T00:00:05.000Z",
+      stuckAfterMs: 5 * 60 * 1000,
+    });
+  });
+
+  it("maps invalid dead-letter delivery bodies to 400", () => {
+    expect(() => parseSchedulerDeadLetterDeliveriesRequest(null))
+      .toThrow(HttpError);
+    try {
+      parseSchedulerDeadLetterDeliveriesRequest({
+        olderThan: "not a date",
+      });
+      throw new Error("Expected parseSchedulerDeadLetterDeliveriesRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "olderThan must be an ISO date string.",
+      });
+    }
+  });
+
+  it("maps invalid dead-letter delivery limits to 400", () => {
+    try {
+      parseSchedulerDeadLetterDeliveriesRequest({
+        stuckAfterMs: 0,
+      });
+      throw new Error("Expected parseSchedulerDeadLetterDeliveriesRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "stuckAfterMs must be a positive integer.",
+      });
+    }
+  });
+
+  it("preserves malformed dead-letter delivery JSON as the shared JSON body error", async () => {
+    await expect(readSchedulerDeadLetterDeliveriesRequest(new Request(
+      "https://flarex.test/dead-letter/live-query-deliveries",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

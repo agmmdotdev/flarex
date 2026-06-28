@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Scheduler Dead Letter Delivery Route Boundary
+
+Previous completed checkpoint: `e75622d` Decode scheduler rerun bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now owns the
+  live-query delivery dead-letter request-body boundary.
+- `POST /dead-letter/live-query-deliveries` decodes through the shared
+  `readJson` boundary and accepts optional non-empty `deploymentId`, optional
+  ISO `olderThan`, optional positive integer `stuckAfterMs` only when
+  `olderThan` is absent, optional positive integer `minAttempts`, `limit`, and
+  `maxBatches`, optional passthrough `cursor`, optional non-empty `reason`, and
+  optional ISO `deadLetteredAt`; extra fields remain ignored.
+- The boundary extracts only the dead-letter request envelope and leaves
+  executor dead-letter scans, force-reconnect fanout, pagination, and result
+  aggregation in `SchedulerDO`.
+- Other SchedulerDO routes remain on their existing parsers for later slices.
+
+Boundary decision:
+
+Scheduler dead-letter delivery crosses an HTTP/JSON boundary before it enters
+executor maintenance and connection reconnect behavior. Decoding the request at
+the route edge makes that transport contract explicit without moving
+SchedulerDO's operational dead-letter workflow.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query dead-letter JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Live Query Rerun Route Boundary
 
 Previous completed checkpoint: `4864cd5` Decode scheduler connection reconcile

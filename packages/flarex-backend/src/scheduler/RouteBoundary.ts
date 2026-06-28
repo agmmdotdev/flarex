@@ -1,4 +1,11 @@
 import { HttpError, readJson } from "../http";
+import {
+  DEFAULT_DEAD_LETTER_REASON,
+  DEFAULT_DELIVERY_LIMIT,
+  DEFAULT_MAX_BATCHES,
+  DEFAULT_MIN_ATTEMPTS,
+  DEFAULT_STUCK_AFTER_MS,
+} from "./Defaults";
 
 export type SchedulerPendingDeploymentCursor = {
   oldestCreatedAt: string;
@@ -29,6 +36,18 @@ export type SchedulerRerunSubscriptionsRequest = {
   limit?: number;
   deliveryLimit?: number;
   maxBatches?: number;
+};
+
+export type SchedulerDeadLetterDeliveriesRequest = {
+  deploymentId?: string;
+  olderThan: string;
+  stuckAfterMs: number;
+  minAttempts: number;
+  cursor?: unknown;
+  limit: number;
+  reason: string;
+  deadLetteredAt: string;
+  maxBatches: number;
 };
 
 export async function readSchedulerDeliveryReconcileRequest(
@@ -104,6 +123,60 @@ export function parseSchedulerRerunSubscriptionsRequest(
       ? {}
       : { maxBatches: positiveInteger(body.maxBatches, "maxBatches") }),
   };
+}
+
+export async function readSchedulerDeadLetterDeliveriesRequest(
+  request: Request,
+): Promise<SchedulerDeadLetterDeliveriesRequest> {
+  return parseSchedulerDeadLetterDeliveriesRequest(await readJson(request));
+}
+
+export function parseSchedulerDeadLetterDeliveriesRequest(
+  value: unknown,
+): SchedulerDeadLetterDeliveriesRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Dead-letter request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    ...(body.deploymentId === undefined
+      ? {}
+      : { deploymentId: nonEmptyString(body.deploymentId, "deploymentId") }),
+    olderThan: deadLetterOlderThan(body),
+    stuckAfterMs: body.olderThan === undefined
+      ? deadLetterStuckAfterMs(body.stuckAfterMs)
+      : DEFAULT_STUCK_AFTER_MS,
+    minAttempts: body.minAttempts === undefined
+      ? DEFAULT_MIN_ATTEMPTS
+      : positiveInteger(body.minAttempts, "minAttempts"),
+    ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
+    limit: body.limit === undefined
+      ? DEFAULT_DELIVERY_LIMIT
+      : positiveInteger(body.limit, "limit"),
+    reason: body.reason === undefined
+      ? DEFAULT_DEAD_LETTER_REASON
+      : nonEmptyString(body.reason, "reason"),
+    deadLetteredAt: body.deadLetteredAt === undefined
+      ? new Date().toISOString()
+      : dateString(body.deadLetteredAt, "deadLetteredAt"),
+    maxBatches: body.maxBatches === undefined
+      ? DEFAULT_MAX_BATCHES
+      : positiveInteger(body.maxBatches, "maxBatches"),
+  };
+}
+
+function deadLetterOlderThan(body: Record<string, unknown>): string {
+  if (body.olderThan !== undefined) {
+    return dateString(body.olderThan, "olderThan");
+  }
+  const stuckAfterMs = deadLetterStuckAfterMs(body.stuckAfterMs);
+  return new Date(Date.now() - stuckAfterMs).toISOString();
+}
+
+function deadLetterStuckAfterMs(value: unknown): number {
+  return value === undefined
+    ? DEFAULT_STUCK_AFTER_MS
+    : positiveInteger(value, "stuckAfterMs");
 }
 
 function pendingCursor(value: unknown): SchedulerPendingDeploymentCursor {

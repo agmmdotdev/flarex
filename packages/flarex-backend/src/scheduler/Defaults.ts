@@ -1,0 +1,7 @@
+export const DEFAULT_PENDING_DEPLOYMENT_LIMIT = 25;
+export const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT = 100;
+export const DEFAULT_DELIVERY_LIMIT = 100;
+export const DEFAULT_MAX_BATCHES = 3;
+export const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
+export const DEFAULT_MIN_ATTEMPTS = 3;
+export const DEFAULT_DEAD_LETTER_REASON = "live query delivery stuck";
