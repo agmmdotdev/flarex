@@ -68,17 +68,29 @@ export function parsePublicAnalyzedStartPushRequestEffect(
 export async function readPublicFinishPushRequest(
   request: Request,
 ): Promise<FinishPushRequest> {
-  return parseFinishPushRequest(await readJson(request));
+  return await runPublicDeploymentRouteRequest(decodePublicFinishPushRequest(request));
+}
+
+export function decodePublicFinishPushRequest(
+  request: Request,
+): Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
+  return decodePublicDeploymentRouteRequest(request, parsePublicFinishPushRequestEffect);
 }
 
 export async function readPublicFinishPushJson(request: Request): Promise<unknown> {
-  return readJson(request);
+  return await runPublicDeploymentJsonRequest(readJsonEffect(request));
 }
 
 export function parsePublicFinishPushRequest(
   body: unknown,
 ): FinishPushRequest {
   return parseFinishPushRequest(body);
+}
+
+export function parsePublicFinishPushRequestEffect(
+  body: unknown,
+): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
+  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicFinishPushRequest);
 }
 
 export async function readPublicAbandonPushRequest(
@@ -111,6 +123,16 @@ async function runPublicDeploymentRouteRequest<A>(
   return await Effect.runPromise(
     effect.pipe(
       Effect.mapError(publicDeploymentRouteErrorToHttpError),
+    ),
+  );
+}
+
+async function runPublicDeploymentJsonRequest(
+  effect: Effect.Effect<unknown, RequestJsonError>,
+): Promise<unknown> {
+  return await Effect.runPromise(
+    effect.pipe(
+      Effect.mapError(requestJsonErrorToHttpError),
     ),
   );
 }

@@ -5,12 +5,14 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
+  decodePublicFinishPushRequest,
   deploymentProtocolValidationErrorResponse,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
   parsePublicAnalyzedStartPushRequest,
   parsePublicAnalyzedStartPushRequestEffect,
   parsePublicFinishPushRequest,
+  parsePublicFinishPushRequestEffect,
   parsePublicStartPushRequest,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
@@ -66,7 +68,13 @@ describe("public deployment push route boundary", () => {
     await expect(readPublicFinishPushRequest(jsonRequest({ activate: true })))
       .resolves
       .toEqual({ activate: true });
+    await expect(Effect.runPromise(decodePublicFinishPushRequest(jsonRequest({
+      activate: false,
+    })))).resolves.toEqual({ activate: false });
     expect(parsePublicFinishPushRequest({ activate: false })).toEqual({ activate: false });
+    await expect(Effect.runPromise(parsePublicFinishPushRequestEffect({
+      activate: true,
+    }))).resolves.toEqual({ activate: true });
     await expect(readPublicAbandonPushRequest(jsonRequest({ reason: "typecheck failed" })))
       .resolves
       .toEqual({ reason: "typecheck failed" });
@@ -81,6 +89,12 @@ describe("public deployment push route boundary", () => {
     await expect(readPublicFinishPushRequest(jsonRequest({ activate: "yes" })))
       .rejects
       .toThrow("Finish push activate flag must be a boolean.");
+    await expect(Effect.runPromise(decodePublicFinishPushRequest(jsonRequest({
+      activate: "yes",
+    })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parsePublicFinishPushRequestEffect({
+      activate: "yes",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(readPublicAbandonPushRequest(jsonRequest({ reason: 123 })))
       .rejects
       .toThrow("Abandon push reason must be a string.");
@@ -101,6 +115,19 @@ describe("public deployment push route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(readPublicFinishPushJson(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicFinishPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(readPublicAnalyzedStartPushRequest(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },

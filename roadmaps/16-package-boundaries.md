@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Public Finish Push Effect Decoder
+
+Previous completed checkpoint: `67bba2f` Add typed public analyzed start decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts` now
+  exposes an Effect-typed public finish-push decoder separate from the
+  Worker-facing JSON-only preflight helper.
+- `readPublicFinishPushJson(...)` keeps ownership of the public finish JSON
+  read step and maps only `RequestJsonError` back to the shared compatibility
+  `HttpError`.
+- `parsePublicFinishPushRequest(...)` remains the post-artifact-preflight
+  protocol parser, with `parsePublicFinishPushRequestEffect(...)` exposing the
+  typed `DeploymentProtocolValidationError` channel.
+- Public Worker route paths, Worker forwarding, DeploymentDO generated-handler
+  routing, `DeploymentApiHandlers.finishPush`, `DeploymentService.finishPush`,
+  artifact reference computation, SQL statements, response bodies, request
+  validation messages, protocol schemas, source-only analyzer routing,
+  analyzed-start, abandon, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The public route-boundary module owns typed JSON and protocol parsing helpers.
+The Worker still owns the finish-specific ordering: read JSON first, run
+artifact preflight second, then parse the finish protocol body only if preflight
+allows forwarding. DeploymentDO owns internal generated-handler routing, and
+DeploymentService owns finish orchestration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage before public finish|rejects malformed finish request bodies"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Analyzed Start Push Effect Decoder
 
 Previous completed checkpoint: `db370ea` Add typed public abandon decoder.
