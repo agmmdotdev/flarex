@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
-- Active checkpoint: decode public source-only push requests with the deployment protocol parser while preserving analyzer-not-configured behavior.
+- Previous completed checkpoint: `be053f6` Decode public source push bodies.
+- Active checkpoint: add a protocol-only public invoke request body schema/parser without wiring the Worker route yet.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 51 slice:
+Current Goal 52 slice:
+
+1. Add a protocol-only `flarex-protocol/invoke` module with `PublicInvokeRequestBodySchema`, `PublicInvokeRequestBody`, `parsePublicInvokeRequestBody`, and `InvokeProtocolValidationError`.
+2. Export `./invoke` from `flarex-protocol` so future backend and generated-runtime slices can share the same public invoke body contract.
+3. Keep Worker `/invoke` and `/deployments/:deploymentId/invoke` routing unchanged in this slice; no live invoke behavior changes.
+4. Preserve the current future adapter compatibility: omitted `args` remains omitted so the Worker route can keep its existing `args ?? null` defaulting when it is wired later.
+5. Validate `args` as real JSON only: primitives, arrays, and plain records. Reject functions, non-finite numbers, non-plain objects, and symbol-keyed records before any Worker adapter uses the parser.
+6. Do not touch `routeInvoke`, artifact runtime execution, execution sessions, PartitionDO, executor-http, source/deployment push routing, or `ValidatorJson`.
+7. Add focused protocol tests for valid invoke bodies, omitted `args`, invalid field shapes, and invalid JSON `args`.
+8. Validate with focused protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 51 slice:
 
 1. Add a `StartPushRequest` schema and `parseStartPushRequest` parser to `flarex-protocol/deployment`, covering the public source-only `{ sourcePackage }` push request.
 2. Extend the backend public deployment push route boundary with a raw JSON reader and a `parsePublicStartPushRequest(...)` adapter that decodes through the protocol parser and returns the existing backend `StartPushRequest` shape.

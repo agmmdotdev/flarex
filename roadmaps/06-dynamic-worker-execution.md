@@ -1,5 +1,38 @@
 # Dynamic Worker Execution
 
+## Public Invoke Body Protocol Shape
+
+Previous completed checkpoint: `be053f6` Decode public source push bodies.
+
+What changed:
+
+- Added the shared public invoke body contract in `flarex-protocol/invoke`.
+- The contract covers the fields currently read by the public Worker invoke
+  route: deployment identity, function path, optional JSON args, partition key,
+  caller kind, and idempotency key.
+- Omitted `args` stays omitted at the protocol layer so the later Worker
+  adapter can preserve its existing `args ?? null` runtime default.
+- No generated Worker, artifact runtime, executor session, or PartitionDO code
+  changed in this checkpoint.
+
+Why it changed:
+
+Dynamic Worker execution already has behavior-sensitive invoke/session paths.
+The safe migration order is to establish the shared request schema first, then
+wire the public Worker boundary in a separate parity-tested checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Generated Output Typecheck Gate
 
 Previous completed checkpoint: `53eda56` Typecheck generated Worker output.

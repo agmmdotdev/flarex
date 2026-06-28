@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Public Invoke Request Protocol Boundary
+
+Previous completed checkpoint: `be053f6` Decode public source push bodies.
+
+What changed:
+
+- Added `flarex-protocol/invoke` with a schema-first
+  `PublicInvokeRequestBodySchema` and `parsePublicInvokeRequestBody(...)`
+  parser for the current public invoke body fields.
+- The parser accepts optional `deploymentId`, `path`, `partitionKey`, `kind`,
+  `idempotencyKey`, and JSON `args`.
+- `args` is validated as actual JSON: primitives, arrays, and plain records
+  only. Non-finite numbers, functions, non-plain objects, and symbol-keyed
+  records are rejected.
+- The Worker invoke routes are unchanged in this checkpoint.
+
+Why it changed:
+
+Public `/invoke` is the next unchecked transport boundary after deployment
+push bodies. This checkpoint records the shared protocol shape first so a later
+Worker adapter can replace casts without mixing parser introduction with live
+invoke behavior changes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Source-Only Push Protocol Boundary
 
 Previous completed checkpoint: `65dd151` Decode public deployment push bodies.

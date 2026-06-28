@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## Public Invoke Protocol Package Boundary
+
+Previous completed checkpoint: `be053f6` Decode public source push bodies.
+
+What changed:
+
+- `flarex-protocol/invoke` now owns the public invoke request body schema and
+  parser.
+- The package export map exposes `./invoke` for future backend and generated
+  runtime consumers.
+- Backend Worker routing still owns request reading, deployment lookup,
+  artifact execution, session behavior, and response mapping.
+
+Boundary decision:
+
+The protocol package should describe the public transport body before backend
+code adapts that body to runtime defaults such as `args ?? null`. Keeping this
+slice protocol-only avoids coupling shared schema introduction to the live
+Worker invoke path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Source-Only Push Protocol Boundary
 
 Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
