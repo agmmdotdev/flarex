@@ -60,6 +60,7 @@ import {
 import { SchedulerDO } from "./schedulerDO";
 import {
   readPublicSchedulerConnectionReconcileRequest,
+  readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerDeliveryReconcileRequest,
 } from "./scheduler/PublicRouteBoundary";
 import {
@@ -173,8 +174,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-deliveries/dead-letter" &&
     request.method === "POST"
   ) {
-    return forwardLiveQuerySchedulerRequest(
-      request,
+    authorizeLiveQueryDeliveryRequest(request, env);
+    const body = await readPublicSchedulerDeadLetterDeliveriesRequest(request);
+    return forwardLiveQuerySchedulerBody(
+      body,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries,
     );

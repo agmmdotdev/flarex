@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Scheduler Dead-Letter Route Boundary
+
+Previous completed checkpoint: `abaec65` Decode public scheduler connection reconcile bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` now also owns
+  the public Worker delivery dead-letter scheduler request-body boundary.
+- `POST /scheduler/live-query-deliveries/dead-letter` decodes through the
+  shared scheduler route-boundary parser before the Worker forwards to
+  `SchedulerDO`.
+- The Worker forwards the parsed dead-letter request body, preserving the
+  existing deployment filter, cursor, limits, reason, and date fields while
+  dropping ignored fields and applying defaults at the public edge.
+- Authorization, SchedulerDO dead-letter execution, reconnect fanout, executor
+  dead-letter scans, delivery reconcile, connection reconcile, rerun, cleanup
+  routes, partition routes, delivery routes, executor-http routes, and
+  `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The public scheduler dead-letter route is a Worker transport boundary. This
+checkpoint validates and normalizes that request before forwarding, while
+keeping SchedulerDO responsible for dead-letter scanning, reconnect fanout,
+pagination, and result aggregation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query dead-letter JSON|rejects unauthorized live query dead-letter before parsing JSON|rejects invalid live query dead-letter envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Connection Reconcile Route Boundary
 
 Previous completed checkpoint: `64a086a` Decode public scheduler delivery reconcile bodies.

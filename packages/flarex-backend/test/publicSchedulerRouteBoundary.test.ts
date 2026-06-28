@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
   parsePublicSchedulerConnectionReconcileRequest,
+  parsePublicSchedulerDeadLetterDeliveriesRequest,
   parsePublicSchedulerDeliveryReconcileRequest,
+  readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerConnectionReconcileRequest,
   readPublicSchedulerDeliveryReconcileRequest,
 } from "../src/scheduler/PublicRouteBoundary";
@@ -106,6 +108,64 @@ describe("public scheduler route boundary", () => {
   it("preserves malformed connection reconcile JSON as the shared JSON body error", async () => {
     await expect(readPublicSchedulerConnectionReconcileRequest(new Request(
       "https://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes dead-letter delivery requests", async () => {
+    const cursor = { deliveryId: "delivery-a" };
+    await expect(readPublicSchedulerDeadLetterDeliveriesRequest(jsonRequest(
+      {
+        deploymentId: "deployment-a",
+        olderThan: "2026-06-23T00:00:05.000+00:00",
+        minAttempts: 4,
+        cursor,
+        limit: 7,
+        reason: "stuck test delivery",
+        deadLetteredAt: "2026-06-23T00:00:10.000+00:00",
+        maxBatches: 2,
+        ignored: true,
+      },
+      "/scheduler/live-query-deliveries/dead-letter",
+    ))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      olderThan: "2026-06-23T00:00:05.000Z",
+      stuckAfterMs: 5 * 60 * 1000,
+      minAttempts: 4,
+      cursor,
+      limit: 7,
+      reason: "stuck test delivery",
+      deadLetteredAt: "2026-06-23T00:00:10.000Z",
+      maxBatches: 2,
+    });
+  });
+
+  it("maps invalid dead-letter delivery envelopes to 400", () => {
+    expect(() => parsePublicSchedulerDeadLetterDeliveriesRequest(null))
+      .toThrow(HttpError);
+    try {
+      parsePublicSchedulerDeadLetterDeliveriesRequest({
+        olderThan: "not a date",
+      });
+      throw new Error("Expected parsePublicSchedulerDeadLetterDeliveriesRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "olderThan must be an ISO date string.",
+      });
+    }
+  });
+
+  it("preserves malformed dead-letter JSON as the shared JSON body error", async () => {
+    await expect(readPublicSchedulerDeadLetterDeliveriesRequest(new Request(
+      "https://flarex.test/scheduler/live-query-deliveries/dead-letter",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

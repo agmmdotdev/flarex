@@ -5484,6 +5484,73 @@ describe("sync protocol", () => {
     expect(executorRequests).toEqual([]);
   });
 
+  it("rejects unauthorized live query dead-letter before parsing JSON", async () => {
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/dead-letter",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
+    });
+  });
+
+  it("rejects invalid live query dead-letter envelopes at the public scheduler boundary", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({
+              scanned: [],
+              deadLettered: [],
+              reconnectConnectionIds: [],
+              nextCursor: null,
+              hasMore: false,
+            });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/dead-letter",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ olderThan: "not a date" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "olderThan must be an ISO date string.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("skips stale live query delivery rows for active WebSocket connections", async () => {
     const harness = await createSyncHarness([], () => ({ user: "Ada" }));
     harnesses.push(harness);

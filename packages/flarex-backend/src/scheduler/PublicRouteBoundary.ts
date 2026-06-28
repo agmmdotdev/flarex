@@ -1,9 +1,12 @@
 import {
   parseSchedulerConnectionReconcileRequest,
+  parseSchedulerDeadLetterDeliveriesRequest,
   parseSchedulerDeliveryReconcileRequest,
   readSchedulerConnectionReconcileRequest,
+  readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerDeliveryReconcileRequest,
   type SchedulerConnectionReconcileRequest,
+  type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
 } from "./RouteBoundary";
 
@@ -29,4 +32,16 @@ export function parsePublicSchedulerConnectionReconcileRequest(
   value: unknown,
 ): SchedulerConnectionReconcileRequest {
   return parseSchedulerConnectionReconcileRequest(value);
+}
+
+export async function readPublicSchedulerDeadLetterDeliveriesRequest(
+  request: Request,
+): Promise<SchedulerDeadLetterDeliveriesRequest> {
+  return readSchedulerDeadLetterDeliveriesRequest(request);
+}
+
+export function parsePublicSchedulerDeadLetterDeliveriesRequest(
+  value: unknown,
+): SchedulerDeadLetterDeliveriesRequest {
+  return parseSchedulerDeadLetterDeliveriesRequest(value);
 }

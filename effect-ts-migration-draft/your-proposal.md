@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `64a086a` Decode public scheduler delivery reconcile bodies.
-- Active checkpoint: decode public Worker live-query connection reconcile scheduler bodies before forwarding to SchedulerDO.
+- Previous completed checkpoint: `abaec65` Decode public scheduler connection reconcile bodies.
+- Active checkpoint: decode public Worker live-query delivery dead-letter scheduler bodies before forwarding to SchedulerDO.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 78 slice:
+Current Goal 79 slice:
+
+1. Extend the backend-only `scheduler/PublicRouteBoundary.ts` helper to read public dead-letter delivery scheduler JSON once through the shared scheduler route-boundary parser.
+2. Decode only `POST /scheduler/live-query-deliveries/dead-letter` at the public Worker edge, then reserialize the parsed request before forwarding to SchedulerDO.
+3. Keep authorization before body parsing for the public scheduler route.
+4. Keep SchedulerDO dead-letter execution, reconnect fanout, executor dead-letter scans, delivery reconcile, connection reconcile, rerun, cleanup routes, partition routes, delivery routes, executor-http routes, and `ValidatorJson` untouched.
+5. Add focused helper tests for successful decode, invalid date mapping, malformed JSON, and public Worker route tests proving malformed/invalid dead-letter JSON returns `400 { error }` before executor work while unauthorized malformed requests return `401`.
+6. Validate with focused public scheduler/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 78 slice:
 
 1. Extend the backend-only `scheduler/PublicRouteBoundary.ts` helper to read public connection reconcile scheduler JSON once through the shared scheduler route-boundary parser.
 2. Decode only `POST /scheduler/live-query-connections/reconcile` at the public Worker edge, then reserialize the parsed request before forwarding to SchedulerDO.
