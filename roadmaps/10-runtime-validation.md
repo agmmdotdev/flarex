@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Deployment HttpApi Start Analyzed Effect Decoder
+
+Previous completed checkpoint: `aeae978` Add typed abandon route decoder.
+
+What changed:
+
+- Added `decodeDeploymentAnalyzedStartPushRouteRequest(...)` and
+  `parseDeploymentAnalyzedStartPushRouteRequestEffect(...)` to
+  `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts`.
+- Added `readDeploymentAnalyzedStartPushRouteRequest(...)` and
+  `parseDeploymentAnalyzedStartPushRouteRequest(...)` as compatibility
+  wrappers for existing async route-adapter and direct parser callers.
+- `deploymentApiRequestForRoute(...)` now delegates `POST /push/start-analyzed`
+  body parsing through the Effect decoder before rebuilding the canonical
+  generated-handler request.
+- Malformed start-analyzed JSON flows through the typed `RequestJsonError`
+  channel before mapping back to the existing `Request body must be JSON.`
+  `400` compatibility response.
+- Deployment read routes still pass through unchanged, and protocol validation
+  failures still surface as `DeploymentProtocolValidationError`.
+- `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.startAnalyzedPush`, `DeploymentPushStore`,
+  finish/abandon routes, public Worker push routes, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Finish and abandon now use typed transport decoders. This checkpoint applies
+the same Effect-typed boundary to start-analyzed so all backend deployment
+HttpApi mutation bodies expose typed success/failure channels while preserving
+generated handler flow and existing HTTP responses.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Effect Decoder
 
 Previous completed checkpoint: `4080592` Add typed finish route decoder.

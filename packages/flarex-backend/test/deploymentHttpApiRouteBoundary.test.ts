@@ -8,13 +8,17 @@ import {
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
+  decodeDeploymentAnalyzedStartPushRouteRequest,
   decodeDeploymentAbandonPushRouteRequest,
   decodeDeploymentFinishPushRouteRequest,
   deploymentApiRequestForRoute,
+  parseDeploymentAnalyzedStartPushRouteRequest,
+  parseDeploymentAnalyzedStartPushRouteRequestEffect,
   parseDeploymentAbandonPushRouteRequest,
   parseDeploymentAbandonPushRouteRequestEffect,
   parseDeploymentFinishPushRouteRequest,
   parseDeploymentFinishPushRouteRequestEffect,
+  readDeploymentAnalyzedStartPushRouteRequest,
   readDeploymentAbandonPushRouteRequest,
   readDeploymentFinishPushRouteRequest,
 } from "../src/deployment/HttpApiRouteBoundary";
@@ -39,6 +43,34 @@ describe("deploymentApiRequestForRoute", () => {
 
     const parsedBody: unknown = await apiRequest.json();
     expect(parseAnalyzedStartPushRequest(parsedBody)).toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
+    await expect(Effect.runPromise(
+      decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(DeploymentRoute.startAnalyzedPush, {
+        method: "POST",
+        body,
+      })),
+    )).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
+    await expect(readDeploymentAnalyzedStartPushRouteRequest(jsonRequest(DeploymentRoute.startAnalyzedPush, {
+      method: "POST",
+      body,
+    }))).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
+    expect(parseDeploymentAnalyzedStartPushRouteRequest(body)).toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
+    await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect(body))).resolves.toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
       diagnostics: body.diagnostics,
@@ -123,6 +155,28 @@ describe("deploymentApiRequestForRoute", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
+    await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
+      method: "POST",
+      body: { sourcePackage: 123 },
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: { sourcePackage: 123 },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect({
+      sourcePackage: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+
     await expect(deploymentApiRequestForRoute(jsonRequest(
       `${DeploymentRoute.push}/push-finish-malformed/${DeploymentPushAction.finish}`,
       {

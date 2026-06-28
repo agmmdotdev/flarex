@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import {
   type AbandonPushRequest,
+  type AnalyzedStartPushRequest,
   DeploymentPushAction,
   DeploymentProtocolValidationError,
   DeploymentRoute,
@@ -10,7 +11,6 @@ import {
   parseFinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
-  readJson,
   readJsonEffect,
   RequestJsonError,
   requestJsonErrorToHttpError,
@@ -25,7 +25,7 @@ export async function deploymentApiRequestForRoute(request: Request): Promise<Re
     return request;
   }
   if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
-    return jsonRequest(url, parseAnalyzedStartPushRequest(await readJson(request)));
+    return jsonRequest(url, await readDeploymentAnalyzedStartPushRouteRequest(request));
   }
 
   const pushMatch = url.pathname.match(deploymentPushRoutePattern);
@@ -40,6 +40,45 @@ export async function deploymentApiRequestForRoute(request: Request): Promise<Re
     return jsonRequest(url, await readDeploymentAbandonPushRouteRequest(request));
   }
   return null;
+}
+
+export async function readDeploymentAnalyzedStartPushRouteRequest(
+  request: Request,
+): Promise<AnalyzedStartPushRequest> {
+  return await Effect.runPromise(
+    decodeDeploymentAnalyzedStartPushRouteRequest(request).pipe(
+      Effect.mapError(deploymentRouteErrorToHttpError),
+    ),
+  );
+}
+
+export function decodeDeploymentAnalyzedStartPushRouteRequest(
+  request: Request,
+): Effect.Effect<AnalyzedStartPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
+  return readJsonEffect(request).pipe(
+    Effect.flatMap(parseDeploymentAnalyzedStartPushRouteRequestEffect),
+  );
+}
+
+export function parseDeploymentAnalyzedStartPushRouteRequest(
+  value: unknown,
+): AnalyzedStartPushRequest {
+  return parseAnalyzedStartPushRequest(value);
+}
+
+export function parseDeploymentAnalyzedStartPushRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(parseDeploymentAnalyzedStartPushRouteRequest(value));
+    } catch (error) {
+      if (error instanceof DeploymentProtocolValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
 }
 
 export async function readDeploymentFinishPushRouteRequest(

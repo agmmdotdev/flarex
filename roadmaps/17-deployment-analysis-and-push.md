@@ -1,5 +1,48 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Start Analyzed Effect Decoder
+
+Previous completed checkpoint: `aeae978` Add typed abandon route decoder.
+
+What changed:
+
+- Added `decodeDeploymentAnalyzedStartPushRouteRequest(...)` and
+  `parseDeploymentAnalyzedStartPushRouteRequestEffect(...)` to the backend
+  deployment HttpApi route boundary.
+- Added `readDeploymentAnalyzedStartPushRouteRequest(...)` and
+  `parseDeploymentAnalyzedStartPushRouteRequest(...)` as compatibility
+  wrappers.
+- `POST /push/start-analyzed` now parses through the typed Effect decoder
+  before constructing the canonical generated-handler request.
+- Malformed JSON uses the typed `RequestJsonError` channel before the adapter
+  maps it back to the preserved `400` response.
+- The already-extracted `DeploymentService.startAnalyzedPush` orchestration
+  remains unchanged: controlled clock, generated push id, source package,
+  analysis/codegen/diagnostics normalization, and store mutation still live in
+  the service/validation/store layer.
+- `DeploymentDO.fetch()`, DeploymentApi handlers, finish/abandon routes,
+  public Worker push routes, scheduler routes, execution routes, executor-http
+  routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After finish and abandon moved to typed transport decoding, start-analyzed was
+the remaining backend deployment HttpApi mutation body using the compatibility
+`readJson(...)` path. This checkpoint aligns it with the updated Effect quality
+bar without moving start-push orchestration back into `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Effect Decoder
 
 Previous completed checkpoint: `4080592` Add typed finish route decoder.

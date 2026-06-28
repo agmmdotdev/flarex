@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Deployment HttpApi Start Analyzed Effect Decoder
+
+Previous completed checkpoint: `aeae978` Add typed abandon route decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts` now
+  exposes an Effect-typed start-analyzed decoder separate from route matching
+  and request reconstruction.
+- `POST /push/start-analyzed` uses the typed decoder before constructing the
+  canonical generated-handler request.
+- Plain start-analyzed read/parse helpers remain compatibility wrappers around
+  the Effect decoder or protocol parser.
+- Deployment read routes, malformed JSON handling, protocol validation
+  failures, `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.startAnalyzedPush`, `DeploymentPushStore`,
+  finish/abandon routes, public Worker push routes, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` remain in their
+  existing owners.
+
+Boundary decision:
+
+The deployment Durable Object still owns storage initialization and generated
+HttpApi handler execution. `DeploymentService.startAnalyzedPush` owns
+start-push orchestration. The route-boundary module owns transport matching,
+typed JSON decoding, protocol parsing, compatibility mapping, and
+generated-handler request reconstruction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Effect Decoder
 
 Previous completed checkpoint: `4080592` Add typed finish route decoder.
