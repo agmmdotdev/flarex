@@ -1,5 +1,77 @@
 # Package Boundaries
 
+## Effect-Typed Boundary Ownership
+
+The migration target is not just smaller plain functions. Package boundaries
+should make the Effect ownership model explicit.
+
+Boundary rules for the next phase:
+
+- Shared protocol packages own Effect Schema contracts and protocol validation
+  errors. They may keep throwing `parseX(...)` compatibility wrappers, but
+  migrated backend paths should call Effect-returning decoders.
+- Backend route-boundary modules own transport matching, typed JSON reads, and
+  route-specific request reconstruction. They should return typed Effect
+  failures until the adapter edge maps them to HTTP.
+- Durable Objects and generated HttpApi handlers own runtime adapter execution
+  and HTTP response compatibility, not domain validation or parser throwing.
+- Services own orchestration and domain decisions through `Effect.fn(...)`,
+  `Context.Service`, and Layers. They should not depend on `HttpError` for
+  normal domain flow.
+- `HttpError` is allowed as an adapter compatibility bridge only. New domain,
+  protocol, and service code should introduce tagged errors instead.
+- `ValidatorJson` remains user data validation and should not be replaced by
+  Effect Schema during transport/API cleanup.
+
+Recommended package-boundary proof:
+
+1. Add a typed backend request JSON error in the backend package.
+2. Add an Effect decoder for one deployment HttpApi mutation route.
+3. Keep the protocol package free of backend-only HTTP response code.
+4. Keep the Durable Object as the single runtime boundary that maps typed
+   route/protocol failures back to the existing responses.
+
+## Deployment HttpApi Finish Push Route Boundary
+
+Previous completed checkpoint: `c0537a6` Extract deployment abandon route parser.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts` now
+  exposes an Effect-typed finish-push decoder separate from route matching and
+  request reconstruction.
+- `packages/flarex-backend/src/http.ts` now exposes `readJsonEffect(...)` with
+  tagged `RequestJsonError` for migrated route bodies.
+- `POST /push/:pushId/finish` uses the typed decoder before constructing the
+  canonical generated-handler request.
+- Plain finish read/parse helpers remain compatibility wrappers around the
+  Effect decoder or protocol parser.
+- Deployment read routes, malformed JSON handling, protocol validation
+  failures, `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.finishPush`, `DeploymentPushStore`, abandon/start push
+  routes, public Worker push routes, scheduler routes, execution routes,
+  executor-http routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The deployment Durable Object still owns storage initialization and generated
+HttpApi handler execution. `DeploymentService.finishPush` owns finish
+activation orchestration. The route-boundary module owns only transport
+matching, typed JSON decoding, protocol parsing, compatibility mapping, and
+generated-handler request reconstruction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles finish-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Route Boundary
 
 Previous completed checkpoint: `e619b57` Extract registry create route parser.

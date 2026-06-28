@@ -2,13 +2,70 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e619b57` Extract registry create route parser.
-- Active checkpoint: extract deployment HttpApi abandon-push route parsing into named boundary helpers while preserving generated handler request reconstruction.
+- Previous completed checkpoint: `c0537a6` Extract deployment abandon route parser.
+- Active checkpoint: convert deployment HttpApi finish-push route parsing to an Effect-typed decoder while preserving generated handler request reconstruction and existing HTTP mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 89 slice:
+## Effect migration quality bar
+
+The migration should now move beyond naming plain parser helpers. Naming a
+throwing parser or moving `readJson(...)` into a smaller function is acceptable
+only as a temporary compatibility checkpoint. New migration slices should make
+the target Effect shape more true.
+
+Required direction for the next phase:
+
+1. Transport boundaries should expose Effect-returning decoders, for example
+   `decodeDeploymentFinishPushRouteRequest(...)` returning
+   `Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
+2. Plain `parseX(...)` functions that throw may remain for compatibility, but
+   newly migrated route paths should prefer Effect decoders and keep throwing
+   parsers behind compatibility wrappers.
+3. HTTP body reads in migrated paths should use a typed Effect boundary instead
+   of throwing `HttpError` directly from `readJson(...)`.
+4. HTTP response conversion should happen at one adapter edge. Domain,
+   protocol, and service code should return typed failures, not `HttpError`.
+5. Protocol validation failures should be emitted at the protocol boundary and
+   propagated unchanged; downstream code should not remap already-tagged
+   protocol or domain errors.
+6. `HttpError` remains an adapter-level compatibility type until all affected
+   routes have typed Effect error mapping. Do not introduce new domain logic
+   that depends on `HttpError`.
+7. Effect Schema remains the source of truth for transport/API/service
+   contracts. `ValidatorJson` remains the source of truth for user
+   document/function validation and must not be replaced accidentally.
+8. New service/domain functions should be named `Effect.fn("module.name")`
+   where reusable, depend on services/layers instead of ad hoc injection, and
+   keep one runtime boundary per Worker/DO/HTTP adapter.
+9. Tests for newly migrated Effect boundaries should cover the typed success
+   and typed failure channels directly, then separately assert the preserved
+   HTTP response mapping at the adapter edge.
+
+Next recommended checkpoint after the current route-parser cleanup:
+
+1. Add a backend route-body Effect helper, such as `readJsonEffect(...)`, with
+   a tagged `RequestJsonError`.
+2. Convert one narrow route boundary, preferably deployment finish or abandon,
+   from `Promise + throw` to `Effect + typed error`.
+3. Preserve the existing HTTP response body/status exactly through an adapter
+   mapping test.
+4. Update the EffectTS quality checker expectation so new migration diffs are
+   reviewed against this stronger bar, not only behavior-preserving parser
+   extraction.
+
+Current Goal 90 slice:
+
+1. Add a shared backend `readJsonEffect(...)` boundary with tagged `RequestJsonError` while keeping existing `readJson(...)` behavior as a compatibility adapter.
+2. Add `decodeDeploymentFinishPushRouteRequest(...)` and `parseDeploymentFinishPushRouteRequestEffect(...)` to `deployment/HttpApiRouteBoundary.ts` so backend finish-push body parsing exposes `Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
+3. Keep `readDeploymentFinishPushRouteRequest(...)` and `parseDeploymentFinishPushRouteRequest(...)` only as compatibility wrappers for the existing async route adapter.
+4. Keep deployment HttpApi behavior unchanged: read routes pass through unchanged, `POST /push/:pushId/finish` still rebuilds a canonical JSON request for the generated handler, malformed JSON keeps the shared `400`, and deployment protocol failures still surface as `DeploymentProtocolValidationError`.
+5. Keep `DeploymentDO.fetch()`, `DeploymentApiHandlers`, `DeploymentService.finishPush`, `DeploymentPushStore`, abandon/start push routes, public Worker push routes, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` untouched.
+6. Add focused route-boundary tests for typed Effect success/failure channels and preserved HTTP adapter mapping.
+7. Validate with focused deployment HttpApi route-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer under the updated quality bar.
+
+Completed Goal 89 slice:
 
 1. Add `readDeploymentAbandonPushRouteRequest(...)` and `parseDeploymentAbandonPushRouteRequest(...)` to `deployment/HttpApiRouteBoundary.ts` so backend abandon-push body parsing is testable separately from route matching.
 2. Keep deployment HttpApi behavior unchanged: read routes pass through unchanged, `POST /push/:pushId/abandon` still rebuilds a canonical JSON request for the generated handler, malformed JSON keeps the shared `400`, and deployment protocol failures still surface as `DeploymentProtocolValidationError`.

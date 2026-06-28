@@ -42,6 +42,10 @@ T3 Code references to inspect as needed:
 - `opensrc/repos/github.com/pingdotgg/t3code/apps/server/src/orchestration/runtimeLayer.ts`, `Services/OrchestrationEngine.ts`, and `Schemas.ts` for practical service/layer composition and contract aliasing patterns.
 
 Review focus:
+- New Effect migration slices should move beyond plain parser-helper extraction when they touch migrated boundaries: prefer Effect-returning decoders with typed failure channels and explicit adapter mapping tests.
+- Transport boundaries should expose typed Effect decoders for migrated paths, for example `Effect.Effect<RequestBody, RequestJsonError | ProtocolValidationError>`, while keeping throwing `parseX(...)` functions only as compatibility wrappers.
+- HTTP body reads in migrated paths should use typed Effect errors such as `RequestJsonError`; mapping to `HttpError` belongs at a Worker/DO/HTTP adapter edge.
+- Tests for newly migrated Effect boundaries should assert typed success and typed failure channels directly, then separately assert preserved HTTP response mapping at the adapter edge.
 - Effect functions use `Effect.fn("qualified.name")` for reusable functions instead of returning `Effect.gen(...)` wrappers.
 - One runtime boundary per handler or adapter. Domain/service code should return Effects and receive dependencies through services/layers, not call `Effect.runPromise`/manual runners internally.
 - Domain and integration failures are represented as typed tagged errors at the source boundary, not generic `Error`, `throw`, or broad `try/catch`.

@@ -1,13 +1,20 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  DeploymentProtocolValidationError,
   DeploymentPushAction,
   DeploymentRoute,
   parseAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
+import { RequestJsonError } from "../src/http";
 import {
+  decodeDeploymentFinishPushRouteRequest,
   deploymentApiRequestForRoute,
   parseDeploymentAbandonPushRouteRequest,
+  parseDeploymentFinishPushRouteRequest,
+  parseDeploymentFinishPushRouteRequestEffect,
   readDeploymentAbandonPushRouteRequest,
+  readDeploymentFinishPushRouteRequest,
 } from "../src/deployment/HttpApiRouteBoundary";
 
 describe("deploymentApiRequestForRoute", () => {
@@ -46,6 +53,31 @@ describe("deploymentApiRequestForRoute", () => {
     );
     await expect(finish.json()).resolves.toEqual({ activate: true });
 
+    await expect(Effect.runPromise(
+      decodeDeploymentFinishPushRouteRequest(jsonRequest(
+        `${DeploymentRoute.push}/push-finish-effect/${DeploymentPushAction.finish}`,
+        {
+          method: "POST",
+          body: { activate: true },
+        },
+      )),
+    )).resolves.toEqual({ activate: true });
+    await expect(
+      readDeploymentFinishPushRouteRequest(jsonRequest(
+        `${DeploymentRoute.push}/push-finish-helper/${DeploymentPushAction.finish}`,
+        {
+          method: "POST",
+          body: { activate: false },
+        },
+      )),
+    ).resolves.toEqual({ activate: false });
+    expect(parseDeploymentFinishPushRouteRequest({
+      activate: true,
+    })).toEqual({ activate: true });
+    await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
+      activate: false,
+    }))).resolves.toEqual({ activate: false });
+
     const abandon = await expectApiRequest(
       `${DeploymentRoute.push}/push-abandon/${DeploymentPushAction.abandon}`,
       {
@@ -77,6 +109,23 @@ describe("deploymentApiRequestForRoute", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(deploymentApiRequestForRoute(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-malformed/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+    await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-effect-malformed/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
 
     await expect(deploymentApiRequestForRoute(jsonRequest(
       `${DeploymentRoute.push}/push-finish/${DeploymentPushAction.finish}`,
@@ -87,6 +136,16 @@ describe("deploymentApiRequestForRoute", () => {
     ))).rejects.toMatchObject({
       message: "Finish push activate flag must be a boolean.",
     });
+    await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-effect-invalid/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: { activate: "yes" },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
+      activate: "yes",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
 
     await expect(deploymentApiRequestForRoute(jsonRequest(
       `${DeploymentRoute.push}/push-abandon/${DeploymentPushAction.abandon}`,

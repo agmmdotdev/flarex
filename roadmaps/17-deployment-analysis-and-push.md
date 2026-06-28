@@ -1,5 +1,73 @@
 # Deployment Analysis And Push
 
+## Effect-Typed Deployment Route Boundary Target
+
+The deployment push migration should now move from named plain parsers toward
+Effect-typed transport boundaries.
+
+Target shape:
+
+- `DeploymentService.startAnalyzedPush`, `finishPush`, and `abandonPush` remain
+  the orchestration owners.
+- Deployment HttpApi route-boundary helpers should read JSON and decode
+  protocol bodies through typed Effect errors, not plain `Promise` helpers that
+  throw `HttpError` or `DeploymentProtocolValidationError`.
+- Existing throwing protocol parsers can remain as compatibility wrappers while
+  new migrated route code uses Effect decoders.
+- `DeploymentDO.fetch()` or the generated web-handler adapter should perform
+  the single conversion from typed Effect failures to the existing HTTP
+  responses.
+- Tests should verify typed route-boundary failure values and the preserved
+  `400`/`409`/`500` HTTP behavior separately.
+
+Next deployment proof slice:
+
+1. Add a typed Effect JSON body reader in the backend package.
+2. Convert deployment finish or abandon backend HttpApi route parsing to
+   return `Effect.Effect<FinishPushRequest | AbandonPushRequest, ...>`.
+3. Preserve generated handler request reconstruction and response compatibility.
+4. Keep public Worker finish response-ordering invariants unchanged.
+
+## Deployment HttpApi Finish Push Route Boundary
+
+Previous completed checkpoint: `c0537a6` Extract deployment abandon route parser.
+
+What changed:
+
+- Added `decodeDeploymentFinishPushRouteRequest(...)` and
+  `parseDeploymentFinishPushRouteRequestEffect(...)` to the backend deployment
+  HttpApi route boundary.
+- Added the shared `readJsonEffect(...)` / `RequestJsonError` backend body
+  boundary used by the migrated finish route.
+- `POST /push/:pushId/finish` now parses through the typed Effect decoder
+  before constructing the canonical generated-handler request.
+- Existing plain finish read/parse helpers remain compatibility wrappers.
+- The already-extracted `DeploymentService.finishPush` orchestration remains
+  unchanged: push lookup, execution artifact reference computation, timestamp
+  acquisition, and store activation still live in the service/store layer.
+- `DeploymentDO.fetch()`, DeploymentApi handlers, abandon/start push routes,
+  public Worker push routes, scheduler routes, execution routes, executor-http
+  routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Finish-push activation is already behind `DeploymentService.finishPush`.
+This checkpoint continues the migration by making the backend HttpApi
+transport parse boundary for finish Effect-typed, matching the updated quality
+bar without moving activation logic back into `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles finish-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Route Boundary
 
 Previous completed checkpoint: `e619b57` Extract registry create route parser.

@@ -1,4 +1,10 @@
+import { Data, Effect } from "effect";
 import type { Json } from "./types";
+
+export class RequestJsonError extends Data.TaggedError("RequestJsonError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
 
 export class HttpError extends Error {
   constructor(
@@ -25,11 +31,26 @@ export function errorResponse(error: unknown): Response {
 }
 
 export async function readJson<T>(request: Request): Promise<T> {
-  try {
-    return (await request.json()) as T;
-  } catch {
-    throw new HttpError(400, "Request body must be JSON.");
-  }
+  return await Effect.runPromise(
+    readJsonEffect(request).pipe(
+      Effect.map(value => value as T),
+      Effect.mapError(requestJsonErrorToHttpError),
+    ),
+  );
+}
+
+export function readJsonEffect(request: Request): Effect.Effect<unknown, RequestJsonError> {
+  return Effect.tryPromise({
+    try: () => request.json() as Promise<unknown>,
+    catch: cause => new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause,
+    }),
+  });
+}
+
+export function requestJsonErrorToHttpError(error: RequestJsonError): HttpError {
+  return new HttpError(400, error.message);
 }
 
 export function required(value: string | undefined, name: string): string {

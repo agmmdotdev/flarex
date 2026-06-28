@@ -1,5 +1,83 @@
 # Runtime Validation
 
+## Effect-Typed Route Boundary Quality Bar
+
+Current parser-extraction checkpoints are useful compatibility work, but they
+are not the final Effect migration shape. The next runtime-validation phase
+should prove route boundaries through typed Effect channels instead of only
+through thrown parser errors.
+
+Runtime validation target:
+
+- Add a typed request-body read boundary, for example `readJsonEffect(...)`
+  returning a tagged `RequestJsonError` instead of throwing `HttpError`.
+- Add route-specific Effect decoders that compose JSON reading and protocol
+  schema validation into
+  `Effect.Effect<Request, RequestJsonError | ProtocolValidationError>`.
+- Keep synchronous `parseX(...)` wrappers only for compatibility callers while
+  migrated runtime paths use Effect decoders.
+- Convert typed request/protocol failures to the existing HTTP status and body
+  at a single Worker/DO/HttpApi adapter edge.
+- Add tests that assert both typed failures before HTTP mapping and preserved
+  HTTP responses after adapter mapping.
+
+First proof checkpoint:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles finish-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
+## Deployment HttpApi Finish Push Route Boundary
+
+Previous completed checkpoint: `c0537a6` Extract deployment abandon route parser.
+
+What changed:
+
+- Added a shared `readJsonEffect(...)` helper with tagged `RequestJsonError`
+  in `packages/flarex-backend/src/http.ts`.
+- Added `decodeDeploymentFinishPushRouteRequest(...)` and
+  `parseDeploymentFinishPushRouteRequestEffect(...)` to
+  `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts`.
+- `deploymentApiRequestForRoute(...)` now delegates
+  `POST /push/:pushId/finish` body parsing through the Effect decoder before
+  rebuilding the canonical generated-handler request.
+- `readDeploymentFinishPushRouteRequest(...)` and
+  `parseDeploymentFinishPushRouteRequest(...)` remain compatibility wrappers
+  for the existing async adapter and direct parser callers.
+- Deployment read routes still pass through unchanged, malformed JSON still
+  maps through the shared `Request body must be JSON.` boundary, and protocol
+  validation failures still surface as `DeploymentProtocolValidationError`.
+- `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.finishPush`, `DeploymentPushStore`, abandon/start push
+  routes, public Worker push routes, scheduler routes, execution routes,
+  executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The backend deployment HttpApi bridge still had finish-push JSON reading,
+protocol parsing, and generated-handler request reconstruction as a throwing
+branch. Finish activation already lives in `DeploymentService.finishPush`; this
+checkpoint makes the remaining transport parse boundary Effect-typed without
+changing service behavior or HTTP response compatibility.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles finish-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Push Route Boundary
 
 Previous completed checkpoint: `e619b57` Extract registry create route parser.
