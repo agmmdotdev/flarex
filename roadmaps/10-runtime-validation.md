@@ -1,5 +1,47 @@
 # Runtime Validation
 
+## Public Abandon Push Effect Decoder
+
+Previous completed checkpoint: `4f4bb5d` Add typed registry create decoder.
+
+What changed:
+
+- Added `decodePublicAbandonPushRequest(...)` and
+  `parsePublicAbandonPushRequestEffect(...)` to
+  `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts`.
+- `readPublicAbandonPushRequest(...)` remains the Worker-facing compatibility
+  wrapper and now runs the typed Effect decoder before mapping malformed JSON
+  back to the existing shared `400` response.
+- Protocol validation failures still surface as
+  `DeploymentProtocolValidationError`, preserving the existing
+  `deploymentProtocolValidationErrorResponse(...)` 400 envelope.
+- `DeploymentService.abandonPush(...)` remains the owner of push lookup, typed
+  not-found/invalid-state checks, controlled timestamp use, and reason
+  defaulting/truncation.
+- Worker forwarding, DeploymentDO internal routes, generated HttpApi handler
+  behavior, SQL statements, response bodies, request validation messages,
+  service/store orchestration, protocol schemas, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+The abandon-push orchestration already lives in `DeploymentService`. This
+checkpoint moves the remaining public abandon request-body boundary from
+`readJson(...)` plus a throwing parser to an Effect-typed decoder while keeping
+the public Worker adapter and service-owned normalization behavior stable.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|normalizes abandon reasons|rejects malformed abandon request bodies|does not abandon activated or unknown pushes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Registry HttpApi Create Deployment Effect Decoder
 
 Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.

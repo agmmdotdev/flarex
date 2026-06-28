@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Public Abandon Push Effect Decoder
+
+Previous completed checkpoint: `4f4bb5d` Add typed registry create decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts` now
+  exposes an Effect-typed public abandon-push decoder separate from the
+  Worker-facing compatibility wrapper.
+- `readPublicAbandonPushRequest(...)` keeps the public Worker boundary stable
+  while delegating malformed JSON and protocol parsing through typed Effect
+  channels.
+- `DeploymentProtocolValidationError` remains the protocol-boundary failure
+  for invalid abandon bodies; only `RequestJsonError` maps back to the shared
+  compatibility `HttpError`.
+- `DeploymentService.abandonPush(...)` continues to own abandon orchestration:
+  push lookup, typed state checks, timestamp selection, and reason
+  normalization.
+
+Boundary decision:
+
+The public route-boundary module owns public request-body decoding and
+compatibility mapping. The Worker owns public route matching and forwarding.
+DeploymentDO owns internal generated-handler routing. DeploymentService owns
+abandon-push orchestration. DeploymentPushStore remains the SQL transaction
+boundary and keeps its transactional guards.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|normalizes abandon reasons|rejects malformed abandon request bodies|does not abandon activated or unknown pushes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Registry HttpApi Create Deployment Effect Decoder
 
 Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.

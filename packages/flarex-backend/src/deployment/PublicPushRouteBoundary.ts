@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import {
   DeploymentProtocolValidationError,
   parseAbandonPushRequest,
@@ -8,7 +9,14 @@ import {
   type AnalyzedStartPushRequest,
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
-import { json, readJson } from "../http";
+import {
+  json,
+  readJson,
+  readJsonEffect,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+  type HttpError,
+} from "../http";
 import type { StartPushRequest } from "../types";
 
 export async function readPublicStartPushJson(request: Request): Promise<unknown> {
@@ -58,7 +66,49 @@ export function parsePublicFinishPushRequest(
 export async function readPublicAbandonPushRequest(
   request: Request,
 ): Promise<AbandonPushRequest> {
-  return parseAbandonPushRequest(await readJson(request));
+  return await Effect.runPromise(
+    decodePublicAbandonPushRequest(request).pipe(
+      Effect.mapError(publicDeploymentRouteErrorToHttpError),
+    ),
+  );
+}
+
+export function decodePublicAbandonPushRequest(
+  request: Request,
+): Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
+  return readJsonEffect(request).pipe(
+    Effect.flatMap(parsePublicAbandonPushRequestEffect),
+  );
+}
+
+export function parsePublicAbandonPushRequest(
+  body: unknown,
+): AbandonPushRequest {
+  return parseAbandonPushRequest(body);
+}
+
+export function parsePublicAbandonPushRequestEffect(
+  body: unknown,
+): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(parsePublicAbandonPushRequest(body));
+    } catch (error) {
+      if (error instanceof DeploymentProtocolValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
+}
+
+function publicDeploymentRouteErrorToHttpError(
+  error: RequestJsonError | DeploymentProtocolValidationError,
+): HttpError | DeploymentProtocolValidationError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return error;
 }
 
 export function deploymentProtocolValidationErrorResponse(

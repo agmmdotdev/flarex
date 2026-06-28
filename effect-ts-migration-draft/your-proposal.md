@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.
-- Active checkpoint: convert registry HttpApi create-deployment route parsing to an Effect-typed decoder while preserving generated handler request reconstruction and existing HTTP mapping.
+- Previous completed checkpoint: `4f4bb5d` Add typed registry create decoder.
+- Active checkpoint: convert the public deployment abandon-push body boundary to an Effect-typed decoder while preserving Worker forwarding, protocol error envelopes, and DeploymentService-owned reason normalization.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,17 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 94 slice:
+Current Goal 95 slice:
+
+1. Add `decodePublicAbandonPushRequest(...)` and `parsePublicAbandonPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public abandon-push body parsing exposes `Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
+2. Keep `readPublicAbandonPushRequest(...)` as the Worker-facing compatibility wrapper that maps malformed JSON back to the existing shared `HttpError(400, "Request body must be JSON.")`.
+3. Keep `parsePublicAbandonPushRequest(...)` as a direct parser compatibility helper for tests and future route-boundary consolidation.
+4. Preserve protocol validation failures as `DeploymentProtocolValidationError` so `deploymentProtocolValidationErrorResponse(...)` keeps the existing `{ error: string }` 400 envelope.
+5. Keep `DeploymentService.abandonPush(...)` as the owner of push lookup, typed not-found/invalid-state checks, controlled timestamp use, and reason defaulting/truncation.
+6. Do not change Worker route paths, Worker forwarding, DeploymentDO internal routes, generated HttpApi handler behavior, SQL statements, response bodies, request validation messages, service/store orchestration, protocol schemas, or `ValidatorJson`.
+7. Validate with focused public abandon route-boundary tests, focused public push parity tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 94 slice:
 
 1. Add `decodeRegistryCreateDeploymentRouteRequest(...)` and `parseRegistryCreateDeploymentRouteRequestEffect(...)` to `registry/HttpApiRouteBoundary.ts` so registry create-deployment body parsing exposes `Effect.Effect<CreateDeploymentRequest, RequestJsonError | ProtocolValidationError>`.
 2. Keep `readRegistryCreateDeploymentRouteRequest(...)` and `parseRegistryCreateDeploymentRouteRequest(...)` as compatibility wrappers for the existing async route adapter and direct parser callers.

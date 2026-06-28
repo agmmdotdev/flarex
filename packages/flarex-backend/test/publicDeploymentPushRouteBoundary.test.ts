@@ -1,8 +1,12 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { DeploymentProtocolValidationError } from "flarex-protocol/deployment";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodePublicAbandonPushRequest,
   deploymentProtocolValidationErrorResponse,
+  parsePublicAbandonPushRequest,
+  parsePublicAbandonPushRequestEffect,
   parsePublicFinishPushRequest,
   parsePublicStartPushRequest,
   readPublicAbandonPushRequest,
@@ -49,6 +53,13 @@ describe("public deployment push route boundary", () => {
     await expect(readPublicAbandonPushRequest(jsonRequest({ reason: "typecheck failed" })))
       .resolves
       .toEqual({ reason: "typecheck failed" });
+    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest({
+      reason: "typed boundary",
+    })))).resolves.toEqual({ reason: "typed boundary" });
+    expect(parsePublicAbandonPushRequest({ reason: "pure parser" })).toEqual({ reason: "pure parser" });
+    await expect(Effect.runPromise(parsePublicAbandonPushRequestEffect({
+      reason: "typed parser",
+    }))).resolves.toEqual({ reason: "typed parser" });
 
     await expect(readPublicFinishPushRequest(jsonRequest({ activate: "yes" })))
       .rejects
@@ -56,6 +67,12 @@ describe("public deployment push route boundary", () => {
     await expect(readPublicAbandonPushRequest(jsonRequest({ reason: 123 })))
       .rejects
       .toThrow("Abandon push reason must be a string.");
+    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest({
+      reason: 123,
+    })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parsePublicAbandonPushRequestEffect({
+      reason: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
   it("keeps malformed JSON as the shared HttpError boundary", async () => {
@@ -67,6 +84,11 @@ describe("public deployment push route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicAbandonPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("maps deployment protocol parser failures to the existing 400 error envelope", async () => {
