@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Deployment HttpApi Typed Decoder Adapter
+
+Previous completed checkpoint: `0108eca` Add typed start route decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts` now has one
+  local typed adapter path for deployment HttpApi mutation body decoding.
+- Start-analyzed, finish, and abandon route-specific exports still define the
+  route contract surface, while local helpers own JSON Effect composition,
+  parser failure conversion, and compatibility adapter mapping.
+- Deployment read routes, malformed JSON handling, protocol validation
+  failures, `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService`, `DeploymentPushStore`, public Worker push routes,
+  scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The route-boundary module owns typed transport decoding and generated-handler
+request reconstruction. Route-specific exported helpers remain the public
+backend boundary, while local generic helpers prevent the adapter mechanics
+from forking across start, finish, and abandon.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler|handles finish-push mutations through the Worker-compatible web handler|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Start Analyzed Effect Decoder
 
 Previous completed checkpoint: `aeae978` Add typed abandon route decoder.

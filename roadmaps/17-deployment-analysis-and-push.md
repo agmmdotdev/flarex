@@ -1,5 +1,44 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Typed Decoder Adapter
+
+Previous completed checkpoint: `0108eca` Add typed start route decoder.
+
+What changed:
+
+- Factored the duplicated typed decoder adapter mechanics for backend
+  deployment HttpApi mutation routes into local helpers inside
+  `HttpApiRouteBoundary.ts`.
+- Start-analyzed, finish, and abandon still expose route-specific typed
+  decoders and compatibility wrappers.
+- `readJsonEffect(...)`, `RequestJsonError`, and
+  `DeploymentProtocolValidationError` remain the typed transport/protocol
+  failure channels for these routes.
+- `DeploymentService.startAnalyzedPush`, `finishPush`, and `abandonPush`
+  orchestration remains unchanged in the service layer.
+- `DeploymentDO.fetch()`, DeploymentApi handlers, public Worker push routes,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+The three deployment mutation routes now share the same Effect-typed transport
+shape. This checkpoint removes duplicated adapter plumbing so future deployment
+route migrations are less likely to diverge while keeping all behavior and
+service ownership fixed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler|handles finish-push mutations through the Worker-compatible web handler|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Start Analyzed Effect Decoder
 
 Previous completed checkpoint: `aeae978` Add typed abandon route decoder.

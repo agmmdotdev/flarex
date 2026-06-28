@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `aeae978` Add typed abandon route decoder.
-- Active checkpoint: convert deployment HttpApi start-analyzed route parsing to an Effect-typed decoder while preserving generated handler request reconstruction and existing HTTP mapping.
+- Previous completed checkpoint: `0108eca` Add typed start route decoder.
+- Active checkpoint: consolidate deployment HttpApi typed route decoder helpers while preserving generated handler request reconstruction and existing HTTP mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 92 slice:
+Current Goal 93 slice:
+
+1. Add local shared helpers in `deployment/HttpApiRouteBoundary.ts` for running typed route decoders through the existing Promise adapter, composing `readJsonEffect(...)` with protocol parsers, and converting throwing protocol parsers into typed `Effect` failures.
+2. Keep the exported start-analyzed, finish, and abandon typed decoder names and compatibility wrappers unchanged.
+3. Keep deployment HttpApi behavior unchanged: read routes pass through unchanged, mutation routes still rebuild canonical JSON requests for the generated handler, malformed JSON keeps the shared `400`, and deployment protocol failures still surface as `DeploymentProtocolValidationError`.
+4. Keep `DeploymentDO.fetch()`, `DeploymentApiHandlers`, `DeploymentService`, `DeploymentPushStore`, public Worker push routes, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` untouched.
+5. Validate that focused start/finish/abandon route-boundary and handler coverage still proves typed success/failure channels and preserved HTTP adapter mapping.
+6. Validate with focused deployment HttpApi route-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer under the updated quality bar.
+
+Completed Goal 92 slice:
 
 1. Add `decodeDeploymentAnalyzedStartPushRouteRequest(...)` and `parseDeploymentAnalyzedStartPushRouteRequestEffect(...)` to `deployment/HttpApiRouteBoundary.ts` so backend start-analyzed body parsing exposes `Effect.Effect<AnalyzedStartPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
 2. Add `readDeploymentAnalyzedStartPushRouteRequest(...)` and `parseDeploymentAnalyzedStartPushRouteRequest(...)` as compatibility wrappers for the existing async route adapter and direct parser callers.

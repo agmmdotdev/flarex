@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Deployment HttpApi Typed Decoder Adapter
+
+Previous completed checkpoint: `0108eca` Add typed start route decoder.
+
+What changed:
+
+- Added local shared helpers in
+  `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts` for:
+  `runDeploymentRouteRequest(...)`, `decodeDeploymentRouteRequest(...)`, and
+  `parseDeploymentProtocolRequestEffect(...)`.
+- Start-analyzed, finish, and abandon route-specific decoders now share the
+  same typed JSON read, protocol parser composition, and compatibility adapter
+  mapping.
+- Exported route-specific decoder names, compatibility wrappers, and generated
+  handler request reconstruction are unchanged.
+- Deployment read routes still pass through unchanged, malformed JSON still
+  maps through the shared `Request body must be JSON.` boundary, and protocol
+  validation failures still surface as `DeploymentProtocolValidationError`.
+- `DeploymentDO.fetch()`, `DeploymentApiHandlers`, `DeploymentService`,
+  `DeploymentPushStore`, public Worker push routes, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After start-analyzed, finish, and abandon all moved to typed decoders, the
+route boundary had three copies of the same Effect adapter logic. This
+checkpoint keeps the typed route-specific APIs while making the shared
+transport boundary shape explicit and harder to drift.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles analyzed start-push mutations through the Worker-compatible web handler|handles finish-push mutations through the Worker-compatible web handler|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Start Analyzed Effect Decoder
 
 Previous completed checkpoint: `aeae978` Add typed abandon route decoder.
