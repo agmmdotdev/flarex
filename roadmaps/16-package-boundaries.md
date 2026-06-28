@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Partition Schema Cache Route Boundary
+
+Previous completed checkpoint: `c930cf0` Decode public delivery wake bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/partition/PublicSchemaCacheRouteBoundary.ts`
+  now owns the public Worker partition schema-cache request-body boundary.
+- `PUT /deployments/:deploymentId/partitions/:partitionKey/schema-cache`
+  decodes through the shared `readJson` boundary before the Worker forwards to
+  `PartitionDO`.
+- The boundary appends the route partition key, keeps it authoritative over any
+  request-body field, and reuses the existing partition schema-cache parser for
+  object-envelope validation.
+- Schema semantic validation, table/index persistence, schema-version metadata
+  writes, transaction ownership, commit/OCC behavior, subscription routes,
+  document/index reads, scheduler routes, delivery routes, executor-http routes,
+  and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The public schema-cache route is a Worker transport boundary. This checkpoint
+validates the public envelope and route partition key before forwarding, while
+keeping schema validation, persistence, and transaction-facing state inside
+`PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "public partition schema-cache route boundary|rejects malformed public partition schema-cache JSON|rejects non-object public partition schema-cache JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Delivery Wake Route Boundary
 
 Previous completed checkpoint: `c1c104d` Decode public live query delivery bodies.

@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Partition Schema Cache Boundary
+
+Previous completed checkpoint: `c930cf0` Decode public delivery wake bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/partition/PublicSchemaCacheRouteBoundary.ts`
+  to own the public Worker partition schema-cache body read.
+- `PUT /deployments/:deploymentId/partitions/:partitionKey/schema-cache` now
+  decodes request JSON through the shared `readJson` boundary before forwarding
+  to `PartitionDO`.
+- The boundary validates only that the public schema-cache body is a JSON object,
+  appends the route `partitionKey`, keeps the route partition key authoritative,
+  and reuses the existing partition schema-cache parser.
+- Schema semantic validation, table/index persistence, schema-version metadata
+  writes, transaction ownership, commit/OCC behavior, subscription routes,
+  document/index reads, scheduler routes, delivery routes, executor-http routes,
+  and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The public Worker partition schema-cache route was still reading raw JSON and
+wrapping it before forwarding to `PartitionDO`. This checkpoint moves that
+transport envelope into a named boundary while leaving schema interpretation
+and storage in the Durable Object.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "public partition schema-cache route boundary|rejects malformed public partition schema-cache JSON|rejects non-object public partition schema-cache JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Delivery Wake Boundary
 
 Previous completed checkpoint: `c1c104d` Decode public live query delivery bodies.

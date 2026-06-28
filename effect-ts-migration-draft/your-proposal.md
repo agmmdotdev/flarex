@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c1c104d` Decode public live query delivery bodies.
-- Active checkpoint: decode public Worker DeliveryDO wake bodies before forwarding to the DeliveryDO.
+- Previous completed checkpoint: `c930cf0` Decode public delivery wake bodies.
+- Active checkpoint: decode public Worker partition schema-cache bodies before forwarding to the PartitionDO.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 75 slice:
+Current Goal 76 slice:
+
+1. Add a backend-only `partition/PublicSchemaCacheRouteBoundary.ts` helper that reads public `PUT /schema-cache` JSON once through the shared `readJson` boundary.
+2. Decode only the public transport envelope as a JSON object, append the route `partitionKey`, and keep the route partition key authoritative over any body field.
+3. Reuse the existing partition schema-cache parser for object-envelope validation before forwarding to `PartitionDO`.
+4. Keep schema semantic validation, table/index persistence, schema-version metadata writes, transaction ownership, commit/OCC behavior, subscription routes, document/index reads, scheduler routes, delivery routes, executor-http routes, and `ValidatorJson` untouched.
+5. Add focused helper tests for successful wrap, route partition-key precedence, invalid envelope mapping, malformed JSON handling, and public Worker route tests proving malformed/non-object schema-cache JSON returns `400 { error }` before forwarding.
+6. Validate with focused schema-cache boundary/transaction tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 75 slice:
 
 1. Add a backend-only `delivery/PublicWakeRouteBoundary.ts` helper that reads public `wake-delivery` JSON once through the shared `readJson` boundary.
 2. Decode the public wake envelope by appending the route `deploymentId`, keeping the route deployment id authoritative over any body field, and reusing the existing `DeliveryDO` wake parser.

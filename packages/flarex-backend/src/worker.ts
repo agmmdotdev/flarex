@@ -45,6 +45,7 @@ import {
 } from "./liveQueryDelivery";
 import { readPublicLiveQueryDeliveryRequest } from "./liveQueryDelivery/RouteBoundary";
 import { readPartitionCommitRequest } from "./partition/RouteBoundary";
+import { readPublicPartitionSchemaCacheRequest } from "./partition/PublicSchemaCacheRouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
@@ -64,7 +65,6 @@ import {
 } from "./schedulerRoutes";
 import type {
   AnalyzedStartPushRequest,
-  DeploymentSchema,
   Env,
   InvokeRequest,
   Json,
@@ -559,11 +559,11 @@ async function routePartition(
     });
   }
   if (action === "schema-cache" && request.method === "PUT") {
-    const schema = await readJson<DeploymentSchema>(request);
+    const schemaCache = await readPublicPartitionSchemaCacheRequest(request, partitionKey);
     return partition.fetch("https://flarex.internal/schema-cache", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ partitionKey, schema }),
+      body: JSON.stringify(schemaCache),
     });
   }
   if (action === "document" && request.method === "GET") {

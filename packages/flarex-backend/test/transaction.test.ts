@@ -144,6 +144,38 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("rejects malformed public partition schema-cache JSON at the route boundary", async () => {
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/schema-cache-public-boundary/partitions/user%3Aada/schema-cache",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects non-object public partition schema-cache JSON at the route boundary", async () => {
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/schema-cache-public-envelope-boundary/partitions/user%3Aada/schema-cache",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify("schema"),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "schema-cache request body must be an object.",
+    });
+  });
+
   it("commits through the public partition route boundary", async () => {
     const response = await harness.mf.dispatchFetch(
       "http://flarex.test/deployments/commit-public-success-boundary/partitions/user%3Aada/commit",
