@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
   parseExecutionStartRouteRequest,
+  parsePublicExecutionStartRouteRequest,
   readExecutionStartRequest,
   readPublicExecutionStartRequest,
 } from "../src/execution/StartRouteBoundary";
@@ -37,6 +38,33 @@ describe("execution start route boundary", () => {
       args: null,
       kind: "query",
     });
+
+    expect(parsePublicExecutionStartRouteRequest({
+      deploymentId: "body-deployment",
+      path: "users:list",
+      args: [],
+      projectId: "project-a",
+    }, "route-deployment")).toEqual({
+      deploymentId: "route-deployment",
+      path: "users:list",
+      args: [],
+      projectId: "project-a",
+    });
+  });
+
+  it("maps non-object public execution start bodies through the protocol boundary", () => {
+    expect(() => parsePublicExecutionStartRouteRequest(null, "route-deployment"))
+      .toThrow(HttpError);
+    try {
+      parsePublicExecutionStartRouteRequest("not an object", "route-deployment");
+      throw new Error("Expected parsePublicExecutionStartRouteRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message:
+          "Execution start request must include string deploymentId, string path, JSON args, and optional string partitionKey, projectId, idempotencyKey, and query or mutation kind.",
+      });
+    }
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {

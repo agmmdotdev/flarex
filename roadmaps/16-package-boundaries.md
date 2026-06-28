@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Public Execution Start Route Normalization Boundary
+
+Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/StartRouteBoundary.ts` now separates
+  public execution start route normalization from JSON reading.
+- Public Worker execution start uses `parsePublicExecutionStartRouteRequest(...)`
+  to make the route deployment id authoritative before the shared execution
+  protocol parser runs.
+- Internal execution start parsing, `ExecutionDO.fetch()`, syscall, finish,
+  abort routing, session lifecycle, PartitionDO, artifact runtime,
+  executor-http, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The Worker owns route-derived deployment identity. The execution protocol owns
+the start request envelope. This checkpoint keeps that split explicit by moving
+the route-derived merge into a named boundary parser without changing
+ExecutionDO runtime ownership.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start route boundary|decodes public execution start bodies before creating a session"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Artifact Runtime Malformed JSON Route Boundary
 
 Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.

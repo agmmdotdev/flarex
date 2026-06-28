@@ -2,13 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.
-- Active checkpoint: normalize artifact runtime malformed invoke JSON through the shared backend `readJson` boundary while preserving invalid payload mapping.
+- Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
+- Active checkpoint: extract public execution start route normalization into a named parser while preserving route deployment-id authority.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 85 slice:
+Current Goal 86 slice:
+
+1. Add `parsePublicExecutionStartRouteRequest(...)` to `execution/StartRouteBoundary.ts` so public route deployment-id normalization is testable separately from JSON reading.
+2. Keep public `POST /deployments/:deploymentId/executions/start` behavior unchanged: route deployment id overrides any body deployment id, malformed JSON uses the shared JSON error, and protocol failures still map to backend `400` errors.
+3. Keep internal execution start parsing, `ExecutionDO.fetch()`, syscall/finish/abort routing, session lifecycle, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+4. Add focused tests for route deployment-id precedence through the new parser and non-object public bodies flowing through the existing protocol error boundary.
+5. Validate with focused execution start boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 85 slice:
 
 1. Change `artifactRuntime/RouteBoundary.ts` to read runtime `/invoke` JSON through the shared backend `readJson` boundary instead of local `request.json().catch(() => null)`.
 2. Preserve shape-invalid payload mapping as `HttpError(400, "Invalid execution artifact invoke payload.")`.

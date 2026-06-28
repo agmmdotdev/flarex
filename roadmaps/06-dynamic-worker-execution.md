@@ -1,5 +1,41 @@
 # Dynamic Worker Execution
 
+## Public Execution Start Route Normalization
+
+Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
+
+What changed:
+
+- Added `parsePublicExecutionStartRouteRequest(...)` to
+  `packages/flarex-backend/src/execution/StartRouteBoundary.ts`.
+- Public execution start JSON reading now delegates body normalization to that
+  named parser before using the existing execution start protocol parser.
+- The route deployment id remains authoritative over any body `deploymentId`.
+- Non-object public bodies still flow through the same backend protocol error
+  boundary after the route deployment id is applied.
+- Internal execution start parsing, `ExecutionDO.fetch()`, syscall, finish,
+  abort routing, session lifecycle, PartitionDO, artifact runtime,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Public execution start has a small Worker-specific normalization step: the
+deployment id comes from the route, not the JSON body. This checkpoint gives
+that rule a named parser and direct tests without changing execution session
+behavior or the shared execution protocol parser.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start route boundary|decodes public execution start bodies before creating a session"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Execution Action Decode Boundary
 
 Previous completed checkpoint: `f21421f` Document execution abort boundary.

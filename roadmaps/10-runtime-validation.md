@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Execution Start Normalization Boundary
+
+Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/StartRouteBoundary.ts` now exposes a
+  named public execution start parser for Worker route normalization.
+- Public execution start still reads JSON through the shared backend
+  `readJson(...)` boundary, then applies the route deployment id before the
+  execution protocol parser validates the request.
+- Route deployment id precedence, malformed JSON mapping, and protocol failure
+  mapping are unchanged.
+- Internal execution start parsing, `ExecutionDO.fetch()`, syscall, finish,
+  abort routing, session lifecycle, PartitionDO, artifact runtime,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The public execution start boundary had route-specific body normalization
+embedded inside the async JSON reader. Naming the parser makes the transport
+rule visible and directly testable while keeping the runtime session behavior
+outside this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start route boundary|decodes public execution start bodies before creating a session"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Artifact Runtime Malformed JSON Boundary
 
 Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.

@@ -17,8 +17,14 @@ export async function readPublicExecutionStartRequest(
   request: Request,
   deploymentId: string,
 ): Promise<ExecutionStartRequest> {
-  const body = await readJson(request);
-  const record = isRecord(body) ? body : {};
+  return parsePublicExecutionStartRouteRequest(await readJson(request), deploymentId);
+}
+
+export function parsePublicExecutionStartRouteRequest(
+  value: unknown,
+  deploymentId: string,
+): ExecutionStartRequest {
+  const record = isRecord(value) ? value : {};
   return parseExecutionStartRouteRequest({ ...record, deploymentId });
 }
 
