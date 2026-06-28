@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Scheduler Delivery Reconcile Boundary
+
+Previous completed checkpoint: `4211274` Decode public partition schema-cache bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` to own
+  the public Worker delivery reconcile scheduler body read.
+- `POST /scheduler/live-query-deliveries/reconcile` now decodes request JSON
+  through the shared scheduler route-boundary parser before forwarding to
+  `SchedulerDO`.
+- The public Worker reserializes the parsed delivery reconcile request before
+  forwarding, so ignored fields are dropped and cursor dates are normalized at
+  the public edge.
+- Authorization remains before body parsing.
+- SchedulerDO delivery reconcile execution, continuation/coalescing, DeliveryDO
+  wake fanout, executor pending-deployment scans, connection cleanup,
+  dead-letter, rerun, cleanup routes, partition routes, delivery routes,
+  executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The public scheduler forwarding helper still read arbitrary JSON before
+forwarding to `SchedulerDO`. This checkpoint narrows the delivery reconcile
+endpoint first, without changing SchedulerDO's internal reconcile ownership or
+the other scheduler public endpoints.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query delivery reconcile JSON|rejects unauthorized live query delivery reconcile before parsing JSON|rejects invalid live query delivery reconcile envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Partition Schema Cache Boundary
 
 Previous completed checkpoint: `c930cf0` Decode public delivery wake bodies.

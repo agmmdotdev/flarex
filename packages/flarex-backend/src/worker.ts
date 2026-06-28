@@ -58,6 +58,7 @@ import {
   schedulerObjectName,
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
+import { readPublicSchedulerDeliveryReconcileRequest } from "./scheduler/PublicRouteBoundary";
 import {
   LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
   LIVE_QUERY_SCHEDULER_NAME,
@@ -143,8 +144,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-deliveries/reconcile" &&
     request.method === "POST"
   ) {
-    return forwardLiveQuerySchedulerRequest(
-      request,
+    authorizeLiveQueryDeliveryRequest(request, env);
+    const body = await readPublicSchedulerDeliveryReconcileRequest(request);
+    return forwardLiveQuerySchedulerBody(
+      body,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries,
     );
@@ -255,12 +258,20 @@ async function forwardLiveQuerySchedulerRequest(
   internalPath: LiveQuerySchedulerInternalPath,
 ): Promise<Response> {
   authorizeLiveQueryDeliveryRequest(request, env);
+  return forwardLiveQuerySchedulerBody(await readJson(request), env, internalPath);
+}
+
+async function forwardLiveQuerySchedulerBody(
+  body: unknown,
+  env: Env,
+  internalPath: LiveQuerySchedulerInternalPath,
+): Promise<Response> {
   return env.SCHEDULERS
     .getByName(LIVE_QUERY_SCHEDULER_NAME)
     .fetch(`https://flarex.internal${internalPath}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(await readJson(request)),
+      body: JSON.stringify(body),
     });
 }
 

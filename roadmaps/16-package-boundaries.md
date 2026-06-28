@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Scheduler Delivery Reconcile Route Boundary
+
+Previous completed checkpoint: `4211274` Decode public partition schema-cache bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` now owns the
+  public Worker delivery reconcile scheduler request-body boundary.
+- `POST /scheduler/live-query-deliveries/reconcile` decodes through the shared
+  scheduler route-boundary parser before the Worker forwards to `SchedulerDO`.
+- The Worker forwards the parsed delivery reconcile request body, preserving the
+  existing `limit`, `deliveryLimit`, `maxBatches`, and cursor envelope while
+  dropping ignored fields at the public edge.
+- Authorization, SchedulerDO delivery reconcile execution,
+  continuation/coalescing, DeliveryDO wake fanout, executor pending-deployment
+  scans, connection cleanup, dead-letter, rerun, cleanup routes, partition
+  routes, delivery routes, executor-http routes, and `ValidatorJson` remain in
+  their existing owners.
+
+Boundary decision:
+
+The public scheduler delivery reconcile route is a Worker transport boundary.
+This checkpoint validates and normalizes that request before forwarding, while
+keeping SchedulerDO responsible for reconcile state, coalescing, continuation,
+and delivery wake orchestration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query delivery reconcile JSON|rejects unauthorized live query delivery reconcile before parsing JSON|rejects invalid live query delivery reconcile envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Partition Schema Cache Route Boundary
 
 Previous completed checkpoint: `c930cf0` Decode public delivery wake bodies.
