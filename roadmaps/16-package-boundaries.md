@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## Scheduler Delivery Reconcile Route Boundary
+
+Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now owns the
+  live-query delivery reconcile request-body boundary.
+- The boundary extracts only the delivery reconcile request envelope and leaves
+  durable continuation state, keyed in-flight coalescing, wake fanout, retry
+  scheduling, and persistence in `SchedulerDO`.
+- Other SchedulerDO routes remain on their existing parsers for later slices.
+
+Boundary decision:
+
+Scheduler delivery reconcile crosses an HTTP/JSON boundary before it enters
+stateful Durable Object scheduling behavior. Decoding the request at the route
+edge makes that transport contract explicit without moving the scheduler's
+durable state machine or mixing it with delivery drain execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query delivery reconcile JSON|rejects malformed live query delivery deployment scan cursors"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Boundary
 
 Previous completed checkpoint: `c6bb370` Decode delivery wake bodies.

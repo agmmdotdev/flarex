@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c6bb370` Decode delivery wake bodies.
-- Active checkpoint: decode execution artifact runtime invoke payloads at a dedicated route boundary while preserving the existing invalid-payload 400 envelope.
+- Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.
+- Active checkpoint: decode SchedulerDO live-query delivery reconcile bodies at a scheduler route boundary before durable continuation/coalescing logic runs.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 65 slice:
+Current Goal 66 slice:
+
+1. Add a backend-only `scheduler/RouteBoundary.ts` helper that reads `POST /reconcile/live-query-deliveries` JSON once through the shared `readJson` boundary.
+2. Move only the live-query delivery reconcile request-envelope parser into that helper: optional positive integer `limit`, `deliveryLimit`, `maxBatches`, optional cursor with ISO `oldestCreatedAt` and non-empty `deploymentId`, and ignored extra fields.
+3. Use the decoded delivery reconcile request in `SchedulerDO.reconcileLiveQueryDeliveries(...)` so the route boundary is separated from durable continuation, keyed coalescing, wake fanout, retry scheduling, and persistence.
+4. Keep SchedulerDO connection cleanup, rerun, dead-letter, cleanup routes, DeliveryDO, ConnectionDO, PartitionDO, executor-http, and `ValidatorJson` untouched.
+5. Add focused boundary tests for successful decode, ignored extra fields, invalid cursor mapping, malformed JSON handling, and a route-level sync test proving malformed delivery reconcile JSON returns `400 { error }` without touching the executor.
+6. Validate with focused scheduler boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 65 slice:
 
 1. Add a backend-only `artifactRuntime/RouteBoundary.ts` helper that reads runtime `/invoke` JSON once and parses the existing `ExecutionArtifactInvokePayload` shape.
 2. Preserve current compatibility: malformed JSON and shape-invalid payloads both map to `HttpError(400, "Invalid execution artifact invoke payload.")`.

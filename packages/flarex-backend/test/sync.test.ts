@@ -3804,6 +3804,39 @@ describe("sync protocol", () => {
     await expect(cleared.json()).resolves.toEqual({ skipped: true });
   });
 
+  it("rejects malformed live query delivery reconcile JSON at the scheduler route boundary", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deployments: [], nextCursor: null, hasMore: false });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("continues pending live query delivery scans from alarms", async () => {
     const executorRequests: Array<{ path: string; body: unknown }> = [];
     const harness = await createSyncHarness(

@@ -2,6 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import { errorResponse, HttpError, json, readJson } from "./http";
 import { projectIdFromRequestOrEnv } from "./project";
 import { deliveryObjectName } from "./routing";
+import {
+  readSchedulerDeliveryReconcileRequest,
+  type SchedulerDeliveryReconcileRequest,
+} from "./scheduler/RouteBoundary";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
 import type { DeliveryDrainFailureResult } from "./deliveryDO";
@@ -224,7 +228,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.reconcileLiveQueryDeliveries(
-            await readJson<unknown>(request),
+            await readSchedulerDeliveryReconcileRequest(request),
           ),
         );
       }
@@ -302,9 +306,8 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async reconcileLiveQueryDeliveries(
-    body: unknown,
+    request: SchedulerDeliveryReconcileRequest,
   ): Promise<ReconcileResult> {
-    const request = reconcileDeliveriesRequestFromBody(body);
     if (request.cursor === undefined) {
       const pending = await this.readPendingLiveQueryDeliveryReconcile();
       if (pending !== undefined) {
@@ -1138,44 +1141,6 @@ function pendingDeploymentsResultFromUnknown(
   };
 }
 
-function reconcileDeliveriesRequestFromBody(value: unknown): {
-  limit?: number;
-  deliveryLimit?: number;
-  maxBatches?: number;
-  cursor?: PendingDeploymentCursor;
-} {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Live query delivery reconcile request body must be an object.");
-  }
-  const body = value as Record<string, unknown>;
-  return {
-    ...(body.limit === undefined
-      ? {}
-      : { limit: optionalPositiveInteger(body.limit, DEFAULT_PENDING_DEPLOYMENT_LIMIT, "limit") }),
-    ...(body.deliveryLimit === undefined
-      ? {}
-      : {
-          deliveryLimit: optionalPositiveInteger(
-            body.deliveryLimit,
-            DEFAULT_DELIVERY_LIMIT,
-            "deliveryLimit",
-          ),
-        }),
-    ...(body.maxBatches === undefined
-      ? {}
-      : {
-          maxBatches: optionalPositiveInteger(
-            body.maxBatches,
-            DEFAULT_MAX_BATCHES,
-            "maxBatches",
-          ),
-        }),
-    ...(body.cursor === undefined
-      ? {}
-      : { cursor: pendingCursorFromRequest(body.cursor) }),
-  };
-}
-
 function reconcileConnectionsRequestFromBody(value: unknown): {
   expiredAt?: string;
   limit?: number;
@@ -1538,20 +1503,6 @@ function pendingCursorFromUnknown(value: unknown): PendingDeploymentCursor | nul
   return {
     oldestCreatedAt: dateStringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt"),
     deploymentId: stringFromUnknown(record.deploymentId, "nextCursor.deploymentId"),
-  };
-}
-
-function pendingCursorFromRequest(value: unknown): PendingDeploymentCursor {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "cursor must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    oldestCreatedAt: dateStringFromRequest(
-      record.oldestCreatedAt,
-      "cursor.oldestCreatedAt",
-    ),
-    deploymentId: nonEmptyStringFromRequest(record.deploymentId, "cursor.deploymentId"),
   };
 }
 

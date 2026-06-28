@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Scheduler Delivery Reconcile Boundary
+
+Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/scheduler/RouteBoundary.ts` to own
+  `SchedulerDO` live-query delivery reconcile body reads.
+- `POST /reconcile/live-query-deliveries` now decodes request JSON through the
+  shared `readJson` boundary before durable continuation and keyed coalescing
+  logic runs.
+- The request envelope keeps the current optional positive integer `limit`,
+  `deliveryLimit`, and `maxBatches` fields plus the optional cursor with ISO
+  `oldestCreatedAt` and non-empty `deploymentId`; extra fields are ignored.
+- Malformed JSON and invalid delivery-reconcile cursors return JSON `400`
+  responses before executor calls are made.
+- SchedulerDO connection cleanup, rerun, dead-letter, cleanup routes,
+  DeliveryDO, ConnectionDO, PartitionDO, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+SchedulerDO still had several internal POST routes reading raw JSON bodies.
+This checkpoint starts with the delivery reconcile route because it owns the
+durable continuation/coalescing path that has the most scheduler-specific risk,
+while keeping that stateful logic outside the body parser.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query delivery reconcile JSON|rejects malformed live query delivery deployment scan cursors"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Artifact Runtime Invoke Boundary
 
 Previous completed checkpoint: `c6bb370` Decode delivery wake bodies.
