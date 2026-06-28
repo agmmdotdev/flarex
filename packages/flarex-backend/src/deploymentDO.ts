@@ -18,6 +18,7 @@ import {
   DeploymentService,
   type DeploymentServiceApi,
 } from "./deployment/Service";
+import { makeDeploymentApiWebHandler } from "./deployment/HttpApiWebHandler";
 import { initializeDeploymentStorage } from "./deployment/StorageSchema";
 import {
   analyzedStartPushRequest,
@@ -30,12 +31,12 @@ const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(
 
 export class DeploymentDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
-  private readonly deploymentRuntime = ManagedRuntime.make(
-    makeDeploymentLayer(
-      this.ctx.storage,
-      this.sql,
-    ),
+  private readonly deploymentLayer = makeDeploymentLayer(
+    this.ctx.storage,
+    this.sql,
   );
+  private readonly deploymentRuntime = ManagedRuntime.make(this.deploymentLayer);
+  private readonly deploymentApi = makeDeploymentApiWebHandler(this.deploymentLayer);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -45,6 +46,9 @@ export class DeploymentDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
+      if (isDeploymentApiReadRoute(request, url)) {
+        return this.deploymentApi.handler(request);
+      }
       if (url.pathname === DeploymentRoute.health) {
         return json({ service: "flarex-deployment", status: "ok" });
       }
@@ -109,4 +113,13 @@ export class DeploymentDO extends DurableObject<Env> {
     }
     return result.value;
   }
+}
+
+function isDeploymentApiReadRoute(request: Request, url: URL): boolean {
+  if (request.method !== "GET") return false;
+  if (url.pathname === DeploymentRoute.health || url.pathname === DeploymentRoute.activeDeployment) {
+    return true;
+  }
+  const pushMatch = url.pathname.match(deploymentPushRoutePattern);
+  return pushMatch !== null && pushMatch[2] === undefined;
 }

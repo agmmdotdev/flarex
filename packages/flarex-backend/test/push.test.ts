@@ -75,6 +75,25 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("reads active deployment and push status through public routes", async () => {
+    const start = await startPush("push-read-routes", analyzedPush(candidateSchema(), candidateFunctions()));
+    await finishPush("push-read-routes", start.pushId);
+
+    await expect(getPush("push-read-routes", start.pushId)).resolves.toMatchObject({
+      pushId: start.pushId,
+      state: "activated",
+      sourcePackage: sourcePackage(),
+      codegenAnalysis: candidateCodegenAnalysis(),
+    });
+    await expect(getActiveDeployment("push-read-routes")).resolves.toMatchObject({
+      activePushId: start.pushId,
+      schemaVersion: 2,
+      executionArtifactRef: await executionArtifactRefForSourcePackage(sourcePackage()),
+      analysis: { schema: normalizedCandidateSchema(), functions: candidateFunctions() },
+      codegenAnalysis: candidateCodegenAnalysis(),
+    });
+  });
+
   it("keeps public start source-only until backend analysis is configured", async () => {
     const response = await startSourceOnlyPushResponse("push-source-only", {
       sourcePackage: sourcePackage(),

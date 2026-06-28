@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `33d23cd` Add deployment HttpApi web handler factory.
-- Active checkpoint: tighten the abandon-push service boundary before Durable Object HttpApi wiring.
+- Previous completed checkpoint: `a6b81ff` Tighten deployment abandon service boundary.
+- Active checkpoint: route DeploymentDO read traffic through the generated Deployment HttpApi web handler.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 43 slice:
+Current Goal 44 slice:
+
+1. Add a `DeploymentDO`-owned generated Deployment HttpApi web handler by composing `makeDeploymentApiWebHandler(makeDeploymentLayer(this.ctx.storage, this.sql))` per Durable Object instance.
+2. Route only the current read-safe internal paths through that generated handler in this slice: `GET /health`, `GET /deployment`, and `GET /push/:pushId`.
+3. Keep non-GET `/health` behavior on the existing plain response path, preserving the current method-insensitive health behavior.
+4. Keep mutation routes on the existing plain router: analyzed start-push, finish-push, and abandon-push keep their current protocol/body parsing, status mapping, request validation messages, and worker forwarding behavior.
+5. Add focused public-route parity coverage proving active deployment and push status reads still return the same protocol-parsed bodies after the Durable Object read routes use the generated handler.
+6. Do not change service/store orchestration, SQL behavior, response bodies, route paths, mutation behavior, worker forwarding, protocol schemas, or `ValidatorJson`.
+7. Validate with focused deployment read/push/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 43 slice:
 
 1. Confirm the abandon-push orchestration already lives in `DeploymentService.abandonPush(...)`: push lookup, typed not-found/invalid-state checks, controlled timestamp use, reason defaulting/truncation, and store delegation.
 2. Keep `DeploymentDO.fetch()` responsible only for route matching, JSON reading, protocol parsing with `parseAbandonPushRequest`, and HTTP response wrapping.

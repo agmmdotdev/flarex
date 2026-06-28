@@ -1,5 +1,60 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Read Route Wiring
+
+Previous completed checkpoint: `a6b81ff` Tighten deployment abandon service
+boundary.
+
+What changed:
+
+- Added a generated Deployment HttpApi web handler owned by each
+  `DeploymentDO` instance.
+- Routed only read-safe internal DeploymentDO paths through the generated
+  handler in this slice: `GET /health`, `GET /deployment`, and
+  `GET /push/:pushId`.
+- Left analyzed start-push, finish-push, and abandon-push on the existing
+  plain router so their body parsing, validation messages, status mapping, and
+  worker forwarding semantics stay unchanged.
+- Preserved the current method-insensitive non-GET `/health` behavior by
+  keeping it on the plain response path.
+- Added public route parity coverage for active deployment and push status
+  reads.
+
+Why it changed:
+
+The Deployment HttpApi contract and backend handler layer are now covered by
+focused tests. Routing the read paths first moves real Durable Object traffic
+onto the generated handler while avoiding a simultaneous mutation/body-parser
+semantic change.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a Flarex-specific
+  incremental wiring step for the Cloudflare Durable Object HTTP boundary.
+
+Flarex differences:
+
+- Deployment mutations still use the existing plain router until their
+  generated parser and status semantics are proven route by route.
+
+Known limitations:
+
+- This is not full DeploymentDO HttpApi replacement; mutation routes remain on
+  the plain router in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/push.test.ts -t "read"
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Abandon Push Service Boundary Parity
 
 Previous completed checkpoint: `33d23cd` Add deployment HttpApi web handler
