@@ -1,7 +1,11 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeExecutionFinishRouteRequest,
   parseExecutionFinishRouteRequest,
+  parseExecutionFinishRouteRequestEffect,
   readExecutionFinishRequest,
 } from "../src/execution/FinishRouteBoundary";
 
@@ -12,9 +16,16 @@ describe("execution finish route boundary", () => {
     }))).resolves.toEqual({
       value: { ok: true, ids: ["1:user", null] },
     });
+    await expect(Effect.runPromise(decodeExecutionFinishRouteRequest(jsonRequest({
+      value: { ok: false },
+    })))).resolves.toEqual({
+      value: { ok: false },
+    });
 
     expect(parseExecutionFinishRouteRequest({ value: null }))
       .toEqual({ value: null });
+    await expect(Effect.runPromise(parseExecutionFinishRouteRequestEffect({ value: null })))
+      .resolves.toEqual({ value: null });
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {
@@ -31,6 +42,14 @@ describe("execution finish route boundary", () => {
     }
   });
 
+  it("exposes typed protocol failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeExecutionFinishRouteRequest(jsonRequest({}))))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(parseExecutionFinishRouteRequestEffect({
+      value: Number.NaN,
+    }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+  });
+
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readExecutionFinishRequest(new Request("https://flarex.test/finish", {
       method: "POST",
@@ -40,6 +59,11 @@ describe("execution finish route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodeExecutionFinishRouteRequest(new Request("https://flarex.test/finish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 });
 

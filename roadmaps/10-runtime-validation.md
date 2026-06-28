@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Execution Finish Effect Decoder
+
+Previous completed checkpoint: `c2d8a0b` Add typed public invoke decoder.
+
+What changed:
+
+- Added `decodeExecutionFinishRouteRequest(...)` and
+  `parseExecutionFinishRouteRequestEffect(...)` to
+  `packages/flarex-backend/src/execution/FinishRouteBoundary.ts`.
+- `readExecutionFinishRequest(...)` remains the ExecutionDO-facing
+  compatibility wrapper and now maps typed JSON and protocol failures back to
+  the existing `HttpError(400, ...)` responses.
+- `parseExecutionFinishRouteRequest(...)` remains the direct throwing
+  compatibility parser for public execution action forwarding and tests.
+- Malformed JSON still returns `Request body must be JSON.`, and finish
+  protocol validation still returns
+  `Execution finish request must include JSON value.`.
+- ExecutionDO finish routing, public execution action forwarding, execution
+  session state changes, syscall/start routes, public invoke routes, deployment
+  push routes, scheduler routes, partition routes, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Execution finish was still reading JSON through the throwing compatibility
+helper and converting protocol failures directly to `HttpError`. This
+checkpoint exposes typed Effect success/failure channels while preserving the
+existing ExecutionDO and public action adapter responses.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "execution finish route boundary|decodes public finish bodies before forwarding|execution finish"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Invoke Effect Decoder
 
 Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.

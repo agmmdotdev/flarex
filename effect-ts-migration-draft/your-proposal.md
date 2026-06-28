@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.
-- Active checkpoint: convert the public invoke body boundary to an Effect-typed decoder while preserving existing Worker invoke 400 responses and defaulting behavior.
+- Previous completed checkpoint: `c2d8a0b` Add typed public invoke decoder.
+- Active checkpoint: convert the execution finish body boundary to an Effect-typed decoder while preserving existing ExecutionDO and public execution action 400 responses.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 100 slice:
+Current Goal 101 slice:
+
+1. Add `decodeExecutionFinishRouteRequest(...)` and `parseExecutionFinishRouteRequestEffect(...)` to `execution/FinishRouteBoundary.ts` so execution finish body parsing exposes `Effect.Effect<ExecutionFinishRequest, RequestJsonError | ExecutionProtocolValidationError>`.
+2. Keep `readExecutionFinishRequest(...)` as the ExecutionDO-facing compatibility wrapper that maps malformed JSON and execution protocol failures back to the existing `HttpError(400, ...)` responses.
+3. Keep `parseExecutionFinishRouteRequest(...)` as the direct throwing compatibility parser for public execution action forwarding and existing tests.
+4. Preserve malformed JSON as `Request body must be JSON.` and finish protocol validation as `Execution finish request must include JSON value.`.
+5. Keep ExecutionDO finish routing, public execution action forwarding, execution session state changes, syscall/start routes, public invoke routes, deployment push routes, scheduler routes, partition routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused execution finish route-boundary tests, focused execution action/ExecutionDO behavior tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 100 slice:
 
 1. Add `decodePublicInvokeRouteRequest(...)` and `parsePublicInvokeRouteRequestEffect(...)` to `invoke/PublicInvokeRouteBoundary.ts` so public invoke body parsing exposes `Effect.Effect<PublicInvokeRequestBody, RequestJsonError | InvokeProtocolValidationError>`.
 2. Keep `readPublicInvokeRequest(...)` as the Worker-facing compatibility wrapper that maps malformed JSON and protocol validation failures back to the existing `HttpError(400, ...)` responses.

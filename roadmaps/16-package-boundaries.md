@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Execution Finish Effect Decoder
+
+Previous completed checkpoint: `c2d8a0b` Add typed public invoke decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/FinishRouteBoundary.ts` now exposes
+  an Effect-typed execution finish decoder.
+- `readExecutionFinishRequest(...)` keeps the ExecutionDO adapter stable while
+  mapping typed `RequestJsonError` and `ExecutionProtocolValidationError`
+  failures back to compatibility `HttpError` values.
+- `parseExecutionFinishRouteRequest(...)` remains a direct throwing parser for
+  compatibility, while `parseExecutionFinishRouteRequestEffect(...)` exposes
+  the typed protocol validation channel.
+- ExecutionDO finish routing, public execution action forwarding, execution
+  session state changes, syscall/start routes, public invoke routes, deployment
+  push routes, scheduler routes, partition routes, executor-http routes, and
+  `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The execution finish route-boundary module owns JSON reading, protocol parsing,
+backend JSON conversion, typed protocol errors, and compatibility `HttpError`
+mapping. ExecutionDO and public action routing continue to call the existing
+compatibility wrappers without owning finish body validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "execution finish route boundary|decodes public finish bodies before forwarding|execution finish"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Invoke Effect Decoder
 
 Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.
