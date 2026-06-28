@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Public Deployment Finish Push Raw Body Boundary
+
+Previous completed checkpoint: `6644926` Decode public scheduler trigger bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts` now owns
+  the public Worker finish-push raw JSON read.
+- `POST /deployments/:deploymentId/push/:pushId/finish` calls that boundary
+  helper before running the existing stored artifact preflight.
+- The Worker still parses the finish protocol request after the artifact
+  preflight, preserving the current malformed JSON, missing-artifact, and
+  invalid-envelope response ordering.
+- `DeploymentService.finishPush`, DeploymentDO HTTP behavior, artifact
+  reference computation, active-push activation semantics, source-only push
+  analysis, start-analyzed, abandon, scheduler routes, partition routes,
+  delivery routes, executor-http routes, and `ValidatorJson` remain in their
+  existing owners.
+
+Boundary decision:
+
+The public finish-push route is a Worker transport boundary with one extra
+preflight: durable artifact availability is checked before protocol validation
+once the request body is valid JSON. This checkpoint moves JSON ownership out of
+`worker.ts` while keeping that preflight and DeploymentDO activation ownership
+unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|rejects malformed finish request bodies|requires durable artifact storage before public finish when R2 is configured"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Scheduler Subscription Trigger Route Boundary
 
 Previous completed checkpoint: `df60d8b` Decode public scheduler rerun bodies.

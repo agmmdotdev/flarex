@@ -45,6 +45,10 @@ export async function readPublicFinishPushRequest(
   return parseFinishPushRequest(await readJson(request));
 }
 
+export async function readPublicFinishPushJson(request: Request): Promise<unknown> {
+  return readJson(request);
+}
+
 export function parsePublicFinishPushRequest(
   body: unknown,
 ): FinishPushRequest {

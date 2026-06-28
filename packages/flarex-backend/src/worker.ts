@@ -28,6 +28,7 @@ import {
   parsePublicFinishPushRequest,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
+  readPublicFinishPushJson,
   readPublicStartPushJson,
 } from "./deployment/PublicPushRouteBoundary";
 import { errorResponse, HttpError, json, readJson, required } from "./http";
@@ -332,7 +333,7 @@ async function routeDeploymentPush(
     return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
   }
   if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
-    const rawBody = await readJson(request);
+    const rawBody = await readPublicFinishPushJson(request);
     const missingArtifact = await verifyStoredPushArtifact(env, deployment, pushId);
     if (missingArtifact !== undefined) return missingArtifact;
     const body = parsePublicFinishPushRequest(rawBody);

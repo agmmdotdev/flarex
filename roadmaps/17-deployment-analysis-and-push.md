@@ -1,5 +1,44 @@
 # Deployment Analysis And Push
 
+## Public Finish Push Raw Body Boundary
+
+Previous completed checkpoint: `6644926` Decode public scheduler trigger bodies.
+
+What changed:
+
+- Added `readPublicFinishPushJson(...)` to
+  `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts`.
+- `POST /deployments/:deploymentId/push/:pushId/finish` now reads public finish
+  JSON through the deployment push route-boundary module instead of calling
+  `readJson(...)` directly in `worker.ts`.
+- The Worker still parses the finish protocol body only after the stored
+  execution artifact preflight succeeds.
+- `DeploymentService.finishPush`, DeploymentDO HTTP behavior, artifact
+  reference computation, active-push activation semantics, source-only push
+  analysis, start-analyzed, abandon, scheduler routes, partition routes,
+  delivery routes, executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The public finish route has a response-ordering invariant that differs from a
+simple "decode then forward" boundary: malformed JSON must fail immediately,
+but an invalid finish envelope can still produce the existing missing-artifact
+`409` when the artifact preflight fails before protocol validation. This slice
+moves the raw JSON read into the route-boundary owner without changing that
+observable ordering.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|rejects malformed finish request bodies|requires durable artifact storage before public finish when R2 is configured"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Source-Only Push Body Boundary
 
 Previous completed checkpoint: `65dd151` Decode public deployment push bodies.

@@ -7,6 +7,7 @@ import {
   parsePublicStartPushRequest,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
+  readPublicFinishPushJson,
   readPublicFinishPushRequest,
   readPublicStartPushJson,
 } from "../src/deployment/PublicPushRouteBoundary";
@@ -38,6 +39,9 @@ describe("public deployment push route boundary", () => {
   });
 
   it("decodes public finish and abandon bodies with deployment protocol parsers", async () => {
+    await expect(readPublicFinishPushJson(jsonRequest({ activate: true })))
+      .resolves
+      .toEqual({ activate: true });
     await expect(readPublicFinishPushRequest(jsonRequest({ activate: true })))
       .resolves
       .toEqual({ activate: true });
