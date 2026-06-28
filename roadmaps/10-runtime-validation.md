@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Public Analyzed Start Push Effect Decoder
+
+Previous completed checkpoint: `db370ea` Add typed public abandon decoder.
+
+What changed:
+
+- Added `decodePublicAnalyzedStartPushRequest(...)` and
+  `parsePublicAnalyzedStartPushRequestEffect(...)` to
+  `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts`.
+- `readPublicAnalyzedStartPushRequest(...)` remains the Worker-facing
+  compatibility wrapper and now runs the typed Effect decoder before mapping
+  malformed JSON back to the existing shared `400` response.
+- Added shared public deployment route decoder helpers used by analyzed-start
+  and abandon so protocol parser failures remain
+  `DeploymentProtocolValidationError` and JSON failures map only at the
+  adapter edge.
+- Public Worker forwarding, DeploymentDO generated-handler routing,
+  `DeploymentApiHandlers.startAnalyzedPush`, `DeploymentService.startAnalyzedPush`,
+  source-only analyzer routing, finish artifact preflight ordering, SQL
+  statements, response bodies, request validation messages, protocol schemas,
+  and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Public abandon-push now exposes typed Effect request decoding. This checkpoint
+applies the same boundary shape to public analyzed-start, which has a simple
+read/decode/forward flow and does not carry finish-push's artifact preflight
+ordering constraint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|rejects malformed analyzed start push bodies|keeps public start source-only"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Abandon Push Effect Decoder
 
 Previous completed checkpoint: `4f4bb5d` Add typed registry create decoder.

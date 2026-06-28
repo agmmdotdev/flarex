@@ -4,9 +4,12 @@ import { DeploymentProtocolValidationError } from "flarex-protocol/deployment";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicAbandonPushRequest,
+  decodePublicAnalyzedStartPushRequest,
   deploymentProtocolValidationErrorResponse,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
+  parsePublicAnalyzedStartPushRequest,
+  parsePublicAnalyzedStartPushRequestEffect,
   parsePublicFinishPushRequest,
   parsePublicStartPushRequest,
   readPublicAbandonPushRequest,
@@ -17,6 +20,11 @@ import {
 } from "../src/deployment/PublicPushRouteBoundary";
 
 describe("public deployment push route boundary", () => {
+  const analyzedStartBody = {
+    sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
+    error: "analysis failed",
+  };
+
   it("reads source-only start-push JSON separately from protocol parsing", async () => {
     const body = {
       sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
@@ -29,17 +37,26 @@ describe("public deployment push route boundary", () => {
   });
 
   it("decodes public analyzed start-push bodies with the deployment protocol parser", async () => {
-    await expect(readPublicAnalyzedStartPushRequest(jsonRequest({
-      sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
-      error: "analysis failed",
-    }))).resolves.toEqual({
-      sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
-      error: "analysis failed",
-    });
+    await expect(readPublicAnalyzedStartPushRequest(jsonRequest(analyzedStartBody)))
+      .resolves
+      .toEqual(analyzedStartBody);
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(jsonRequest(analyzedStartBody))))
+      .resolves
+      .toEqual(analyzedStartBody);
+    expect(parsePublicAnalyzedStartPushRequest(analyzedStartBody)).toEqual(analyzedStartBody);
+    await expect(Effect.runPromise(parsePublicAnalyzedStartPushRequestEffect(analyzedStartBody)))
+      .resolves
+      .toEqual(analyzedStartBody);
 
     await expect(readPublicAnalyzedStartPushRequest(jsonRequest({
       error: "missing source package",
     }))).rejects.toThrow("Analyzed start push request must include sourcePackage.");
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(jsonRequest({
+      error: "missing source package",
+    })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parsePublicAnalyzedStartPushRequestEffect({
+      error: "missing source package",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
   it("decodes public finish and abandon bodies with deployment protocol parsers", async () => {
@@ -84,6 +101,19 @@ describe("public deployment push route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(readPublicAnalyzedStartPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(Effect.runPromise(decodePublicAbandonPushRequest(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },

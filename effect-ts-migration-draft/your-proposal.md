@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `4f4bb5d` Add typed registry create decoder.
-- Active checkpoint: convert the public deployment abandon-push body boundary to an Effect-typed decoder while preserving Worker forwarding, protocol error envelopes, and DeploymentService-owned reason normalization.
+- Previous completed checkpoint: `db370ea` Add typed public abandon decoder.
+- Active checkpoint: convert the public analyzed-start body boundary to an Effect-typed decoder while preserving Worker forwarding, protocol error envelopes, and DeploymentService-owned start-push orchestration.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,17 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 95 slice:
+Current Goal 96 slice:
+
+1. Add `decodePublicAnalyzedStartPushRequest(...)` and `parsePublicAnalyzedStartPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public analyzed-start body parsing exposes `Effect.Effect<AnalyzedStartPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
+2. Keep `readPublicAnalyzedStartPushRequest(...)` as the Worker-facing compatibility wrapper that maps malformed JSON back to the existing shared `HttpError(400, "Request body must be JSON.")`.
+3. Keep `parsePublicAnalyzedStartPushRequest(...)` as a direct parser compatibility helper for tests and future route-boundary consolidation.
+4. Reuse the public deployment typed decoder helpers for analyzed-start and abandon so protocol failures are emitted once as `DeploymentProtocolValidationError` and JSON failures are mapped only at the adapter edge.
+5. Keep public Worker forwarding, `DeploymentDO` generated-handler routing, `DeploymentApiHandlers.startAnalyzedPush`, `DeploymentService.startAnalyzedPush`, source-only analyzer routing, finish artifact preflight ordering, SQL statements, response bodies, request validation messages, protocol schemas, and `ValidatorJson` unchanged.
+6. Defer public finish-push typed decoding to a separate checkpoint because finish intentionally reads malformed JSON before artifact preflight but applies protocol validation after artifact preflight.
+7. Validate with focused public analyzed-start route-boundary tests, focused public push parity tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 95 slice:
 
 1. Add `decodePublicAbandonPushRequest(...)` and `parsePublicAbandonPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public abandon-push body parsing exposes `Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
 2. Keep `readPublicAbandonPushRequest(...)` as the Worker-facing compatibility wrapper that maps malformed JSON back to the existing shared `HttpError(400, "Request body must be JSON.")`.
