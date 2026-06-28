@@ -1,9 +1,16 @@
+import { Effect } from "effect";
 import {
   parseCreateDeploymentRequest,
+  ProtocolValidationError,
   RegistryRoute,
   type CreateDeploymentRequest,
 } from "flarex-protocol/registry";
-import { readJson } from "../http";
+import {
+  readJsonEffect,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+  type HttpError,
+} from "../http";
 
 export async function registryApiRequestForRoute(request: Request): Promise<Request | null> {
   const url = new URL(request.url);
@@ -19,13 +26,49 @@ export async function registryApiRequestForRoute(request: Request): Promise<Requ
 export async function readRegistryCreateDeploymentRouteRequest(
   request: Request,
 ): Promise<CreateDeploymentRequest> {
-  return parseRegistryCreateDeploymentRouteRequest(await readJson(request));
+  return await Effect.runPromise(
+    decodeRegistryCreateDeploymentRouteRequest(request).pipe(
+      Effect.mapError(registryRouteErrorToHttpError),
+    ),
+  );
+}
+
+export function decodeRegistryCreateDeploymentRouteRequest(
+  request: Request,
+): Effect.Effect<CreateDeploymentRequest, RequestJsonError | ProtocolValidationError> {
+  return readJsonEffect(request).pipe(
+    Effect.flatMap(parseRegistryCreateDeploymentRouteRequestEffect),
+  );
 }
 
 export function parseRegistryCreateDeploymentRouteRequest(
   value: unknown,
 ): CreateDeploymentRequest {
   return parseCreateDeploymentRequest(value);
+}
+
+export function parseRegistryCreateDeploymentRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<CreateDeploymentRequest, ProtocolValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(parseRegistryCreateDeploymentRouteRequest(value));
+    } catch (error) {
+      if (error instanceof ProtocolValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
+}
+
+function registryRouteErrorToHttpError(
+  error: RequestJsonError | ProtocolValidationError,
+): HttpError | ProtocolValidationError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return error;
 }
 
 function jsonRequest(url: URL, body: unknown): Request {

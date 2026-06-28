@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Registry HttpApi Create Deployment Effect Decoder
+
+Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.
+
+What changed:
+
+- `packages/flarex-backend/src/registry/HttpApiRouteBoundary.ts` now exposes
+  an Effect-typed create-deployment decoder separate from route matching and
+  request reconstruction.
+- `POST /deployments` uses the typed decoder before constructing the canonical
+  generated-handler request.
+- Plain create-deployment read/parse helpers remain compatibility wrappers
+  around the Effect decoder or protocol parser.
+- Registry read routes, malformed JSON handling, protocol validation failures,
+  `RegistryDO.fetch()`, `RegistryApiHandlers`, `RegistryService`,
+  `RegistryStore`, deployment records, scheduler routes, execution routes,
+  deployment push routes, executor-http routes, and `ValidatorJson` remain in
+  their existing owners.
+
+Boundary decision:
+
+The registry Durable Object still owns storage initialization and generated
+HttpApi handler execution. The route-boundary module owns transport matching,
+typed JSON decoding, protocol parsing, compatibility mapping, and
+generated-handler request reconstruction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryDO.test.ts -t "registry HttpApi route boundary|creates and lists deployments"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Typed Decoder Adapter
 
 Previous completed checkpoint: `0108eca` Add typed start route decoder.

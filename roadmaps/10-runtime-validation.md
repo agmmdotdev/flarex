@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Registry HttpApi Create Deployment Effect Decoder
+
+Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.
+
+What changed:
+
+- Added `decodeRegistryCreateDeploymentRouteRequest(...)` and
+  `parseRegistryCreateDeploymentRouteRequestEffect(...)` to
+  `packages/flarex-backend/src/registry/HttpApiRouteBoundary.ts`.
+- `registryApiRequestForRoute(...)` now delegates `POST /deployments` body
+  parsing through the Effect decoder before rebuilding the canonical
+  generated-handler request.
+- `readRegistryCreateDeploymentRouteRequest(...)` and
+  `parseRegistryCreateDeploymentRouteRequest(...)` remain compatibility
+  wrappers for the existing async adapter and direct parser callers.
+- Malformed create-deployment JSON flows through the typed `RequestJsonError`
+  channel before mapping back to the existing `Request body must be JSON.`
+  `400` compatibility response.
+- Registry read routes still pass through unchanged, and protocol validation
+  failures still surface as `ProtocolValidationError`.
+- `RegistryDO.fetch()`, `RegistryApiHandlers`, `RegistryService`,
+  `RegistryStore`, deployment records, scheduler routes, execution routes,
+  deployment push routes, executor-http routes, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+Deployment HttpApi mutation bodies now use typed route decoders. This
+checkpoint applies the same transport boundary to registry create-deployment
+so the registry HttpApi proof moves beyond plain parser helpers while keeping
+the generated handler flow and current HTTP responses stable.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryDO.test.ts -t "registry HttpApi route boundary|creates and lists deployments"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Typed Decoder Adapter
 
 Previous completed checkpoint: `0108eca` Add typed start route decoder.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `0108eca` Add typed start route decoder.
-- Active checkpoint: consolidate deployment HttpApi typed route decoder helpers while preserving generated handler request reconstruction and existing HTTP mapping.
+- Previous completed checkpoint: `43940c4` Share deployment route decoder adapter.
+- Active checkpoint: convert registry HttpApi create-deployment route parsing to an Effect-typed decoder while preserving generated handler request reconstruction and existing HTTP mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,17 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 93 slice:
+Current Goal 94 slice:
+
+1. Add `decodeRegistryCreateDeploymentRouteRequest(...)` and `parseRegistryCreateDeploymentRouteRequestEffect(...)` to `registry/HttpApiRouteBoundary.ts` so registry create-deployment body parsing exposes `Effect.Effect<CreateDeploymentRequest, RequestJsonError | ProtocolValidationError>`.
+2. Keep `readRegistryCreateDeploymentRouteRequest(...)` and `parseRegistryCreateDeploymentRouteRequest(...)` as compatibility wrappers for the existing async route adapter and direct parser callers.
+3. Reuse the typed `RequestJsonError` to HTTP compatibility mapping introduced in the shared backend HTTP boundary.
+4. Keep registry HttpApi behavior unchanged: read routes pass through unchanged, `POST /deployments` still rebuilds a canonical JSON request for the generated handler, malformed JSON keeps the shared `400`, and registry protocol failures still surface as `ProtocolValidationError`.
+5. Keep `RegistryDO.fetch()`, `RegistryApiHandlers`, `RegistryService`, `RegistryStore`, deployment records, scheduler routes, execution routes, deployment push routes, executor-http routes, and `ValidatorJson` untouched.
+6. Add focused route-boundary tests for typed Effect success/failure channels and preserved HTTP adapter mapping.
+7. Validate with focused registry HttpApi route-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer under the updated quality bar.
+
+Completed Goal 93 slice:
 
 1. Add local shared helpers in `deployment/HttpApiRouteBoundary.ts` for running typed route decoders through the existing Promise adapter, composing `readJsonEffect(...)` with protocol parsers, and converting throwing protocol parsers into typed `Effect` failures.
 2. Keep the exported start-analyzed, finish, and abandon typed decoder names and compatibility wrappers unchanged.

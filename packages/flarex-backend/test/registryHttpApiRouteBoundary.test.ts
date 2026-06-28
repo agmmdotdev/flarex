@@ -1,8 +1,11 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { ProtocolValidationError, RegistryRoute } from "flarex-protocol/registry";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeRegistryCreateDeploymentRouteRequest,
   parseRegistryCreateDeploymentRouteRequest,
+  parseRegistryCreateDeploymentRouteRequestEffect,
   readRegistryCreateDeploymentRouteRequest,
   registryApiRequestForRoute,
 } from "../src/registry/HttpApiRouteBoundary";
@@ -37,12 +40,26 @@ describe("registry HttpApi route boundary", () => {
     ).resolves.toEqual({
       deploymentId: "deployment-b",
     });
+    await expect(Effect.runPromise(
+      decodeRegistryCreateDeploymentRouteRequest(jsonRequest({
+        deploymentId: "deployment-effect",
+        slug: "effect-slug",
+      })),
+    )).resolves.toEqual({
+      deploymentId: "deployment-effect",
+      slug: "effect-slug",
+    });
     expect(parseRegistryCreateDeploymentRouteRequest({
       deploymentId: "deployment-c",
       slug: "slug-c",
     })).toEqual({
       deploymentId: "deployment-c",
       slug: "slug-c",
+    });
+    await expect(Effect.runPromise(parseRegistryCreateDeploymentRouteRequestEffect({
+      deploymentId: "deployment-parser-effect",
+    }))).resolves.toEqual({
+      deploymentId: "deployment-parser-effect",
     });
   });
 
@@ -57,6 +74,14 @@ describe("registry HttpApi route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodeRegistryCreateDeploymentRouteRequest(new Request(
+      `https://registry.test${RegistryRoute.deployments}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
 
     await expect(
       registryApiRequestForRoute(new Request(`https://registry.test${RegistryRoute.deployments}`, {
@@ -65,6 +90,12 @@ describe("registry HttpApi route boundary", () => {
         body: JSON.stringify({ deploymentId: 123 }),
       })),
     ).rejects.toBeInstanceOf(ProtocolValidationError);
+    await expect(Effect.runPromise(decodeRegistryCreateDeploymentRouteRequest(jsonRequest({
+      deploymentId: 123,
+    })))).rejects.toBeInstanceOf(ProtocolValidationError);
+    await expect(Effect.runPromise(parseRegistryCreateDeploymentRouteRequestEffect({
+      deploymentId: 123,
+    }))).rejects.toBeInstanceOf(ProtocolValidationError);
   });
 
   it("leaves fallback routes on the existing plain RegistryDO responses", async () => {
