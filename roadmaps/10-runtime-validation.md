@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Registry HttpApi Create Deployment Route Boundary
+
+Previous completed checkpoint: `1bf9355` Extract public execution action parser.
+
+What changed:
+
+- Added `readRegistryCreateDeploymentRouteRequest(...)` and
+  `parseRegistryCreateDeploymentRouteRequest(...)` to
+  `packages/flarex-backend/src/registry/HttpApiRouteBoundary.ts`.
+- `registryApiRequestForRoute(...)` now delegates `POST /deployments` body
+  parsing to those helpers before rebuilding the canonical generated-handler
+  request.
+- Registry read routes still pass through unchanged, malformed JSON still maps
+  through the shared `Request body must be JSON.` boundary, and protocol
+  validation failures still surface as `ProtocolValidationError`.
+- `RegistryDO.fetch()`, `RegistryApiHandlers`, `RegistryService`,
+  `RegistryStore`, deployment records, scheduler routes, execution routes,
+  deployment push routes, executor-http routes, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+The registry HttpApi route bridge had route matching, JSON reading, protocol
+parsing, and generated-handler request reconstruction in one branch. This
+checkpoint names the create-deployment parse boundary without changing the
+generated HttpApi handler flow.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryDO.test.ts -t "registry HttpApi route boundary|creates and lists deployments"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Execution Action Normalization Boundary
 
 Previous completed checkpoint: `6397855` Extract public execution start parser.

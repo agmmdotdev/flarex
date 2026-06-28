@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Registry HttpApi Create Deployment Route Boundary
+
+Previous completed checkpoint: `1bf9355` Extract public execution action parser.
+
+What changed:
+
+- `packages/flarex-backend/src/registry/HttpApiRouteBoundary.ts` now separates
+  create-deployment body parsing from route matching and request
+  reconstruction.
+- `POST /deployments` uses named read/parse helpers before constructing the
+  canonical generated-handler request.
+- Registry read routes, malformed JSON handling, protocol validation failures,
+  `RegistryDO.fetch()`, `RegistryApiHandlers`, `RegistryService`,
+  `RegistryStore`, deployment records, scheduler routes, execution routes,
+  deployment push routes, executor-http routes, and `ValidatorJson` remain in
+  their existing owners.
+
+Boundary decision:
+
+The registry Durable Object still owns persistence and generated HttpApi
+handler execution. The route-boundary module owns only transport matching,
+JSON decoding, protocol parsing, and generated-handler request reconstruction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryDO.test.ts -t "registry HttpApi route boundary|creates and lists deployments"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Execution Action Route Normalization Boundary
 
 Previous completed checkpoint: `6397855` Extract public execution start parser.

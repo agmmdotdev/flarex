@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ProtocolValidationError, RegistryRoute } from "flarex-protocol/registry";
 import { HttpError } from "../src/http";
-import { registryApiRequestForRoute } from "../src/registry/HttpApiRouteBoundary";
+import {
+  parseRegistryCreateDeploymentRouteRequest,
+  readRegistryCreateDeploymentRouteRequest,
+  registryApiRequestForRoute,
+} from "../src/registry/HttpApiRouteBoundary";
 
 describe("registry HttpApi route boundary", () => {
   it("forwards registry read routes to the generated handler", async () => {
@@ -24,6 +28,21 @@ describe("registry HttpApi route boundary", () => {
     await expect(apiRequest?.json()).resolves.toEqual({
       deploymentId: "deployment-a",
       slug: "slug-a",
+    });
+
+    await expect(
+      readRegistryCreateDeploymentRouteRequest(jsonRequest({
+        deploymentId: "deployment-b",
+      })),
+    ).resolves.toEqual({
+      deploymentId: "deployment-b",
+    });
+    expect(parseRegistryCreateDeploymentRouteRequest({
+      deploymentId: "deployment-c",
+      slug: "slug-c",
+    })).toEqual({
+      deploymentId: "deployment-c",
+      slug: "slug-c",
     });
   });
 
@@ -58,6 +77,14 @@ describe("registry HttpApi route boundary", () => {
     ))).resolves.toBeNull();
   });
 });
+
+function jsonRequest(body: unknown): Request {
+  return new Request(`https://registry.test${RegistryRoute.deployments}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 
 async function expectRouteForwarded(method: string, pathname: string): Promise<void> {
   const request = new Request(`https://registry.test${pathname}`, { method });
