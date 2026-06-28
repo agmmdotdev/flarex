@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 
 export const DeploymentRoute = {
   health: "/health",
@@ -145,6 +145,17 @@ export class DeploymentHealthResponse extends Schema.Class<DeploymentHealthRespo
   service: Schema.Literal("flarex-deployment"),
   status: Schema.Literal("ok"),
 }) {}
+
+export class DeploymentErrorResponse extends Schema.Class<DeploymentErrorResponse>(
+  "DeploymentErrorResponse",
+)({
+  error: Schema.String,
+}) {}
+
+export const DeploymentBadRequestError = DeploymentErrorResponse.pipe(HttpApiSchema.status(400));
+export const DeploymentNotFoundError = DeploymentErrorResponse.pipe(HttpApiSchema.status(404));
+export const DeploymentConflictError = DeploymentErrorResponse.pipe(HttpApiSchema.status(409));
+export const DeploymentStorageError = DeploymentErrorResponse.pipe(HttpApiSchema.status(500));
 
 export class AbandonPushRequest extends Schema.Class<AbandonPushRequest>(
   "AbandonPushRequest",
@@ -355,6 +366,8 @@ export class RejectedFinishPushResponse extends Schema.Class<RejectedFinishPushR
   diagnostics: Schema.optional(Schema.Array(PushDiagnostic)),
 }) {}
 
+export const RejectedFinishPushSuccess = RejectedFinishPushResponse.pipe(HttpApiSchema.status(409));
+
 export const FinishPushResponse = Schema.Union([
   ActivatedFinishPushResponse,
   RejectedFinishPushResponse,
@@ -383,24 +396,49 @@ export class DeploymentApiGroup extends HttpApiGroup.make("deployment", { topLev
   }),
   HttpApiEndpoint.get("getActiveDeployment", DeploymentRoute.activeDeployment, {
     success: ActiveDeploymentStatus,
+    error: [
+      DeploymentNotFoundError,
+      DeploymentStorageError,
+    ],
   }),
   HttpApiEndpoint.get("getPush", DeploymentApiPath.pushStatus, {
     params: DeploymentPushParams,
     success: PushStatus,
+    error: [
+      DeploymentNotFoundError,
+      DeploymentStorageError,
+    ],
   }),
   HttpApiEndpoint.post("startAnalyzedPush", DeploymentRoute.startAnalyzedPush, {
     payload: AnalyzedStartPushRequest,
     success: PushStatus,
+    error: [
+      DeploymentBadRequestError,
+      DeploymentStorageError,
+    ],
   }),
   HttpApiEndpoint.post("finishPush", DeploymentApiPath.finishPush, {
     params: DeploymentPushParams,
     payload: FinishPushRequest,
-    success: FinishPushResponse,
+    success: [
+      ActivatedFinishPushResponse,
+      RejectedFinishPushSuccess,
+    ],
+    error: [
+      DeploymentBadRequestError,
+      DeploymentNotFoundError,
+      DeploymentStorageError,
+    ],
   }),
   HttpApiEndpoint.post("abandonPush", DeploymentApiPath.abandonPush, {
     params: DeploymentPushParams,
     payload: AbandonPushRequest,
     success: PushStatus,
+    error: [
+      DeploymentNotFoundError,
+      DeploymentConflictError,
+      DeploymentStorageError,
+    ],
   }),
 ) {}
 
@@ -409,6 +447,7 @@ export class DeploymentApi extends HttpApi.make("flarex-deployment").add(Deploym
 const decodeAbandonPushRequest = Schema.decodeUnknownSync(AbandonPushRequest);
 const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPushRequest);
 const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
+const decodeDeploymentErrorResponse = Schema.decodeUnknownSync(DeploymentErrorResponse);
 const decodeDeploymentHealthResponse = Schema.decodeUnknownSync(DeploymentHealthResponse);
 const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
 const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
@@ -500,6 +539,18 @@ export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodege
     throw new DeploymentProtocolValidationError({
       schema: "DeploymentCodegenAnalysis",
       message: "Deployment codegen analysis did not match the deployment protocol.",
+      cause,
+    });
+  }
+}
+
+export function parseDeploymentErrorResponse(value: unknown): DeploymentErrorResponse {
+  try {
+    return decodeDeploymentErrorResponse(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "DeploymentErrorResponse",
+      message: "Deployment error response did not match the deployment protocol.",
       cause,
     });
   }

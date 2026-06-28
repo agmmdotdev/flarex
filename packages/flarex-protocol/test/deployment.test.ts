@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
+import { SchemaAST, type Schema } from "effect";
 import {
   DeploymentApi,
   DeploymentApiPath,
+  DeploymentBadRequestError,
+  DeploymentConflictError,
+  DeploymentNotFoundError,
   DeploymentPushAction,
   DeploymentPushParams,
   DeploymentProtocolValidationError,
   DeploymentRoute,
+  DeploymentStorageError,
   parseAbandonPushRequest,
   parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
   parseDeploymentCodegenAnalysis,
+  parseDeploymentErrorResponse,
   parseDeploymentHealthResponse,
   parseFinishPushRequest,
   parseFinishPushResponse,
   parsePushStatus,
+  RejectedFinishPushSuccess,
 } from "../src/deployment";
 
 describe("deployment protocol schemas", () => {
@@ -41,11 +48,14 @@ describe("deployment protocol schemas", () => {
     expect(group.topLevel).toBe(true);
     expect(group.endpoints.health.path).toBe(DeploymentRoute.health);
     expect(group.endpoints.health.method).toBe("GET");
+    expect(schemaStatusCodes(group.endpoints.health.error)).toEqual([]);
     expect(group.endpoints.getActiveDeployment.path).toBe(DeploymentRoute.activeDeployment);
     expect(group.endpoints.getActiveDeployment.method).toBe("GET");
+    expect(schemaStatusCodes(group.endpoints.getActiveDeployment.error)).toEqual([404, 500]);
     expect(group.endpoints.getPush.path).toBe(DeploymentApiPath.pushStatus);
     expect(group.endpoints.getPush.method).toBe("GET");
     expect(group.endpoints.getPush.params).toBeDefined();
+    expect(schemaStatusCodes(group.endpoints.getPush.error)).toEqual([404, 500]);
 
     expect(DeploymentPushParams.make({ pushId: "push_123" })).toEqual({
       pushId: "push_123",
@@ -58,16 +68,37 @@ describe("deployment protocol schemas", () => {
     expect(group.endpoints.startAnalyzedPush.path).toBe(DeploymentRoute.startAnalyzedPush);
     expect(group.endpoints.startAnalyzedPush.method).toBe("POST");
     expect(group.endpoints.startAnalyzedPush.payload).toBeDefined();
+    expect(schemaStatusCodes(group.endpoints.startAnalyzedPush.error)).toEqual([400, 500]);
 
     expect(group.endpoints.finishPush.path).toBe(DeploymentApiPath.finishPush);
     expect(group.endpoints.finishPush.method).toBe("POST");
     expect(group.endpoints.finishPush.params).toBeDefined();
     expect(group.endpoints.finishPush.payload).toBeDefined();
+    expect(group.endpoints.finishPush.success.size).toBe(2);
+    expect(schemaStatusCodes(group.endpoints.finishPush.success)).toEqual([409]);
+    expect(schemaStatusCodes(group.endpoints.finishPush.error)).toEqual([400, 404, 500]);
 
     expect(group.endpoints.abandonPush.path).toBe(DeploymentApiPath.abandonPush);
     expect(group.endpoints.abandonPush.method).toBe("POST");
     expect(group.endpoints.abandonPush.params).toBeDefined();
     expect(group.endpoints.abandonPush.payload).toBeDefined();
+    expect(schemaStatusCodes(group.endpoints.abandonPush.error)).toEqual([404, 409, 500]);
+  });
+
+  it("locks deployment HttpApi error response status annotations", () => {
+    expect(SchemaAST.resolve(DeploymentBadRequestError.ast)?.httpApiStatus).toBe(400);
+    expect(SchemaAST.resolve(DeploymentNotFoundError.ast)?.httpApiStatus).toBe(404);
+    expect(SchemaAST.resolve(DeploymentConflictError.ast)?.httpApiStatus).toBe(409);
+    expect(SchemaAST.resolve(DeploymentStorageError.ast)?.httpApiStatus).toBe(500);
+    expect(SchemaAST.resolve(RejectedFinishPushSuccess.ast)?.httpApiStatus).toBe(409);
+  });
+
+  it("parses deployment error responses used by the HttpApi contract", () => {
+    expect(parseDeploymentErrorResponse({ error: "Unknown push: push-missing" })).toEqual({
+      error: "Unknown push: push-missing",
+    });
+    expect(() => parseDeploymentErrorResponse({ message: "wrong envelope" }))
+      .toThrow(DeploymentProtocolValidationError);
   });
 
   it("parses deployment health responses used by the HttpApi contract", () => {
@@ -145,6 +176,12 @@ describe("deployment protocol schemas", () => {
       .toThrow(DeploymentProtocolValidationError);
   });
 });
+
+function schemaStatusCodes(schemas: ReadonlySet<Schema.Top>): ReadonlyArray<number> {
+  return Array.from(schemas, schema => SchemaAST.resolve(schema.ast)?.httpApiStatus)
+    .filter((status): status is number => typeof status === "number")
+    .sort((left, right) => left - right);
+}
 
 function sourcePackage() {
   return {

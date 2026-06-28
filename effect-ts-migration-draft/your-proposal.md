@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `d95fc60` Add deployment read HttpApi contract.
-- Active checkpoint: add a protocol-only Deployment HttpApi mutation contract without Durable Object server wiring.
+- Previous completed checkpoint: `8c3a64a` Add deployment mutation HttpApi contract.
+- Active checkpoint: add protocol-only Deployment HttpApi error response contracts before backend handler wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 39 slice:
+Current Goal 40 slice:
+
+1. Add a generic `DeploymentErrorResponse` schema for the existing deployment `{ error: string }` HTTP error envelope.
+2. Add status-tagged `DeploymentBadRequestError`, `DeploymentNotFoundError`, `DeploymentConflictError`, and `DeploymentStorageError` schemas using `HttpApiSchema.status(...)`.
+3. Add a status-tagged `RejectedFinishPushSuccess` schema so rejected finish-push responses remain the existing 409 success body shape, not a `{ error: string }` conflict envelope.
+4. Attach error schemas to the existing protocol-only `DeploymentApi` endpoints according to current live response semantics: 400 validation/passthrough errors, 404 missing deployment/push errors, 409 abandon conflicts, and 500 storage/corrupt-state errors.
+5. Add protocol tests that lock exact endpoint error status metadata, finish-push success status metadata, status annotations, and deployment error response parsing.
+6. Do not add backend `HttpApiBuilder` handlers, change DeploymentDO routing, change worker forwarding, change service/store orchestration, change response bodies, or alter request validation messages in this slice.
+7. Validate with focused deployment protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 39 slice:
 
 1. Add mutation endpoint metadata to the protocol-only Deployment HttpApi contract for analyzed start-push, finish-push, and abandon-push.
 2. Use `DeploymentApiPath` plus `DeploymentPushParams` for the `:pushId` mutation paths.
