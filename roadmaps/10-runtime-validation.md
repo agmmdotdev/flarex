@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Deployment Push Protocol Boundary
+
+Previous completed checkpoint: `e81a139` Route registry through HttpApi.
+
+What changed:
+
+- Public Worker deployment-push forwarding now decodes `POST /push/start-analyzed`,
+  `POST /push/:pushId/finish`, and `POST /push/:pushId/abandon` bodies through
+  the existing deployment protocol parsers before forwarding to DeploymentDO.
+- `DeploymentProtocolValidationError` is mapped at the public Worker edge to
+  the existing `{ error: string }` 400 envelope.
+- Malformed JSON still comes from the shared `readJson` helper, preserving
+  `Request body must be JSON.`
+- Source-only push analysis, artifact preflight, DeploymentDO generated-handler
+  routing, deep deployment semantic validation, route paths, and response bodies
+  are unchanged.
+
+Why it changed:
+
+DeploymentDO is now generated-HttpApi backed, but public Worker forwarding still
+had unchecked `readJson<T>` casts for deployment mutation bodies. This moves the
+next stable transport boundary to schema-first parsing without expanding the
+slice into analyzer or PartitionDO behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Registry Generated HttpApi Boundary
 
 Previous completed checkpoint: `14930c4` Extract deployment HttpApi route

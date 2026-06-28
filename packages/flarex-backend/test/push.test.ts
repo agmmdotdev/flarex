@@ -570,6 +570,15 @@ describe("deployment push lifecycle", () => {
       } satisfies Extract<FinishPushResponse, { result: "rejected" }>;
       expect(missingArtifactBody).toEqual(expectedMissingArtifactBody);
 
+      const invalidBodyMissingArtifactFinish = await finishPushResponseWithHarness(
+        r2Harness,
+        "push-stored-artifact",
+        start.pushId,
+        { activate: "yes" },
+      );
+      expect(invalidBodyMissingArtifactFinish.status).toBe(409);
+      await expect(invalidBodyMissingArtifactFinish.json()).resolves.toEqual(expectedMissingArtifactBody);
+
       const bucket = await r2Harness.mf.getR2Bucket("ARTIFACTS");
       await new R2BackendExecutionArtifactStore(bucket as unknown as R2BucketLike).put(package_);
 
@@ -1255,13 +1264,14 @@ async function finishPushResponseWithHarness(
   target: BackendHarness,
   deploymentId: string,
   pushId: string,
+  body: unknown = {},
 ): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
   return target.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(body),
     },
   );
 }

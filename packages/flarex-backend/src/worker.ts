@@ -15,6 +15,12 @@ import {
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import { DeploymentDO } from "./deploymentDO";
+import {
+  deploymentProtocolValidationErrorResponse,
+  parsePublicFinishPushRequest,
+  readPublicAbandonPushRequest,
+  readPublicAnalyzedStartPushRequest,
+} from "./deployment/PublicPushRouteBoundary";
 import { errorResponse, HttpError, json, readJson, required } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
@@ -75,6 +81,8 @@ export default {
     try {
       return await route(request, env);
     } catch (error) {
+      const deploymentProtocolError = deploymentProtocolValidationErrorResponse(error);
+      if (deploymentProtocolError !== undefined) return deploymentProtocolError;
       return errorResponse(error);
     }
   },
@@ -275,7 +283,7 @@ async function routeDeploymentPush(
     });
   }
   if (parts[0] === "start-analyzed" && request.method === "POST") {
-    const body = await readJson<AnalyzedStartPushRequest>(request);
+    const body = await readPublicAnalyzedStartPushRequest(request);
     return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -287,9 +295,10 @@ async function routeDeploymentPush(
     return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
   }
   if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
-    const body = await readJson<FinishPushRequest>(request);
+    const rawBody = await readJson(request);
     const missingArtifact = await verifyStoredPushArtifact(env, deployment, pushId);
     if (missingArtifact !== undefined) return missingArtifact;
+    const body = parsePublicFinishPushRequest(rawBody);
     return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -297,7 +306,7 @@ async function routeDeploymentPush(
     });
   }
   if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
-    const body = await readJson<AbandonPushRequest>(request);
+    const body = await readPublicAbandonPushRequest(request);
     return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `14930c4` Extract deployment HttpApi route boundary.
-- Active checkpoint: route RegistryDO through its generated Registry HttpApi web handler with the same compatibility-boundary pattern.
+- Previous completed checkpoint: `e81a139` Route registry through HttpApi.
+- Active checkpoint: decode public deployment-push request bodies with deployment protocol parsers before forwarding to DeploymentDO.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 49 slice:
+Current Goal 50 slice:
+
+1. Add a backend-only public deployment push route-boundary helper that reads JSON once and decodes public `start-analyzed`, `finish`, and `abandon` bodies with the existing `flarex-protocol/deployment` parsers.
+2. Map `DeploymentProtocolValidationError` at the public Worker edge to the existing `{ error: string }` 400 response envelope.
+3. Replace unchecked `readJson<AnalyzedStartPushRequest>`, `readJson<FinishPushRequest>`, and `readJson<AbandonPushRequest>` casts in `worker.ts` public deployment-push forwarding with the helper.
+4. Preserve malformed JSON behavior from `readJson`, DeploymentDO generated-handler routing, artifact preflight before finish forwarding, source-only analyzer behavior, route paths, response bodies, and validation messages.
+5. Do not move source-only push analysis, deep deployment semantic validation, PartitionDO, executor-http, worker scheduler routes, or public invoke routes in this slice.
+6. Add focused helper tests proving successful decode, protocol parser failures, invalid JSON behavior, and Worker-edge protocol error mapping.
+7. Validate with focused public deployment-push boundary/push/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 49 slice:
 
 1. Add a backend-only `registry/HttpApiWebHandler.ts` factory that combines `HttpApiBuilder.layer(RegistryApi)`, `RegistryApiHandlers`, a provided `RegistryService` layer, `HttpServer.layerServices`, and `HttpRouter.toWebHandler(...)`.
 2. Add a small `registry/HttpApiRouteBoundary.ts` helper that forwards generated-handler-compatible registry routes and pre-parses `POST /deployments` bodies with `readJson` plus `parseCreateDeploymentRequest`.

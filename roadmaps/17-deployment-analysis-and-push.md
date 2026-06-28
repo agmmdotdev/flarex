@@ -1,5 +1,41 @@
 # Deployment Analysis And Push
 
+## Public Deployment Push Body Boundary
+
+Previous completed checkpoint: `e81a139` Route registry through HttpApi.
+
+What changed:
+
+- Added a backend public deployment-push route-boundary helper for Worker
+  forwarding.
+- Public `start-analyzed`, `finish`, and `abandon` push bodies now decode
+  through `flarex-protocol/deployment` parsers before being forwarded to
+  DeploymentDO.
+- Public Worker handling maps deployment protocol parser failures to the same
+  400 `{ error: string }` envelope that DeploymentDO already returns.
+- Source-only push analysis, analyzer response handling, artifact preflight,
+  DeploymentDO internal generated-handler routing, and push lifecycle storage
+  behavior are unchanged.
+
+Why it changed:
+
+DeploymentDO now owns a generated HttpApi handler, but the public Worker still
+used unchecked `readJson<T>` casts before forwarding deployment mutation bodies.
+This checkpoint makes the public edge schema-first while keeping the object
+boundary's existing compatibility parse in place.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment HttpApi Route Boundary Cleanup
 
 Previous completed checkpoint: `029cb28` Route deployment start through

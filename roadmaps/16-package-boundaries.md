@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Deployment Push Protocol Boundary
+
+Previous completed checkpoint: `e81a139` Route registry through HttpApi.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts` owns
+  public Worker body decoding for deployment push mutation forwarding.
+- The helper uses `flarex-protocol/deployment` parsers for `start-analyzed`,
+  `finish`, and `abandon` bodies, keeping the schema contract in the protocol
+  package and the Worker forwarding policy in the backend package.
+- `worker.ts` still owns public route matching, analyzer integration, artifact
+  preflight, and Durable Object stub forwarding.
+- DeploymentDO still owns its generated internal HttpApi handler and per-object
+  runtime layer.
+
+Boundary decision:
+
+The public Worker should not cast request JSON to deployment body types before
+forwarding. It should decode at the public edge with protocol parsers, then let
+DeploymentDO repeat its internal compatibility parse as the object-local trust
+boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Registry Durable Object HttpApi Host
 
 Previous completed checkpoint: `14930c4` Extract deployment HttpApi route
