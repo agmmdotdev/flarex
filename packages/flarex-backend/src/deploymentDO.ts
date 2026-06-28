@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { Effect, ManagedRuntime } from "effect";
 import {
+  DeploymentPushAction,
+  DeploymentRoute,
   parseAnalyzedStartPushRequest,
   DeploymentProtocolValidationError,
   parseAbandonPushRequest,
@@ -24,6 +26,8 @@ import {
 import { errorResponse, json, readJson } from "./http";
 import type { Env } from "./types";
 
+const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(?:/([^/]+))?$`);
+
 export class DeploymentDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql;
   private readonly deploymentRuntime = ManagedRuntime.make(
@@ -41,31 +45,31 @@ export class DeploymentDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (url.pathname === "/health") {
+      if (url.pathname === DeploymentRoute.health) {
         return json({ service: "flarex-deployment", status: "ok" });
       }
-      if (url.pathname === "/deployment" && request.method === "GET") {
+      if (url.pathname === DeploymentRoute.activeDeployment && request.method === "GET") {
         return json(await this.runDeploymentService(service => service.getActiveDeployment()));
       }
-      if (url.pathname === "/push/start-analyzed" && request.method === "POST") {
+      if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
         return json(await this.runDeploymentService(service =>
           service.startAnalyzedPush(startAnalyzedPushInput(analyzedStartPushRequest(body)))
         ));
       }
-      const pushMatch = url.pathname.match(/^\/push\/([^/]+)(?:\/([^/]+))?$/);
+      const pushMatch = url.pathname.match(deploymentPushRoutePattern);
       if (pushMatch) {
         const pushId = decodeURIComponent(pushMatch[1]!);
         const action = pushMatch[2];
         if (action === undefined && request.method === "GET") {
           return json(await this.runDeploymentService(service => service.getPush(pushId)));
         }
-        if (action === "finish" && request.method === "POST") {
+        if (action === DeploymentPushAction.finish && request.method === "POST") {
           parseFinishPushRequest(await readJson(request));
           const response = await this.runDeploymentService(service => service.finishPush(pushId));
           return json(response, { status: finishPushHttpStatus(response) });
         }
-        if (action === "abandon" && request.method === "POST") {
+        if (action === DeploymentPushAction.abandon && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));
           return json(await this.runDeploymentService(service =>
             service.abandonPush(pushId, body.reason === undefined ? {} : { reason: body.reason })

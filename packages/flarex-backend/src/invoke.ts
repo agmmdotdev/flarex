@@ -1,3 +1,4 @@
+import { DeploymentRoute } from "flarex-protocol/deployment";
 import { HttpError } from "./http";
 import {
   indexBoundsForExpressions,
@@ -553,7 +554,7 @@ export async function loadActiveDeployment(
   deploymentId: string,
 ): Promise<ActiveDeploymentStatus> {
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  const response = await deployment.fetch("https://flarex.internal/deployment");
+  const response = await deployment.fetch(`https://flarex.internal${DeploymentRoute.activeDeployment}`);
   if (!response.ok) {
     throw new HttpError(response.status, `Failed to load active deployment ${deploymentId}.`);
   }

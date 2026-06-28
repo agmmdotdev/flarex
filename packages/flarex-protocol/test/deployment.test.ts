@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  DeploymentPushAction,
   DeploymentProtocolValidationError,
+  DeploymentRoute,
   parseAbandonPushRequest,
   parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
@@ -11,6 +13,19 @@ import {
 } from "../src/deployment";
 
 describe("deployment protocol schemas", () => {
+  it("locks DeploymentDO route constants", () => {
+    expect(DeploymentRoute).toEqual({
+      health: "/health",
+      activeDeployment: "/deployment",
+      startAnalyzedPush: "/push/start-analyzed",
+      push: "/push",
+    });
+    expect(DeploymentPushAction).toEqual({
+      finish: "finish",
+      abandon: "abandon",
+    });
+  });
+
   it("parses deep deployment analysis and codegen analysis payloads", () => {
     expect(parseDeploymentAnalysis(deploymentAnalysis())).toEqual(deploymentAnalysis());
     expect(parseDeploymentCodegenAnalysis(deploymentCodegenAnalysis())).toEqual(deploymentCodegenAnalysis());

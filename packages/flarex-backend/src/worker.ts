@@ -1,5 +1,10 @@
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
+  DeploymentPushAction,
+  DeploymentRoute,
+  type DeploymentRoutePath,
+} from "flarex-protocol/deployment";
+import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
 } from "./artifactStore";
@@ -192,7 +197,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "deployment" && request.method === "GET") {
       return env.DEPLOYMENTS
         .getByName(deploymentObjectName(deploymentId))
-        .fetch("https://flarex.internal/deployment");
+        .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment));
     }
     if (parts[2] === "invoke" && request.method === "POST") {
       return routeInvoke(env, deploymentId, await readJson(request));
@@ -263,7 +268,7 @@ async function routeDeploymentPush(
     }
     const analyzed = await analyzeSourcePackage(env.FLAREX_ANALYZER, deploymentId, body);
     await persistAnalyzedSourcePackage(env, analyzed);
-    return deployment.fetch("https://flarex.internal/push/start-analyzed", {
+    return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(analyzed),
@@ -271,7 +276,7 @@ async function routeDeploymentPush(
   }
   if (parts[0] === "start-analyzed" && request.method === "POST") {
     const body = await readJson<AnalyzedStartPushRequest>(request);
-    return deployment.fetch("https://flarex.internal/push/start-analyzed", {
+    return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -279,27 +284,43 @@ async function routeDeploymentPush(
   }
   const pushId = decodeURIComponent(required(parts[0], "push id"));
   if (parts.length === 1 && request.method === "GET") {
-    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}`);
+    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
   }
-  if (parts[1] === "finish" && request.method === "POST") {
+  if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
     const body = await readJson<FinishPushRequest>(request);
     const missingArtifact = await verifyStoredPushArtifact(env, deployment, pushId);
     if (missingArtifact !== undefined) return missingArtifact;
-    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/finish`, {
+    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
   }
-  if (parts[1] === "abandon" && request.method === "POST") {
+  if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
     const body = await readJson<AbandonPushRequest>(request);
-    return deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}/abandon`, {
+    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
   }
   return json({ error: "Push route not found." }, { status: 404 });
+}
+
+type DeploymentInternalPath =
+  | DeploymentRoutePath
+  | `${typeof DeploymentRoute.push}/${string}`
+  | `${typeof DeploymentRoute.push}/${string}/${DeploymentPushAction}`;
+
+function deploymentInternalUrl(path: DeploymentInternalPath): string {
+  return `https://flarex.internal${path}`;
+}
+
+function deploymentPushPath(pushId: string, action?: DeploymentPushAction): DeploymentInternalPath {
+  const pushPath: `${typeof DeploymentRoute.push}/${string}` = `${DeploymentRoute.push}/${encodeURIComponent(pushId)}`;
+  if (action === undefined) return pushPath;
+  const actionPath: `${typeof DeploymentRoute.push}/${string}/${DeploymentPushAction}` = `${pushPath}/${action}`;
+  return actionPath;
 }
 
 async function persistAnalyzedSourcePackage(
@@ -319,7 +340,7 @@ async function verifyStoredPushArtifact(
   const artifactStore = artifactStoreFromEnv(env);
   if (artifactStore === undefined) return;
 
-  const response = await deployment.fetch(`https://flarex.internal/push/${encodeURIComponent(pushId)}`);
+  const response = await deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
   if (!response.ok) return;
   const status = await response.json() as PushStatus;
   if (status.state !== "analyzed") return;

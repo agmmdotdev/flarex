@@ -1,5 +1,21 @@
 import { Schema } from "effect";
 
+export const DeploymentRoute = {
+  health: "/health",
+  activeDeployment: "/deployment",
+  startAnalyzedPush: "/push/start-analyzed",
+  push: "/push",
+} as const;
+
+export type DeploymentRoutePath = typeof DeploymentRoute[keyof typeof DeploymentRoute];
+
+export const DeploymentPushAction = {
+  finish: "finish",
+  abandon: "abandon",
+} as const;
+
+export type DeploymentPushAction = typeof DeploymentPushAction[keyof typeof DeploymentPushAction];
+
 const PushState = Schema.Union([
   Schema.Literal("pending"),
   Schema.Literal("analyzed"),

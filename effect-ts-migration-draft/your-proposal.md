@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f31c545` Add registry HttpApi handler layer.
-- Active checkpoint: verify the abandon-push service extraction remains complete and lock the abandon request protocol parser directly.
+- Previous completed checkpoint: `66418da` Lock abandon push protocol parser coverage.
+- Active checkpoint: export deployment route/action constants from `flarex-protocol` and use them in DeploymentDO plus worker forwarding paths.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 36 slice:
+Current Goal 37 slice:
+
+1. Export stable `DeploymentRoute` and `DeploymentPushAction` constants from `flarex-protocol/deployment`.
+2. Use those constants in `DeploymentDO.fetch()` for health, active deployment, analyzed start-push, finish, abandon, and push route matching.
+3. Use the same constants in `worker.ts` when forwarding public deployment push routes to DeploymentDO internal paths.
+4. Add protocol tests that lock the internal DeploymentDO route/action strings before introducing a Deployment HttpApi contract.
+5. Do not introduce `HttpApiBuilder`, change public route paths, change request parsing, change response bodies, change service/store orchestration, or move storage initialization in this slice.
+6. Validate with focused deployment protocol/push tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 36 slice:
 
 1. Audit the current abandon-push path and confirm `DeploymentDO.fetch()` only owns route matching, JSON reading, protocol parsing, and HTTP response wrapping.
 2. Keep `DeploymentService.abandonPush(...)` as the orchestration boundary for push lookup, typed not-found/invalid-state checks, controlled timestamp use, and reason normalization.
@@ -335,7 +344,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 36 should be one of:
+Next checkpoint after Goal 37 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.
