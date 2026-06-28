@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Scheduler Subscription Rerun Boundary
+
+Previous completed checkpoint: `c90500c` Decode public scheduler cleanup bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` to
+  own the public Worker subscription rerun scheduler body read.
+- `POST /scheduler/live-query-subscriptions/rerun` now decodes request JSON
+  through the shared scheduler route-boundary parser before forwarding to
+  `SchedulerDO`.
+- The public Worker reserializes the parsed rerun request before forwarding, so
+  ignored fields are dropped at the public edge.
+- Authorization remains before body parsing.
+- SchedulerDO rerun execution, stale subscription scans, DeliveryDO wake fanout,
+  continuation behavior, the `/scheduler/live-query-subscriptions/trigger`
+  route, delivery reconcile, connection reconcile, dead-letter, cleanup routes,
+  partition routes, delivery routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+After connection cleanup moved behind a public scheduler boundary, subscription
+rerun was the next public scheduler forwarding route still accepting arbitrary
+JSON before SchedulerDO. This checkpoint narrows `/rerun` only and leaves
+`/trigger` for a later slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query subscription rerun JSON|rejects unauthorized live query subscription rerun before parsing JSON|rejects invalid live query subscription rerun envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Connection Cleanup Boundary
 
 Previous completed checkpoint: `ca4fca6` Decode public scheduler dead-letter bodies.

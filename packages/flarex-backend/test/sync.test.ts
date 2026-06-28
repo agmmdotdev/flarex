@@ -5046,6 +5046,76 @@ describe("sync protocol", () => {
     expect(executorRequests).toEqual([]);
   });
 
+  it("rejects unauthorized live query subscription rerun before parsing JSON", async () => {
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
+    });
+  });
+
+  it("rejects invalid live query subscription rerun envelopes at the public scheduler boundary", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({
+              changed: 0,
+              unchanged: 0,
+              unsupported: 0,
+              hasMoreStale: false,
+              deliveries: [],
+            });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: "",
+          limit: 1,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "deploymentId must be a non-empty string.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("continues stale live query reruns from pending alarm state", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

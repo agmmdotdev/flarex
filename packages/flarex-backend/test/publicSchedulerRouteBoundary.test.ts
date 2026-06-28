@@ -5,10 +5,12 @@ import {
   parsePublicSchedulerConnectionReconcileRequest,
   parsePublicSchedulerDeadLetterDeliveriesRequest,
   parsePublicSchedulerDeliveryReconcileRequest,
+  parsePublicSchedulerRerunSubscriptionsRequest,
   readPublicSchedulerCleanupConnectionsRequest,
   readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerConnectionReconcileRequest,
   readPublicSchedulerDeliveryReconcileRequest,
+  readPublicSchedulerRerunSubscriptionsRequest,
 } from "../src/scheduler/PublicRouteBoundary";
 import type { Env } from "../src/types";
 
@@ -236,6 +238,57 @@ describe("public scheduler route boundary", () => {
         body: "{",
       },
     ), env)).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes rerun subscription requests", async () => {
+    await expect(readPublicSchedulerRerunSubscriptionsRequest(jsonRequest(
+      {
+        deploymentId: "deployment-a",
+        projectId: "project-a",
+        limit: 5,
+        deliveryLimit: 10,
+        maxBatches: 2,
+        ignored: true,
+      },
+      "/scheduler/live-query-subscriptions/rerun",
+    ))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+    });
+  });
+
+  it("maps invalid rerun subscription envelopes to 400", () => {
+    expect(() => parsePublicSchedulerRerunSubscriptionsRequest(null))
+      .toThrow(HttpError);
+    try {
+      parsePublicSchedulerRerunSubscriptionsRequest({
+        deploymentId: "",
+        limit: 1,
+      });
+      throw new Error("Expected parsePublicSchedulerRerunSubscriptionsRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "deploymentId must be a non-empty string.",
+      });
+    }
+  });
+
+  it("preserves malformed rerun JSON as the shared JSON body error", async () => {
+    await expect(readPublicSchedulerRerunSubscriptionsRequest(new Request(
+      "https://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
     });

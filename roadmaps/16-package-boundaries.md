@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Public Scheduler Subscription Rerun Route Boundary
+
+Previous completed checkpoint: `c90500c` Decode public scheduler cleanup bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` now also owns
+  the public Worker subscription rerun scheduler request-body boundary.
+- `POST /scheduler/live-query-subscriptions/rerun` decodes through the shared
+  scheduler route-boundary parser before the Worker forwards to `SchedulerDO`.
+- The Worker forwards the parsed rerun request body, preserving the existing
+  deployment id, optional project id, limit, deliveryLimit, and maxBatches fields
+  while dropping ignored fields at the public edge.
+- Authorization, SchedulerDO rerun execution, stale subscription scans,
+  DeliveryDO wake fanout, continuation behavior, the
+  `/scheduler/live-query-subscriptions/trigger` route, delivery reconcile,
+  connection reconcile, dead-letter, cleanup routes, partition routes, delivery
+  routes, executor-http routes, and `ValidatorJson` remain in their existing
+  owners.
+
+Boundary decision:
+
+The public scheduler subscription rerun route is a Worker transport boundary.
+This checkpoint validates and normalizes that request before forwarding, while
+keeping SchedulerDO responsible for stale subscription scans, rerun execution,
+delivery wake fanout, continuation, and response mapping. The trigger route
+remains a separate public route boundary for a later checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query subscription rerun JSON|rejects unauthorized live query subscription rerun before parsing JSON|rejects invalid live query subscription rerun envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Connection Cleanup Route Boundary
 
 Previous completed checkpoint: `ca4fca6` Decode public scheduler dead-letter bodies.

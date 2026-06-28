@@ -3,14 +3,17 @@ import {
   parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeadLetterDeliveriesRequest,
   parseSchedulerDeliveryReconcileRequest,
+  parseSchedulerRerunSubscriptionsRequest,
   readSchedulerCleanupConnectionsRequest,
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerDeliveryReconcileRequest,
+  readSchedulerRerunSubscriptionsRequest,
   type SchedulerCleanupConnectionsRequest,
   type SchedulerConnectionReconcileRequest,
   type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
+  type SchedulerRerunSubscriptionsRequest,
 } from "./RouteBoundary";
 import type { Env } from "../types";
 
@@ -62,4 +65,16 @@ export function parsePublicSchedulerCleanupConnectionsRequest(
   env: Env,
 ): SchedulerCleanupConnectionsRequest {
   return parseSchedulerCleanupConnectionsRequest(value, env);
+}
+
+export async function readPublicSchedulerRerunSubscriptionsRequest(
+  request: Request,
+): Promise<SchedulerRerunSubscriptionsRequest> {
+  return readSchedulerRerunSubscriptionsRequest(request);
+}
+
+export function parsePublicSchedulerRerunSubscriptionsRequest(
+  value: unknown,
+): SchedulerRerunSubscriptionsRequest {
+  return parseSchedulerRerunSubscriptionsRequest(value);
 }
