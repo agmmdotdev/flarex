@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Artifact Runtime Invoke Route Boundary
+
+Previous completed checkpoint: `c6bb370` Decode delivery wake bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts` now owns the
+  execution artifact runtime invoke request-body boundary.
+- The boundary parses the existing backend `ExecutionArtifactInvokePayload`
+  shape and preserves the runtime service's invalid-payload error envelope for
+  both malformed JSON and invalid object shapes.
+- `artifactRuntime.ts` still owns runtime authorization, artifact header
+  checks, runtime-store source-package loading, materializer cache behavior,
+  and invoke response/error conversion.
+
+Boundary decision:
+
+The artifact runtime service is a runtime adapter, not shared protocol. Its
+body parser should be explicit and testable, but this slice should not move the
+payload into `flarex-protocol` or alter materializer/cache ownership. A future
+protocol slice can replace the local guard with an Effect Schema contract when
+the artifact invocation DTO is stable enough to share.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Delivery Wake Route Boundary
 
 Previous completed checkpoint: `2c7f8c6` Decode connection invalidation bodies.

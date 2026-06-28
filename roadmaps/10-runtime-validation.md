@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Artifact Runtime Invoke Boundary
+
+Previous completed checkpoint: `c6bb370` Decode delivery wake bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts` to own
+  execution artifact runtime `/invoke` body reads.
+- `createExecutionArtifactRuntimeService(...)` now decodes the invoke payload
+  before artifact header validation, source-package resolution, materializer
+  cache lookup, or artifact invocation.
+- Malformed JSON and shape-invalid payloads keep the existing runtime-service
+  compatibility response: JSON `400` with
+  `Invalid execution artifact invoke payload.`.
+- Authorization, artifact header mismatch checks, runtime-store
+  source-package loading, materializer cache behavior, invoke failure status
+  preservation, Worker routing, DeliveryDO, PartitionDO, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The artifact runtime service was the remaining small backend body boundary that
+used inline `request.json().catch(() => null)` plus a local payload guard. This
+checkpoint moves that transport edge into a named boundary without changing the
+runtime materialization or invocation semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Delivery Wake Boundary
 
 Previous completed checkpoint: `2c7f8c6` Decode connection invalidation bodies.

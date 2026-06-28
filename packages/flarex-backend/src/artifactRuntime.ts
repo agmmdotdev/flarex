@@ -1,4 +1,5 @@
 import type { BackendExecutionArtifactStore } from "./artifactStore.ts";
+import { readExecutionArtifactInvokePayload } from "./artifactRuntime/RouteBoundary.ts";
 import { HttpError } from "./http.ts";
 import type {
   ActiveDeploymentStatus,
@@ -113,10 +114,7 @@ export function createExecutionArtifactRuntimeService(options: {
       const unauthorized = authorizeRuntimeRequest(request, options.capabilityToken);
       if (unauthorized !== null) return unauthorized;
 
-      const payload = await request.json().catch(() => null) as ExecutionArtifactInvokePayload | null;
-      if (!isExecutionArtifactInvokePayload(payload)) {
-        return Response.json({ error: "Invalid execution artifact invoke payload." }, { status: 400 });
-      }
+      const payload = await readExecutionArtifactInvokePayload(request);
       const headerError = validateArtifactHeaders(request, payload);
       if (headerError !== null) return headerError;
       const materializedPayload = await resolveSourcePackage(payload, options.store);
@@ -238,20 +236,6 @@ function errorStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;
   return typeof status === "number" && Number.isInteger(status) ? status : undefined;
-}
-
-function isExecutionArtifactInvokePayload(value: unknown): value is ExecutionArtifactInvokePayload {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const payload = value as Partial<ExecutionArtifactInvokePayload>;
-  return (
-    typeof payload.deploymentId === "string" &&
-    typeof payload.ref === "object" &&
-    payload.ref !== null &&
-    (payload.sourcePackage === undefined ||
-      (typeof payload.sourcePackage === "object" && payload.sourcePackage !== null)) &&
-    typeof payload.request === "object" &&
-    payload.request !== null
-  );
 }
 
 async function normalizeRuntimeRequest(

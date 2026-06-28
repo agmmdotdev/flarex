@@ -360,6 +360,46 @@ describe("backend execution artifact runtime", () => {
     expect(materializedSources).toEqual([payload.sourcePackage]);
   });
 
+  it("rejects malformed or invalid runtime invoke payloads at the route boundary", async () => {
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      materializer: {
+        materialize: async () => {
+          throw new Error("materializer should not run for invalid payloads");
+        },
+      },
+    });
+
+    const malformed = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+      },
+      body: "{",
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Invalid execution artifact invoke payload.",
+    });
+
+    const invalid = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+      },
+      body: JSON.stringify({
+        deploymentId: "deployment1",
+        ref: activeDeployment.executionArtifactRef,
+      }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error: "Invalid execution artifact invoke payload.",
+    });
+  });
+
   it("rejects unauthorized or mismatched runtime invoke requests", async () => {
     const payload = testPayload();
     const fetch = createExecutionArtifactRuntimeService({
