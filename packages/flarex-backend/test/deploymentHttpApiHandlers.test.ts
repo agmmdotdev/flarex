@@ -19,6 +19,7 @@ import {
   deploymentHttpErrorToReadResponse,
   deploymentHttpErrorToStartResponse,
   DeploymentApiHandlers,
+  decodeStartAnalyzedPushHandlerInput,
   startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
 import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
@@ -295,7 +296,9 @@ describe("DeploymentApiHandlers", () => {
     );
     expectMappedFailure(
       deploymentHttpErrorToStartResponse,
-      new HttpError(400, "Deployment analysis must be an object."),
+      deploymentFailureToHttpError(new DeploymentValidationError({
+        message: "Deployment analysis must be an object.",
+      })),
       DeploymentBadRequestErrorResponse,
       "Deployment analysis must be an object.",
     );
@@ -344,6 +347,33 @@ describe("DeploymentApiHandlers", () => {
       "A push with analysis must not include error.",
     );
   });
+
+  it("exposes typed analyzed start-push handler input validation", async () => {
+    await expect(Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: deploymentCodegenAnalysis(),
+      diagnostics: [{ level: "warn", message: "generated warning" }],
+    }))).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: deploymentCodegenAnalysis(),
+      diagnostics: [{ level: "warn", message: "generated warning" }],
+    });
+
+    const failure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      codegenAnalysis: deploymentCodegenAnalysis(),
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(failure).toBeInstanceOf(DeploymentValidationError);
+    if (!(failure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(failure.message).toBe("A push without analysis must not include codegenAnalysis.");
+  });
 });
 
 type DeploymentApiGroupId = HttpApiGroup.ApiGroup<"flarex-deployment", "deployment">;
@@ -371,8 +401,8 @@ function expectStartPayloadBadRequest(
     startAnalyzedPushHandlerInputFromPayload(payload);
     throw new Error("Expected analyzed start-push payload to fail.");
   } catch (cause) {
-    if (!(cause instanceof HttpError)) throw cause;
-    const error = deploymentHttpErrorToStartResponse(cause);
+    if (!(cause instanceof DeploymentValidationError)) throw cause;
+    const error = deploymentHttpErrorToStartResponse(deploymentFailureToHttpError(cause));
     expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
     expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
   }

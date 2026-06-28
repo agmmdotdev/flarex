@@ -108,7 +108,7 @@ export function mapDeploymentReadFailure<A>(
 }
 
 export function mapDeploymentStartFailure<A>(
-  effect: Effect.Effect<A, DeploymentSqlError | HttpError>,
+  effect: Effect.Effect<A, DeploymentSqlError | DeploymentValidationError>,
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
@@ -178,11 +178,11 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
   "decodeStartAnalyzedPushHandlerInput",
 )(function* (
   payload: AnalyzedStartPushRequest,
-): Effect.fn.Return<StartAnalyzedPushInput, HttpError> {
+): Effect.fn.Return<StartAnalyzedPushInput, DeploymentValidationError> {
   try {
     return startAnalyzedPushHandlerInputFromPayload(payload);
   } catch (cause) {
-    if (cause instanceof HttpError) {
+    if (cause instanceof DeploymentValidationError) {
       return yield* Effect.fail(cause);
     }
     return yield* Effect.die(cause);
@@ -196,7 +196,10 @@ export function startAnalyzedPushHandlerInputFromPayload(
     return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
   } catch (cause) {
     if (cause instanceof DeploymentProtocolValidationError) {
-      throw new HttpError(400, cause.message);
+      throw new DeploymentValidationError({ message: cause.message });
+    }
+    if (cause instanceof HttpError && cause.status === 400) {
+      throw new DeploymentValidationError({ message: cause.message });
     }
     throw cause;
   }

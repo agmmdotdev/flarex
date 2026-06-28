@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Deployment Start Handler Validation Typed Error
+
+Previous completed checkpoint: `85e0262` Type finish activation validation failures.
+
+What changed:
+
+- Reused `DeploymentValidationError` for generated Deployment HttpApi
+  start-analyzed handler-input validation failures.
+- `decodeStartAnalyzedPushHandlerInput(...)` and
+  `startAnalyzedPushHandlerInputFromPayload(...)` now convert protocol and
+  deployment validation failures to `DeploymentValidationError` instead of raw
+  `HttpError(400)`.
+- `mapDeploymentStartFailure(...)` keeps start validation typed until
+  `deploymentFailureToHttpError(...)`.
+- Start-route HTTP behavior is preserved: invalid analyzed-start payloads still
+  map to `400` with the same message, and generic storage failures still map to
+  `500 Deployment storage error.`.
+- Finish/abandon/active-deployment behavior, route-boundary JSON/protocol
+  decoders, generated Deployment HttpApi routing, public Worker routes,
+  `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` remain in their
+  existing owners.
+
+Boundary decision:
+
+Generated Deployment HttpApi start payload normalization now emits a typed
+deployment validation failure. HTTP response conversion remains centralized in
+`deploymentFailureToHttpError(...)` and the generated handler response adapters.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "start-push|invalid analyzed start-push|maps service failures|preserved HttpError statuses"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Finish Validation Typed Error
 
 Previous completed checkpoint: `397938f` Type active deployment metadata failures.
