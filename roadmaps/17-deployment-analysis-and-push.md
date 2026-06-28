@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Route Boundary Cleanup
+
+Previous completed checkpoint: `029cb28` Route deployment start through
+HttpApi.
+
+What changed:
+
+- Extracted the remaining `DeploymentDO` route matching and mutation
+  compatibility pre-parse into a backend route-boundary helper.
+- Kept `DeploymentDO.fetch()` focused on Durable Object ownership:
+  storage/schema initialization, per-instance Effect layer and generated
+  handler ownership, non-GET `/health` fallback, generic 404 fallback, and
+  error wrapping.
+- Preserved mutation body compatibility for analyzed start-push, finish-push,
+  and abandon-push before the generated handler runs.
+- Added focused route inventory tests for every DeploymentApi route and
+  non-API fallback behavior.
+
+Why it changed:
+
+After all DeploymentApi routes moved to the generated handler, the remaining
+plain code in `DeploymentDO.fetch()` was only compatibility routing. Extracting
+that logic makes the generated-handler boundary explicit and gives the next
+checkpoint a stable inventory before removing or changing compatibility parsing.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a local Flarex
+  route-boundary cleanup after the DeploymentDO HttpApi wiring.
+
+Flarex differences:
+
+- Mutation routes still intentionally pre-parse bodies for existing public
+  error messages even though the generated handler owns the service path.
+
+Known limitations:
+
+- This checkpoint does not remove compatibility pre-parse behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment HttpApi Analyzed Start Route Wiring
 
 Previous completed checkpoint: `2d7cdf9` Route deployment finish through
