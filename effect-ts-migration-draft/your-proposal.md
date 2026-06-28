@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9bcedd2` Add typed execution syscall decoder.
-- Active checkpoint: remove HTTP-shaped abandon-push business failures from the deployment store so `DeploymentService.abandonPush(...)` remains the typed owner of not-found, invalid-state, timestamp, and reason normalization decisions.
+- Previous completed checkpoint: `0008080` Keep abandon failures in deployment service.
+- Active checkpoint: remove the redundant HTTP-shaped finish-push not-found branch from the deployment store while preserving service-level typed not-found responses and finish activation validation behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 103 slice:
+Current Goal 104 slice:
+
+1. Keep `DeploymentService.finishPush(...)` as the owner of public missing-push preflight with `DeploymentPushNotFoundError` before artifact lookup and persistence.
+2. Change `DeploymentPushStore.finishPush(...)` so a missing row during the prevalidated persistence transaction is treated as an internal storage/invariant failure (`DeploymentSqlError`) instead of `HttpError(404)`.
+3. Preserve existing finish rejection responses for invalid state and missing analysis as `FinishPushResponse` values, not typed failures.
+4. Preserve activation validation `HttpError(400, ...)` behavior for schema/function validation failures until a later validation-error extraction checkpoint.
+5. Keep generated Deployment HttpApi handlers, public Worker finish forwarding, `DeploymentDO` routing, SQL schema, start/abandon behavior, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused deployment service/handler/push tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 103 slice:
 
 1. Narrow `DeploymentService.abandonPush(...)` so its failure channel is `DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError`, without `HttpError`.
 2. Narrow `DeploymentPushStore.abandonPush(...)` so persistence reports `DeploymentSqlError` only and no longer throws `HttpError(404/409)` for abandon not-found or invalid-state business decisions.

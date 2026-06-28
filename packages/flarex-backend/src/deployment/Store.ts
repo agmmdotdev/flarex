@@ -261,7 +261,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               try: () =>
                 storage.transaction(async () => {
                   const status = readPush(input.pushId);
-                  if (!status) throw new HttpError(404, `Unknown push: ${input.pushId}`);
+                  if (!status) throw new Error(`Prevalidated finish push ${input.pushId} disappeared.`);
                   if (status.state !== "analyzed") {
                     return rejectedFinishPushResponse(
                       status,

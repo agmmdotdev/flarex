@@ -1,5 +1,47 @@
 # Deployment Analysis And Push
 
+## Deployment Finish Prevalidated Missing Error
+
+Previous completed checkpoint: `0008080` Keep abandon failures in deployment service.
+
+What changed:
+
+- `DeploymentService.finishPush(...)` remains the public owner of missing-push
+  preflight, returning `DeploymentPushNotFoundError` before artifact lookup or
+  persistence.
+- `DeploymentPushStore.finishPush(...)` no longer throws `HttpError(404)` when
+  a prevalidated finish row disappears inside the persistence transaction.
+  That condition is now reported as `DeploymentSqlError`.
+- Existing finish rejection responses for invalid state and missing analysis
+  remain `FinishPushResponse` values.
+- Activation validation still preserves existing `HttpError(400, ...)`
+  behavior for schema/function validation failures. Moving those validation
+  errors to typed deployment failures is a later checkpoint.
+- Generated Deployment HttpApi handlers, public Worker finish forwarding,
+  `DeploymentDO` routing, SQL schema, start/abandon behavior, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  are unchanged.
+
+Why it changed:
+
+The finish service already performs the public missing-push preflight before
+artifact lookup and storage. Keeping a second `HttpError(404)` business branch
+inside the persistence transaction blurred service versus store ownership. This
+checkpoint keeps the service-level public error typed and treats a missing
+prevalidated row during storage as an internal storage invariant failure.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/push.test.ts -t "finishes analyzed pushes with controlled clock and artifact refs|preserves finish rejection responses from the store|returns a typed not-found error before artifact or finish work|preserves typed DeploymentSqlError failures from finish storage|reports missing prevalidated finish writes as storage failures|preserves activation HttpError failures from the finish transaction|handles finish-push mutations through the Worker-compatible web handler|does not finish failed or unknown pushes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Abandon Service Error Ownership
 
 Previous completed checkpoint: `9bcedd2` Add typed execution syscall decoder.

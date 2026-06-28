@@ -392,6 +392,45 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
+  it("reports missing prevalidated finish writes as storage failures", async () => {
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const sql = sqlWithPushes([]);
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: "missing-prevalidated-finish",
+            now: 2_350_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentSqlError)) {
+        throw new Error("Expected DeploymentSqlError.");
+      }
+      expect(error).toBeInstanceOf(DeploymentSqlError);
+      expect(error.operation).toBe("finishPush");
+      expect(error.cause).toBeInstanceOf(Error);
+      expect((error.cause as Error).message).toBe(
+        "Prevalidated finish push missing-prevalidated-finish disappeared.",
+      );
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("preserves activation HttpError failures from the finish transaction", async () => {
     const failure = new HttpError(400, "Schema must be an object.");
     const status = analyzedPushStatus("push-validation-failed");
