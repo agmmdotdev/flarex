@@ -138,26 +138,71 @@ function throwDeploymentValidation(message: string): never {
 }
 
 export function validateDiagnostics(value: unknown): PushDiagnostic[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) {
-    throw new HttpError(400, "Push diagnostics must be an array.");
+  const result = normalizeDiagnostics(value);
+  if (!result.success) {
+    throwDeploymentValidation(result.message);
   }
-  return value.slice(-100).map((diagnostic, index) => {
+  return result.diagnostics;
+}
+
+export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnostics")(
+  function* (value: unknown): Effect.fn.Return<PushDiagnostic[], DeploymentValidationError> {
+    const result = normalizeDiagnostics(value);
+    if (!result.success) {
+      return yield* Effect.fail(new DeploymentValidationError({ message: result.message }));
+    }
+    return result.diagnostics;
+  },
+);
+
+type DiagnosticsValidationResult =
+  | {
+      readonly success: true;
+      readonly diagnostics: PushDiagnostic[];
+    }
+  | {
+      readonly success: false;
+      readonly message: string;
+    };
+
+function normalizeDiagnostics(value: unknown): DiagnosticsValidationResult {
+  if (value === undefined) {
+    return {
+      success: true,
+      diagnostics: [],
+    };
+  }
+  if (!Array.isArray(value)) {
+    return diagnosticsValidationFailure("Push diagnostics must be an array.");
+  }
+  const diagnostics: PushDiagnostic[] = [];
+  for (const [index, diagnostic] of value.slice(-100).entries()) {
     if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
-      throw new HttpError(400, `Push diagnostic at index ${index} must be an object.`);
+      return diagnosticsValidationFailure(`Push diagnostic at index ${index} must be an object.`);
     }
     const record = diagnostic as Partial<PushDiagnostic>;
     if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
-      throw new HttpError(400, `Push diagnostic at index ${index} has an invalid level.`);
+      return diagnosticsValidationFailure(`Push diagnostic at index ${index} has an invalid level.`);
     }
     if (typeof record.message !== "string") {
-      throw new HttpError(400, `Push diagnostic at index ${index} has an invalid message.`);
+      return diagnosticsValidationFailure(`Push diagnostic at index ${index} has an invalid message.`);
     }
-    return {
+    diagnostics.push({
       level: record.level,
       message: record.message,
-    };
-  });
+    });
+  }
+  return {
+    success: true,
+    diagnostics,
+  };
+}
+
+function diagnosticsValidationFailure(message: string): DiagnosticsValidationResult {
+  return {
+    success: false,
+    message,
+  };
 }
 
 export function analyzedStartPushRequest(

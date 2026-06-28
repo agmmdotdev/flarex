@@ -4,6 +4,7 @@ import { DeploymentValidationError } from "../src/deployment/Errors";
 import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
+  decodeDiagnostics,
   decodeSourcePackage,
   pushStatusFromRow,
   startAnalyzedPushInput,
@@ -93,12 +94,31 @@ describe("deployment validation", () => {
   });
 
   it("preserves diagnostics validation error messages", () => {
-    expect(() => validateDiagnostics("not-diagnostics")).toThrow(
-      new HttpError(400, "Push diagnostics must be an array."),
+    expectDeploymentValidationFailure(
+      () => validateDiagnostics("not-diagnostics"),
+      "Push diagnostics must be an array.",
     );
-    expect(() => validateDiagnostics([{ level: "debug", message: "too chatty" }])).toThrow(
-      new HttpError(400, "Push diagnostic at index 0 has an invalid level."),
+    expectDeploymentValidationFailure(
+      () => validateDiagnostics([{ level: "debug", message: "too chatty" }]),
+      "Push diagnostic at index 0 has an invalid level.",
     );
+  });
+
+  it("exposes typed diagnostics validation failures", async () => {
+    await expect(Effect.runPromise(decodeDiagnostics([
+      { level: "warn", message: "check generated output" },
+    ]))).resolves.toEqual([{ level: "warn", message: "check generated output" }]);
+
+    const failure = await Effect.runPromise(decodeDiagnostics([
+      { level: "debug", message: "too chatty" },
+    ]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(failure).toBeInstanceOf(DeploymentValidationError);
+    if (!(failure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(failure.message).toBe("Push diagnostic at index 0 has an invalid level.");
   });
 
   it("normalizes analyzed start-push protocol success requests", () => {

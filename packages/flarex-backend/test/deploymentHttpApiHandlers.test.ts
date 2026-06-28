@@ -346,6 +346,14 @@ describe("DeploymentApiHandlers", () => {
       },
       "A push with analysis must not include error.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        diagnostics: [{ level: "debug", message: "too chatty" }],
+      },
+      "Push diagnostic at index 0 has an invalid level.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -373,6 +381,19 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(failure.message).toBe("A push without analysis must not include codegenAnalysis.");
+
+    const diagnosticsFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      diagnostics: [{ level: "debug", message: "too chatty" }],
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(diagnosticsFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(diagnosticsFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(diagnosticsFailure.message).toBe("Push diagnostic at index 0 has an invalid level.");
   });
 });
 
