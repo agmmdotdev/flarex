@@ -16,6 +16,10 @@ import {
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import { DeploymentDO } from "./deploymentDO";
+import {
+  readPublicExecutionActionRequest,
+  type PublicExecutionAction,
+} from "./execution/ActionRouteBoundary";
 import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary";
 import {
   deploymentProtocolValidationErrorResponse,
@@ -471,15 +475,20 @@ async function routeExecution(
   const sessionId = required(parts[0], "execution session id");
   const action = required(parts[1], "execution action");
   const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
-  if (["syscall", "finish", "abort"].includes(action) && request.method === "POST") {
+  if (isPublicExecutionAction(action) && request.method === "POST") {
+    const body = await readPublicExecutionActionRequest(request, action);
     return execution.fetch(`https://flarex.internal/${action}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(await readJson(request)),
+      body: JSON.stringify(body),
     });
   }
 
   return json({ error: "Execution route not found." }, { status: 404 });
+}
+
+function isPublicExecutionAction(action: string): action is PublicExecutionAction {
+  return action === "syscall" || action === "finish" || action === "abort";
 }
 
 async function routeInvoke(

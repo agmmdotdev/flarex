@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Execution Action Route Boundary
+
+Previous completed checkpoint: `f21421f` Document execution abort boundary.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/ActionRouteBoundary.ts` now owns the
+  public Worker's execution action forwarding body read.
+- The helper delegates `syscall` and `finish` to the existing backend
+  execution route-boundary parsers, keeping protocol parsing and backend JSON
+  adaptation in one execution boundary package area.
+- The helper keeps `abort` as well-formed JSON forwarding only, matching the
+  bodyless Durable Object action decision.
+- `worker.ts` still owns public route matching, session id routing, and
+  Durable Object dispatch.
+
+Boundary decision:
+
+The public Worker should no longer use a generic JSON read for execution
+actions that already have protocol-backed route-boundary parsers. It should
+delegate to the execution boundary helper, while `ExecutionDO` remains the
+owner of session and transaction behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Abort Bodyless Boundary
 
 Previous completed checkpoint: `7316794` Decode execution finish bodies.

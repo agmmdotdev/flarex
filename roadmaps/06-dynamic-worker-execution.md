@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Public Execution Action Decode Boundary
+
+Previous completed checkpoint: `f21421f` Document execution abort boundary.
+
+What changed:
+
+- Public Worker forwarding for execution `syscall`, `finish`, and `abort`
+  actions now passes through an explicit execution action boundary helper.
+- Public `syscall` and `finish` bodies are decoded before Durable Object
+  dispatch using the same backend route-boundary adapters as the internal
+  `ExecutionDO` handlers.
+- Public `abort` still forwards any well-formed JSON to the bodyless abort
+  action and rejects malformed JSON before dispatch.
+- `ExecutionDO`, generated execution artifacts, transaction behavior,
+  PartitionDO, artifact runtime, and executor-http are unchanged.
+
+Why it changed:
+
+Generated execution Workers call public execution action routes. With the
+Durable Object action bodies already migrated, the public forwarding boundary
+should also stop treating all actions as untyped JSON. This keeps validation
+close to the Worker edge while preserving existing runtime behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Abort Bodyless Boundary
 
 Previous completed checkpoint: `7316794` Decode execution finish bodies.

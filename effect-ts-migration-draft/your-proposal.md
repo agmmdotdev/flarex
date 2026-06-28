@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `7316794` Decode execution finish bodies.
-- Active checkpoint: record execution abort as a generated empty-object public envelope and bodyless Durable Object action.
+- Previous completed checkpoint: `f21421f` Document execution abort boundary.
+- Active checkpoint: add a public execution action forwarding boundary so Worker forwarding validates syscall and finish bodies before Durable Object dispatch while preserving abort compatibility.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 60 slice:
+Current Goal 61 slice:
+
+1. Add a backend-only public execution action route-boundary helper that reads JSON once for `syscall`, `finish`, and `abort` forwarding.
+2. Decode public `syscall` bodies through the existing `parseExecutionSyscallRouteRequest` adapter before forwarding to `ExecutionDO`.
+3. Decode public `finish` bodies through the existing `parseExecutionFinishRouteRequest` adapter before forwarding to `ExecutionDO`.
+4. Preserve the Goal 60 abort decision: malformed abort JSON still returns `400 { error: "Request body must be JSON." }`, while any well-formed JSON, including generated `{}`, is forwarded to the bodyless `ExecutionDO` abort action.
+5. Keep `ExecutionDO.fetch()`, `ExecutionDO.syscall(...)`, `ExecutionDO.finish(...)`, abort behavior, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+6. Add focused helper tests proving public syscall/finish decode and protocol-error mapping, abort well-formed JSON forwarding, and malformed JSON handling.
+7. Validate with focused action boundary/session tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 60 slice:
 
 1. Audit execution abort callers and confirm generated Cloudflare execution code sends `{}` to `POST /deployments/:deploymentId/executions/:sessionId/abort`.
 2. Do not add an Effect protocol parser for `ExecutionDO` abort in this slice: the Durable Object action has no domain body, and adding a schema would create a contract for data that is intentionally ignored.

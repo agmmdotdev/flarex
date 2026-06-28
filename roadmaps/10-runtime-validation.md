@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Execution Action Forwarding Boundary
+
+Previous completed checkpoint: `f21421f` Document execution abort boundary.
+
+What changed:
+
+- Added `packages/flarex-backend/src/execution/ActionRouteBoundary.ts` to own
+  public Worker forwarding reads for execution `syscall`, `finish`, and
+  `abort` actions.
+- Public `syscall` bodies now decode through the existing execution syscall
+  route-boundary parser before Worker forwarding reaches `ExecutionDO`.
+- Public `finish` bodies now decode through the existing execution finish
+  route-boundary parser before Worker forwarding reaches `ExecutionDO`.
+- Public `abort` keeps the bodyless decision from the previous checkpoint:
+  malformed JSON is rejected, while any well-formed JSON is forwarded to the
+  bodyless Durable Object action.
+- `ExecutionDO`, transaction behavior, PartitionDO, artifact runtime, and
+  executor-http are unchanged.
+
+Why it changed:
+
+After start/syscall/finish/abort were audited at the Durable Object boundary,
+the remaining public Worker execution forwarding path still used a generic
+`readJson` for all actions. This checkpoint moves public forwarding to an
+explicit action boundary without changing the runtime execution semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Abort Boundary Decision
 
 Previous completed checkpoint: `7316794` Decode execution finish bodies.
