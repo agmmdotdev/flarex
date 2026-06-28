@@ -1,5 +1,39 @@
 # Runtime Validation
 
+## Execution Syscall Worker And DO Boundary
+
+Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/execution/SyscallRouteBoundary.ts` to
+  read syscall JSON, decode through `flarex-protocol/execution`, map protocol
+  validation failures to `HttpError(400, ...)`, and adapt protocol JSON into
+  backend runtime `Json`.
+- `ExecutionDO.fetch()` now uses the helper for internal `POST /syscall`.
+- The existing execution start boundary shares the same JSON adapter.
+- `ExecutionDO.syscall(...)`, session lookup, transaction reads/writes,
+  finish/abort, PartitionDO, artifact runtime, and executor-http are
+  unchanged.
+
+Why it changed:
+
+The previous checkpoint introduced the shared syscall request protocol shape.
+This checkpoint removes unchecked `request.json<ExecutionSyscallRequest>()`
+from the Durable Object boundary without changing transaction behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Request Protocol Boundary
 
 Previous completed checkpoint: `7f6ec53` Decode execution start bodies.

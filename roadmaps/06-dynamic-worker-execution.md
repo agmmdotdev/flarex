@@ -1,5 +1,38 @@
 # Dynamic Worker Execution
 
+## Execution Syscall Decode Boundary
+
+Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.
+
+What changed:
+
+- `ExecutionDO.fetch()` now decodes `POST /syscall` bodies through the shared
+  execution syscall protocol parser before dispatching to `ExecutionDO.syscall`.
+- Protocol-invalid syscall bodies become the existing backend `{ error }` 400
+  response envelope through `HttpError`.
+- Schema-valid unknown-session syscalls still reach the unchanged session
+  guard and return `409 Execution session has not started.`
+- Generated execution artifacts, Worker route matching, transaction logic,
+  finish/abort, PartitionDO behavior, and executor-http are unchanged.
+
+Why it changed:
+
+This is the live Durable Object follow-up to the protocol-only syscall body
+checkpoint. It makes the dynamic execution loop schema-first at the syscall
+boundary without changing the transaction runtime.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Protocol Shape
 
 Previous completed checkpoint: `7f6ec53` Decode execution start bodies.

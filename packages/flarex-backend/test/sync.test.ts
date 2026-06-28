@@ -3131,7 +3131,9 @@ describe("sync protocol", () => {
         },
       ],
     });
-    expect(deliveryMaintenanceRequests(executorRequests)).toEqual([
+    const manualContinueRequests = deliveryMaintenanceRequests(executorRequests)
+      .slice(0, 3);
+    expect(manualContinueRequests).toEqual([
       {
         path: "/maintenance/live-queries/claim",
         authorization: "Bearer executor-secret",

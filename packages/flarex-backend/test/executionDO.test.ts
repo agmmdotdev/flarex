@@ -482,6 +482,48 @@ describe("ExecutionDO sessions", () => {
       sessionId: expect.any(String),
     });
   });
+
+  it("decodes execution syscall bodies before session dispatch", async () => {
+    const invalid = await syscallResponse(
+      "execution-syscall-boundary-deployment",
+      "missing-session",
+      {
+        op: "query",
+        request: {
+          table: "lessonProgress",
+          order: "sideways",
+        },
+      },
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error:
+        "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
+    });
+
+    const unknownSession = await syscallResponse(
+      "execution-syscall-boundary-deployment",
+      "missing-session",
+      { op: "get", id: "1:progress" },
+    );
+    expect(unknownSession.status).toBe(409);
+    await expect(unknownSession.json()).resolves.toEqual({
+      error: "Execution session has not started.",
+    });
+
+    const malformed = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-syscall-boundary-deployment/executions/missing-session/syscall",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {

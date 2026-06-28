@@ -3,9 +3,9 @@ import {
   parseExecutionStartRequest,
   type ExecutionStartRequest as ProtocolExecutionStartRequest,
 } from "flarex-protocol/execution";
-import type { Json as ProtocolJson } from "flarex-protocol/json";
 import { HttpError, readJson } from "../http";
-import type { ExecutionStartRequest, Json } from "../types";
+import type { ExecutionStartRequest } from "../types";
+import { backendJson } from "./JsonRouteBoundary";
 
 export async function readExecutionStartRequest(
   request: Request,
@@ -51,18 +51,6 @@ function backendExecutionStartRequest(
       ? {}
       : { idempotencyKey: request.idempotencyKey }),
   };
-}
-
-function backendJson(value: ProtocolJson): Json {
-  if (Array.isArray(value)) {
-    return value.map(backendJson);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, backendJson(entry)]),
-    );
-  }
-  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

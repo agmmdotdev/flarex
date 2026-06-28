@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Execution Syscall Backend Route Boundary
+
+Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/SyscallRouteBoundary.ts` owns
+  Durable Object syscall JSON reading, protocol parsing,
+  protocol-error-to-HTTP mapping, and protocol JSON to backend JSON adaptation.
+- `packages/flarex-backend/src/execution/JsonRouteBoundary.ts` centralizes
+  the JSON adapter shared by execution start and syscall boundaries.
+- `ExecutionDO` still owns route matching, session state, and transaction
+  orchestration; `flarex-protocol/execution` remains transport-contract-only.
+
+Boundary decision:
+
+The protocol package validates the syscall body shape. The backend route
+boundary adapts that shape to mutable runtime types and compatibility errors.
+`ExecutionDO.syscall(...)` should continue to receive backend-native request
+types and own session/transaction semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Protocol Package Boundary
 
 Previous completed checkpoint: `7f6ec53` Decode execution start bodies.
