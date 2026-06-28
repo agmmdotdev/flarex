@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Invoke Effect Decoder
+
+Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke/PublicInvokeRouteBoundary.ts` now exposes
+  an Effect-typed public invoke decoder.
+- `readPublicInvokeRequest(...)` keeps the Worker-facing adapter stable while
+  mapping typed `RequestJsonError` and `InvokeProtocolValidationError`
+  failures back to compatibility `HttpError` values.
+- `parsePublicInvokeRouteRequest(...)` remains a direct throwing parser for
+  compatibility, while `parsePublicInvokeRouteRequestEffect(...)` exposes the
+  typed protocol validation channel.
+- Public `/invoke`, deployment-scoped `/invoke`, route/header defaulting,
+  invoke dispatch, artifact runtime routing, deployment push routes, scheduler
+  routes, partition routes, executor-http routes, and `ValidatorJson` remain in
+  their existing owners.
+
+Boundary decision:
+
+The public invoke route-boundary module owns JSON reading, protocol parsing,
+typed protocol errors, and compatibility `HttpError` mapping. The Worker still
+owns route matching and defaulting from route/header context, while the invoke
+module owns execution dispatch.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|rejects malformed invoke requests at the route boundary|routes deployment scoped invoke"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Artifact Runtime Invoke Effect Decoder
 
 Previous completed checkpoint: `2112975` Add typed public source push decoder.

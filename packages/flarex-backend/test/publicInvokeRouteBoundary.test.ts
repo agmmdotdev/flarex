@@ -1,7 +1,11 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { InvokeProtocolValidationError } from "flarex-protocol/invoke";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodePublicInvokeRouteRequest,
   parsePublicInvokeRouteRequest,
+  parsePublicInvokeRouteRequestEffect,
   readPublicInvokeRequest,
 } from "../src/invoke/PublicInvokeRouteBoundary";
 
@@ -22,13 +26,31 @@ describe("public invoke route boundary", () => {
       kind: "query",
       idempotencyKey: "invoke-once",
     });
+    await expect(Effect.runPromise(decodePublicInvokeRouteRequest(jsonRequest({
+      deploymentId: "deployment-b",
+      path: "users:list",
+      args: {},
+      kind: "query",
+    })))).resolves.toEqual({
+      deploymentId: "deployment-b",
+      path: "users:list",
+      args: {},
+      kind: "query",
+    });
   });
 
-  it("keeps omitted args omitted for the Worker invoke defaulting boundary", () => {
+  it("keeps omitted args omitted for the Worker invoke defaulting boundary", async () => {
     expect(parsePublicInvokeRouteRequest({
       path: "users:list",
       kind: "query",
     })).toEqual({
+      path: "users:list",
+      kind: "query",
+    });
+    await expect(Effect.runPromise(parsePublicInvokeRouteRequestEffect({
+      path: "users:list",
+      kind: "query",
+    }))).resolves.toEqual({
       path: "users:list",
       kind: "query",
     });
@@ -49,6 +71,14 @@ describe("public invoke route boundary", () => {
     }
   });
 
+  it("exposes typed protocol failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodePublicInvokeRouteRequest(jsonRequest({
+      kind: "action",
+    })))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
+    await expect(Effect.runPromise(parsePublicInvokeRouteRequestEffect(null)))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
+  });
+
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readPublicInvokeRequest(new Request("https://flarex.test/invoke", {
       method: "POST",
@@ -58,6 +88,11 @@ describe("public invoke route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodePublicInvokeRouteRequest(new Request("https://flarex.test/invoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 });
 

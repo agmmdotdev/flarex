@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `2112975` Add typed public source push decoder.
-- Active checkpoint: convert the artifact runtime invoke body boundary to an Effect-typed decoder while preserving existing runtime invoke 400 responses.
+- Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.
+- Active checkpoint: convert the public invoke body boundary to an Effect-typed decoder while preserving existing Worker invoke 400 responses and defaulting behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 99 slice:
+Current Goal 100 slice:
+
+1. Add `decodePublicInvokeRouteRequest(...)` and `parsePublicInvokeRouteRequestEffect(...)` to `invoke/PublicInvokeRouteBoundary.ts` so public invoke body parsing exposes `Effect.Effect<PublicInvokeRequestBody, RequestJsonError | InvokeProtocolValidationError>`.
+2. Keep `readPublicInvokeRequest(...)` as the Worker-facing compatibility wrapper that maps malformed JSON and protocol validation failures back to the existing `HttpError(400, ...)` responses.
+3. Keep `parsePublicInvokeRouteRequest(...)` as the direct throwing compatibility parser for existing callers and tests.
+4. Preserve omitted `args` behavior for Worker invoke defaulting and preserve current malformed JSON/protocol validation response text.
+5. Keep public `/invoke`, deployment-scoped `/invoke`, route/header defaulting, invoke dispatch, artifact runtime routing, deployment push routes, scheduler routes, partition routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused public invoke route-boundary tests, focused invoke behavior tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 99 slice:
 
 1. Add `ExecutionArtifactInvokePayloadError`, `decodeExecutionArtifactInvokePayload(...)`, and `parseExecutionArtifactInvokePayloadEffect(...)` to `artifactRuntime/RouteBoundary.ts` so artifact runtime invoke body parsing exposes `Effect.Effect<ExecutionArtifactInvokePayload, RequestJsonError | ExecutionArtifactInvokePayloadError>`.
 2. Keep `readExecutionArtifactInvokePayload(...)` as the runtime-facing compatibility wrapper that maps malformed JSON and invalid payload shape back to the existing `HttpError(400, ...)` responses.

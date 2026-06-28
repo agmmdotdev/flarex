@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Invoke Effect Decoder
+
+Previous completed checkpoint: `ae1d38c` Add typed artifact invoke decoder.
+
+What changed:
+
+- Added `decodePublicInvokeRouteRequest(...)` and
+  `parsePublicInvokeRouteRequestEffect(...)` to
+  `packages/flarex-backend/src/invoke/PublicInvokeRouteBoundary.ts`.
+- `readPublicInvokeRequest(...)` remains the Worker-facing compatibility
+  wrapper and now maps typed JSON and protocol failures back to the existing
+  `HttpError(400, ...)` responses.
+- `parsePublicInvokeRouteRequest(...)` remains the direct throwing
+  compatibility parser for existing callers and tests.
+- Omitted `args` behavior for Worker invoke defaulting is unchanged.
+- Public `/invoke`, deployment-scoped `/invoke`, route/header defaulting,
+  invoke dispatch, artifact runtime routing, deployment push routes, scheduler
+  routes, partition routes, executor-http routes, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+Public invoke was still reading JSON through the throwing compatibility helper
+and mapping protocol failures directly to `HttpError`. This checkpoint exposes
+typed Effect success/failure channels while preserving the current Worker
+adapter responses and invoke defaulting behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|rejects malformed invoke requests at the route boundary|routes deployment scoped invoke"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Artifact Runtime Invoke Effect Decoder
 
 Previous completed checkpoint: `2112975` Add typed public source push decoder.
