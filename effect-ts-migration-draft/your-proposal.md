@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `83eb9c4` Share deployment route constants.
-- Active checkpoint: add a protocol-only Deployment HttpApi read contract without Durable Object server wiring.
+- Previous completed checkpoint: `d95fc60` Add deployment read HttpApi contract.
+- Active checkpoint: add a protocol-only Deployment HttpApi mutation contract without Durable Object server wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 38 slice:
+Current Goal 39 slice:
+
+1. Add mutation endpoint metadata to the protocol-only Deployment HttpApi contract for analyzed start-push, finish-push, and abandon-push.
+2. Use `DeploymentApiPath` plus `DeploymentPushParams` for the `:pushId` mutation paths.
+3. Keep the API definition protocol-only: no `HttpApiBuilder`, no `HttpRouter.toWebHandler`, no backend handler layer, and no Durable Object server wiring yet.
+4. Add protocol tests that lock mutation endpoint path/method metadata, path params, and payload presence.
+5. Do not add typed error response schemas, change DeploymentDO routing, change worker forwarding, change service/store orchestration, change response bodies, or alter request validation messages in this slice.
+6. Validate with focused deployment protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 38 slice:
 
 1. Add `DeploymentHealthResponse`, `DeploymentApiPath`, `DeploymentApiReadGroup`, and `DeploymentApi` to `flarex-protocol/deployment` using `effect/unstable/httpapi`.
 2. Describe only the current read routes in this slice: `GET /health`, `GET /deployment`, and `GET /push/:pushId`.

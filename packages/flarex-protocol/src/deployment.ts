@@ -19,6 +19,8 @@ export type DeploymentPushAction = typeof DeploymentPushAction[keyof typeof Depl
 
 export const DeploymentApiPath = {
   pushStatus: `${DeploymentRoute.push}/:pushId`,
+  finishPush: `${DeploymentRoute.push}/:pushId/${DeploymentPushAction.finish}`,
+  abandonPush: `${DeploymentRoute.push}/:pushId/${DeploymentPushAction.abandon}`,
 } as const;
 
 export class DeploymentPushParams extends Schema.Class<DeploymentPushParams>(
@@ -375,7 +377,7 @@ export class ActiveDeploymentStatus extends Schema.Class<ActiveDeploymentStatus>
   codegenAnalysis: DeploymentCodegenAnalysis,
 }) {}
 
-export class DeploymentApiReadGroup extends HttpApiGroup.make("deployment", { topLevel: true }).add(
+export class DeploymentApiGroup extends HttpApiGroup.make("deployment", { topLevel: true }).add(
   HttpApiEndpoint.get("health", DeploymentRoute.health, {
     success: DeploymentHealthResponse,
   }),
@@ -386,9 +388,23 @@ export class DeploymentApiReadGroup extends HttpApiGroup.make("deployment", { to
     params: DeploymentPushParams,
     success: PushStatus,
   }),
+  HttpApiEndpoint.post("startAnalyzedPush", DeploymentRoute.startAnalyzedPush, {
+    payload: AnalyzedStartPushRequest,
+    success: PushStatus,
+  }),
+  HttpApiEndpoint.post("finishPush", DeploymentApiPath.finishPush, {
+    params: DeploymentPushParams,
+    payload: FinishPushRequest,
+    success: FinishPushResponse,
+  }),
+  HttpApiEndpoint.post("abandonPush", DeploymentApiPath.abandonPush, {
+    params: DeploymentPushParams,
+    payload: AbandonPushRequest,
+    success: PushStatus,
+  }),
 ) {}
 
-export class DeploymentApi extends HttpApi.make("flarex-deployment").add(DeploymentApiReadGroup) {}
+export class DeploymentApi extends HttpApi.make("flarex-deployment").add(DeploymentApiGroup) {}
 
 const decodeAbandonPushRequest = Schema.decodeUnknownSync(AbandonPushRequest);
 const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPushRequest);

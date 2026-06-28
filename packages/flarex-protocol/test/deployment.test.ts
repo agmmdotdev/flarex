@@ -26,6 +26,8 @@ describe("deployment protocol schemas", () => {
     });
     expect(DeploymentApiPath).toEqual({
       pushStatus: "/push/:pushId",
+      finishPush: "/push/:pushId/finish",
+      abandonPush: "/push/:pushId/abandon",
     });
     expect(DeploymentPushAction).toEqual({
       finish: "finish",
@@ -48,6 +50,24 @@ describe("deployment protocol schemas", () => {
     expect(DeploymentPushParams.make({ pushId: "push_123" })).toEqual({
       pushId: "push_123",
     });
+  });
+
+  it("describes the current DeploymentDO mutation routes as an HttpApi contract", () => {
+    const group = DeploymentApi.groups.deployment;
+
+    expect(group.endpoints.startAnalyzedPush.path).toBe(DeploymentRoute.startAnalyzedPush);
+    expect(group.endpoints.startAnalyzedPush.method).toBe("POST");
+    expect(group.endpoints.startAnalyzedPush.payload).toBeDefined();
+
+    expect(group.endpoints.finishPush.path).toBe(DeploymentApiPath.finishPush);
+    expect(group.endpoints.finishPush.method).toBe("POST");
+    expect(group.endpoints.finishPush.params).toBeDefined();
+    expect(group.endpoints.finishPush.payload).toBeDefined();
+
+    expect(group.endpoints.abandonPush.path).toBe(DeploymentApiPath.abandonPush);
+    expect(group.endpoints.abandonPush.method).toBe("POST");
+    expect(group.endpoints.abandonPush.params).toBeDefined();
+    expect(group.endpoints.abandonPush.payload).toBeDefined();
   });
 
   it("parses deployment health responses used by the HttpApi contract", () => {
