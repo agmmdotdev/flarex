@@ -2,13 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.
-- Active checkpoint: retire the generic public scheduler forwarding helper now that every public scheduler route has an explicit typed boundary reader.
+- Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.
+- Active checkpoint: normalize artifact runtime malformed invoke JSON through the shared backend `readJson` boundary while preserving invalid payload mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 84 slice:
+Current Goal 85 slice:
+
+1. Change `artifactRuntime/RouteBoundary.ts` to read runtime `/invoke` JSON through the shared backend `readJson` boundary instead of local `request.json().catch(() => null)`.
+2. Preserve shape-invalid payload mapping as `HttpError(400, "Invalid execution artifact invoke payload.")`.
+3. Intentionally align malformed JSON with other backend route boundaries as `HttpError(400, "Request body must be JSON.")`.
+4. Keep runtime authorization, artifact header mismatch checks, runtime-store source-package loading, materializer cache behavior, invoke failure status preservation, Worker routing, DeliveryDO, PartitionDO, executor-http, and `ValidatorJson` untouched.
+5. Update focused artifact runtime boundary/service tests for the shared malformed JSON error and validate with full protocol/backend gates plus only the EffectTS quality checker reviewer.
+
+Completed Goal 84 slice:
 
 1. Remove the unused `forwardLiveQuerySchedulerRequest(...)` helper from `worker.ts`.
 2. Remove the last direct `readJson` import from `worker.ts`; public Worker scheduler JSON reads now live in route-boundary modules.

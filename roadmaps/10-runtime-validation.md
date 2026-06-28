@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Artifact Runtime Malformed JSON Boundary
+
+Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts` now reads
+  runtime `/invoke` JSON through the shared backend `readJson(...)` boundary.
+- Malformed artifact-runtime invoke JSON now returns JSON `400` with
+  `Request body must be JSON.`, matching other backend route boundaries.
+- Shape-invalid artifact-runtime invoke payloads still return JSON `400` with
+  `Invalid execution artifact invoke payload.`.
+- Runtime authorization, artifact header mismatch checks, runtime-store
+  source-package loading, materializer cache behavior, invoke failure status
+  preservation, Worker routing, DeliveryDO, PartitionDO, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The artifact runtime invoke boundary previously used
+`request.json().catch(() => null)`, which made malformed JSON look identical to
+a structurally invalid payload. The rest of the backend route-boundary helpers
+now use the shared JSON reader, so this checkpoint aligns malformed JSON
+handling while preserving the local artifact invoke payload guard.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts -t "artifact runtime route boundary|rejects malformed or invalid runtime invoke payloads at the route boundary"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Scheduler Forwarding Cleanup
 
 Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.

@@ -1,4 +1,4 @@
-import { HttpError } from "../http";
+import { HttpError, readJson } from "../http";
 import type { ExecutionArtifactInvokePayload } from "../artifactRuntime";
 
 const INVALID_INVOKE_PAYLOAD_MESSAGE = "Invalid execution artifact invoke payload.";
@@ -6,9 +6,7 @@ const INVALID_INVOKE_PAYLOAD_MESSAGE = "Invalid execution artifact invoke payloa
 export async function readExecutionArtifactInvokePayload(
   request: Request,
 ): Promise<ExecutionArtifactInvokePayload> {
-  return parseExecutionArtifactInvokePayload(
-    await request.json().catch(() => null),
-  );
+  return parseExecutionArtifactInvokePayload(await readJson(request));
 }
 
 export function parseExecutionArtifactInvokePayload(

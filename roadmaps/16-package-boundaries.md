@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Artifact Runtime Malformed JSON Route Boundary
+
+Previous completed checkpoint: `db496b5` Remove generic scheduler request forwarder.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts` now uses the
+  shared backend `readJson(...)` helper for execution artifact runtime `/invoke`
+  request bodies.
+- Malformed JSON now maps to the same `Request body must be JSON.` response as
+  other backend route boundaries.
+- Invalid object payloads still map to
+  `Invalid execution artifact invoke payload.`.
+- Runtime authorization, artifact header checks, runtime-store source-package
+  loading, materializer cache behavior, invoke response/error conversion, Worker
+  routing, DeliveryDO, PartitionDO, executor-http, and `ValidatorJson` remain in
+  their existing owners.
+
+Boundary decision:
+
+The artifact runtime service remains a backend runtime adapter, not shared
+protocol. This checkpoint normalizes only the raw JSON read at that route
+boundary. It does not move `ExecutionArtifactInvokePayload` into
+`flarex-protocol`, replace the local payload guard with Effect Schema, or alter
+materializer/cache ownership.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts -t "artifact runtime route boundary|rejects malformed or invalid runtime invoke payloads at the route boundary"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Scheduler Forwarding Helper Cleanup
 
 Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.

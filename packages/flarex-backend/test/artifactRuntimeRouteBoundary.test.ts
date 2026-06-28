@@ -31,7 +31,7 @@ describe("artifact runtime route boundary", () => {
     }
   });
 
-  it("preserves malformed JSON as the existing invalid payload error", async () => {
+  it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readExecutionArtifactInvokePayload(new Request(
       "https://runtime.test/invoke",
       {
@@ -41,7 +41,7 @@ describe("artifact runtime route boundary", () => {
       },
     ))).rejects.toMatchObject({
       status: 400,
-      message: "Invalid execution artifact invoke payload.",
+      message: "Request body must be JSON.",
     });
   });
 });

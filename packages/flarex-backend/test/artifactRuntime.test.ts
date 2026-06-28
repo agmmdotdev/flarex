@@ -380,7 +380,7 @@ describe("backend execution artifact runtime", () => {
     });
     expect(malformed.status).toBe(400);
     await expect(malformed.json()).resolves.toEqual({
-      error: "Invalid execution artifact invoke payload.",
+      error: "Request body must be JSON.",
     });
 
     const invalid = await fetch("https://runtime.test/invoke", {
