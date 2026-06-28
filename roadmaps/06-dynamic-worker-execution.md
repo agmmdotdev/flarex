@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Execution Abort Bodyless Boundary
+
+Previous completed checkpoint: `7316794` Decode execution finish bodies.
+
+What changed:
+
+- Kept `POST /deployments/:deploymentId/executions/:sessionId/abort` as a
+  generated empty-object public envelope and bodyless `ExecutionDO` action.
+- Generated Cloudflare execution callers already send `{}` for abort; extra
+  well-formed JSON is ignored by the bodyless action.
+- `ExecutionDO` still clears the active session and returns `{ aborted: true }`
+  without reading a domain payload.
+- Added coverage that staged mutation writes are not committed after abort and
+  that post-abort syscalls fail with the existing no-session error.
+
+Why it changed:
+
+Abort completes the execution action audit after start, syscall, and finish.
+Unlike those routes, abort has no request data to decode at the Durable Object
+boundary. The migration therefore records the generated-client convention plus
+bodyless runtime semantics instead of inventing an Effect schema for ignored
+data.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Decode Boundary
 
 Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.

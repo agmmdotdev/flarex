@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Execution Abort Bodyless Boundary
+
+Previous completed checkpoint: `7316794` Decode execution finish bodies.
+
+What changed:
+
+- Recorded execution abort as a bodyless Durable Object action rather than a
+  protocol-owned request body.
+- The public Worker still accepts the generated runtime's `{}` JSON envelope
+  before forwarding to `ExecutionDO`; extra well-formed JSON is ignored by the
+  bodyless action, and malformed JSON remains a Worker compatibility error.
+- `flarex-protocol/execution` remains focused on execution bodies with domain
+  data: start, syscall, and finish.
+
+Boundary decision:
+
+The backend route layer owns the public JSON forwarding compatibility for
+abort. `ExecutionDO` owns the cancellation side effect and should not receive a
+protocol DTO for a body it ignores. A future change can introduce an abort
+request schema only if abort starts enforcing body fields such as reason,
+actor, or idempotency metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Backend Route Boundary
 
 Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.

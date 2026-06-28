@@ -351,6 +351,58 @@ describe("ExecutionDO sessions", () => {
     expect(finish.readTs).toBe(start.beginTs);
   });
 
+  it("aborts execution sessions without committing staged syscalls", async () => {
+    await activateDeployment("execution-abort-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:abort",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+
+    const start = await startExecution("execution-abort-deployment", {
+      path: "lessons:abort",
+      kind: "mutation",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+    await syscall("execution-abort-deployment", start.sessionId, {
+      op: "insert",
+      table: "lessonProgress",
+      id: "1:aborted-progress",
+      value: { userId: "u1", lessonId: "abort", completed: false },
+    });
+
+    const aborted = await abortExecutionResponse(
+      "execution-abort-deployment",
+      start.sessionId,
+      {},
+    );
+    expect(aborted.status).toBe(200);
+    await expect(aborted.json()).resolves.toEqual({ aborted: true });
+
+    const tx = await SingleShardTransaction.begin(env, "execution-abort-deployment", "u1");
+    await expect(tx.get(1, "1:aborted-progress")).resolves.toBeNull();
+
+    const afterAbort = await syscallResponse(
+      "execution-abort-deployment",
+      start.sessionId,
+      { op: "get", id: "1:aborted-progress" },
+    );
+    expect(afterAbort.status).toBe(409);
+    await expect(afterAbort.json()).resolves.toEqual({
+      error: "Execution session has not started.",
+    });
+  });
+
   it("resolves function metadata from the active deployment", async () => {
     await activateDeployment("execution-active-deployment", lessonSchema(), {
       functions: [{ path: "lessons:list", kind: "query" }],
@@ -569,6 +621,37 @@ describe("ExecutionDO sessions", () => {
       error: "Request body must be JSON.",
     });
   });
+
+  it("keeps execution abort as a bodyless control message", async () => {
+    const emptyAbort = await abortExecutionResponse(
+      "execution-abort-boundary-deployment",
+      "missing-session",
+      {},
+    );
+    expect(emptyAbort.status).toBe(200);
+    await expect(emptyAbort.json()).resolves.toEqual({ aborted: true });
+
+    const ignoredBody = await abortExecutionResponse(
+      "execution-abort-boundary-deployment",
+      "missing-session",
+      { ignored: true },
+    );
+    expect(ignoredBody.status).toBe(200);
+    await expect(ignoredBody.json()).resolves.toEqual({ aborted: true });
+
+    const malformed = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-abort-boundary-deployment/executions/missing-session/abort",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {
@@ -770,6 +853,21 @@ async function finishExecutionResponse(
 ): Promise<TestResponse> {
   return harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/${sessionId}/finish`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+async function abortExecutionResponse(
+  deploymentId: string,
+  sessionId: string,
+  body: unknown,
+): Promise<TestResponse> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}/executions/${sessionId}/abort`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },

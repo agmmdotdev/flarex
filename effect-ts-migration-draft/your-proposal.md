@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
-- Active checkpoint: wire execution finish request decoding through the ExecutionDO boundary while preserving return validation, commit behavior, and session cleanup.
+- Previous completed checkpoint: `7316794` Decode execution finish bodies.
+- Active checkpoint: record execution abort as a generated empty-object public envelope and bodyless Durable Object action.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 59 slice:
+Current Goal 60 slice:
+
+1. Audit execution abort callers and confirm generated Cloudflare execution code sends `{}` to `POST /deployments/:deploymentId/executions/:sessionId/abort`.
+2. Do not add an Effect protocol parser for `ExecutionDO` abort in this slice: the Durable Object action has no domain body, and adding a schema would create a contract for data that is intentionally ignored.
+3. Preserve the current public Worker forwarding behavior: malformed abort JSON returns `400 { error: "Request body must be JSON." }`, while any well-formed JSON, including the generated `{}` envelope, reaches `ExecutionDO`.
+4. Preserve `ExecutionDO` abort behavior: clear the active session, return `{ aborted: true }`, and do not commit staged transaction writes.
+5. Keep Worker route matching, start, syscall, finish, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+6. Add focused route tests proving abort clears active sessions without committing staged writes, post-abort syscalls fail as no-session, generated `{}` and extra well-formed JSON both reach the bodyless action, and malformed public abort JSON is rejected before Durable Object dispatch.
+7. Validate with focused execution session tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 59 slice:
 
 1. Add a backend-only execution finish route-boundary helper that reads JSON once, decodes through `parseExecutionFinishRequest`, maps `ExecutionProtocolValidationError` to `HttpError(400, ...)`, and adapts protocol `Json` to the backend mutable `Json` type.
 2. Use the finish helper in `ExecutionDO.fetch()` for internal `POST /finish`, leaving `ExecutionDO.finish(...)` return validation, query read-set response, mutation commit, and `finally` session cleanup unchanged.

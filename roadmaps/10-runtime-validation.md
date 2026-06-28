@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Execution Abort Boundary Decision
+
+Previous completed checkpoint: `7316794` Decode execution finish bodies.
+
+What changed:
+
+- Audited the Cloudflare execution abort path and kept it bodyless at the
+  `ExecutionDO` action boundary.
+- Generated Cloudflare execution callers send `{}` to the public abort route
+  because the Worker currently forwards execution actions by reading JSON once;
+  extra well-formed JSON is currently ignored by the bodyless action.
+- No Effect protocol parser was added for abort: there is no domain payload to
+  validate inside `ExecutionDO`.
+- Added route coverage proving abort clears the active session, staged writes
+  are not committed, post-abort syscalls fail as no-session, generated `{}` and
+  extra well-formed JSON both reach the bodyless action, and malformed public
+  abort JSON still returns the shared `400 Request body must be JSON.` error.
+
+Why it changed:
+
+Start, syscall, and finish all carry domain data and now have schema-first
+boundaries. Abort only signals cancellation. Adding a schema at the Durable
+Object layer would manufacture a data contract for an intentionally ignored
+body, so the migration records the boundary decision and locks current
+compatibility behavior instead.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Worker And DO Boundary
 
 Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
