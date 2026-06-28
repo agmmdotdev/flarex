@@ -354,6 +354,13 @@ describe("DeploymentApiHandlers", () => {
       },
       "Push diagnostic at index 0 has an invalid level.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: "not-analysis",
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "Deployment analysis must be an object.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -394,6 +401,18 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(diagnosticsFailure.message).toBe("Push diagnostic at index 0 has an invalid level.");
+
+    const analysisFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: "not-analysis",
+    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(analysisFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(analysisFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(analysisFailure.message).toBe("Deployment analysis must be an object.");
   });
 });
 

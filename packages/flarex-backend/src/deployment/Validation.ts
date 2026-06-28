@@ -473,7 +473,7 @@ export function validateFunctions(functions: unknown): DeploymentFunctions {
 
 export function validateAnalysis(analysis: unknown): DeploymentAnalysis {
   if (!isRecord(analysis)) {
-    throw new HttpError(400, "Deployment analysis must be an object.");
+    throwDeploymentValidation("Deployment analysis must be an object.");
   }
   const schema = validateSchema(analysis.schema);
   const functions = validateFunctions(analysis.functions);

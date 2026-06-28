@@ -329,8 +329,9 @@ describe("deployment validation", () => {
   });
 
   it("preserves deployment analysis validation error messages", () => {
-    expect(() => validateAnalysis("not-analysis")).toThrow(
-      new HttpError(400, "Deployment analysis must be an object."),
+    expectDeploymentValidationFailure(
+      () => validateAnalysis("not-analysis"),
+      "Deployment analysis must be an object.",
     );
     expect(() =>
       validateAnalysis({
