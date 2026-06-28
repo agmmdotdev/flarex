@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ac853a0` Decode partition commit bodies.
-- Active checkpoint: decode public Worker live-query delivery bodies before connection fanout.
+- Previous completed checkpoint: `c1c104d` Decode public live query delivery bodies.
+- Active checkpoint: decode public Worker DeliveryDO wake bodies before forwarding to the DeliveryDO.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 74 slice:
+Current Goal 75 slice:
+
+1. Add a backend-only `delivery/PublicWakeRouteBoundary.ts` helper that reads public `wake-delivery` JSON once through the shared `readJson` boundary.
+2. Decode the public wake envelope by appending the route `deploymentId`, keeping the route deployment id authoritative over any body field, and reusing the existing `DeliveryDO` wake parser.
+3. Use the decoded wake request in `routeWakeDelivery(...)` before forwarding to `DeliveryDO`.
+4. Keep authorization order, `DeliveryDO` wake/drain behavior, claim/fanout/ack semantics, scheduler routes, live-query delivery fanout, partition routes, executor-http routes, and `ValidatorJson` untouched.
+5. Add focused helper tests for valid decode, invalid optional wake fields, malformed JSON, route deployment-id precedence, and public Worker route tests proving malformed/invalid wake JSON returns `400 { error }` before forwarding.
+6. Validate with focused wake boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 74 slice:
 
 1. Add a backend-only `liveQueryDelivery/RouteBoundary.ts` helper that reads public live-query delivery JSON once through the shared `readJson` boundary.
 2. Decode the existing public delivery envelope through `liveQueryDeliveryChangesFromBody(...)` and map parser errors to JSON `400 { error }` responses.

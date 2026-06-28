@@ -2229,6 +2229,54 @@ describe("sync protocol", () => {
     });
   });
 
+  it("rejects malformed public DeliveryDO wake JSON at the Worker boundary", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-wake-boundary/sync/wake-delivery",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid public DeliveryDO wake envelopes at the Worker boundary", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-wake-envelope/sync/wake-delivery",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wake-secret",
+        },
+        body: JSON.stringify({ limit: 0 }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "limit must be a positive integer.",
+    });
+  });
+
   it("wakes DeliveryDO and delivers failed live query reruns as QueryFailed", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];

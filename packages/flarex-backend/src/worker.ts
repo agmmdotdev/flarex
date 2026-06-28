@@ -15,6 +15,7 @@ import {
 } from "./artifactRuntime";
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
+import { readPublicDeliveryWakeRequest } from "./delivery/PublicWakeRouteBoundary";
 import { DeploymentDO } from "./deploymentDO";
 import {
   readPublicExecutionActionRequest,
@@ -591,13 +592,13 @@ async function routeWakeDelivery(
   deploymentId: string,
 ): Promise<Response> {
   authorizeLiveQueryDeliveryRequest(request, env);
-  const body = await readJson<Record<string, unknown>>(request);
+  const body = await readPublicDeliveryWakeRequest(request, deploymentId);
   return env.DELIVERIES
     .getByName(deliveryObjectName(deploymentId))
     .fetch("https://flarex.internal/wake", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, deploymentId }),
+      body: JSON.stringify(body),
     });
 }
 

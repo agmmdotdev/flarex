@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Delivery Wake Route Boundary
+
+Previous completed checkpoint: `c1c104d` Decode public live query delivery bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/delivery/PublicWakeRouteBoundary.ts` now owns
+  the public Worker `wake-delivery` request-body boundary.
+- `POST /deployments/:deploymentId/sync/wake-delivery` decodes through the
+  shared `readJson` boundary before the Worker forwards to `DeliveryDO`.
+- The boundary appends the route deployment id, keeps it authoritative over
+  any request-body `deploymentId`, and reuses the existing `DeliveryDO` wake
+  parser for the optional drain controls.
+- Authorization, `DeliveryDO` wake/drain behavior, claim/fanout/ack semantics,
+  scheduler routes, live-query delivery fanout, partition routes,
+  executor-http routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The public wake callback is a Worker transport boundary, but delivery draining
+is Durable Object behavior. This checkpoint validates the forwarded wake
+request at the public edge without moving claim, fanout, acknowledgement, retry,
+or pending-drain state logic out of `DeliveryDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public delivery wake route boundary|rejects malformed public DeliveryDO wake JSON|rejects invalid public DeliveryDO wake envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Live Query Delivery Route Boundary
 
 Previous completed checkpoint: `ac853a0` Decode partition commit bodies.
