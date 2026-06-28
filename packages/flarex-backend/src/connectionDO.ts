@@ -1,7 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
-import { readConnectionLiveQueryDeliveryRequest } from "./connection/RouteBoundary";
+import {
+  readConnectionInvalidationRequest,
+  readConnectionLiveQueryDeliveryRequest,
+} from "./connection/RouteBoundary";
 import { errorResponse, json } from "./http";
 import {
   executeInvoke,
@@ -83,7 +86,13 @@ export class ConnectionDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/invalidate" && request.method === "POST") {
-      return this.invalidate(await request.json());
+      let queryId: QueryId;
+      try {
+        queryId = await readConnectionInvalidationRequest(request);
+      } catch (error) {
+        return errorResponse(error);
+      }
+      return this.invalidate(queryId);
     }
     if (url.pathname === "/deliver/live-query" && request.method === "POST") {
       let deliveries: LiveQueryDeliveryChange[];
@@ -369,8 +378,7 @@ export class ConnectionDO extends DurableObject<Env> {
     };
   }
 
-  private async invalidate(body: unknown): Promise<Response> {
-    const queryId = queryIdFromInvalidation(body);
+  private async invalidate(queryId: QueryId): Promise<Response> {
     const query = this.state.queries.get(queryId);
     if (query === undefined) return json({ invalidated: false });
     if (query.rerunInFlight) {
@@ -750,19 +758,6 @@ function connectionNameFromRequest(request: Request): string {
   const value = request.headers.get("x-flarex-connection");
   if (value !== null && value.length > 0) return value;
   throw new Error("Sync request is missing connection name.");
-}
-
-function queryIdFromInvalidation(body: unknown): QueryId {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    !Array.isArray(body) &&
-    typeof (body as { queryId?: unknown }).queryId === "number" &&
-    Number.isInteger((body as { queryId: number }).queryId)
-  ) {
-    return (body as { queryId: number }).queryId;
-  }
-  throw new Error("Invalidation queryId must be an integer.");
 }
 
 function parseSocketMessage(message: string | ArrayBuffer): unknown {

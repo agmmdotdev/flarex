@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Connection Invalidation Route Boundary
+
+Previous completed checkpoint: `025481f` Decode connection delivery bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/connection/RouteBoundary.ts` now owns the
+  `ConnectionDO` invalidation request-body boundary.
+- The boundary accepts the current invalidation envelope shape by extracting an
+  integer `queryId` and ignoring extra compatibility fields such as
+  `invalidatedTs`.
+- `ConnectionDO` still owns route matching, active query state, rerun
+  coalescing, subscription refills, and WebSocket transition emission.
+
+Boundary decision:
+
+`ConnectionDO /invalidate` is internal, but it crosses an HTTP/JSON boundary
+from partition notification code into mutable connection state. The route
+should decode the transport envelope before invoking rerun orchestration, while
+runtime rerun failures should keep their existing behavior and not be folded
+into the decode error response path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "connection route boundary|rejects malformed invalidation JSON|rejects invalid invalidation envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Connection Live Query Delivery Route Boundary
 
 Previous completed checkpoint: `94e9d0c` Decode public execution action bodies.

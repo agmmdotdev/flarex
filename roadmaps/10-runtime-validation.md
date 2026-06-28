@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Connection Invalidation Boundary
+
+Previous completed checkpoint: `025481f` Decode connection delivery bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/connection/RouteBoundary.ts` to own
+  `ConnectionDO` invalidation body reads.
+- `POST /invalidate` now decodes request JSON through the shared `readJson`
+  boundary and accepts the existing object envelope with integer `queryId`.
+- Extra invalidation fields such as `invalidatedTs` remain ignored for
+  compatibility with current partition notification callers.
+- Malformed JSON and invalid invalidation envelopes now return JSON `400`
+  responses from the connection route before rerun state is touched.
+- Invalidation rerun orchestration, query registration, transition emission,
+  live-query delivery, DeliveryDO, PartitionDO, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+`ConnectionDO /invalidate` was the remaining small direct JSON body read in the
+connection object after live-query delivery moved behind a route boundary. This
+checkpoint moves only the invalidation transport edge into the same boundary
+module while preserving existing query rerun behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "connection route boundary|rejects malformed invalidation JSON|rejects invalid invalidation envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Connection Live Query Delivery Boundary
 
 Previous completed checkpoint: `94e9d0c` Decode public execution action bodies.

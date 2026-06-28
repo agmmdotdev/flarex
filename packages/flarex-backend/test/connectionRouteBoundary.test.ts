@@ -1,11 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  parseConnectionInvalidationRequest,
   parseConnectionLiveQueryDeliveryRequest,
+  readConnectionInvalidationRequest,
   readConnectionLiveQueryDeliveryRequest,
 } from "../src/connection/RouteBoundary";
 
 describe("connection route boundary", () => {
+  it("decodes invalidation requests", async () => {
+    await expect(readConnectionInvalidationRequest(jsonRequest({ queryId: 42 })))
+      .resolves.toBe(42);
+    expect(parseConnectionInvalidationRequest({ queryId: 7, invalidatedTs: 12 }))
+      .toBe(7);
+  });
+
+  it("maps invalid invalidation bodies to 400", async () => {
+    expect(() => parseConnectionInvalidationRequest({ queryId: "42" }))
+      .toThrow(HttpError);
+    await expect(readConnectionInvalidationRequest(new Request(
+      "https://flarex.test/invalidate",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
   it("decodes live query delivery requests", async () => {
     await expect(readConnectionLiveQueryDeliveryRequest(jsonRequest({
       deliveries: [

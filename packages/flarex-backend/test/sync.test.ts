@@ -1477,6 +1477,46 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("rejects malformed invalidation JSON at the connection route boundary", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-invalidation-boundary-deployment:delivery-session",
+    );
+
+    const response = await connection.fetch("https://flarex.internal/invalidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid invalidation envelopes at the connection route boundary", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(
+      "connection:sync-invalidation-envelope-boundary-deployment:delivery-session",
+    );
+
+    const response = await connection.fetch("https://flarex.internal/invalidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queryId: "11" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalidation queryId must be an integer.",
+    });
+  });
+
   it("delivers materialized live query changes to active WebSocket connections", async () => {
     const runtimeCalls: unknown[] = [];
     const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
