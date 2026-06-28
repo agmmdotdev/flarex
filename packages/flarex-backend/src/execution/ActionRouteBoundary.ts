@@ -8,8 +8,14 @@ export async function readPublicExecutionActionRequest(
   request: Request,
   action: PublicExecutionAction,
 ): Promise<unknown> {
-  const body = await readJson(request);
-  if (action === "syscall") return parseExecutionSyscallRouteRequest(body);
-  if (action === "finish") return parseExecutionFinishRouteRequest(body);
-  return body;
+  return parsePublicExecutionActionRequest(await readJson(request), action);
+}
+
+export function parsePublicExecutionActionRequest(
+  value: unknown,
+  action: PublicExecutionAction,
+): unknown {
+  if (action === "syscall") return parseExecutionSyscallRouteRequest(value);
+  if (action === "finish") return parseExecutionFinishRouteRequest(value);
+  return value;
 }

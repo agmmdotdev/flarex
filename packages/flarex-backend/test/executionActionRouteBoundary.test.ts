@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
-import { readPublicExecutionActionRequest } from "../src/execution/ActionRouteBoundary";
+import {
+  parsePublicExecutionActionRequest,
+  readPublicExecutionActionRequest,
+} from "../src/execution/ActionRouteBoundary";
 
 describe("public execution action route boundary", () => {
   it("decodes public syscall bodies before forwarding", async () => {
@@ -23,6 +26,16 @@ describe("public execution action route boundary", () => {
       message:
         "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
     });
+
+    expect(parsePublicExecutionActionRequest({
+      op: "patch",
+      id: "1:progress",
+      value: { completed: true },
+    }, "syscall")).toEqual({
+      op: "patch",
+      id: "1:progress",
+      value: { completed: true },
+    });
   });
 
   it("decodes public finish bodies before forwarding", async () => {
@@ -37,6 +50,12 @@ describe("public execution action route boundary", () => {
         status: 400,
         message: "Execution finish request must include JSON value.",
       });
+
+    expect(parsePublicExecutionActionRequest({
+      value: null,
+    }, "finish")).toEqual({
+      value: null,
+    });
   });
 
   it("keeps public abort as well-formed JSON forwarding", async () => {
@@ -45,6 +64,7 @@ describe("public execution action route boundary", () => {
     await expect(readPublicExecutionActionRequest(jsonRequest({
       ignored: true,
     }), "abort")).resolves.toEqual({ ignored: true });
+    expect(parsePublicExecutionActionRequest(null, "abort")).toBeNull();
   });
 
   it("preserves malformed public action JSON as the shared body error", async () => {

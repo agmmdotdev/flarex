@@ -2,13 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
-- Active checkpoint: extract public execution start route normalization into a named parser while preserving route deployment-id authority.
+- Previous completed checkpoint: `6397855` Extract public execution start parser.
+- Active checkpoint: extract public execution action route normalization into a named parser while preserving syscall, finish, and abort forwarding semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 86 slice:
+Current Goal 87 slice:
+
+1. Add `parsePublicExecutionActionRequest(...)` to `execution/ActionRouteBoundary.ts` so public execution action normalization is testable separately from JSON reading.
+2. Keep public execution action behavior unchanged: syscall bodies use the syscall route parser, finish bodies use the finish route parser, abort forwards any well-formed JSON body, and malformed JSON still uses the shared JSON error.
+3. Keep `ExecutionDO.fetch()`, `ExecutionDO.syscall(...)`, `ExecutionDO.finish(...)`, abort behavior, session lifecycle, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+4. Add focused parser tests for syscall, finish, and abort action dispatch plus existing malformed JSON coverage.
+5. Validate with focused execution action boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 86 slice:
 
 1. Add `parsePublicExecutionStartRouteRequest(...)` to `execution/StartRouteBoundary.ts` so public route deployment-id normalization is testable separately from JSON reading.
 2. Keep public `POST /deployments/:deploymentId/executions/start` behavior unchanged: route deployment id overrides any body deployment id, malformed JSON uses the shared JSON error, and protocol failures still map to backend `400` errors.

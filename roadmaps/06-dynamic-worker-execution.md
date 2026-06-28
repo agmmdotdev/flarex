@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Public Execution Action Route Normalization
+
+Previous completed checkpoint: `6397855` Extract public execution start parser.
+
+What changed:
+
+- Added `parsePublicExecutionActionRequest(...)` to
+  `packages/flarex-backend/src/execution/ActionRouteBoundary.ts`.
+- Public execution action JSON reading now delegates action-specific
+  normalization to that named parser.
+- Syscall bodies still use the syscall route parser, finish bodies still use the
+  finish route parser, and abort still forwards any well-formed JSON body.
+- `ExecutionDO.fetch()`, `ExecutionDO.syscall(...)`, `ExecutionDO.finish(...)`,
+  abort behavior, session lifecycle, PartitionDO, artifact runtime,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The public execution action boundary had action dispatch embedded inside the
+async JSON reader. Naming the parser keeps JSON reading, action-specific
+transport validation, and Durable Object runtime behavior separated without
+changing generated execution action semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts -t "public execution action route boundary|decodes execution syscall bodies before session dispatch|decodes execution finish bodies before session dispatch|keeps execution abort as a bodyless control message"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Execution Start Route Normalization
 
 Previous completed checkpoint: `ccf823f` Normalize artifact runtime JSON boundary.
