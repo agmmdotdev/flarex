@@ -1,5 +1,48 @@
 # Deployment Analysis And Push
 
+## Deployment Abandon Service Error Ownership
+
+Previous completed checkpoint: `9bcedd2` Add typed execution syscall decoder.
+
+What changed:
+
+- `DeploymentService.abandonPush(...)` now exposes only typed deployment
+  failures for abandon business decisions:
+  `DeploymentPushNotFoundError`, `DeploymentPushInvalidStateError`, and
+  `DeploymentSqlError`.
+- `DeploymentPushStore.abandonPush(...)` now reports persistence failures as
+  `DeploymentSqlError` only. It no longer throws `HttpError(404/409)` for
+  abandon not-found or invalid-state decisions.
+- `DeploymentService.abandonPush(...)` remains the owner of push lookup,
+  typed not-found/invalid-state checks, controlled timestamp use, and reason
+  defaulting/truncation before persistence.
+- Generated Deployment HttpApi handlers, public Worker abandon forwarding, and
+  `DeploymentDO` routing still map those typed failures to the existing HTTP
+  response bodies and statuses.
+- SQL schema, finish/start behavior, public deployment route paths, protocol
+  schemas, scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Abandon-push orchestration had already moved into `DeploymentService`, but the
+store still carried HTTP-shaped business failures for abandon not-found and
+invalid-state cases. This checkpoint finishes that part of the service
+extraction by keeping domain decisions typed in the service and leaving HTTP
+mapping at the adapter boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/push.test.ts -t "abandons eligible pushes with controlled clock and normalized reasons|returns a typed not-found error before abandon storage work|returns a typed invalid-state error before abandon storage work|preserves typed DeploymentSqlError failures from abandon storage|persists prevalidated abandon writes through the store|handles abandon-push mutations through the Worker-compatible web handler|normalizes abandon reasons through the deployment service from public routes|does not abandon activated or unknown pushes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment HttpApi Typed Decoder Adapter
 
 Previous completed checkpoint: `0108eca` Add typed start route decoder.

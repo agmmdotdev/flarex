@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Deployment Abandon Service Error Ownership
+
+Previous completed checkpoint: `9bcedd2` Add typed execution syscall decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/Service.ts` now keeps
+  `DeploymentService.abandonPush(...)` typed to deployment domain/storage
+  failures, without `HttpError`.
+- `packages/flarex-backend/src/deployment/Store.ts` now treats abandon as a
+  prevalidated persistence write and reports only `DeploymentSqlError` from
+  `DeploymentPushStore.abandonPush(...)`.
+- `packages/flarex-backend/src/deployment/HttpApiHandlers.ts` still maps
+  service-level typed abandon failures through `deploymentFailureToHttpError`.
+- Public Worker abandon forwarding, `DeploymentDO` routing, protocol schemas,
+  SQL schema, scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+`DeploymentService.abandonPush(...)` owns abandon orchestration: push lookup,
+typed not-found/invalid-state checks, controlled timestamp use, and reason
+normalization. `DeploymentPushStore.abandonPush(...)` owns the persistence write
+only. HTTP response status/body conversion remains at the adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/push.test.ts -t "abandons eligible pushes with controlled clock and normalized reasons|returns a typed not-found error before abandon storage work|returns a typed invalid-state error before abandon storage work|preserves typed DeploymentSqlError failures from abandon storage|persists prevalidated abandon writes through the store|handles abandon-push mutations through the Worker-compatible web handler|normalizes abandon reasons through the deployment service from public routes|does not abandon activated or unknown pushes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Execution Syscall Effect Decoder
 
 Previous completed checkpoint: `ea19fc9` Add typed execution finish decoder.

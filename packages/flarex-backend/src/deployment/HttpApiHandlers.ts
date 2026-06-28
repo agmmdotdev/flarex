@@ -125,7 +125,7 @@ export function mapDeploymentFinishFailure<A>(
 export function mapDeploymentAbandonFailure<A>(
   effect: Effect.Effect<
     A,
-    DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError | HttpError
+    DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError
   >,
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(

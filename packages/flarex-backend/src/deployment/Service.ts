@@ -30,7 +30,7 @@ export interface DeploymentServiceApi {
   >;
   abandonPush(pushId: string, request: AbandonPushRequest): Effect.Effect<
     PushStatus,
-    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | HttpError
+    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError
   >;
 }
 
@@ -116,7 +116,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           request: AbandonPushRequest,
         ): Effect.fn.Return<
           PushStatus,
-          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | HttpError
+          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError
         > {
           const status = yield* store.getPush(pushId);
           if (status === null) {

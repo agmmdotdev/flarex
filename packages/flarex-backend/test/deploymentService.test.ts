@@ -637,8 +637,8 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
-  it("preserves abandon HttpError failures from the storage transaction", async () => {
-    const status: PushStatus = { ...analyzedPushStatus("push-already-activated"), state: "activated" };
+  it("persists prevalidated abandon writes through the store without HTTP-shaped business failures", async () => {
+    const status = analyzedPushStatus("push-store-abandon");
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
@@ -651,17 +651,20 @@ describe("DeploymentService", () => {
     );
 
     try {
-      await expect(runtime.runPromise(
+      const abandoned = await runtime.runPromise(
         DeploymentPushStore.use(store =>
           store.abandonPush({
             pushId: status.pushId,
             now: 3_100_000,
-            reason: "too late",
+            reason: "typecheck failed",
           }),
         ),
-      )).rejects.toMatchObject({
-        status: 409,
-        message: `Cannot abandon push ${status.pushId} in state activated.`,
+      );
+      expect(abandoned).toMatchObject({
+        pushId: status.pushId,
+        state: "abandoned",
+        error: "typecheck failed",
+        updatedAt: 3_100_000,
       });
     } finally {
       await runtime.dispose();
@@ -703,7 +706,7 @@ interface DeploymentTestStore {
   getActiveDeployment?(): Effect.Effect<ActiveDeploymentStatus | null, DeploymentSqlError | HttpError>;
   startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
-  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | HttpError>;
+  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
 }
 
 interface DeploymentTestLayerOptions {
@@ -837,6 +840,19 @@ function sqlWithPushes(
           const row = rows.get(pushId);
           if (row === undefined) return { toArray: () => [] };
           rows.set(pushId, { ...row, state: "activated", updated_at: updatedAt });
+        }
+      }
+      if (query.includes("UPDATE pushes SET state = 'abandoned'")) {
+        const [error, updatedAt, pushId] = args;
+        if (typeof pushId === "string" && typeof updatedAt === "number" && typeof error === "string") {
+          const row = rows.get(pushId);
+          if (row === undefined) return { toArray: () => [] };
+          rows.set(pushId, {
+            ...row,
+            state: "abandoned",
+            error,
+            updated_at: updatedAt,
+          });
         }
       }
       return {
