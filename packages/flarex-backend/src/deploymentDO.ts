@@ -11,7 +11,6 @@ import {
 import { makeDeploymentLayer } from "./deployment/Layer";
 import {
   deploymentFailureToHttpError,
-  finishPushHttpStatus,
   type DeploymentServiceFailure,
 } from "./deployment/HttpBoundary";
 import {
@@ -69,9 +68,8 @@ export class DeploymentDO extends DurableObject<Env> {
           return json(await this.runDeploymentService(service => service.getPush(pushId)));
         }
         if (action === DeploymentPushAction.finish && request.method === "POST") {
-          parseFinishPushRequest(await readJson(request));
-          const response = await this.runDeploymentService(service => service.finishPush(pushId));
-          return json(response, { status: finishPushHttpStatus(response) });
+          const body = parseFinishPushRequest(await readJson(request));
+          return this.deploymentApi.handler(jsonRequest(url, body));
         }
         if (action === DeploymentPushAction.abandon && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));

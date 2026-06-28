@@ -10,6 +10,7 @@ import {
   DeploymentStorageErrorResponse,
   parseDeploymentErrorResponse,
   parseDeploymentHealthResponse,
+  parseFinishPushResponse,
   parsePushStatus,
 } from "flarex-protocol/deployment";
 import {
@@ -32,11 +33,13 @@ import { DeploymentService } from "../src/deployment/Service";
 import {
   DeploymentPushStore,
   DeploymentSqlError,
+  type FinishPushStoreInput,
 } from "../src/deployment/Store";
 import { HttpError } from "../src/http";
 import type {
   ActiveDeploymentStatus,
   ExecutionArtifactRef,
+  FinishPushResponse,
   PushSourcePackage,
   PushStatus,
 } from "../src/types";
@@ -168,6 +171,65 @@ describe("DeploymentApiHandlers", () => {
     }
   });
 
+  it("handles finish-push mutations through the Worker-compatible web handler", async () => {
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer());
+    try {
+      const activated = await handler(new Request(
+        "https://deployment.test/push/push-web-finish/finish",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      ));
+
+      expect(activated.status).toBe(200);
+      const activatedBody: unknown = await activated.json();
+      expect(parseFinishPushResponse(activatedBody)).toMatchObject({
+        result: "activated",
+        push: {
+          pushId: "push-web-finish",
+          state: "activated",
+        },
+      });
+
+      const rejected = makeDeploymentApiWebHandler(deploymentTestLayer({
+        finishPush: input => Effect.succeed({
+          result: "rejected",
+          push: pushStatus(input.pushId, "failed"),
+          code: "invalid_state",
+          error: `Cannot finish push ${input.pushId} in state failed.`,
+        }),
+      }));
+      try {
+        const rejectedResponse = await rejected.handler(new Request(
+          "https://deployment.test/push/push-web-finish-rejected/finish",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        ));
+
+        expect(rejectedResponse.status).toBe(409);
+        const rejectedBody: unknown = await rejectedResponse.json();
+        expect(parseFinishPushResponse(rejectedBody)).toMatchObject({
+          result: "rejected",
+          code: "invalid_state",
+          error: "Cannot finish push push-web-finish-rejected in state failed.",
+          push: {
+            pushId: "push-web-finish-rejected",
+            state: "failed",
+          },
+        });
+      } finally {
+        await rejected.dispose();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   it("maps service failures to declared DeploymentApi error response bodies", () => {
     expectMappedFailure(
       deploymentHttpErrorToReadResponse,
@@ -293,6 +355,9 @@ type DeploymentApiErrorInstance =
 
 interface DeploymentTestLayerOverrides {
   readonly getPush?: (pushId: string) => Effect.Effect<PushStatus>;
+  readonly finishPush?: (
+    input: FinishPushStoreInput,
+  ) => Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
 }
 
 function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {
@@ -304,10 +369,10 @@ function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {
           getPush: overrides.getPush ?? (pushId => Effect.succeed(pushStatus(pushId))),
           getActiveDeployment: () => Effect.succeed(activeDeploymentStatus()),
           startAnalyzedPush: input => Effect.succeed(pushStatus(input.pushId)),
-          finishPush: input => Effect.succeed({
+          finishPush: overrides.finishPush ?? (input => Effect.succeed({
             result: "activated",
             push: pushStatus(input.pushId, "activated"),
-          }),
+          })),
           abandonPush: input => Effect.succeed({
             ...pushStatus(input.pushId, "abandoned"),
             error: input.reason,

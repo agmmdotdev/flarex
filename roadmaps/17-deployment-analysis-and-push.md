@@ -1,5 +1,61 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Finish Route Wiring
+
+Previous completed checkpoint: `59882fb` Route deployment abandon through
+HttpApi.
+
+What changed:
+
+- Routed compatible `POST /push/:pushId/finish` traffic through the
+  `DeploymentDO`-owned generated Deployment HttpApi web handler.
+- Preserved the existing `DeploymentDO` malformed-body compatibility boundary:
+  invalid JSON and invalid finish request shapes are still parsed with
+  `readJson` plus `parseFinishPushRequest` before the generated handler runs.
+- Kept the public worker's execution-artifact availability preflight unchanged;
+  only internal finish requests that pass that public preflight enter the
+  generated handler.
+- Rebuilt a canonical JSON request for the generated handler after successful
+  compatibility parsing, so `DeploymentApiHandlers.finishPush` owns the service
+  call, typed error mapping, response protocol parsing, and 200/409 success
+  status encoding.
+- Kept analyzed start-push on the existing plain router.
+
+Why it changed:
+
+Finish-push already has service-owned orchestration, protocol-owned request
+shape validation, and a declared 409 success schema for rejected finishes.
+Routing it after the compatibility body parse moves another mutation onto
+HttpApi without changing public artifact preflight or rejected-response
+semantics.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  Durable Object deployment push state machine.
+
+Flarex differences:
+
+- Artifact availability remains a public worker preflight because it depends on
+  deployment artifact storage outside the DeploymentDO service layer.
+
+Known limitations:
+
+- Analyzed start-push still uses the plain router.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/push.test.ts -t "finish"
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment HttpApi Abandon Route Wiring
 
 Previous completed checkpoint: `489ae2e` Route deployment read paths through
