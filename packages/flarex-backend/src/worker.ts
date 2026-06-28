@@ -59,6 +59,7 @@ import {
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
 import {
+  readPublicSchedulerCleanupConnectionsRequest,
   readPublicSchedulerConnectionReconcileRequest,
   readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerDeliveryReconcileRequest,
@@ -187,8 +188,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-connections/cleanup" &&
     request.method === "POST"
   ) {
-    return forwardLiveQuerySchedulerRequest(
-      request,
+    authorizeLiveQueryDeliveryRequest(request, env);
+    const body = await readPublicSchedulerCleanupConnectionsRequest(request, env);
+    return forwardLiveQuerySchedulerBody(
+      body,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections,
     );

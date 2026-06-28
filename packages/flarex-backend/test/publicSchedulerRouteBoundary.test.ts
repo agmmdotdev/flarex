@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  parsePublicSchedulerCleanupConnectionsRequest,
   parsePublicSchedulerConnectionReconcileRequest,
   parsePublicSchedulerDeadLetterDeliveriesRequest,
   parsePublicSchedulerDeliveryReconcileRequest,
+  readPublicSchedulerCleanupConnectionsRequest,
   readPublicSchedulerDeadLetterDeliveriesRequest,
   readPublicSchedulerConnectionReconcileRequest,
   readPublicSchedulerDeliveryReconcileRequest,
 } from "../src/scheduler/PublicRouteBoundary";
+import type { Env } from "../src/types";
 
 describe("public scheduler route boundary", () => {
   it("decodes delivery reconcile requests", async () => {
@@ -172,6 +175,67 @@ describe("public scheduler route boundary", () => {
         body: "{",
       },
     ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes connection cleanup requests", async () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+    await expect(readPublicSchedulerCleanupConnectionsRequest(jsonRequest(
+      {
+        deploymentId: "deployment-a",
+        projectId: "project-a",
+        expiredAt: "2026-06-23T00:00:10.000+00:00",
+        ignored: true,
+      },
+      "/scheduler/live-query-connections/cleanup",
+    ), env)).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      expiredAt: "2026-06-23T00:00:10.000Z",
+    });
+  });
+
+  it("uses configured project id for connection cleanup requests", () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+
+    expect(parsePublicSchedulerCleanupConnectionsRequest({
+      deploymentId: "deployment-a",
+    }, env)).toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-default",
+    });
+  });
+
+  it("maps invalid connection cleanup envelopes to 400", () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+    expect(() => parsePublicSchedulerCleanupConnectionsRequest(null, env))
+      .toThrow(HttpError);
+    try {
+      parsePublicSchedulerCleanupConnectionsRequest({
+        deploymentId: "deployment-a",
+        expiredAt: "not a date",
+      }, env);
+      throw new Error("Expected parsePublicSchedulerCleanupConnectionsRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "expiredAt must be an ISO date string.",
+      });
+    }
+  });
+
+  it("preserves malformed cleanup JSON as the shared JSON body error", async () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+    await expect(readPublicSchedulerCleanupConnectionsRequest(new Request(
+      "https://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ), env)).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
     });

@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Scheduler Connection Cleanup Boundary
+
+Previous completed checkpoint: `ca4fca6` Decode public scheduler dead-letter bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` to
+  own the public Worker connection cleanup scheduler body read.
+- `POST /scheduler/live-query-connections/cleanup` now decodes request JSON
+  through the shared scheduler route-boundary parser before forwarding to
+  `SchedulerDO`.
+- The public Worker applies the existing `projectId` request-or-env fallback and
+  reserializes the parsed cleanup request before forwarding, so ignored fields
+  are dropped and `expiredAt` is normalized at the public edge.
+- Authorization remains before body parsing.
+- SchedulerDO cleanup execution, executor cleanup calls, delivery reconcile,
+  connection reconcile, dead-letter, rerun routes, partition routes, delivery
+  routes, executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After dead-letter moved behind a public scheduler boundary, connection cleanup
+was the next public scheduler forwarding route still accepting arbitrary JSON
+before SchedulerDO. This checkpoint narrows that transport edge without moving
+SchedulerDO cleanup execution or executor cleanup calls.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query connection cleanup JSON|rejects unauthorized live query connection cleanup before parsing JSON|rejects invalid live query connection cleanup fields"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Dead-Letter Boundary
 
 Previous completed checkpoint: `abaec65` Decode public scheduler connection reconcile bodies.

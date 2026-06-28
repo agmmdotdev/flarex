@@ -776,6 +776,34 @@ describe("sync protocol", () => {
     expect(executorRequests).toEqual([]);
   });
 
+  it("rejects unauthorized live query connection cleanup before parsing JSON", async () => {
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
+    });
+  });
+
   it("rejects invalid live query connection cleanup fields", async () => {
     const executorRequests: unknown[] = [];
     const harness = await createSyncHarness(

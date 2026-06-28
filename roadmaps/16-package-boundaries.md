@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Scheduler Connection Cleanup Route Boundary
+
+Previous completed checkpoint: `ca4fca6` Decode public scheduler dead-letter bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` now also owns
+  the public Worker connection cleanup scheduler request-body boundary.
+- `POST /scheduler/live-query-connections/cleanup` decodes through the shared
+  scheduler route-boundary parser before the Worker forwards to `SchedulerDO`.
+- The Worker forwards the parsed cleanup request body, preserving the existing
+  deployment id, project id, and optional `expiredAt` fields while dropping
+  ignored fields and applying the request-or-env `projectId` fallback at the
+  public edge.
+- Authorization, SchedulerDO cleanup execution, executor cleanup calls,
+  delivery reconcile, connection reconcile, dead-letter, rerun routes,
+  partition routes, delivery routes, executor-http routes, and `ValidatorJson`
+  remain in their existing owners.
+
+Boundary decision:
+
+The public scheduler connection cleanup route is a Worker transport boundary.
+This checkpoint validates and normalizes that request before forwarding, while
+keeping SchedulerDO responsible for cleanup execution, executor calls, and
+response mapping.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query connection cleanup JSON|rejects unauthorized live query connection cleanup before parsing JSON|rejects invalid live query connection cleanup fields"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Dead-Letter Route Boundary
 
 Previous completed checkpoint: `abaec65` Decode public scheduler connection reconcile bodies.
