@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `95cc914` Add public invoke protocol body.
-- Active checkpoint: wire public Worker invoke routes through the protocol parser while preserving `args ?? null` runtime defaulting and existing JSON error envelopes.
+- Previous completed checkpoint: `67689e2` Decode public invoke bodies.
+- Active checkpoint: add a protocol-only execution start request schema/parser before wiring Worker or ExecutionDO routes.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 53 slice:
+Current Goal 54 slice:
+
+1. Add a shared strict JSON schema helper in `flarex-protocol/json` so transport contracts can validate finite-number/plain-record JSON without duplicating guards.
+2. Refactor `flarex-protocol/invoke` to use that shared JSON schema while preserving the existing public invoke parser behavior.
+3. Add a protocol-only `flarex-protocol/execution` module with `ExecutionStartRequestSchema`, `ExecutionStartRequest`, `parseExecutionStartRequest`, and `ExecutionProtocolValidationError`.
+4. Model the current execution-session start body: required string `deploymentId`, required string `path`, required JSON `args`, and optional string `partitionKey`, `projectId`, `idempotencyKey`, plus optional `query` or `mutation` kind.
+5. Export `./execution` from `flarex-protocol` for future Worker and ExecutionDO boundary slices.
+6. Keep Worker `/executions/start`, `ExecutionDO.fetch()`, session lifecycle, syscall/finish/abort bodies, PartitionDO, executor-http, and artifact runtime untouched in this slice.
+7. Add focused protocol tests proving successful execution start parsing, required fields, invalid kind rejection, invalid JSON args rejection, and continued invoke JSON behavior.
+8. Validate with focused protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 53 slice:
 
 1. Add a backend-only public invoke route-boundary helper that reads JSON once and decodes through `parsePublicInvokeRequestBody`.
 2. Map `InvokeProtocolValidationError` at the Worker edge to the existing `{ error: string }` 400 response envelope via `HttpError`.

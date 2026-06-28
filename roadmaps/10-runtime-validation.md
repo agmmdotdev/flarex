@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Execution Start Request Protocol Boundary
+
+Previous completed checkpoint: `67689e2` Decode public invoke bodies.
+
+What changed:
+
+- Added `flarex-protocol/execution` with a schema-first
+  `ExecutionStartRequestSchema` and `parseExecutionStartRequest(...)` parser
+  for execution-session start bodies.
+- The start contract requires string `deploymentId`, string `path`, and JSON
+  `args`, with optional `partitionKey`, `projectId`, `idempotencyKey`, and
+  `query` or `mutation` kind.
+- Added a shared strict `JsonValue` schema helper in `flarex-protocol/json`
+  and reused it from the public invoke protocol body parser.
+- Worker execution routing and `ExecutionDO.fetch()` are unchanged in this
+  checkpoint.
+
+Why it changed:
+
+Execution sessions are the next unchecked runtime boundary after public invoke.
+This checkpoint records the transport shape first, before mixing schema
+introduction with live Worker or Durable Object behavior changes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Worker Protocol Boundary
 
 Previous completed checkpoint: `95cc914` Add public invoke protocol body.

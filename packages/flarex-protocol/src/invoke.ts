@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { Json } from "./json";
+import { JsonValue, type Json } from "./json";
 
 export class InvokeProtocolValidationError extends Schema.TaggedErrorClass<InvokeProtocolValidationError>()(
   "InvokeProtocolValidationError",
@@ -19,16 +19,10 @@ export interface PublicInvokeRequestBody {
   readonly idempotencyKey?: string;
 }
 
-const PublicInvokeJson = Schema.declare<Json>(isJson, {
-  title: "PublicInvokeJson",
-  description:
-    "A JSON value for public invoke arguments: null, boolean, finite number, string, array, or plain record.",
-});
-
 export const PublicInvokeRequestBodySchema = Schema.Struct({
   deploymentId: Schema.optional(Schema.String),
   path: Schema.optional(Schema.String),
-  args: Schema.optional(PublicInvokeJson),
+  args: Schema.optional(JsonValue),
   partitionKey: Schema.optional(Schema.String),
   kind: Schema.optional(Schema.Union([
     Schema.Literal("query"),
@@ -74,31 +68,4 @@ export function parsePublicInvokeRequestBody(value: unknown): PublicInvokeReques
       cause,
     });
   }
-}
-
-function isJson(value: unknown): value is Json {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    return value.every(isJson);
-  }
-  if (typeof value === "object") {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      return false;
-    }
-    if (Object.getOwnPropertySymbols(value).length > 0) {
-      return false;
-    }
-    return Object.values(value as Record<string, unknown>).every(isJson);
-  }
-  return false;
 }

@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Execution Start Protocol Package Boundary
+
+Previous completed checkpoint: `67689e2` Decode public invoke bodies.
+
+What changed:
+
+- `flarex-protocol/execution` now owns the execution-session start request
+  schema and parser.
+- `flarex-protocol/json` exposes `JsonValue`, a shared strict JSON transport
+  schema, so invoke and execution contracts validate the same JSON subset.
+- The package export map exposes `./execution` for future backend boundary
+  wiring.
+- Backend Worker routing and `ExecutionDO` still own session behavior and HTTP
+  compatibility.
+
+Boundary decision:
+
+The protocol package should describe execution-session transport bodies before
+backend code adapts public Worker requests into Durable Object requests. The
+backend package should continue to own malformed JSON handling, route-scoped
+deployment id injection, and session lifecycle behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Worker Route Boundary
 
 Previous completed checkpoint: `95cc914` Add public invoke protocol body.

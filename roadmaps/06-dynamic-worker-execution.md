@@ -1,5 +1,41 @@
 # Dynamic Worker Execution
 
+## Execution Start Protocol Shape
+
+Previous completed checkpoint: `67689e2` Decode public invoke bodies.
+
+What changed:
+
+- Added the shared execution-session start body contract in
+  `flarex-protocol/execution`.
+- The contract covers the fields currently sent to `ExecutionDO.start`:
+  deployment id, function path, JSON args, optional partition key, optional
+  project id, optional caller kind, and optional idempotency key.
+- Shared strict JSON validation now lives in `flarex-protocol/json` and is used
+  by both public invoke and execution start request bodies.
+- Generated execution artifacts, Worker execution forwarding, `ExecutionDO`
+  session lifecycle, syscalls, finish, abort, and PartitionDO transaction logic
+  are unchanged.
+
+Why it changed:
+
+Execution sessions are behavior-sensitive because user code spans start,
+syscall, and finish requests. The safe migration order is to establish the
+shared start-request schema first, then wire Worker/ExecutionDO parsing in a
+separate parity-tested checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts packages/flarex-protocol/test/invoke.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Worker Decode Boundary
 
 Previous completed checkpoint: `95cc914` Add public invoke protocol body.
