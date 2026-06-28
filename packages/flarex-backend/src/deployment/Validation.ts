@@ -253,7 +253,7 @@ export function startAnalyzedPushInput(
   const diagnostics = validateDiagnostics(request.diagnostics);
   if (analysis === undefined) {
     if (typeof error !== "string" || error.length === 0) {
-      throw new HttpError(400, "A push without analysis must include an error message.");
+      throwDeploymentValidation("A push without analysis must include an error message.");
     }
     return {
       sourcePackage,

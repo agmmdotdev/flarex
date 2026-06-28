@@ -217,11 +217,13 @@ describe("deployment validation", () => {
   });
 
   it("preserves start-push service input validation error messages", () => {
-    expect(() =>
-      startAnalyzedPushInput({
-        sourcePackage: sourcePackage(),
-      } as unknown as Parameters<typeof startAnalyzedPushInput>[0])
-    ).toThrow(new HttpError(400, "A push without analysis must include an error message."));
+    expectDeploymentValidationFailure(
+      () =>
+        startAnalyzedPushInput({
+          sourcePackage: sourcePackage(),
+        } as unknown as Parameters<typeof startAnalyzedPushInput>[0]),
+      "A push without analysis must include an error message.",
+    );
 
     expect(() =>
       startAnalyzedPushInput({

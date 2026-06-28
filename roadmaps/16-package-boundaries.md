@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Deployment Failed Start Input Validation Typed Error
+
+Previous completed checkpoint: `ac6665f` Type diagnostics validation failures.
+
+What changed:
+
+- `startAnalyzedPushInput(...)` now emits `DeploymentValidationError` instead
+  of raw `HttpError(400)` when a failed start-push input omits its required
+  error message.
+- Generated start-analyzed handler behavior is preserved: the missing-error
+  branch still maps to a start-route `400` response with the same message
+  through `deploymentFailureToHttpError(...)`.
+- Source-package validation, diagnostics validation, analysis, codegen, schema,
+  function metadata validation, finish/abandon/active-deployment behavior,
+  route-boundary JSON/protocol decoders, generated Deployment HttpApi routing,
+  public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  remain unchanged.
+
+Boundary decision:
+
+The failed-push missing-error check is deployment-domain validation. It now uses
+`DeploymentValidationError`; HTTP status/body conversion remains at the
+generated handler adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "start-push service input|invalid analyzed start-push|typed analyzed start-push|maps service failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Diagnostics Validation Typed Error
 
 Previous completed checkpoint: `c6ec92c` Type source package validation failures.
