@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `025481f` Decode connection delivery bodies.
-- Active checkpoint: decode `ConnectionDO` invalidation bodies at the connection route boundary and return JSON 400s for malformed or invalid invalidation requests.
+- Previous completed checkpoint: `2c7f8c6` Decode connection invalidation bodies.
+- Active checkpoint: decode `DeliveryDO` wake bodies at the delivery route boundary and return JSON 400s for malformed or invalid wake requests before drain work starts.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 63 slice:
+Current Goal 64 slice:
+
+1. Add a backend-only `delivery/RouteBoundary.ts` helper that reads `/wake` JSON once through the shared `readJson` boundary.
+2. Decode the current wake envelope as an object with required string `deploymentId` and optional positive integer `limit`, `maxBatches`, and `leaseDurationMs`.
+3. Preserve wake compatibility by ignoring extra fields and leaving delivery defaults, claim-owner creation, continuation persistence, claim/fanout/ack behavior, and failure summaries inside `DeliveryDO`.
+4. Scope `errorResponse(...)` handling to wake body decoding so malformed JSON and invalid envelopes return JSON 400s without normalizing delivery drain failures.
+5. Keep SchedulerDO, Worker public wake forwarding, ConnectionDO, PartitionDO, executor-http, execution sessions, and `ValidatorJson` untouched.
+6. Add focused boundary tests for successful wake decode, ignored extra fields, invalid field mapping, malformed JSON handling, and route-level sync tests proving malformed and invalid wake JSON return `400 { error }`.
+7. Validate with focused delivery boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 63 slice:
 
 1. Extend the backend-only `connection/RouteBoundary.ts` helper to read `/invalidate` JSON once through the shared `readJson` boundary.
 2. Decode the current invalidation envelope as an object with integer `queryId`, preserving compatibility with ignored extra fields such as `invalidatedTs`.

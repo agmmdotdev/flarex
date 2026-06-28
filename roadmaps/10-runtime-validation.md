@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Delivery Wake Boundary
+
+Previous completed checkpoint: `2c7f8c6` Decode connection invalidation bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/delivery/RouteBoundary.ts` to own
+  `DeliveryDO` wake body reads.
+- `POST /wake` now decodes request JSON through the shared `readJson`
+  boundary and validates the wake envelope before drain work starts.
+- The wake envelope keeps the current required `deploymentId` plus optional
+  positive integer `limit`, `maxBatches`, and `leaseDurationMs` fields; extra
+  fields are ignored.
+- Malformed JSON and invalid wake envelopes now return JSON `400` responses
+  from the delivery route.
+- Delivery defaults, claim-owner creation, continuation persistence,
+  claim/fanout/ack behavior, failure summaries, SchedulerDO, Worker public wake
+  forwarding, PartitionDO, executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After connection delivery and invalidation routes moved behind named
+boundaries, `DeliveryDO /wake` remained a small internal route using a typed
+`readJson<DeliveryWakeRequest>` cast. This checkpoint moves that HTTP/JSON edge
+into a delivery boundary while leaving drain orchestration in `DeliveryDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "delivery route boundary|rejects malformed DeliveryDO wake JSON|rejects invalid DeliveryDO wake envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Connection Invalidation Boundary
 
 Previous completed checkpoint: `025481f` Decode connection delivery bodies.

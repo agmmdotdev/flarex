@@ -1,5 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
-import { HttpError, json, readJson } from "./http";
+import {
+  readDeliveryWakeRequest,
+  type DeliveryWakeRequest,
+} from "./delivery/RouteBoundary";
+import { HttpError, errorResponse, json } from "./http";
 import {
   addLiveQueryDeliverySkipReasons,
   deliverLiveQueryChangesToConnections,
@@ -10,13 +14,6 @@ import {
   type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
 import type { Env } from "./types";
-
-type DeliveryWakeRequest = {
-  deploymentId?: string;
-  limit?: number;
-  maxBatches?: number;
-  leaseDurationMs?: number;
-};
 
 type PendingDeliveryDrain = {
   deploymentId: string;
@@ -105,8 +102,14 @@ export class DeliveryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/wake" && request.method === "POST") {
+      let body: DeliveryWakeRequest;
       try {
-        return json(await this.wake(await readJson<DeliveryWakeRequest>(request)));
+        body = await readDeliveryWakeRequest(request);
+      } catch (error) {
+        return errorResponse(error);
+      }
+      try {
+        return json(await this.wake(body));
       } catch (error) {
         if (error instanceof DeliveryDrainFailureError) {
           return json(error.result, { status: 500 });
@@ -523,20 +526,12 @@ function pendingDeliveryDrainFromStorage(value: unknown): PendingDeliveryDrain {
 }
 
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
-  const deploymentId = requiredWakeString(body.deploymentId, "deploymentId");
+  const deploymentId = body.deploymentId;
   return {
     deploymentId,
-    limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit"),
-    maxBatches: optionalPositiveInteger(
-      body.maxBatches,
-      DEFAULT_MAX_BATCHES,
-      "maxBatches",
-    ),
-    leaseDurationMs: optionalPositiveInteger(
-      body.leaseDurationMs,
-      DEFAULT_LEASE_DURATION_MS,
-      "leaseDurationMs",
-    ),
+    limit: body.limit ?? DEFAULT_DELIVERY_LIMIT,
+    maxBatches: body.maxBatches ?? DEFAULT_MAX_BATCHES,
+    leaseDurationMs: body.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS,
     claimOwner: newDeliveryClaimOwner(deploymentId),
     retryAttempt: 0,
   };
@@ -569,23 +564,6 @@ function executorUrl(env: Env, path: string): string {
   url.search = "";
   url.hash = "";
   return url.href;
-}
-
-function requiredWakeString(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(400, `${field} must be a non-empty string.`);
-}
-
-function optionalPositiveInteger(
-  value: unknown,
-  fallback: number,
-  field: string,
-): number {
-  if (value === undefined) return fallback;
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  throw new HttpError(400, `${field} must be a positive integer.`);
 }
 
 function claimResultFromUnknown(value: unknown): ClaimLiveQueryDeliveryBatchResult {

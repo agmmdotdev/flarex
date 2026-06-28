@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Delivery Wake Route Boundary
+
+Previous completed checkpoint: `2c7f8c6` Decode connection invalidation bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/delivery/RouteBoundary.ts` now owns the
+  `DeliveryDO` wake request-body boundary.
+- The boundary extracts a required `deploymentId` and optional positive
+  integer delivery limits, ignoring extra compatibility fields.
+- `DeliveryDO` still owns route matching, drain coalescing, defaults,
+  claim-owner creation, persisted continuation state, delivery fanout, acking,
+  and structured delivery failure summaries.
+
+Boundary decision:
+
+`DeliveryDO /wake` is an internal route, but it crosses an HTTP/JSON boundary
+from Worker and SchedulerDO callers into delivery drain state. The route should
+decode the wake envelope before starting drain work, while claim/fanout/ack
+failures should continue through the existing delivery failure summary path
+rather than the decode error response path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "delivery route boundary|rejects malformed DeliveryDO wake JSON|rejects invalid DeliveryDO wake envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Connection Invalidation Route Boundary
 
 Previous completed checkpoint: `025481f` Decode connection delivery bodies.
