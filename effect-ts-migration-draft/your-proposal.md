@@ -2,13 +2,25 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `029cb28` Route deployment start through HttpApi.
-- Active checkpoint: extract the DeploymentDO HttpApi route compatibility boundary and lock route inventory.
+- Previous completed checkpoint: `14930c4` Extract deployment HttpApi route boundary.
+- Active checkpoint: route RegistryDO through its generated Registry HttpApi web handler with the same compatibility-boundary pattern.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 48 slice:
+Current Goal 49 slice:
+
+1. Add a backend-only `registry/HttpApiWebHandler.ts` factory that combines `HttpApiBuilder.layer(RegistryApi)`, `RegistryApiHandlers`, a provided `RegistryService` layer, `HttpServer.layerServices`, and `HttpRouter.toWebHandler(...)`.
+2. Add a small `registry/HttpApiRouteBoundary.ts` helper that forwards generated-handler-compatible registry routes and pre-parses `POST /deployments` bodies with `readJson` plus `parseCreateDeploymentRequest`.
+3. Route `GET /health`, `GET /deployments`, and `POST /deployments` through the `RegistryDO`-owned generated Registry HttpApi web handler after the compatibility boundary accepts the request.
+4. Keep `RegistryDO.fetch()` as the Durable Object owner for SQL initialization, per-instance layer/handler ownership, non-GET `/health` fallback, generic 404 fallback, and error response wrapping.
+5. Preserve existing malformed JSON and schema-invalid create-deployment messages before requests enter the generated handler.
+6. Remove the manual `ManagedRuntime` service runner from `RegistryDO` once all RegistryApi routes use the generated handler.
+7. Add focused generated-handler and route-boundary tests proving health/create/list behavior and fallback compatibility.
+8. Do not change route paths, response bodies, request validation messages, SQL statements, registry service/store orchestration, worker forwarding, protocol schemas, or `ValidatorJson`.
+9. Validate with focused registry route-boundary/handler/DO/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 48 slice:
 
 1. Extract the remaining DeploymentDO route matching and mutation body compatibility pre-parse into a small backend helper that returns either a generated-handler request or `null`.
 2. Keep `DeploymentDO.fetch()` as the Durable Object owner for SQL initialization, per-instance layer/handler ownership, non-GET `/health` fallback, generic 404 fallback, and error response wrapping.

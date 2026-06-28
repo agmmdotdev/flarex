@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
+  parseDeploymentRecord,
+  parseListDeploymentsResponse,
+  parseRegistryHealthResponse,
   parseRegistryStorageErrorResponse,
   RegistryApi,
+  RegistryRoute,
   RegistryStorageErrorResponse,
   type DeploymentRecord,
 } from "flarex-protocol/registry";
@@ -11,6 +15,7 @@ import {
   mapRegistryStorageFailure,
   RegistryApiHandlers,
 } from "../src/registry/HttpApiHandlers";
+import { makeRegistryApiWebHandler } from "../src/registry/HttpApiWebHandler";
 import { RegistryClock, RegistryIds } from "../src/registry/Runtime";
 import { RegistryService } from "../src/registry/Service";
 import {
@@ -65,6 +70,96 @@ describe("RegistryApiHandlers", () => {
     expect(parseRegistryStorageErrorResponse(error)).toEqual({
       error: "Registry storage error.",
     });
+  });
+
+  it("creates a Worker-compatible web handler for current RegistryApi routes", async () => {
+    const { handler, dispose } = makeRegistryApiWebHandler(registryTestLayer({
+      now: 1_700_000,
+      generatedId: "generated-deployment",
+      store: {
+        createDeployment: input => Effect.succeed(deploymentFromStoreInput(input)),
+        listDeployments: Effect.succeed([
+          deploymentFromStoreInput({
+            deploymentId: "listed-deployment",
+            slug: "listed-slug",
+            now: 1_700_001,
+          }),
+        ]),
+      },
+    }));
+    try {
+      const health = await handler(new Request(`https://registry.test${RegistryRoute.health}`));
+      expect(health.status).toBe(200);
+      expect(parseRegistryHealthResponse(await health.json())).toEqual({
+        service: "flarex-registry",
+        status: "ok",
+      });
+
+      const created = await handler(new Request(
+        `https://registry.test${RegistryRoute.deployments}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: "created-slug" }),
+        },
+      ));
+      expect(created.status).toBe(200);
+      expect(parseDeploymentRecord(await created.json())).toEqual({
+        deploymentId: "generated-deployment",
+        slug: "created-slug",
+        createdAt: 1_700_000,
+        updatedAt: 1_700_000,
+        schemaVersion: 0,
+      });
+
+      const listed = await handler(new Request(`https://registry.test${RegistryRoute.deployments}`));
+      expect(listed.status).toBe(200);
+      expect(parseListDeploymentsResponse(await listed.json())).toEqual({
+        deployments: [{
+          deploymentId: "listed-deployment",
+          slug: "listed-slug",
+          createdAt: 1_700_001,
+          updatedAt: 1_700_001,
+          schemaVersion: 0,
+        }],
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("maps service response protocol mismatches to the declared registry storage error", async () => {
+    const { handler, dispose } = makeRegistryApiWebHandler(registryTestLayer({
+      now: 1_700_000,
+      generatedId: "generated-deployment",
+      store: {
+        createDeployment: input => {
+          const malformedRecord = {
+            ...deploymentFromStoreInput(input),
+            schemaVersion: "bad-version",
+          };
+          return Effect.succeed(malformedRecord as unknown as DeploymentRecord);
+        },
+        listDeployments: Effect.succeed([]),
+      },
+    }));
+    try {
+      const response = await handler(new Request(
+        `https://registry.test${RegistryRoute.deployments}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deploymentId: "malformed-record" }),
+        },
+      ));
+
+      expect(response.status).toBe(500);
+      expect(parseRegistryStorageErrorResponse(await response.json())).toEqual({
+        error: "Registry storage error.",
+      });
+    } finally {
+      await dispose();
+    }
   });
 });
 

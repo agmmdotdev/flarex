@@ -2,23 +2,27 @@
 
 ## RegistryDO Effect Host Shape
 
-Previous completed checkpoint: `9a66f62` Add registry protocol schema proof.
+Previous completed checkpoint: `14930c4` Extract deployment HttpApi route boundary.
 
 What changed:
 
 - `RegistryDO` remains the Cloudflare Durable Object host and still owns table
-  initialization plus the `/health` and `/deployments` fetch router.
+  initialization plus fallback handling for non-GET `/health` and unknown
+  routes.
 - Registry persistence and behavior moved behind per-instance Effect services:
   `RegistryStore`, `RegistryService`, `RegistryClock`, and `RegistryIds`.
-- `RegistryDO` composes the registry layer from its own `ctx.storage.sql` and
-  runs service effects through a `ManagedRuntime` at handler boundaries.
+- `RegistryDO` composes the registry layer from its own `ctx.storage.sql`, then
+  owns a generated Registry HttpApi web handler for `GET /health`,
+  `GET /deployments`, and `POST /deployments`.
+- A small route-boundary helper pre-parses create-deployment bodies with the
+  existing `readJson` and protocol parser before forwarding canonical JSON to
+  the generated handler, preserving the public invalid-body messages.
 
 Why it changed:
 
 This keeps the DO lifecycle and object-local SQLite state explicit while
-testing the service/layer extraction pattern before changing larger DOs or
-HTTP routing. It is the smallest useful proof that Durable Object classes can
-be thin Cloudflare hosts around Effect runtime code.
+proving that a Durable Object can route a complete small API through Effect
+HttpApi without giving up compatibility fallbacks or per-instance state.
 
 Convex references inspected:
 
@@ -33,7 +37,7 @@ Cloudflare difference:
 
 Known limitations:
 
-- RegistryDO is still a plain fetch router. HttpApi, typed DO clients, and
+- RegistryDO still owns outer fetch fallback behavior. Typed DO clients and
   Alchemy Durable Object resources are deferred.
 - DeploymentDO, PartitionDO, ExecutionDO, DeliveryDO, SchedulerDO, and
   ConnectionDO still use their existing hand-written shapes.
@@ -42,7 +46,7 @@ Verification:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/registryDO.test.ts
 corepack pnpm --filter flarex-backend test
 corepack pnpm --filter flarex-backend build
 corepack pnpm --filter @flarex/backend typecheck

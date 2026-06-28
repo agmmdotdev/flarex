@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Registry Durable Object HttpApi Host
+
+Previous completed checkpoint: `14930c4` Extract deployment HttpApi route
+boundary.
+
+What changed:
+
+- `flarex-protocol/registry` remains the shared schema-first contract for the
+  RegistryDO route paths and request/response bodies.
+- `packages/flarex-backend/src/registry/HttpApiWebHandler.ts` now composes that
+  protocol contract with backend handlers and the object-local registry layer.
+- `RegistryDO` owns the per-instance generated web handler and delegates current
+  RegistryApi routes to it after a backend compatibility boundary accepts the
+  route and normalizes create-deployment JSON.
+- `RegistryDO` still owns Durable Object lifecycle concerns: SQL schema
+  initialization, fallback route responses, and object-local layer construction.
+
+Boundary decision:
+
+The generated handler belongs in `flarex-backend`, not `flarex-protocol`,
+because it needs backend services and object-local SQL state. The protocol
+package stays transport-contract-only.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/registryDO.test.ts packages/flarex-protocol/test/registry.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Route Bridge Boundary
 
 Previous completed checkpoint: `31971a4` Inline deployment start push route

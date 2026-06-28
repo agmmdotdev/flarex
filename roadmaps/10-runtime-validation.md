@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Registry Generated HttpApi Boundary
+
+Previous completed checkpoint: `14930c4` Extract deployment HttpApi route
+boundary.
+
+What changed:
+
+- RegistryDO now owns a per-instance generated Registry HttpApi web handler
+  built from its object-local SQL-backed registry layer.
+- `GET /health`, `GET /deployments`, and `POST /deployments` flow through the
+  generated handler after a compatibility helper accepts the route.
+- `POST /deployments` still uses `readJson` plus
+  `parseCreateDeploymentRequest` before generated-handler execution, preserving
+  invalid JSON and schema-invalid response messages at the DO boundary.
+- Non-GET `/health`, unknown routes, SQL initialization, service/store logic,
+  and protocol schemas are unchanged.
+
+Why it changed:
+
+Registry is the smallest complete Durable Object API in the backend. Routing it
+through HttpApi proves the generated handler lifecycle on real DO state before
+attempting larger PartitionDO or public worker conversions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/registryDO.test.ts packages/flarex-protocol/test/registry.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Finish Response HTTP Status Boundary
 
 Previous completed checkpoint: `78f0661` Add finish push request protocol
