@@ -6,6 +6,7 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentValidationError,
 } from "../src/deployment/Errors";
 import {
   DeploymentService,
@@ -438,7 +439,7 @@ describe("DeploymentService", () => {
     }
   });
 
-  it("preserves activation HttpError failures from the finish transaction", async () => {
+  it("maps activation validation failures from the finish transaction", async () => {
     const failure = new HttpError(400, "Schema must be an object.");
     const status = analyzedPushStatus("push-validation-failed");
     const storage = {
@@ -459,15 +460,21 @@ describe("DeploymentService", () => {
     );
 
     try {
-      await expect(runtime.runPromise(
+      const error = await runtime.runPromise(
         DeploymentPushStore.use(store =>
           store.finishPush({
             pushId: status.pushId,
             now: 2_400_000,
             executionArtifactRef: executionArtifactRef(),
           }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
         ),
-      )).rejects.toBe(failure);
+      );
+      if (!(error instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(error.message).toBe("Schema must be an object.");
     } finally {
       await runtime.dispose();
     }
@@ -758,7 +765,10 @@ interface DeploymentTestStore {
     DeploymentActiveDeploymentInvalidError | DeploymentSqlError
   >;
   startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
-  finishPush?(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
+  finishPush?(input: FinishPushStoreInput): Effect.Effect<
+    FinishPushResponse,
+    DeploymentSqlError | DeploymentValidationError
+  >;
   abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
 }
 

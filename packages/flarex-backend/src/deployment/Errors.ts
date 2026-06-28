@@ -27,3 +27,10 @@ export class DeploymentActiveDeploymentInvalidError extends Schema.TaggedErrorCl
     message: Schema.String,
   },
 ) {}
+
+export class DeploymentValidationError extends Schema.TaggedErrorClass<DeploymentValidationError>()(
+  "DeploymentValidationError",
+  {
+    message: Schema.String,
+  },
+) {}

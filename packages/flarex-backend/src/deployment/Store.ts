@@ -20,7 +20,10 @@ import type {
   PushSourcePackage,
   PushStatus,
 } from "../types";
-import { DeploymentActiveDeploymentInvalidError } from "./Errors";
+import {
+  DeploymentActiveDeploymentInvalidError,
+  DeploymentValidationError,
+} from "./Errors";
 
 const DeploymentSqlOperation = Schema.Union([
   Schema.Literal("getPush"),
@@ -75,7 +78,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
     DeploymentActiveDeploymentInvalidError | DeploymentSqlError
   >;
   startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
-  finishPush(input: FinishPushStoreInput): Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
+  finishPush(input: FinishPushStoreInput): Effect.Effect<
+    FinishPushResponse,
+    DeploymentSqlError | DeploymentValidationError
+  >;
   abandonPush(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
 }>()("flarex-backend/deployment/DeploymentPushStore") {
   static layer(
@@ -269,7 +275,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         );
 
         const finishPush = Effect.fn("DeploymentPushStore.finishPush")(
-          function* (input: FinishPushStoreInput): Effect.fn.Return<FinishPushResponse, DeploymentSqlError | HttpError> {
+          function* (input: FinishPushStoreInput): Effect.fn.Return<
+            FinishPushResponse,
+            DeploymentSqlError | DeploymentValidationError
+          > {
             return yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
@@ -305,8 +314,8 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                   return response;
                 }),
               catch: cause =>
-                cause instanceof HttpError
-                  ? cause
+                cause instanceof HttpError && cause.status === 400
+                  ? new DeploymentValidationError({ message: cause.message })
                   : new DeploymentSqlError({ operation: "finishPush", cause }),
             });
           },

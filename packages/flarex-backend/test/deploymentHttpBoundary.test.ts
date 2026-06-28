@@ -4,6 +4,7 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentValidationError,
 } from "../src/deployment/Errors";
 import {
   deploymentFailureToHttpError,
@@ -42,6 +43,14 @@ describe("deployment HTTP boundary", () => {
       })),
       409,
       "Cannot abandon push push-active in state activated.",
+    );
+
+    expectHttpError(
+      deploymentFailureToHttpError(new DeploymentValidationError({
+        message: "Schema must be an object.",
+      })),
+      400,
+      "Schema must be an object.",
     );
   });
 

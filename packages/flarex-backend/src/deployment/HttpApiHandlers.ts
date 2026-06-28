@@ -20,6 +20,7 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentValidationError,
 } from "./Errors";
 import { deploymentFailureToHttpError } from "./HttpBoundary";
 import { DeploymentService, type StartAnalyzedPushInput } from "./Service";
@@ -117,7 +118,7 @@ export function mapDeploymentStartFailure<A>(
 }
 
 export function mapDeploymentFinishFailure<A>(
-  effect: Effect.Effect<A, DeploymentPushNotFoundError | DeploymentSqlError | HttpError>,
+  effect: Effect.Effect<A, DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError>,
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>

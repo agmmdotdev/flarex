@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `7b54f17` Treat missing finish rows as storage failures.
-- Active checkpoint: replace active-deployment metadata `HttpError(500)` failures from the deployment store with a typed `DeploymentActiveDeploymentInvalidError` while preserving read-route HTTP response bodies.
+- Previous completed checkpoint: `397938f` Type active deployment metadata failures.
+- Active checkpoint: replace finish activation validation `HttpError(400)` failures with a typed `DeploymentValidationError` while preserving finish-route bad-request responses.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 105 slice:
+Current Goal 106 slice:
+
+1. Add `DeploymentValidationError` for deployment validation failures that still need preserved HTTP 400 behavior at adapter edges.
+2. Change `DeploymentPushStore.finishPush(...)` so activation validation failures from schema/function application become `DeploymentValidationError` instead of raw `HttpError(400)`.
+3. Narrow `DeploymentService.finishPush(...)`, `DeploymentPushStore.finishPush(...)`, and `mapDeploymentFinishFailure(...)` so finish validation stays typed until `deploymentFailureToHttpError(...)`.
+4. Preserve finish-route HTTP behavior: validation failures still map to `400` with the same message, missing pushes still map through `DeploymentPushNotFoundError`, rejected finish responses remain `FinishPushResponse` values, and generic storage failures remain `500 Deployment storage error.`.
+5. Keep start/abandon/active-deployment behavior, generated Deployment HttpApi handlers, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused finish validation service/store/HTTP-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 105 slice:
 
 1. Add `DeploymentActiveDeploymentInvalidError` for active-deployment metadata corruption or missing internal metadata.
 2. Change `DeploymentPushStore.getActiveDeployment(...)` so missing active push rows, missing analyzed metadata, missing execution artifact refs, and invalid stored artifact refs fail through `DeploymentActiveDeploymentInvalidError` instead of raw `HttpError(500)`.

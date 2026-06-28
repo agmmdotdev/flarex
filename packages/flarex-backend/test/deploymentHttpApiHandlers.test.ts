@@ -27,6 +27,7 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentValidationError,
 } from "../src/deployment/Errors";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
 import { DeploymentService } from "../src/deployment/Service";
@@ -387,7 +388,7 @@ interface DeploymentTestLayerOverrides {
   readonly getPush?: (pushId: string) => Effect.Effect<PushStatus>;
   readonly finishPush?: (
     input: FinishPushStoreInput,
-  ) => Effect.Effect<FinishPushResponse, DeploymentSqlError | HttpError>;
+  ) => Effect.Effect<FinishPushResponse, DeploymentSqlError | DeploymentValidationError>;
 }
 
 function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {

@@ -4,6 +4,7 @@ import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentValidationError,
 } from "./Errors";
 import type { DeploymentSqlError } from "./Store";
 import type { FinishPushResponse } from "../types";
@@ -13,6 +14,7 @@ export type DeploymentServiceFailure =
   | DeploymentActiveDeploymentNotFoundError
   | DeploymentPushInvalidStateError
   | DeploymentPushNotFoundError
+  | DeploymentValidationError
   | DeploymentSqlError
   | HttpError;
 
@@ -28,6 +30,9 @@ export function deploymentFailureToHttpError(error: DeploymentServiceFailure): H
   }
   if (error instanceof DeploymentPushInvalidStateError) {
     return new HttpError(409, `Cannot abandon push ${error.pushId} in state ${error.state}.`);
+  }
+  if (error instanceof DeploymentValidationError) {
+    return new HttpError(400, error.message);
   }
   if (error instanceof HttpError) {
     return error;

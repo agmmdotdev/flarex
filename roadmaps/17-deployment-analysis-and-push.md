@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment Finish Validation Typed Error
+
+Previous completed checkpoint: `397938f` Type active deployment metadata failures.
+
+What changed:
+
+- Added `DeploymentValidationError` for deployment validation failures that are
+  still exposed as preserved HTTP 400 responses at adapter edges.
+- `DeploymentPushStore.finishPush(...)` now maps schema/function activation
+  validation failures to `DeploymentValidationError` instead of raw
+  `HttpError(400)`.
+- `DeploymentService.finishPush(...)` and the Deployment HttpApi finish failure
+  mapper keep validation failures typed until adapter conversion.
+- Public finish behavior is unchanged: validation failures remain `400` with
+  the same message, missing pushes still use `DeploymentPushNotFoundError`,
+  rejected finish responses remain `FinishPushResponse` values, and generic
+  storage failures remain `Deployment storage error.`.
+- Start/abandon/active-deployment behavior, generated Deployment HttpApi
+  handlers, public Worker routes, `DeploymentDO` routing, SQL schema, protocol
+  schemas, scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Finish activation was the remaining deployment service/store path that still
+used raw `HttpError(400)` as an internal validation failure. This checkpoint
+keeps validation typed in the Effect failure channel and preserves HTTP mapping
+at the adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "activation validation|typed service failures|maps service failures|preserved HttpError statuses|finish-push"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Active Metadata Typed Error
 
 Previous completed checkpoint: `7b54f17` Treat missing finish rows as storage failures.
