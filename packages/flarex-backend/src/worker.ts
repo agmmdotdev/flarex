@@ -58,7 +58,10 @@ import {
   schedulerObjectName,
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
-import { readPublicSchedulerDeliveryReconcileRequest } from "./scheduler/PublicRouteBoundary";
+import {
+  readPublicSchedulerConnectionReconcileRequest,
+  readPublicSchedulerDeliveryReconcileRequest,
+} from "./scheduler/PublicRouteBoundary";
 import {
   LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
   LIVE_QUERY_SCHEDULER_NAME,
@@ -157,8 +160,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-connections/reconcile" &&
     request.method === "POST"
   ) {
-    return forwardLiveQuerySchedulerRequest(
-      request,
+    authorizeLiveQueryDeliveryRequest(request, env);
+    const body = await readPublicSchedulerConnectionReconcileRequest(request);
+    return forwardLiveQuerySchedulerBody(
+      body,
       env,
       LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections,
     );

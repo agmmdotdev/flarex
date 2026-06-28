@@ -4101,6 +4101,111 @@ describe("sync protocol", () => {
     expect(executorRequests).toEqual([]);
   });
 
+  it("rejects unauthorized live query connection reconcile before parsing JSON", async () => {
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
+    });
+  });
+
+  it("rejects malformed live query connection reconcile JSON at the public scheduler boundary", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deployments: [], nextCursor: null, hasMore: false });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
+  it("rejects invalid live query connection reconcile envelopes at the public scheduler boundary", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({ deployments: [], nextCursor: null, hasMore: false });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cursor: {
+            oldestExpiredAt: "not a date",
+            deploymentId: "deployment-a",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "cursor.oldestExpiredAt must be an ISO date string.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("continues pending live query delivery scans from alarms", async () => {
     const executorRequests: Array<{ path: string; body: unknown }> = [];
     const harness = await createSyncHarness(

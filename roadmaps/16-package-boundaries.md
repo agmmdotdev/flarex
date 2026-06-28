@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Scheduler Connection Reconcile Route Boundary
+
+Previous completed checkpoint: `64a086a` Decode public scheduler delivery reconcile bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` now also owns
+  the public Worker connection reconcile scheduler request-body boundary.
+- `POST /scheduler/live-query-connections/reconcile` decodes through the shared
+  scheduler route-boundary parser before the Worker forwards to `SchedulerDO`.
+- The Worker forwards the parsed connection reconcile request body, preserving
+  the existing `expiredAt`, `limit`, and cursor envelope while dropping ignored
+  fields at the public edge.
+- Authorization, SchedulerDO connection cleanup reconcile execution,
+  continuation/coalescing, executor expired-connection scans, cleanup fanout,
+  delivery reconcile, dead-letter, rerun, cleanup routes, partition routes,
+  delivery routes, executor-http routes, and `ValidatorJson` remain in their
+  existing owners.
+
+Boundary decision:
+
+The public scheduler connection reconcile route is a Worker transport boundary.
+This checkpoint validates and normalizes that request before forwarding, while
+keeping SchedulerDO responsible for cleanup reconcile state, coalescing,
+continuation, and executor cleanup orchestration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects unauthorized live query connection reconcile before parsing JSON|rejects invalid live query connection reconcile envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Scheduler Delivery Reconcile Route Boundary
 
 Previous completed checkpoint: `4211274` Decode public partition schema-cache bodies.
