@@ -1,7 +1,11 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeExecutionArtifactInvokePayload,
+  ExecutionArtifactInvokePayloadError,
   parseExecutionArtifactInvokePayload,
+  parseExecutionArtifactInvokePayloadEffect,
   readExecutionArtifactInvokePayload,
 } from "../src/artifactRuntime/RouteBoundary";
 
@@ -11,7 +15,11 @@ describe("artifact runtime route boundary", () => {
 
     await expect(readExecutionArtifactInvokePayload(jsonRequest(payload)))
       .resolves.toEqual(payload);
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest(payload))))
+      .resolves.toEqual(payload);
     expect(parseExecutionArtifactInvokePayload(payload)).toEqual(payload);
+    await expect(Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(payload)))
+      .resolves.toEqual(payload);
   });
 
   it("maps invalid execution artifact invoke payloads to 400", () => {
@@ -31,6 +39,15 @@ describe("artifact runtime route boundary", () => {
     }
   });
 
+  it("exposes typed invalid payload failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest({
+      deploymentId: "deployment-a",
+      ref: { artifactId: "artifact-a" },
+    })))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+    await expect(Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(null)))
+      .rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readExecutionArtifactInvokePayload(new Request(
       "https://runtime.test/invoke",
@@ -43,6 +60,14 @@ describe("artifact runtime route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(new Request(
+      "https://runtime.test/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 });
 

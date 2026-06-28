@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `bbc9578` Add typed public finish decoder.
-- Active checkpoint: convert the public source-only push body boundary to Effect-typed JSON and protocol helpers while preserving the Worker no-analyzer ordering.
+- Previous completed checkpoint: `2112975` Add typed public source push decoder.
+- Active checkpoint: convert the artifact runtime invoke body boundary to an Effect-typed decoder while preserving existing runtime invoke 400 responses.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 98 slice:
+Current Goal 99 slice:
+
+1. Add `ExecutionArtifactInvokePayloadError`, `decodeExecutionArtifactInvokePayload(...)`, and `parseExecutionArtifactInvokePayloadEffect(...)` to `artifactRuntime/RouteBoundary.ts` so artifact runtime invoke body parsing exposes `Effect.Effect<ExecutionArtifactInvokePayload, RequestJsonError | ExecutionArtifactInvokePayloadError>`.
+2. Keep `readExecutionArtifactInvokePayload(...)` as the runtime-facing compatibility wrapper that maps malformed JSON and invalid payload shape back to the existing `HttpError(400, ...)` responses.
+3. Keep `parseExecutionArtifactInvokePayload(...)` as the direct throwing compatibility parser for existing callers and tests.
+4. Preserve malformed JSON as `Request body must be JSON.` and invalid shape as `Invalid execution artifact invoke payload.`.
+5. Keep artifact runtime authorization, source-package loading, materializer cache behavior, invoke request dispatch, invoke failure status mapping, public invoke routes, deployment push routes, scheduler routes, partition routes, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused artifact runtime route-boundary tests, focused artifact runtime behavior tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 98 slice:
 
 1. Add `decodePublicStartPushRequest(...)` and `parsePublicStartPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public source-only push body parsing exposes `Effect.Effect<StartPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
 2. Keep `readPublicStartPushRequest(...)` as a compatibility wrapper around the full typed decoder for direct callers and future consolidation.

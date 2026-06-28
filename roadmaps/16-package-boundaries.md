@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Artifact Runtime Invoke Effect Decoder
+
+Previous completed checkpoint: `2112975` Add typed public source push decoder.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts` now exposes
+  an Effect-typed runtime invoke decoder and a typed
+  `ExecutionArtifactInvokePayloadError`.
+- `readExecutionArtifactInvokePayload(...)` keeps the runtime-facing adapter
+  stable while mapping only typed boundary failures back to compatibility
+  `HttpError` values.
+- `parseExecutionArtifactInvokePayload(...)` remains a direct throwing parser
+  for compatibility, while `parseExecutionArtifactInvokePayloadEffect(...)`
+  exposes the typed invalid-payload channel.
+- Artifact runtime authorization, source-package loading, materializer cache
+  behavior, invoke request dispatch, invoke failure status mapping, public
+  invoke routes, deployment push routes, scheduler routes, partition routes,
+  executor-http routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The artifact runtime route-boundary module owns JSON reading, invoke payload
+shape validation, typed payload-boundary errors, and compatibility `HttpError`
+mapping. The artifact runtime service still owns authorization, source-package
+resolution, module loading, materializer lifecycle, and invoke dispatch.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts -t "artifact runtime route boundary|rejects malformed or invalid runtime invoke payloads at the route boundary"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Source Push Effect Decoder
 
 Previous completed checkpoint: `bbc9578` Add typed public finish decoder.

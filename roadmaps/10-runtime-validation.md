@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Artifact Runtime Invoke Effect Decoder
+
+Previous completed checkpoint: `2112975` Add typed public source push decoder.
+
+What changed:
+
+- Added `ExecutionArtifactInvokePayloadError`,
+  `decodeExecutionArtifactInvokePayload(...)`, and
+  `parseExecutionArtifactInvokePayloadEffect(...)` to
+  `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts`.
+- `readExecutionArtifactInvokePayload(...)` remains the runtime-facing
+  compatibility wrapper and now maps typed JSON and payload-shape failures back
+  to the existing `HttpError(400, ...)` responses.
+- `parseExecutionArtifactInvokePayload(...)` remains the direct throwing
+  compatibility parser for existing callers and tests.
+- Malformed JSON still returns `Request body must be JSON.`, and invalid
+  payload shape still returns `Invalid execution artifact invoke payload.`.
+- Artifact runtime authorization, source-package loading, materializer cache
+  behavior, invoke request dispatch, invoke failure status mapping, public
+  invoke routes, deployment push routes, scheduler routes, partition routes,
+  executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The artifact runtime invoke boundary was still reading JSON through the
+throwing compatibility helper and emitting `HttpError` directly for invalid
+payload shape. This checkpoint exposes typed Effect success/failure channels
+while preserving the existing runtime adapter responses.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts -t "artifact runtime route boundary|rejects malformed or invalid runtime invoke payloads at the route boundary"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Source Push Effect Decoder
 
 Previous completed checkpoint: `bbc9578` Add typed public finish decoder.
