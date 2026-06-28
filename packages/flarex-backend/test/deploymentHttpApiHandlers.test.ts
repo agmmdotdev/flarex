@@ -230,6 +230,36 @@ describe("DeploymentApiHandlers", () => {
     }
   });
 
+  it("handles analyzed start-push mutations through the Worker-compatible web handler", async () => {
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer());
+    try {
+      const started = await handler(new Request(
+        `https://deployment.test${DeploymentRoute.startAnalyzedPush}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sourcePackage: sourcePackage(),
+            analysis: deploymentAnalysis(),
+            codegenAnalysis: deploymentCodegenAnalysis(),
+            diagnostics: [{ level: "warn", message: "generated warning" }],
+          }),
+        },
+      ));
+
+      expect(started.status).toBe(200);
+      const startedBody: unknown = await started.json();
+      expect(parsePushStatus(startedBody)).toMatchObject({
+        pushId: "generated-push",
+        state: "analyzed",
+        sourcePackage: sourcePackage(),
+        diagnostics: [],
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
   it("maps service failures to declared DeploymentApi error response bodies", () => {
     expectMappedFailure(
       deploymentHttpErrorToReadResponse,

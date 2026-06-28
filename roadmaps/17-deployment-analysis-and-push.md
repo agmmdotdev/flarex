@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Analyzed Start Route Wiring
+
+Previous completed checkpoint: `2d7cdf9` Route deployment finish through
+HttpApi.
+
+What changed:
+
+- Routed compatible `POST /push/start-analyzed` traffic through the
+  `DeploymentDO`-owned generated Deployment HttpApi web handler.
+- Preserved the existing `DeploymentDO` malformed-body compatibility boundary:
+  invalid JSON and wrapper-shape errors are still parsed with `readJson` plus
+  `parseAnalyzedStartPushRequest` before the generated handler runs.
+- Rebuilt a canonical JSON request for the generated handler after successful
+  compatibility parsing, so `DeploymentApiHandlers.startAnalyzedPush` owns
+  backend validation adaptation, service call, typed error mapping, and response
+  protocol parsing.
+- Removed the now-unused manual `ManagedRuntime` deployment service boundary
+  from `DeploymentDO`.
+
+Why it changed:
+
+This is the last DeploymentDO route backed by the DeploymentApi contract. Moving
+it through the generated handler completes the route-by-route DeploymentDO
+HttpApi wiring while preserving existing public validation messages.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is local to Flarex's
+  DeploymentDO HTTP boundary.
+
+Flarex differences:
+
+- The public source-only start route still belongs to the worker/analyzer path;
+  this checkpoint only changes the internal analyzed start route.
+
+Known limitations:
+
+- `DeploymentDO` still keeps a small compatibility pre-parse layer for mutation
+  bodies so public error messages remain stable.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/push.test.ts -t "start"
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment HttpApi Finish Route Wiring
 
 Previous completed checkpoint: `59882fb` Route deployment abandon through

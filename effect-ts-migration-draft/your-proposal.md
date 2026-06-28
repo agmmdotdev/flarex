@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `59882fb` Route deployment abandon through HttpApi.
-- Active checkpoint: route compatible DeploymentDO finish-push traffic through the generated Deployment HttpApi web handler.
+- Previous completed checkpoint: `2d7cdf9` Route deployment finish through HttpApi.
+- Active checkpoint: route compatible DeploymentDO analyzed start-push traffic through the generated Deployment HttpApi web handler.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 46 slice:
+Current Goal 47 slice:
+
+1. Route `POST /push/start-analyzed` through the `DeploymentDO`-owned generated Deployment HttpApi web handler after preserving the existing body boundary.
+2. Keep `DeploymentDO.fetch()` responsible for malformed JSON and `parseAnalyzedStartPushRequest` wrapper compatibility so existing invalid-body messages remain unchanged.
+3. Rebuild a canonical JSON request for the generated handler after the compatibility parse succeeds, allowing `DeploymentApiHandlers.startAnalyzedPush` to own backend validation adaptation, service call, typed error mapping, and response protocol parsing.
+4. Remove the now-unused manual `ManagedRuntime` deployment service boundary from `DeploymentDO` once all DeploymentApi routes use the generated handler.
+5. Keep the current method-insensitive non-GET `/health` fallback and 404 behavior unchanged.
+6. Add focused generated-handler coverage for successful analyzed start-push behavior, alongside the existing invalid-start coverage.
+7. Do not change route paths, response bodies, request validation messages, SQL statements, service/store orchestration, worker forwarding, protocol schemas, or `ValidatorJson`.
+8. Validate with focused start/handler/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 46 slice:
 
 1. Route `POST /push/:pushId/finish` through the `DeploymentDO`-owned generated Deployment HttpApi web handler after preserving the existing body boundary.
 2. Keep `DeploymentDO.fetch()` responsible for malformed JSON and `parseFinishPushRequest` compatibility so existing invalid-body messages remain unchanged.

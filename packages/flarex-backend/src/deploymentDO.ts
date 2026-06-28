@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { Effect, ManagedRuntime } from "effect";
 import {
   DeploymentPushAction,
   DeploymentRoute,
@@ -9,20 +8,8 @@ import {
   parseFinishPushRequest,
 } from "flarex-protocol/deployment";
 import { makeDeploymentLayer } from "./deployment/Layer";
-import {
-  deploymentFailureToHttpError,
-  type DeploymentServiceFailure,
-} from "./deployment/HttpBoundary";
-import {
-  DeploymentService,
-  type DeploymentServiceApi,
-} from "./deployment/Service";
 import { makeDeploymentApiWebHandler } from "./deployment/HttpApiWebHandler";
 import { initializeDeploymentStorage } from "./deployment/StorageSchema";
-import {
-  analyzedStartPushRequest,
-  startAnalyzedPushInput,
-} from "./deployment/Validation";
 import { errorResponse, json, readJson } from "./http";
 import type { Env } from "./types";
 
@@ -34,7 +21,6 @@ export class DeploymentDO extends DurableObject<Env> {
     this.ctx.storage,
     this.sql,
   );
-  private readonly deploymentRuntime = ManagedRuntime.make(this.deploymentLayer);
   private readonly deploymentApi = makeDeploymentApiWebHandler(this.deploymentLayer);
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -51,22 +37,14 @@ export class DeploymentDO extends DurableObject<Env> {
       if (url.pathname === DeploymentRoute.health) {
         return json({ service: "flarex-deployment", status: "ok" });
       }
-      if (url.pathname === DeploymentRoute.activeDeployment && request.method === "GET") {
-        return json(await this.runDeploymentService(service => service.getActiveDeployment()));
-      }
       if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
         const body = parseAnalyzedStartPushRequest(await readJson(request));
-        return json(await this.runDeploymentService(service =>
-          service.startAnalyzedPush(startAnalyzedPushInput(analyzedStartPushRequest(body)))
-        ));
+        return this.deploymentApi.handler(jsonRequest(url, body));
       }
       const pushMatch = url.pathname.match(deploymentPushRoutePattern);
       if (pushMatch) {
         const pushId = decodeURIComponent(pushMatch[1]!);
         const action = pushMatch[2];
-        if (action === undefined && request.method === "GET") {
-          return json(await this.runDeploymentService(service => service.getPush(pushId)));
-        }
         if (action === DeploymentPushAction.finish && request.method === "POST") {
           const body = parseFinishPushRequest(await readJson(request));
           return this.deploymentApi.handler(jsonRequest(url, body));
@@ -83,33 +61,6 @@ export class DeploymentDO extends DurableObject<Env> {
       }
       return errorResponse(error);
     }
-  }
-
-  private async runDeploymentService<A>(
-    use: (service: DeploymentServiceApi) => Effect.Effect<A, DeploymentServiceFailure>,
-  ): Promise<A> {
-    return this.runDeployment(DeploymentService.use(use));
-  }
-
-  private async runDeployment<A>(
-    effect: Effect.Effect<
-      A,
-      DeploymentServiceFailure,
-      DeploymentService
-    >,
-  ): Promise<A> {
-    const result = await this.deploymentRuntime.runPromise(
-      effect.pipe(
-        Effect.match({
-          onFailure: error => ({ ok: false as const, error }),
-          onSuccess: value => ({ ok: true as const, value }),
-        }),
-      ),
-    );
-    if (!result.ok) {
-      throw deploymentFailureToHttpError(result.error);
-    }
-    return result.value;
   }
 }
 
