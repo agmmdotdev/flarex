@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Scheduler Connection Cleanup Reconcile Boundary
+
+Previous completed checkpoint: `46d1782` Decode scheduler delivery reconcile
+bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/scheduler/RouteBoundary.ts` to own
+  `SchedulerDO` live-query connection cleanup reconcile body reads.
+- `POST /reconcile/live-query-connections` now decodes request JSON through the
+  shared `readJson` boundary before durable cleanup continuation and
+  fresh-request coalescing logic runs.
+- The request envelope keeps the current optional ISO `expiredAt`, positive
+  integer `limit`, and optional cursor with ISO `oldestExpiredAt` and non-empty
+  `deploymentId`; extra fields are ignored.
+- Malformed JSON and invalid connection cleanup reconcile cursors return JSON
+  `400` responses before executor calls are made.
+- SchedulerDO delivery reconcile, dead-letter, cleanup, rerun routes,
+  DeliveryDO, ConnectionDO, PartitionDO, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Why it changed:
+
+After delivery reconcile moved behind a scheduler route boundary, the live-query
+connection cleanup reconcile route remained the next SchedulerDO path reading a
+raw body before entering durable continuation and coalescing behavior. This
+checkpoint keeps cleanup state ownership in SchedulerDO while making the
+transport envelope explicit.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query connection cleanup reconcile JSON|rejects malformed live query connection cleanup reconcile cursors"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Delivery Reconcile Boundary
 
 Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.

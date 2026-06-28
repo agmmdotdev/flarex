@@ -12,6 +12,17 @@ export type SchedulerDeliveryReconcileRequest = {
   cursor?: SchedulerPendingDeploymentCursor;
 };
 
+export type SchedulerExpiredConnectionDeploymentCursor = {
+  oldestExpiredAt: string;
+  deploymentId: string;
+};
+
+export type SchedulerConnectionReconcileRequest = {
+  expiredAt?: string;
+  limit?: number;
+  cursor?: SchedulerExpiredConnectionDeploymentCursor;
+};
+
 export async function readSchedulerDeliveryReconcileRequest(
   request: Request,
 ): Promise<SchedulerDeliveryReconcileRequest> {
@@ -37,6 +48,28 @@ export function parseSchedulerDeliveryReconcileRequest(
   };
 }
 
+export async function readSchedulerConnectionReconcileRequest(
+  request: Request,
+): Promise<SchedulerConnectionReconcileRequest> {
+  return parseSchedulerConnectionReconcileRequest(await readJson(request));
+}
+
+export function parseSchedulerConnectionReconcileRequest(
+  value: unknown,
+): SchedulerConnectionReconcileRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query connection reconcile request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    ...(body.expiredAt === undefined
+      ? {}
+      : { expiredAt: dateString(body.expiredAt, "expiredAt") }),
+    ...(body.limit === undefined ? {} : { limit: positiveInteger(body.limit, "limit") }),
+    ...(body.cursor === undefined ? {} : { cursor: expiredConnectionCursor(body.cursor) }),
+  };
+}
+
 function pendingCursor(value: unknown): SchedulerPendingDeploymentCursor {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new HttpError(400, "cursor must be an object.");
@@ -44,6 +77,17 @@ function pendingCursor(value: unknown): SchedulerPendingDeploymentCursor {
   const record = value as Record<string, unknown>;
   return {
     oldestCreatedAt: dateString(record.oldestCreatedAt, "cursor.oldestCreatedAt"),
+    deploymentId: nonEmptyString(record.deploymentId, "cursor.deploymentId"),
+  };
+}
+
+function expiredConnectionCursor(value: unknown): SchedulerExpiredConnectionDeploymentCursor {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "cursor must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    oldestExpiredAt: dateString(record.oldestExpiredAt, "cursor.oldestExpiredAt"),
     deploymentId: nonEmptyString(record.deploymentId, "cursor.deploymentId"),
   };
 }

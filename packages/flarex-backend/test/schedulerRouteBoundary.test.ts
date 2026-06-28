@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeliveryReconcileRequest,
+  readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
 } from "../src/scheduler/RouteBoundary";
 
@@ -49,6 +51,58 @@ describe("scheduler route boundary", () => {
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readSchedulerDeliveryReconcileRequest(new Request(
       "https://flarex.test/reconcile/live-query-deliveries",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes connection cleanup reconcile requests", async () => {
+    await expect(readSchedulerConnectionReconcileRequest(jsonRequest({
+      expiredAt: "2026-06-23T00:00:05.000Z",
+      limit: 7,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+      ignored: true,
+    }))).resolves.toEqual({
+      expiredAt: "2026-06-23T00:00:05.000Z",
+      limit: 7,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+    });
+  });
+
+  it("maps invalid connection cleanup reconcile bodies to 400", () => {
+    expect(() => parseSchedulerConnectionReconcileRequest(null))
+      .toThrow(HttpError);
+    try {
+      parseSchedulerConnectionReconcileRequest({
+        cursor: {
+          oldestExpiredAt: "not a date",
+          deploymentId: "deployment-a",
+        },
+      });
+      throw new Error("Expected parseSchedulerConnectionReconcileRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "cursor.oldestExpiredAt must be an ISO date string.",
+      });
+    }
+  });
+
+  it("preserves malformed connection cleanup reconcile JSON as the shared JSON body error", async () => {
+    await expect(readSchedulerConnectionReconcileRequest(new Request(
+      "https://flarex.test/reconcile/live-query-connections",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

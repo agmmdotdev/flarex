@@ -3,7 +3,9 @@ import { errorResponse, HttpError, json, readJson } from "./http";
 import { projectIdFromRequestOrEnv } from "./project";
 import { deliveryObjectName } from "./routing";
 import {
+  readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
+  type SchedulerConnectionReconcileRequest,
   type SchedulerDeliveryReconcileRequest,
 } from "./scheduler/RouteBoundary";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
@@ -238,7 +240,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.reconcileLiveQueryConnections(
-            await readJson<unknown>(request),
+            await readSchedulerConnectionReconcileRequest(request),
           ),
         );
       }
@@ -488,9 +490,8 @@ export class SchedulerDO extends DurableObject<Env> {
   }
 
   private async reconcileLiveQueryConnections(
-    body: unknown,
+    request: SchedulerConnectionReconcileRequest,
   ): Promise<ReconcileConnectionCleanupResult> {
-    const request = reconcileConnectionsRequestFromBody(body);
     if (request.cursor === undefined) {
       const pending = await this.readPendingLiveQueryConnectionCleanup();
       if (pending !== undefined) {
@@ -1141,34 +1142,6 @@ function pendingDeploymentsResultFromUnknown(
   };
 }
 
-function reconcileConnectionsRequestFromBody(value: unknown): {
-  expiredAt?: string;
-  limit?: number;
-  cursor?: ExpiredConnectionDeploymentCursor;
-} {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Live query connection reconcile request body must be an object.");
-  }
-  const body = value as Record<string, unknown>;
-  return {
-    ...(body.expiredAt === undefined
-      ? {}
-      : { expiredAt: dateStringFromRequest(body.expiredAt, "expiredAt") }),
-    ...(body.limit === undefined
-      ? {}
-      : {
-          limit: optionalPositiveInteger(
-            body.limit,
-            DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT,
-            "limit",
-          ),
-        }),
-    ...(body.cursor === undefined
-      ? {}
-      : { cursor: expiredConnectionCursorFromRequest(body.cursor) }),
-  };
-}
-
 function rerunRequestFromBody(value: unknown): {
   deploymentId: string;
   projectId?: string;
@@ -1549,25 +1522,6 @@ function expiredConnectionCursorOrNullFromUnknown(
 ): ExpiredConnectionDeploymentCursor | null {
   if (value === null) return null;
   return expiredConnectionCursorFromUnknown(value, "nextCursor");
-}
-
-function expiredConnectionCursorFromRequest(
-  value: unknown,
-): ExpiredConnectionDeploymentCursor {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "cursor must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    oldestExpiredAt: dateStringFromRequest(
-      record.oldestExpiredAt,
-      "cursor.oldestExpiredAt",
-    ),
-    deploymentId: nonEmptyStringFromRequest(
-      record.deploymentId,
-      "cursor.deploymentId",
-    ),
-  };
 }
 
 function expiredConnectionCursorFromUnknown(

@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.
-- Active checkpoint: decode SchedulerDO live-query delivery reconcile bodies at a scheduler route boundary before durable continuation/coalescing logic runs.
+- Previous completed checkpoint: `46d1782` Decode scheduler delivery reconcile bodies.
+- Active checkpoint: decode SchedulerDO live-query connection cleanup reconcile bodies at the scheduler route boundary before durable cleanup continuation/coalescing logic runs.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 66 slice:
+Current Goal 67 slice:
+
+1. Extend the backend-only `scheduler/RouteBoundary.ts` helper to read `POST /reconcile/live-query-connections` JSON once through the shared `readJson` boundary.
+2. Move only the live-query connection cleanup reconcile request-envelope parser into that helper: optional ISO `expiredAt`, optional positive integer `limit`, optional cursor with ISO `oldestExpiredAt` and non-empty `deploymentId`, and ignored extra fields.
+3. Use the decoded connection cleanup reconcile request in `SchedulerDO.reconcileLiveQueryConnections(...)` so the route boundary is separated from durable continuation, fresh-request coalescing, retry scheduling, and persistence.
+4. Keep SchedulerDO delivery reconcile, dead-letter, cleanup, rerun routes, DeliveryDO, ConnectionDO, PartitionDO, executor-http, and `ValidatorJson` untouched.
+5. Add focused boundary tests for successful decode, ignored extra fields, invalid cursor mapping, malformed JSON handling, and a route-level sync test proving malformed connection cleanup reconcile JSON returns `400 { error }` without touching the executor.
+6. Validate with focused scheduler boundary/sync tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 66 slice:
 
 1. Add a backend-only `scheduler/RouteBoundary.ts` helper that reads `POST /reconcile/live-query-deliveries` JSON once through the shared `readJson` boundary.
 2. Move only the live-query delivery reconcile request-envelope parser into that helper: optional positive integer `limit`, `deliveryLimit`, `maxBatches`, optional cursor with ISO `oldestCreatedAt` and non-empty `deploymentId`, and ignored extra fields.

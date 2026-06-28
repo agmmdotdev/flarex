@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Scheduler Connection Cleanup Reconcile Route Boundary
+
+Previous completed checkpoint: `46d1782` Decode scheduler delivery reconcile
+bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now owns the
+  live-query connection cleanup reconcile request-body boundary.
+- `POST /reconcile/live-query-connections` decodes through the shared
+  `readJson` boundary and accepts optional ISO `expiredAt`, optional positive
+  integer `limit`, and an optional cursor with ISO `oldestExpiredAt` and
+  non-empty `deploymentId`; extra fields remain ignored.
+- The boundary extracts only the cleanup reconcile request envelope and leaves
+  durable cleanup continuation, fresh-request coalescing, retry scheduling, and
+  persistence in `SchedulerDO`.
+- Other SchedulerDO routes remain on their existing parsers for later slices.
+
+Boundary decision:
+
+Scheduler connection cleanup reconcile crosses an HTTP/JSON boundary before it
+enters durable cleanup state and continuation behavior. Decoding the request at
+the route edge makes that transport contract explicit without moving the
+scheduler's cleanup state machine or mixing it with executor-side deployment
+scan behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query connection cleanup reconcile JSON|rejects malformed live query connection cleanup reconcile cursors"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Delivery Reconcile Route Boundary
 
 Previous completed checkpoint: `28a783e` Decode artifact runtime invoke bodies.
