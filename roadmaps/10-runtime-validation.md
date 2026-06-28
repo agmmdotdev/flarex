@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Partition Commit Boundary
+
+Previous completed checkpoint: `a9d1e67` Decode partition subscription bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/partition/RouteBoundary.ts` to own
+  `PartitionDO` commit body reads.
+- `POST /commit` now decodes request JSON through the shared `readJson`
+  boundary before commit/OCC execution runs.
+- The public Worker partition commit forwarding route now uses the same commit
+  boundary before forwarding to `PartitionDO`.
+- The request envelope keeps the current required integer `beginTs`, optional
+  integer `schemaVersion`, optional string `source`, optional string
+  `idempotencyKey`, optional object `readSet` with document/table/index read
+  arrays, and required `writes` array with integer `tableId`, optional
+  non-empty `id`, and JSON `value`.
+- Idempotency lookup, schema-version mismatch behavior, generated IDs for
+  missing write IDs, write validation, table/placement/schema checks,
+  transaction ownership, OCC conflict detection, write-log persistence,
+  invalidation notification, document/index reads, schema-cache, subscription
+  routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After schema-cache and subscription requests moved behind named partition
+route-boundary helpers, commit remained the last direct body read in
+`PartitionDO`. Because commit owns correctness-sensitive transaction and OCC
+behavior, this checkpoint only validates the transport envelope and leaves
+commit execution in the Durable Object.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition commit JSON|rejects invalid public partition commit envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Partition Subscription Boundary
 
 Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.

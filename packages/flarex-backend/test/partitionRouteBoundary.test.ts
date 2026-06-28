@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  parsePartitionCommitRequest,
   parsePartitionConnectionUnregisterRequest,
   parsePartitionSchemaCacheRequest,
   parsePartitionSubscriptionRegistrationRequest,
   parsePartitionSubscriptionTargetRequest,
+  readPartitionCommitRequest,
   readPartitionConnectionUnregisterRequest,
   readPartitionSchemaCacheRequest,
   readPartitionSubscriptionRegistrationRequest,
@@ -63,6 +65,105 @@ describe("partition route boundary", () => {
       "https://flarex.test/schema-cache",
       {
         method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes commit requests", async () => {
+    await expect(readPartitionCommitRequest(jsonRequest({
+      beginTs: 3,
+      schemaVersion: 2,
+      source: "mutation:test",
+      idempotencyKey: "commit-key",
+      readSet: {
+        documents: [{ tableId: 1, id: "1:ada" }],
+        tables: [{ tableId: 2 }],
+        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+      },
+      writes: [
+        { tableId: 1, id: "1:ada", value: { name: "Ada" } },
+        { tableId: 1, value: null },
+      ],
+      ignored: true,
+    }))).resolves.toEqual({
+      beginTs: 3,
+      schemaVersion: 2,
+      source: "mutation:test",
+      idempotencyKey: "commit-key",
+      readSet: {
+        documents: [{ tableId: 1, id: "1:ada" }],
+        tables: [{ tableId: 2 }],
+        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+      },
+      writes: [
+        { tableId: 1, id: "1:ada", value: { name: "Ada" } },
+        { tableId: 1, value: null },
+      ],
+    });
+  });
+
+  it("maps invalid commit envelopes to 400", () => {
+    expect(() => parsePartitionCommitRequest(null))
+      .toThrow(HttpError);
+    try {
+      parsePartitionCommitRequest({
+        beginTs: 1,
+        writes: [{ tableId: "1", value: null }],
+      });
+      throw new Error("Expected parsePartitionCommitRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "writes[0].tableId must be an integer.",
+      });
+    }
+  });
+
+  it("maps invalid commit read sets to 400", () => {
+    try {
+      parsePartitionCommitRequest({
+        beginTs: 1,
+        readSet: {
+          documents: [{ tableId: 1, id: "" }],
+        },
+        writes: [],
+      });
+      throw new Error("Expected parsePartitionCommitRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "readSet.documents[0].id must be a non-empty string.",
+      });
+    }
+  });
+
+  it("maps invalid commit write values to 400", () => {
+    const value = { invalid: Number.POSITIVE_INFINITY };
+
+    try {
+      parsePartitionCommitRequest({
+        beginTs: 1,
+        writes: [{ tableId: 1, value }],
+      });
+      throw new Error("Expected parsePartitionCommitRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "writes[0].value must be a JSON value.",
+      });
+    }
+  });
+
+  it("preserves malformed commit JSON as the shared JSON body error", async () => {
+    await expect(readPartitionCommitRequest(new Request(
+      "https://flarex.test/commit",
+      {
+        method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },

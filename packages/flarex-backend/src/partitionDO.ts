@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import { errorResponse, HttpError, json, readJson } from "./http";
+import { errorResponse, HttpError, json } from "./http";
 import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
 import {
+  readPartitionCommitRequest,
   readPartitionConnectionUnregisterRequest,
   readPartitionSchemaCacheRequest,
   readPartitionSubscriptionRegistrationRequest,
@@ -194,7 +195,7 @@ export class PartitionDO extends DurableObject<Env> {
         return json(this.begin());
       }
       if (url.pathname === "/commit" && request.method === "POST") {
-        const result = await this.commit(await readJson<CommitRequest>(request));
+        const result = await this.commit(await readPartitionCommitRequest(request));
         return json(result, { status: result.replayed ? 200 : 201 });
       }
       if (url.pathname === "/subscriptions/register" && request.method === "POST") {

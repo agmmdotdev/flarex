@@ -108,6 +108,62 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("rejects malformed partition commit JSON at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("commit-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects invalid public partition commit envelopes at the route boundary", async () => {
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/commit-public-boundary/partitions/user%3Aada/commit",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          beginTs: 0,
+          writes: [{ tableId: 1 }],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "writes[0].value must be a JSON value.",
+    });
+  });
+
+  it("commits through the public partition route boundary", async () => {
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/commit-public-success-boundary/partitions/user%3Aada/commit",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          beginTs: 0,
+          writes: [],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      committedTs: 1,
+      writes: [],
+    });
+  });
+
   it("generates ids, exposes read-your-writes, and coalesces document writes", async () => {
     const tx = await SingleShardTransaction.begin(env, "tx-deployment", "user:u1");
 

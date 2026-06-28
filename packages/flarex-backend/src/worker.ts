@@ -43,6 +43,7 @@ import {
   deliverLiveQueryChangesToConnections,
   liveQueryDeliveryChangesFromBody,
 } from "./liveQueryDelivery";
+import { readPartitionCommitRequest } from "./partition/RouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
@@ -62,7 +63,6 @@ import {
 } from "./schedulerRoutes";
 import type {
   AnalyzedStartPushRequest,
-  CommitRequest,
   DeploymentSchema,
   Env,
   InvokeRequest,
@@ -550,7 +550,7 @@ async function routePartition(
     return partition.fetch("https://flarex.internal/begin", { method: "POST" });
   }
   if (action === "commit" && request.method === "POST") {
-    const commit = await readJson<CommitRequest>(request);
+    const commit = await readPartitionCommitRequest(request);
     return partition.fetch("https://flarex.internal/commit", {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.
-- Active checkpoint: decode PartitionDO subscription bodies at the partition route boundary before subscription table mutations run.
+- Previous completed checkpoint: `a9d1e67` Decode partition subscription bodies.
+- Active checkpoint: decode PartitionDO commit bodies at the partition route boundary before commit/OCC execution runs.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 72 slice:
+Current Goal 73 slice:
+
+1. Extend the backend-only `partition/RouteBoundary.ts` helper to read `POST /commit` JSON once through the shared `readJson` boundary.
+2. Decode only the commit request transport envelope: required integer `beginTs`, optional integer `schemaVersion`, optional string `source`, optional string `idempotencyKey`, optional object `readSet` with document/table/index read arrays, and required `writes` array with integer `tableId`, optional non-empty `id`, and JSON `value`.
+3. Use the same commit boundary in the public Worker partition commit forwarding route so public and Durable Object edges share one parser.
+4. Keep idempotency lookup, schema-version mismatch behavior, generated IDs for missing write IDs, write validation, table/placement/schema checks, transaction ownership, OCC conflict detection, write-log persistence, invalidation notification, document/index reads, schema-cache, subscription routes, and `ValidatorJson` untouched.
+5. Add focused boundary tests for successful commit decode, invalid read-set mapping, invalid write mapping, invalid JSON value mapping, malformed JSON handling, and direct route tests proving malformed/invalid commit JSON returns `400 { error }` before commit execution.
+6. Validate with focused partition boundary/transaction tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 72 slice:
 
 1. Extend the backend-only `partition/RouteBoundary.ts` helper to read `POST /subscriptions/register`, `POST /subscriptions/unregister`, and `POST /subscriptions/unregister-connection` JSON once through the shared `readJson` boundary.
 2. Move only the subscription request-envelope parsers into that helper: registration requires non-empty `connectionName`, integer `queryId`, and object `readSet`; unregister requires non-empty `connectionName` and integer `queryId`; unregister-connection requires non-empty `connectionName`.

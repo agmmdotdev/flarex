@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Partition Commit Route Boundary
+
+Previous completed checkpoint: `a9d1e67` Decode partition subscription bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/partition/RouteBoundary.ts` now owns the
+  `PartitionDO` commit request-body boundary.
+- `POST /commit` decodes through the shared `readJson` boundary at both the
+  public Worker partition forwarding edge and the Durable Object edge.
+- The boundary extracts only the commit request envelope: required integer
+  `beginTs`, optional integer `schemaVersion`, optional string `source`,
+  optional string `idempotencyKey`, optional object `readSet` with
+  document/table/index read arrays, and required `writes` array with integer
+  `tableId`, optional non-empty `id`, and JSON `value`.
+- Idempotency lookup, schema-version mismatch behavior, generated IDs for
+  missing write IDs, write validation, table/placement/schema checks,
+  transaction ownership, OCC conflict detection, write-log persistence,
+  invalidation notification, document/index reads, schema-cache, subscription
+  routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+Partition commit is the correctness-sensitive shard write path. This checkpoint
+narrows the HTTP transport edge without moving commit execution, OCC conflict
+detection, SQL writes, or invalidation behavior out of `PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition commit JSON|rejects invalid public partition commit envelopes"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Partition Subscription Route Boundary
 
 Previous completed checkpoint: `afe8390` Decode partition schema-cache bodies.
