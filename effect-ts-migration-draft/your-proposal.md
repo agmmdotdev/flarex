@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
-- Active checkpoint: wire execution start request decoding through the public Worker and ExecutionDO start boundaries while preserving session behavior.
+- Previous completed checkpoint: `7f6ec53` Decode execution start bodies.
+- Active checkpoint: add protocol-only execution syscall request schemas before wiring ExecutionDO syscall parsing.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 55 slice:
+Current Goal 56 slice:
+
+1. Add `ExecutionIndexRangeExpression`, `ExecutionSyscallRequest`, `ExecutionIndexRangeExpressionSchema`, `ExecutionSyscallRequestSchema`, and `parseExecutionSyscallRequest` to `flarex-protocol/execution`.
+2. Cover the current `ExecutionDO.syscall` operation shapes: `get`, `query`, `insert`, `patch`, `replace`, and `delete`.
+3. Reuse the shared strict `JsonValue` contract for syscall JSON values and query range expression values.
+4. Keep `patch.value` constrained to JSON records, matching the current partial-update runtime expectation.
+5. Keep Worker routing, `ExecutionDO.fetch()`, `ExecutionDO.syscall`, finish/abort, `StartRouteBoundary`, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+6. Add focused protocol tests for every valid syscall operation and invalid non-object bodies, unknown operations, missing required fields, invalid query order, invalid JSON values, and non-record patch values.
+7. Validate with focused execution protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 55 slice:
 
 1. Add a backend-only execution start route-boundary helper that reads JSON once, decodes through `parseExecutionStartRequest`, maps `ExecutionProtocolValidationError` to `HttpError(400, ...)`, and adapts protocol `Json` to the backend mutable `Json` type.
 2. Use that helper in the public Worker `POST /deployments/:deploymentId/executions/start` branch, preserving route-scoped deployment id precedence over any body `deploymentId`.

@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Execution Syscall Request Protocol Boundary
+
+Previous completed checkpoint: `7f6ec53` Decode execution start bodies.
+
+What changed:
+
+- Added `ExecutionSyscallRequestSchema` and `parseExecutionSyscallRequest(...)`
+  to `flarex-protocol/execution` for the syscall bodies used by execution
+  sessions.
+- The protocol shape covers the current `get`, `query`, `insert`, `patch`,
+  `replace`, and `delete` operations sent to `ExecutionDO.syscall`.
+- Query range expression values and mutation payloads reuse the shared strict
+  JSON transport validator, while `patch.value` is constrained to a JSON
+  record.
+- Worker routing, `ExecutionDO.fetch()`, `ExecutionDO.syscall`, finish/abort,
+  PartitionDO, artifact runtime, and executor-http are unchanged.
+
+Why it changed:
+
+Execution syscalls are behavior-sensitive because they bridge generated user
+code into the transaction runtime. This checkpoint records the protocol shape
+first, before replacing any live `request.json()` parsing in `ExecutionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Worker And DO Boundary
 
 Previous completed checkpoint: `d8b82fc` Add execution start protocol body.

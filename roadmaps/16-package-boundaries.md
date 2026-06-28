@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Execution Syscall Protocol Package Boundary
+
+Previous completed checkpoint: `7f6ec53` Decode execution start bodies.
+
+What changed:
+
+- `flarex-protocol/execution` now owns the execution syscall request union and
+  parser for the operation bodies currently accepted by `ExecutionDO.syscall`.
+- The schema validates query selectors, optional paging/order fields, mutation
+  JSON payloads, and JSON-record patch payloads without importing backend
+  transaction types.
+- The protocol package remains transport-contract-only; backend Worker,
+  Durable Object, transaction, and PartitionDO code are unchanged.
+
+Boundary decision:
+
+The protocol package should describe syscall request bodies before the backend
+adapts them into runtime transaction calls. The backend should continue to own
+session lookup, transaction state, Durable Object lifecycle, and compatibility
+HTTP errors when the parser is wired later.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Backend Route Boundary
 
 Previous completed checkpoint: `d8b82fc` Add execution start protocol body.

@@ -1,5 +1,39 @@
 # Dynamic Worker Execution
 
+## Execution Syscall Protocol Shape
+
+Previous completed checkpoint: `7f6ec53` Decode execution start bodies.
+
+What changed:
+
+- Added the shared execution syscall request contract in
+  `flarex-protocol/execution`.
+- The contract covers `get`, `query`, `insert`, `patch`, `replace`, and
+  `delete`, including query range expressions and optional cursor/order/limit
+  fields.
+- Syscall JSON payloads use the shared strict JSON validator; patch payloads
+  must be JSON records.
+- Generated execution artifacts, Worker forwarding, `ExecutionDO.syscall`,
+  transaction execution, finish/abort, and PartitionDO behavior are unchanged.
+
+Why it changed:
+
+Syscall parsing sits directly in the dynamic execution loop, so the safe order
+is protocol first, then a separate `ExecutionDO.fetch()` wiring checkpoint with
+route-level parity tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Start Decode Boundary
 
 Previous completed checkpoint: `d8b82fc` Add execution start protocol body.
