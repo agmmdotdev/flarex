@@ -1515,6 +1515,95 @@ describe("executeInvoke", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Unknown Flarex function: missing:function",
     });
+
+    const topLevel = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: "route-deployment",
+          path: "missing:function",
+        }),
+      },
+    );
+    expect(topLevel.status).toBe(404);
+    await expect(topLevel.json()).resolves.toEqual({
+      error: "Unknown Flarex function: missing:function",
+    });
+
+    const headerDeployment = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-deployment": "route-deployment",
+        },
+        body: JSON.stringify({
+          deploymentId: "missing-body-deployment",
+          path: "missing:function",
+        }),
+      },
+    );
+    expect(headerDeployment.status).toBe(404);
+    await expect(headerDeployment.json()).resolves.toEqual({
+      error: "Unknown Flarex function: missing:function",
+    });
+  });
+
+  it("decodes public Worker invoke bodies before execution", async () => {
+    await putSchema("route-boundary-deployment", { version: 1, tables: [], indexes: [] });
+
+    const invalidScoped = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/route-boundary-deployment/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: 42,
+          kind: "query",
+        }),
+      },
+    );
+    expect(invalidScoped.status).toBe(400);
+    await expect(invalidScoped.json()).resolves.toEqual({
+      error:
+        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+    });
+
+    const invalidTopLevel = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-deployment": "route-boundary-deployment",
+        },
+        body: JSON.stringify({
+          path: "missing:function",
+          kind: "action",
+        }),
+      },
+    );
+    expect(invalidTopLevel.status).toBe(400);
+    await expect(invalidTopLevel.json()).resolves.toEqual({
+      error:
+        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+    });
+
+    const malformed = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/route-boundary-deployment/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
   });
 });
 

@@ -1,5 +1,36 @@
 # Package Boundaries
 
+## Public Invoke Worker Route Boundary
+
+Previous completed checkpoint: `95cc914` Add public invoke protocol body.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke/PublicInvokeRouteBoundary.ts` now owns
+  Worker-edge public invoke JSON reading and protocol parser adaptation.
+- `worker.ts` delegates both public invoke body reads to that helper while
+  keeping deployment id resolution and invoke execution orchestration local.
+- `flarex-protocol/invoke` remains the shared transport contract; backend code
+  only adapts protocol failures into backend HTTP errors.
+
+Boundary decision:
+
+The protocol package owns the request shape. The backend package owns public
+Worker compatibility: malformed JSON handling, `{ error }` envelopes, route
+deployment resolution, and `args ?? null` runtime defaulting.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Protocol Package Boundary
 
 Previous completed checkpoint: `be053f6` Decode public source push bodies.

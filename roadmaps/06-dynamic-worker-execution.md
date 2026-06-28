@@ -1,5 +1,36 @@
 # Dynamic Worker Execution
 
+## Public Invoke Worker Decode Boundary
+
+Previous completed checkpoint: `95cc914` Add public invoke protocol body.
+
+What changed:
+
+- Public Worker invoke routes now pass through the shared invoke protocol
+  parser before `routeInvoke` builds the runtime `InvokeRequest`.
+- Omitted `args` remains a Worker/runtime compatibility concern and still
+  reaches artifact runtime invocation as `args: null`.
+- Artifact runtime dispatch, generated execution artifacts, executor sessions,
+  and PartitionDO transaction execution are unchanged.
+
+Why it changed:
+
+This is the live Worker follow-up to the protocol-only public invoke body
+checkpoint. It gives generated/runtime invoke callers a schema-first public
+boundary without changing dynamic execution behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Body Protocol Shape
 
 Previous completed checkpoint: `be053f6` Decode public source push bodies.

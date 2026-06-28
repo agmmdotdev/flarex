@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Public Invoke Worker Protocol Boundary
+
+Previous completed checkpoint: `95cc914` Add public invoke protocol body.
+
+What changed:
+
+- Public Worker `POST /invoke` and
+  `POST /deployments/:deploymentId/invoke` now decode request bodies through
+  the shared `flarex-protocol/invoke` parser.
+- Protocol validation failures become the existing backend `{ error: string }`
+  400 envelope through the Worker `HttpError` boundary.
+- Malformed JSON still returns `400 { error: "Request body must be JSON." }`.
+- The invoke execution path is unchanged after decoding: route/header
+  deployment resolution, required function path checks, kind parsing, artifact
+  runtime dispatch, fallback `executeInvoke`, and `args ?? null` defaulting stay
+  in `routeInvoke`.
+
+Why it changed:
+
+The previous checkpoint introduced the protocol-only public invoke body shape.
+This checkpoint removes the unchecked Worker body casts without changing the
+runtime execution/session model.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Invoke Request Protocol Boundary
 
 Previous completed checkpoint: `be053f6` Decode public source push bodies.

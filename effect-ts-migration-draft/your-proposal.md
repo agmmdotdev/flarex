@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `be053f6` Decode public source push bodies.
-- Active checkpoint: add a protocol-only public invoke request body schema/parser without wiring the Worker route yet.
+- Previous completed checkpoint: `95cc914` Add public invoke protocol body.
+- Active checkpoint: wire public Worker invoke routes through the protocol parser while preserving `args ?? null` runtime defaulting and existing JSON error envelopes.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 52 slice:
+Current Goal 53 slice:
+
+1. Add a backend-only public invoke route-boundary helper that reads JSON once and decodes through `parsePublicInvokeRequestBody`.
+2. Map `InvokeProtocolValidationError` at the Worker edge to the existing `{ error: string }` 400 response envelope via `HttpError`.
+3. Replace unchecked public Worker invoke body reads on both `POST /invoke` and `POST /deployments/:deploymentId/invoke` with the helper.
+4. Preserve existing malformed JSON behavior from `readJson`: `400 { error: "Request body must be JSON." }`.
+5. Preserve existing invoke construction semantics after decoding: top-level header deployment id still takes precedence, route-scoped deployment id still comes from the URL, omitted `args` still becomes `null`, and `routeInvoke` continues to own required path, kind parsing, artifact runtime dispatch, and fallback `executeInvoke`.
+6. Do not touch artifact runtime protocol, execution sessions, PartitionDO, executor-http, connection sync invoke execution, public deployment push routing, or `ValidatorJson`.
+7. Add focused helper and Worker route tests proving successful decode, invalid protocol body mapping, malformed JSON mapping, top-level invoke behavior, deployment-scoped invoke behavior, and omitted-args artifact runtime forwarding.
+8. Validate with focused invoke boundary/invoke/artifact-runtime tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 52 slice:
 
 1. Add a protocol-only `flarex-protocol/invoke` module with `PublicInvokeRequestBodySchema`, `PublicInvokeRequestBody`, `parsePublicInvokeRequestBody`, and `InvokeProtocolValidationError`.
 2. Export `./invoke` from `flarex-protocol` so future backend and generated-runtime slices can share the same public invoke body contract.

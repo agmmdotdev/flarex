@@ -4,6 +4,7 @@ import {
   DeploymentRoute,
   type DeploymentRoutePath,
 } from "flarex-protocol/deployment";
+import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
 import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
@@ -32,6 +33,7 @@ import {
   parseInvokeKind,
   type BackendFunctionRegistry,
 } from "./invoke";
+import { readPublicInvokeRequest } from "./invoke/PublicInvokeRouteBoundary";
 import {
   deliverLiveQueryChangesToConnections,
   liveQueryDeliveryChangesFromBody,
@@ -121,7 +123,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/invoke" && request.method === "POST") {
-    const body = await readJson<Partial<InvokeRequest> & { deploymentId?: string }>(request);
+    const body = await readPublicInvokeRequest(request);
     const deploymentId =
       request.headers.get("x-flarex-deployment") ?? required(body.deploymentId, "deployment id");
     return routeInvoke(env, deploymentId, body);
@@ -208,7 +210,7 @@ async function route(request: Request, env: Env): Promise<Response> {
         .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment));
     }
     if (parts[2] === "invoke" && request.method === "POST") {
-      return routeInvoke(env, deploymentId, await readJson(request));
+      return routeInvoke(env, deploymentId, await readPublicInvokeRequest(request));
     }
     if (parts[2] === "executions") {
       return routeExecution(request, env, deploymentId, parts.slice(3));
@@ -482,7 +484,7 @@ async function routeExecution(
 async function routeInvoke(
   env: Env,
   deploymentId: string,
-  body: Partial<InvokeRequest>,
+  body: PublicInvokeRequestBody,
 ): Promise<Response> {
   try {
     const kind = parseInvokeKind(body.kind);

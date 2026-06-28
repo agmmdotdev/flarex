@@ -104,6 +104,24 @@ describe("backend artifact runtime route", () => {
       value: { runtime: "artifact", path: "users:create" },
     });
 
+    const omittedArgsResponse = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/artifact-runtime-route/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "users:get",
+          kind: "query",
+          partitionKey: "user:1",
+        }),
+      },
+    );
+    const omittedArgsBody = await omittedArgsResponse.json();
+    expect(omittedArgsResponse.ok).toBe(true);
+    expect(omittedArgsBody).toEqual({
+      value: { runtime: "artifact", path: "users:get" },
+    });
+
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
     expect(runtimeCalls).toEqual([
       {
@@ -132,6 +150,21 @@ describe("backend artifact runtime route", () => {
             path: "users:create",
             kind: "mutation",
             args: { name: "Ada" },
+          },
+        },
+      },
+      {
+        artifactId: ref.artifactId,
+        sourcePackageHash: ref.sourcePackageHash,
+        body: {
+          deploymentId: "artifact-runtime-route",
+          ref,
+          sourcePackage,
+          request: {
+            path: "users:get",
+            kind: "query",
+            partitionKey: "user:1",
+            args: null,
           },
         },
       },
