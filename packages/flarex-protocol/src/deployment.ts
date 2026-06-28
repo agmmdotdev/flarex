@@ -152,10 +152,34 @@ export class DeploymentErrorResponse extends Schema.Class<DeploymentErrorRespons
   error: Schema.String,
 }) {}
 
-export const DeploymentBadRequestError = DeploymentErrorResponse.pipe(HttpApiSchema.status(400));
-export const DeploymentNotFoundError = DeploymentErrorResponse.pipe(HttpApiSchema.status(404));
-export const DeploymentConflictError = DeploymentErrorResponse.pipe(HttpApiSchema.status(409));
-export const DeploymentStorageError = DeploymentErrorResponse.pipe(HttpApiSchema.status(500));
+export class DeploymentBadRequestErrorResponse extends Schema.Class<DeploymentBadRequestErrorResponse>(
+  "DeploymentBadRequestErrorResponse",
+)({
+  error: Schema.String,
+}) {}
+
+export class DeploymentNotFoundErrorResponse extends Schema.Class<DeploymentNotFoundErrorResponse>(
+  "DeploymentNotFoundErrorResponse",
+)({
+  error: Schema.String,
+}) {}
+
+export class DeploymentConflictErrorResponse extends Schema.Class<DeploymentConflictErrorResponse>(
+  "DeploymentConflictErrorResponse",
+)({
+  error: Schema.String,
+}) {}
+
+export class DeploymentStorageErrorResponse extends Schema.Class<DeploymentStorageErrorResponse>(
+  "DeploymentStorageErrorResponse",
+)({
+  error: Schema.String,
+}) {}
+
+export const DeploymentBadRequestError = DeploymentBadRequestErrorResponse.pipe(HttpApiSchema.status(400));
+export const DeploymentNotFoundError = DeploymentNotFoundErrorResponse.pipe(HttpApiSchema.status(404));
+export const DeploymentConflictError = DeploymentConflictErrorResponse.pipe(HttpApiSchema.status(409));
+export const DeploymentStorageError = DeploymentStorageErrorResponse.pipe(HttpApiSchema.status(500));
 
 export class AbandonPushRequest extends Schema.Class<AbandonPushRequest>(
   "AbandonPushRequest",

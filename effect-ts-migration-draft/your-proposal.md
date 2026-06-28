@@ -2,13 +2,26 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8c3a64a` Add deployment mutation HttpApi contract.
-- Active checkpoint: add protocol-only Deployment HttpApi error response contracts before backend handler wiring.
+- Previous completed checkpoint: `e6be1a2` Add deployment HttpApi error contracts.
+- Active checkpoint: add backend-only Deployment HttpApi handlers without Durable Object server wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 40 slice:
+Current Goal 41 slice:
+
+1. Add a backend-only `deployment/HttpApiHandlers.ts` layer with `HttpApiBuilder.group(DeploymentApi, "deployment", ...)`.
+2. Implement handlers for health, active deployment, push status, analyzed start-push, finish-push, and abandon-push by delegating to `DeploymentService`.
+3. Preserve the existing DeploymentDO behavior by keeping `DeploymentDO.fetch()` on the current plain router; do not add `HttpApiBuilder.layer`, `HttpRouter.toWebHandler`, or route these handlers into the Durable Object yet.
+4. Refine deployment error response schemas to status-specific response classes that still encode as the existing `{ error: string }` envelope, so handler failures can map to declared 400/404/409/500 bodies without changing wire responses.
+5. Run the existing deployment protocol semantic parser inside the analyzed start-push handler before backend validation so malformed wrapper combinations remain 400s.
+6. Use per-endpoint failure mappers so each handler's typed error channel stays aligned with the statuses declared by the schema-first `DeploymentApi`.
+7. Keep unexpected decoder/validation defects out of typed API response bodies; only known protocol and `HttpError` validation failures are converted to declared errors.
+8. Add focused handler tests proving all DeploymentApi endpoints are registered, typed service/validation/storage failures map to the declared response classes and bodies, and invalid analyzed start-push wrapper combinations stay bad requests.
+9. Do not change worker forwarding, DeploymentDO routing, service/store orchestration, request parsing behavior, response bodies, finish-push rejected success semantics, SQL behavior, or `ValidatorJson`.
+10. Validate with focused deployment handler/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 40 slice:
 
 1. Add a generic `DeploymentErrorResponse` schema for the existing deployment `{ error: string }` HTTP error envelope.
 2. Add status-tagged `DeploymentBadRequestError`, `DeploymentNotFoundError`, `DeploymentConflictError`, and `DeploymentStorageError` schemas using `HttpApiSchema.status(...)`.
