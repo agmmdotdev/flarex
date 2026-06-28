@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Partition Schema Cache Boundary
+
+Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.
+
+What changed:
+
+- Added `packages/flarex-backend/src/partition/RouteBoundary.ts` to own the
+  `PartitionDO` schema-cache body read.
+- `PUT /schema-cache` now decodes request JSON through the shared `readJson`
+  boundary before schema-cache validation and storage writes run.
+- The boundary accepts only JSON object envelopes while preserving both current
+  wrapped `{ partitionKey, schema }` bodies and legacy flat
+  `{ partitionKey, version, tables, indexes }` bodies for
+  `PartitionDO.putSchemaCache(...)`.
+- Schema semantic validation, partition-key validation, table/index
+  persistence, schema-version metadata writes, transaction ownership,
+  commit/OCC behavior, subscription routes, document/index reads, public Worker
+  forwarding, and `ValidatorJson` are unchanged.
+- Malformed JSON and non-object schema-cache envelopes return JSON `400`
+  responses before schema-cache validation or storage work.
+
+Why it changed:
+
+After the smaller connection, delivery, execution, deployment, registry, and
+scheduler route boundaries moved behind named helpers, `PartitionDO
+/schema-cache` remained a direct body read on a correctness-sensitive object.
+This checkpoint moves only the transport envelope and deliberately leaves
+schema-cache semantics and commit logic inside `PartitionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition schema-cache JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Connection Cleanup Boundary
 
 Previous completed checkpoint: `6634f8f` Decode scheduler dead-letter bodies.

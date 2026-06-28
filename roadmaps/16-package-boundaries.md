@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Partition Schema Cache Route Boundary
+
+Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/partition/RouteBoundary.ts` now owns the
+  `PartitionDO` schema-cache request-body boundary.
+- `PUT /schema-cache` decodes through the shared `readJson` boundary and
+  accepts JSON object envelopes, preserving both wrapped `{ partitionKey,
+  schema }` bodies and legacy flat `{ partitionKey, version, tables, indexes }`
+  bodies.
+- The boundary extracts only the transport envelope and leaves schema semantic
+  validation, partition-key checks, table/index persistence, transaction
+  ownership, and schema-version metadata writes in `PartitionDO`.
+- Commit/OCC behavior, subscription routes, document/index reads, Worker
+  forwarding, and `ValidatorJson` remain unchanged.
+
+Boundary decision:
+
+Partition schema-cache crosses an HTTP/JSON boundary before it enters
+PartitionDO's schema metadata update path. Decoding that envelope in a small
+backend helper narrows the route edge without pulling correctness-sensitive
+commit or SQL behavior out of the Durable Object.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "partition route boundary|rejects malformed partition schema-cache JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Connection Cleanup Route Boundary
 
 Previous completed checkpoint: `6634f8f` Decode scheduler dead-letter bodies.

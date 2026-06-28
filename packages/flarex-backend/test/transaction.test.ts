@@ -3,6 +3,7 @@ import {
   PartitionRequestError,
   SingleShardTransaction,
 } from "../src/transaction";
+import { partitionObjectName } from "../src/routing";
 import type { DeploymentSchema, Env } from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
@@ -19,6 +20,40 @@ afterAll(async () => {
 });
 
 describe("SingleShardTransaction", () => {
+  it("rejects malformed partition schema-cache JSON at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("schema-cache-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/schema-cache", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects non-object partition schema-cache JSON at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("schema-cache-envelope-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/schema-cache", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify("schema"),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "schema-cache request body must be an object.",
+    });
+  });
+
   it("generates ids, exposes read-your-writes, and coalesces document writes", async () => {
     const tx = await SingleShardTransaction.begin(env, "tx-deployment", "user:u1");
 

@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `6634f8f` Decode scheduler dead-letter bodies.
-- Active checkpoint: decode SchedulerDO live-query connection cleanup bodies at the scheduler route boundary before executor cleanup calls run.
+- Previous completed checkpoint: `8de16fb` Decode scheduler cleanup bodies.
+- Active checkpoint: decode PartitionDO schema-cache bodies at a partition route boundary before schema-cache validation and SQL writes run.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 70 slice:
+Current Goal 71 slice:
+
+1. Add a backend-only `partition/RouteBoundary.ts` helper that reads `PUT /schema-cache` JSON once through the shared `readJson` boundary.
+2. Decode only the schema-cache transport envelope as a JSON object, preserving both current wrapped `{ partitionKey, schema }` bodies and legacy flat `{ partitionKey, version, tables, indexes }` bodies for `PartitionDO.putSchemaCache(...)`.
+3. Keep schema semantic validation, partition-key validation, table/index persistence, schema-version metadata writes, transaction ownership, commit/OCC behavior, subscription routes, document/index reads, public Worker forwarding, and `ValidatorJson` untouched.
+4. Use the decoded schema-cache request in `PartitionDO.fetch()` so malformed JSON and non-object envelopes are stopped before schema-cache validation and storage work.
+5. Add focused boundary tests for wrapped body decode, legacy flat body compatibility, invalid envelope mapping, malformed JSON handling, and a direct PartitionDO route test proving malformed schema-cache JSON returns `400 { error }`.
+6. Validate with focused partition boundary/transaction tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 70 slice:
 
 1. Extend the backend-only `scheduler/RouteBoundary.ts` helper to read `POST /cleanup/live-query-connections` JSON once through the shared `readJson` boundary.
 2. Move only the live-query connection cleanup request-envelope parser into that helper: required non-empty `deploymentId`, `projectId` from request or configured environment fallback, optional ISO `expiredAt`, and ignored extra fields.

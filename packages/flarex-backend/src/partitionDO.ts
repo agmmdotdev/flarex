@@ -3,6 +3,10 @@ import { errorResponse, HttpError, json, readJson } from "./http";
 import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
+import {
+  readPartitionSchemaCacheRequest,
+  type PartitionSchemaCacheRequest,
+} from "./partition/RouteBoundary";
 import type {
   BeginResponse,
   CommitRequest,
@@ -176,7 +180,9 @@ export class PartitionDO extends DurableObject<Env> {
         });
       }
       if (url.pathname === "/schema-cache" && request.method === "PUT") {
-        return json(await this.putSchemaCache(await readJson(request)));
+        return json(await this.putSchemaCache(
+          await readPartitionSchemaCacheRequest(request),
+        ));
       }
       if (url.pathname === "/begin" && request.method === "POST") {
         return json(this.begin());
@@ -236,41 +242,9 @@ export class PartitionDO extends DurableObject<Env> {
     return { beginTs: this.currentTs(), schemaVersion: this.schemaVersion() };
   }
 
-  private async putSchemaCache(body: {
-    partitionKey?: string;
-    schema?: {
-      version: number;
-      tables: Array<{
-        tableId: number;
-        name: string;
-        state?: string;
-        validator?: Json;
-        placement: Json;
-      }>;
-      indexes: Array<{
-        indexId: number;
-        tableId: number;
-        name: string;
-        fields: string[];
-        state?: string;
-      }>;
-    };
-    version?: number;
-    tables?: Array<{
-      tableId: number;
-      name: string;
-      state?: string;
-      validator?: Json;
-      placement: Json;
-    }>;
-    indexes?: Array<{
-      indexId: number;
-      tableId: number;
-      name: string;
-      fields: string[];
-      state?: string;
-    }>;
-  }): Promise<{ schemaVersion: number }> {
+  private async putSchemaCache(
+    body: PartitionSchemaCacheRequest,
+  ): Promise<{ schemaVersion: number }> {
     const schemaCandidate = body.schema ?? body;
     const partitionKey = body.partitionKey;
     if (typeof partitionKey !== "string" || partitionKey.length === 0) {
