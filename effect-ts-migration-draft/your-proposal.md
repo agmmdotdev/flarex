@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `652936f` Decode execution syscall bodies.
-- Active checkpoint: add protocol-only execution finish request schemas before wiring ExecutionDO finish parsing.
+- Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
+- Active checkpoint: wire execution finish request decoding through the ExecutionDO boundary while preserving return validation, commit behavior, and session cleanup.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 58 slice:
+Current Goal 59 slice:
+
+1. Add a backend-only execution finish route-boundary helper that reads JSON once, decodes through `parseExecutionFinishRequest`, maps `ExecutionProtocolValidationError` to `HttpError(400, ...)`, and adapts protocol `Json` to the backend mutable `Json` type.
+2. Use the finish helper in `ExecutionDO.fetch()` for internal `POST /finish`, leaving `ExecutionDO.finish(...)` return validation, query read-set response, mutation commit, and `finally` session cleanup unchanged.
+3. Preserve malformed public JSON behavior through the public Worker forwarding boundary: `400 { error: "Request body must be JSON." }`.
+4. Preserve valid unknown-session behavior: schema-valid finish bodies still reach `ExecutionDO.finish(...)` and return `409 { error: "Execution session has not started." }`.
+5. Preserve return-validation failure behavior and session cleanup after failed finish attempts.
+6. Do not touch Worker route matching, execution start, syscall, abort, PartitionDO, artifact runtime, executor-http, or `ValidatorJson` in this slice.
+7. Add focused helper and route tests proving successful decode/adaptation, protocol-invalid body mapping, malformed JSON mapping, invalid finish decode before session dispatch, valid unknown-session behavior, return-validation behavior, and cleanup after failed finish.
+8. Validate with focused finish boundary/session tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 58 slice:
 
 1. Add `ExecutionFinishRequest`, `ExecutionFinishRequestSchema`, and `parseExecutionFinishRequest` to `flarex-protocol/execution`.
 2. Model the current execution finish body as an object with required JSON `value`.

@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## Execution Finish Backend Route Boundary
+
+Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/FinishRouteBoundary.ts` owns
+  Durable Object finish JSON reading, protocol parsing,
+  protocol-error-to-HTTP mapping, and protocol JSON to backend JSON adaptation.
+- `ExecutionDO` still owns route matching, session state, return validation,
+  transaction completion, and cleanup.
+- `flarex-protocol/execution` remains transport-contract-only.
+
+Boundary decision:
+
+The protocol package validates the finish body shape. The backend route
+boundary adapts that shape to mutable runtime types and compatibility errors.
+`ExecutionDO.finish(...)` should continue to receive backend-native request
+types and own return validation, commit behavior, and cleanup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Protocol Package Boundary
 
 Previous completed checkpoint: `652936f` Decode execution syscall bodies.

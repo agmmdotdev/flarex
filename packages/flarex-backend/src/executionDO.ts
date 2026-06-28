@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { readExecutionFinishRequest } from "./execution/FinishRouteBoundary";
 import { readExecutionStartRequest } from "./execution/StartRouteBoundary";
 import { readExecutionSyscallRequest } from "./execution/SyscallRouteBoundary";
 import { HttpError } from "./http";
@@ -54,7 +55,7 @@ export class ExecutionDO extends DurableObject<Env> {
         return Response.json(await this.syscall(await readExecutionSyscallRequest(request)));
       }
       if (url.pathname === "/finish" && request.method === "POST") {
-        return Response.json(await this.finish(await request.json<ExecutionFinishRequest>()));
+        return Response.json(await this.finish(await readExecutionFinishRequest(request)));
       }
       if (url.pathname === "/abort" && request.method === "POST") {
         this.session = null;

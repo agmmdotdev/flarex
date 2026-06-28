@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Execution Finish Worker And DO Boundary
+
+Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
+
+What changed:
+
+- Added `packages/flarex-backend/src/execution/FinishRouteBoundary.ts` to
+  read finish JSON, decode through `flarex-protocol/execution`, map protocol
+  validation failures to `HttpError(400, ...)`, and adapt protocol JSON into
+  backend runtime `Json`.
+- `ExecutionDO.fetch()` now uses the helper for internal `POST /finish`.
+- `ExecutionDO.finish(...)`, return validation, query read-set response,
+  mutation commit behavior, and `finally` session cleanup are unchanged.
+- Execution start, syscall, abort, PartitionDO, artifact runtime, and
+  executor-http are unchanged.
+
+Why it changed:
+
+The previous checkpoint introduced the shared finish request protocol shape.
+This checkpoint removes unchecked `request.json<ExecutionFinishRequest>()`
+from the Durable Object finish boundary without changing transaction
+completion behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Request Protocol Boundary
 
 Previous completed checkpoint: `652936f` Decode execution syscall bodies.

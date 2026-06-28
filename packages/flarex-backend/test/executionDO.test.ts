@@ -153,6 +153,16 @@ describe("ExecutionDO sessions", () => {
 
     const tx = await SingleShardTransaction.begin(env, "execution-return-deployment", "u1");
     await expect(tx.get(1, "1:bad-return")).resolves.toBeNull();
+
+    const afterFailedFinish = await syscallResponse(
+      "execution-return-deployment",
+      start.sessionId,
+      { op: "get", id: "1:bad-return" },
+    );
+    expect(afterFailedFinish.status).toBe(409);
+    await expect(afterFailedFinish.json()).resolves.toEqual({
+      error: "Execution session has not started.",
+    });
   });
 
   it("runs create-root mutation sessions through preallocated root insert syscalls", async () => {
@@ -524,6 +534,41 @@ describe("ExecutionDO sessions", () => {
       error: "Request body must be JSON.",
     });
   });
+
+  it("decodes execution finish bodies before session dispatch", async () => {
+    const invalid = await finishExecutionResponse(
+      "execution-finish-boundary-deployment",
+      "missing-session",
+      {},
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error: "Execution finish request must include JSON value.",
+    });
+
+    const unknownSession = await finishExecutionResponse(
+      "execution-finish-boundary-deployment",
+      "missing-session",
+      { value: null },
+    );
+    expect(unknownSession.status).toBe(409);
+    await expect(unknownSession.json()).resolves.toEqual({
+      error: "Execution session has not started.",
+    });
+
+    const malformed = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-finish-boundary-deployment/executions/missing-session/finish",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+  });
 });
 
 function lessonSchema(): DeploymentSchema {
@@ -711,16 +756,26 @@ async function finishExecution(
   sessionId: string,
   value: unknown,
 ): Promise<InvokeResponse> {
-  const response = await harness.mf.dispatchFetch(
+  const response = await finishExecutionResponse(deploymentId, sessionId, {
+    value,
+  });
+  expect(response.ok).toBe(true);
+  return response.json() as Promise<InvokeResponse>;
+}
+
+async function finishExecutionResponse(
+  deploymentId: string,
+  sessionId: string,
+  body: unknown,
+): Promise<TestResponse> {
+  return harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/executions/${sessionId}/finish`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ value }),
+      body: JSON.stringify(body),
     },
   );
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<InvokeResponse>;
 }
 
 function startExecutionResult(value: unknown): { sessionId: string; beginTs: number } {

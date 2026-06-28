@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Execution Finish Decode Boundary
+
+Previous completed checkpoint: `e77e2eb` Add execution finish protocol body.
+
+What changed:
+
+- `ExecutionDO.fetch()` now decodes `POST /finish` bodies through the shared
+  execution finish protocol parser before dispatching to
+  `ExecutionDO.finish(...)`.
+- Protocol-invalid finish bodies become the existing backend `{ error }` 400
+  response envelope through `HttpError`.
+- Schema-valid unknown-session finish bodies still reach the unchanged session
+  guard and return `409 Execution session has not started.`
+- Return validation, query read-set responses, mutation commits, session
+  cleanup, start/syscall, abort, PartitionDO behavior, and executor-http are
+  unchanged.
+
+Why it changed:
+
+This is the live Durable Object follow-up to the protocol-only finish body
+checkpoint. It makes the transaction completion boundary schema-first without
+changing commit or cleanup semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Finish Protocol Shape
 
 Previous completed checkpoint: `652936f` Decode execution syscall bodies.
