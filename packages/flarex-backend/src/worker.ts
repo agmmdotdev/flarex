@@ -31,7 +31,7 @@ import {
   readPublicFinishPushJson,
   readPublicStartPushJson,
 } from "./deployment/PublicPushRouteBoundary";
-import { errorResponse, HttpError, json, readJson, required } from "./http";
+import { errorResponse, HttpError, json, required } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
@@ -268,15 +268,6 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   return json({ error: "Not found." }, { status: 404 });
-}
-
-async function forwardLiveQuerySchedulerRequest(
-  request: Request,
-  env: Env,
-  internalPath: LiveQuerySchedulerInternalPath,
-): Promise<Response> {
-  authorizeLiveQueryDeliveryRequest(request, env);
-  return forwardLiveQuerySchedulerBody(await readJson(request), env, internalPath);
 }
 
 async function forwardLiveQuerySchedulerBody(

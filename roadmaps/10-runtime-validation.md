@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Scheduler Forwarding Cleanup
+
+Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.
+
+What changed:
+
+- Removed the unused `forwardLiveQuerySchedulerRequest(...)` helper from
+  `packages/flarex-backend/src/worker.ts`.
+- Removed the last direct `readJson` import from `worker.ts`.
+- Public Worker scheduler routes now read JSON through explicit route-boundary
+  helpers before calling `forwardLiveQuerySchedulerBody(...)`.
+- Public scheduler route paths, authorization ordering, parsed-body forwarding,
+  SchedulerDO execution, delivery fanout, continuation behavior, deployment push
+  routes, partition routes, delivery routes, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The generic scheduler forwarding helper was useful while some public scheduler
+routes still accepted raw forwarded JSON. After delivery reconcile, connection
+reconcile, dead-letter, cleanup, rerun, and trigger all moved behind explicit
+public boundary readers, the helper only preserved a stale unchecked path in
+`worker.ts`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query subscription trigger JSON|rejects malformed live query subscription rerun JSON|triggers stale live query reruns"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Scheduler Subscription Trigger Boundary
 
 Previous completed checkpoint: `df60d8b` Decode public scheduler rerun bodies.

@@ -2,13 +2,20 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `6644926` Decode public scheduler trigger bodies.
-- Active checkpoint: move public Worker finish-push raw JSON reading into the deployment push route boundary while preserving artifact-preflight response ordering.
+- Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.
+- Active checkpoint: retire the generic public scheduler forwarding helper now that every public scheduler route has an explicit typed boundary reader.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 83 slice:
+Current Goal 84 slice:
+
+1. Remove the unused `forwardLiveQuerySchedulerRequest(...)` helper from `worker.ts`.
+2. Remove the last direct `readJson` import from `worker.ts`; public Worker scheduler JSON reads now live in route-boundary modules.
+3. Keep all public scheduler route paths, authorization ordering, parsed-body forwarding, SchedulerDO execution, delivery fanout, continuation behavior, deployment push routes, partition routes, delivery routes, executor-http routes, and `ValidatorJson` untouched.
+4. Validate with focused public scheduler route tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 83 slice:
 
 1. Extend `deployment/PublicPushRouteBoundary.ts` with a raw finish-push JSON reader so `worker.ts` no longer owns direct `readJson` parsing for the public finish route.
 2. Keep the existing public `POST /deployments/:deploymentId/push/:pushId/finish` response order: malformed JSON returns `400`, missing stored execution artifacts can still return the existing `409` before finish-push protocol validation, and valid bodies are parsed before forwarding to DeploymentDO.

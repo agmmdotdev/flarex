@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Scheduler Forwarding Helper Cleanup
+
+Previous completed checkpoint: `71c187b` Move finish push JSON read into boundary.
+
+What changed:
+
+- Removed the unused `forwardLiveQuerySchedulerRequest(...)` helper from
+  `packages/flarex-backend/src/worker.ts`.
+- `worker.ts` no longer imports `readJson` directly.
+- Public Worker scheduler request-body ownership now sits in
+  `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` and the shared
+  scheduler route-boundary parser, not in a generic Worker forwarding helper.
+- Public scheduler route paths, authorization ordering, parsed-body forwarding,
+  SchedulerDO execution, delivery fanout, continuation behavior, deployment push
+  routes, partition routes, delivery routes, executor-http routes, and
+  `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The Worker still owns public scheduler routing and authorization. The route
+boundary modules own JSON decoding and request normalization. Removing the
+generic raw request forwarder keeps that ownership visible and prevents future
+public scheduler routes from bypassing the typed boundary by accident.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public scheduler route boundary|rejects malformed live query subscription trigger JSON|rejects malformed live query subscription rerun JSON|triggers stale live query reruns"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Deployment Finish Push Raw Body Boundary
 
 Previous completed checkpoint: `6644926` Decode public scheduler trigger bodies.
