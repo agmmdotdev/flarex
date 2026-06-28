@@ -202,6 +202,12 @@ export class PushSourcePackage extends Schema.Class<PushSourcePackage>(
   execution: Schema.String,
 }) {}
 
+export class StartPushRequest extends Schema.Class<StartPushRequest>(
+  "StartPushRequest",
+)({
+  sourcePackage: PushSourcePackage,
+}) {}
+
 export class PushDiagnostic extends Schema.Class<PushDiagnostic>("PushDiagnostic")({
   level: Schema.Union([
     Schema.Literal("log"),
@@ -478,6 +484,7 @@ const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodeg
 const decodeFinishPushRequest = Schema.decodeUnknownSync(FinishPushRequest);
 const decodeFinishPushResponse = Schema.decodeUnknownSync(FinishPushResponse);
 const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
+const decodeStartPushRequest = Schema.decodeUnknownSync(StartPushRequest);
 const decodePushStatus = Schema.decodeUnknownSync(PushStatus);
 
 export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
@@ -539,6 +546,32 @@ export function parsePushSourcePackage(value: unknown): PushSourcePackage {
     throw new DeploymentProtocolValidationError({
       schema: "PushSourcePackage",
       message: "Source package must include modules, functions, and execution fields with valid module entries.",
+      cause,
+    });
+  }
+}
+
+export function parseStartPushRequest(value: unknown): StartPushRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new DeploymentProtocolValidationError({
+      schema: "StartPushRequest",
+      message: "Start push request must be an object.",
+      cause: value,
+    });
+  }
+  if (!("sourcePackage" in value)) {
+    throw new DeploymentProtocolValidationError({
+      schema: "StartPushRequest",
+      message: "Start push request must include sourcePackage.",
+      cause: value,
+    });
+  }
+  try {
+    return decodeStartPushRequest(value);
+  } catch (cause) {
+    throw new DeploymentProtocolValidationError({
+      schema: "StartPushRequest",
+      message: "Start push request must include a valid sourcePackage.",
       cause,
     });
   }

@@ -17,9 +17,11 @@ import { DeliveryDO } from "./deliveryDO";
 import { DeploymentDO } from "./deploymentDO";
 import {
   deploymentProtocolValidationErrorResponse,
+  parsePublicStartPushRequest,
   parsePublicFinishPushRequest,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
+  readPublicStartPushJson,
 } from "./deployment/PublicPushRouteBoundary";
 import { errorResponse, HttpError, json, readJson, required } from "./http";
 import { ExecutionDO } from "./executionDO";
@@ -52,12 +54,10 @@ import {
   type LiveQuerySchedulerInternalPath,
 } from "./schedulerRoutes";
 import type {
-  AbandonPushRequest,
   AnalyzedStartPushRequest,
   CommitRequest,
   DeploymentSchema,
   Env,
-  FinishPushRequest,
   InvokeRequest,
   Json,
   PushDiagnostic,
@@ -264,7 +264,7 @@ async function routeDeploymentPush(
 ): Promise<Response> {
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
   if (parts[0] === "start" && request.method === "POST") {
-    const body = await readJson<StartPushRequest>(request);
+    const rawBody = await readPublicStartPushJson(request);
     if (env.FLAREX_ANALYZER === undefined) {
       return json(
         {
@@ -274,6 +274,7 @@ async function routeDeploymentPush(
         { status: 501 },
       );
     }
+    const body = parsePublicStartPushRequest(rawBody);
     const analyzed = await analyzeSourcePackage(env.FLAREX_ANALYZER, deploymentId, body);
     await persistAnalyzedSourcePackage(env, analyzed);
     return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {

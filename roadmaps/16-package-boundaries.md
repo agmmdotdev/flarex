@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Public Source-Only Push Protocol Boundary
+
+Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
+
+What changed:
+
+- `flarex-protocol/deployment` now owns the source-only `StartPushRequest`
+  schema and parser.
+- `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts` adapts
+  the protocol-decoded source package back into the backend's existing mutable
+  `StartPushRequest` shape for analyzer code.
+- `worker.ts` still owns the analyzer configuration branch, analyzer service
+  call, artifact persistence, and Durable Object forwarding.
+
+Boundary decision:
+
+The protocol package should describe the public transport body, but it should
+not force readonly schema-class DTOs through backend analyzer code that already
+uses mutable local request types. The public boundary is the right place to
+decode and adapt between those shapes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Deployment Push Protocol Boundary
 
 Previous completed checkpoint: `e81a139` Route registry through HttpApi.

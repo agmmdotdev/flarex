@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e81a139` Route registry through HttpApi.
-- Active checkpoint: decode public deployment-push request bodies with deployment protocol parsers before forwarding to DeploymentDO.
+- Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
+- Active checkpoint: decode public source-only push requests with the deployment protocol parser while preserving analyzer-not-configured behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 50 slice:
+Current Goal 51 slice:
+
+1. Add a `StartPushRequest` schema and `parseStartPushRequest` parser to `flarex-protocol/deployment`, covering the public source-only `{ sourcePackage }` push request.
+2. Extend the backend public deployment push route boundary with a raw JSON reader and a `parsePublicStartPushRequest(...)` adapter that decodes through the protocol parser and returns the existing backend `StartPushRequest` shape.
+3. Preserve existing public `/push/start` ordering: malformed JSON still returns `400 Request body must be JSON.`, but schema-invalid JSON still returns the analyzer-not-configured `501` when `FLAREX_ANALYZER` is absent.
+4. When `FLAREX_ANALYZER` is configured, reject schema-invalid source-only push bodies at the public Worker edge with the existing `{ error: string }` 400 envelope.
+5. Do not change analyzer request/response behavior, artifact persistence, DeploymentDO internal routing, analyzed-start behavior, route paths, response bodies, deep deployment semantic validation, or `ValidatorJson`.
+6. Add focused protocol/helper/public route tests proving source-only parsing, no-analyzer ordering, analyzer-configured invalid-body behavior, and invalid JSON behavior.
+7. Validate with focused public deployment-push boundary/push/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 50 slice:
 
 1. Add a backend-only public deployment push route-boundary helper that reads JSON once and decodes public `start-analyzed`, `finish`, and `abandon` bodies with the existing `flarex-protocol/deployment` parsers.
 2. Map `DeploymentProtocolValidationError` at the public Worker edge to the existing `{ error: string }` 400 response envelope.

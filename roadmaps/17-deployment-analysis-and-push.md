@@ -1,5 +1,40 @@
 # Deployment Analysis And Push
 
+## Public Source-Only Push Body Boundary
+
+Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
+
+What changed:
+
+- Added protocol parsing for the public source-only `POST /push/start` body.
+- Kept the route's existing analyzer-not-configured priority: after valid JSON,
+  the Worker still returns the explicit `501` before source-package schema
+  validation when `FLAREX_ANALYZER` is absent.
+- When an analyzer binding is configured, malformed source-only push bodies now
+  fail at the public Worker protocol boundary before the analyzer request is
+  sent.
+- Analyzer response handling, artifact persistence, and internal
+  `/push/start-analyzed` forwarding are unchanged.
+
+Why it changed:
+
+The source-only push route was the last public deployment-push mutation still
+using an unchecked request-body cast. Adding the parser here completes the
+public push body boundary without expanding into analyzer output semantics or
+DeploymentDO storage behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Deployment Push Body Boundary
 
 Previous completed checkpoint: `e81a139` Route registry through HttpApi.

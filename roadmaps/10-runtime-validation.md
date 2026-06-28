@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Public Source-Only Push Protocol Boundary
+
+Previous completed checkpoint: `65dd151` Decode public deployment push bodies.
+
+What changed:
+
+- Added a `StartPushRequest` protocol schema/parser for the public
+  source-only `{ sourcePackage }` push request.
+- Public Worker `/push/start` now reads raw JSON first, preserves the existing
+  analyzer-not-configured `501` response, then protocol-decodes the request
+  only when analyzer forwarding will run.
+- The backend public push boundary normalizes the protocol-decoded source
+  package back into the existing backend `StartPushRequest` shape before
+  calling the analyzer.
+- Malformed JSON remains the shared `400 Request body must be JSON.`
+  boundary.
+
+Why it changed:
+
+The previous checkpoint removed unchecked casts from public analyzed-start,
+finish, and abandon push bodies. Source-only push was the remaining public
+deployment-push body cast, but it has a compatibility-sensitive analyzer
+configuration branch. This slice makes that boundary schema-first without
+changing the no-analyzer response contract.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Public Deployment Push Protocol Boundary
 
 Previous completed checkpoint: `e81a139` Route registry through HttpApi.

@@ -103,6 +103,15 @@ describe("deployment push lifecycle", () => {
       error:
         "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
     });
+
+    const invalidSourcePackage = await startSourceOnlyPushResponse("push-source-only", {
+      sourcePackage: { ...sourcePackage(), modules: "not-modules" },
+    } as unknown as StartPushRequest);
+    expect(invalidSourcePackage.status).toBe(501);
+    await expect(invalidSourcePackage.json()).resolves.toEqual({
+      error:
+        "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+    });
   });
 
   it("rejects malformed analyzed push request bodies", async () => {
@@ -237,6 +246,46 @@ describe("deployment push lifecycle", () => {
       await expect(getActiveDeploymentWithHarness(analyzerHarness, "push-source-analyzed"))
         .resolves
         .toMatchObject({ codegenAnalysis });
+    } finally {
+      await analyzerHarness.dispose();
+    }
+  });
+
+  it("rejects malformed source-only push bodies when analyzer forwarding is configured", async () => {
+    const analyzerHarness = await createBackendHarness({
+      serviceBindings: {
+        FLAREX_ANALYZER: async () => Response.json({
+          analysis: {
+            schema: dualFunctionSchema(),
+            functions: dualFunctions(),
+          },
+          codegenAnalysis: reversedDualFunctionCodegenAnalysis(),
+        }),
+      },
+    });
+    try {
+      const invalidJson = await analyzerHarness.mf.dispatchFetch(
+        "http://flarex.test/deployments/push-source-only-bad-body/push/start",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        },
+      );
+      expect(invalidJson.status).toBe(400);
+      await expect(invalidJson.json()).resolves.toEqual({
+        error: "Request body must be JSON.",
+      });
+
+      const invalidSourcePackage = await startSourceOnlyPushResponseWithHarness(
+        analyzerHarness,
+        "push-source-only-bad-body",
+        { sourcePackage: { ...sourcePackage(), modules: "not-modules" } } as unknown as StartPushRequest,
+      );
+      expect(invalidSourcePackage.status).toBe(400);
+      await expect(invalidSourcePackage.json()).resolves.toEqual({
+        error: "Start push request must include a valid sourcePackage.",
+      });
     } finally {
       await analyzerHarness.dispose();
     }

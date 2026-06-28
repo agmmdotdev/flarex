@@ -3,11 +3,35 @@ import {
   parseAbandonPushRequest,
   parseAnalyzedStartPushRequest,
   parseFinishPushRequest,
+  parseStartPushRequest,
   type AbandonPushRequest,
   type AnalyzedStartPushRequest,
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
 import { json, readJson } from "../http";
+import type { StartPushRequest } from "../types";
+
+export async function readPublicStartPushJson(request: Request): Promise<unknown> {
+  return readJson(request);
+}
+
+export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
+  const request = parseStartPushRequest(body);
+  return {
+    sourcePackage: {
+      modules: request.sourcePackage.modules.map(module => ({
+        path: module.path,
+        environment: module.environment,
+        sha256: module.sha256,
+        ...(module.source === undefined ? {} : { source: module.source }),
+        ...(module.sourceMap === undefined ? {} : { sourceMap: module.sourceMap }),
+      })),
+      functions: [...request.sourcePackage.functions],
+      ...(request.sourcePackage.schema === undefined ? {} : { schema: request.sourcePackage.schema }),
+      execution: request.sourcePackage.execution,
+    },
+  };
+}
 
 export async function readPublicAnalyzedStartPushRequest(
   request: Request,

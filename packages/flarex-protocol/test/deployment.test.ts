@@ -20,6 +20,7 @@ import {
   parseFinishPushRequest,
   parseFinishPushResponse,
   parsePushStatus,
+  parseStartPushRequest,
   RejectedFinishPushSuccess,
 } from "../src/deployment";
 
@@ -155,6 +156,17 @@ describe("deployment protocol schemas", () => {
 
     expect(request.analysis).toBeNull();
     expect(request.codegenAnalysis).toEqual({ not: "validated here" });
+  });
+
+  it("parses source-only start push request bodies", () => {
+    expect(parseStartPushRequest({ sourcePackage: sourcePackage() })).toEqual({
+      sourcePackage: sourcePackage(),
+    });
+    expect(() => parseStartPushRequest(null)).toThrow(DeploymentProtocolValidationError);
+    expect(() => parseStartPushRequest({})).toThrow(DeploymentProtocolValidationError);
+    expect(() => parseStartPushRequest({
+      sourcePackage: { ...sourcePackage(), modules: "not-modules" },
+    })).toThrow(DeploymentProtocolValidationError);
   });
 
   it("parses finish push request bodies", () => {

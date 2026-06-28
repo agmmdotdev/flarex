@@ -4,12 +4,25 @@ import { HttpError } from "../src/http";
 import {
   deploymentProtocolValidationErrorResponse,
   parsePublicFinishPushRequest,
+  parsePublicStartPushRequest,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
   readPublicFinishPushRequest,
+  readPublicStartPushJson,
 } from "../src/deployment/PublicPushRouteBoundary";
 
 describe("public deployment push route boundary", () => {
+  it("reads source-only start-push JSON separately from protocol parsing", async () => {
+    const body = {
+      sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
+    };
+
+    await expect(readPublicStartPushJson(jsonRequest(body))).resolves.toEqual(body);
+    expect(parsePublicStartPushRequest(body)).toEqual(body);
+    expect(() => parsePublicStartPushRequest({}))
+      .toThrow("Start push request must include sourcePackage.");
+  });
+
   it("decodes public analyzed start-push bodies with the deployment protocol parser", async () => {
     await expect(readPublicAnalyzedStartPushRequest(jsonRequest({
       sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
