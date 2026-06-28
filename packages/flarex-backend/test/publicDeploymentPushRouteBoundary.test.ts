@@ -6,6 +6,7 @@ import {
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
   decodePublicFinishPushRequest,
+  decodePublicStartPushRequest,
   deploymentProtocolValidationErrorResponse,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
@@ -14,10 +15,12 @@ import {
   parsePublicFinishPushRequest,
   parsePublicFinishPushRequestEffect,
   parsePublicStartPushRequest,
+  parsePublicStartPushRequestEffect,
   readPublicAbandonPushRequest,
   readPublicAnalyzedStartPushRequest,
   readPublicFinishPushJson,
   readPublicFinishPushRequest,
+  readPublicStartPushRequest,
   readPublicStartPushJson,
 } from "../src/deployment/PublicPushRouteBoundary";
 
@@ -33,9 +36,22 @@ describe("public deployment push route boundary", () => {
     };
 
     await expect(readPublicStartPushJson(jsonRequest(body))).resolves.toEqual(body);
+    await expect(readPublicStartPushRequest(jsonRequest(body))).resolves.toEqual(body);
+    await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest(body))))
+      .resolves
+      .toEqual(body);
     expect(parsePublicStartPushRequest(body)).toEqual(body);
+    await expect(Effect.runPromise(parsePublicStartPushRequestEffect(body)))
+      .resolves
+      .toEqual(body);
     expect(() => parsePublicStartPushRequest({}))
       .toThrow("Start push request must include sourcePackage.");
+    await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest({}))))
+      .rejects
+      .toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parsePublicStartPushRequestEffect({})))
+      .rejects
+      .toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
   it("decodes public analyzed start-push bodies with the deployment protocol parser", async () => {
@@ -107,6 +123,27 @@ describe("public deployment push route boundary", () => {
   });
 
   it("keeps malformed JSON as the shared HttpError boundary", async () => {
+    await expect(readPublicStartPushJson(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+    await expect(readPublicStartPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicStartPushRequest(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(readPublicFinishPushRequest(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -20,7 +20,19 @@ import {
 import type { StartPushRequest } from "../types";
 
 export async function readPublicStartPushJson(request: Request): Promise<unknown> {
-  return readJson(request);
+  return await runPublicDeploymentJsonRequest(readJsonEffect(request));
+}
+
+export async function readPublicStartPushRequest(
+  request: Request,
+): Promise<StartPushRequest> {
+  return await runPublicDeploymentRouteRequest(decodePublicStartPushRequest(request));
+}
+
+export function decodePublicStartPushRequest(
+  request: Request,
+): Effect.Effect<StartPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
+  return decodePublicDeploymentRouteRequest(request, parsePublicStartPushRequestEffect);
 }
 
 export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
@@ -39,6 +51,12 @@ export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
       execution: request.sourcePackage.execution,
     },
   };
+}
+
+export function parsePublicStartPushRequestEffect(
+  body: unknown,
+): Effect.Effect<StartPushRequest, DeploymentProtocolValidationError> {
+  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicStartPushRequest);
 }
 
 export async function readPublicAnalyzedStartPushRequest(

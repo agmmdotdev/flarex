@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `67bba2f` Add typed public analyzed start decoder.
-- Active checkpoint: convert the public finish-push body boundary to Effect-typed JSON and protocol decoders while preserving the Worker artifact-preflight ordering.
+- Previous completed checkpoint: `bbc9578` Add typed public finish decoder.
+- Active checkpoint: convert the public source-only push body boundary to Effect-typed JSON and protocol helpers while preserving the Worker no-analyzer ordering.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,17 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 97 slice:
+Current Goal 98 slice:
+
+1. Add `decodePublicStartPushRequest(...)` and `parsePublicStartPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public source-only push body parsing exposes `Effect.Effect<StartPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
+2. Keep `readPublicStartPushRequest(...)` as a compatibility wrapper around the full typed decoder for direct callers and future consolidation.
+3. Keep `readPublicStartPushJson(...)` as the Worker-facing JSON-only compatibility wrapper, backed by `readJsonEffect(...)`, so malformed JSON still returns the shared `HttpError(400, "Request body must be JSON.")` before the no-analyzer branch.
+4. Keep `parsePublicStartPushRequest(...)` as the Worker-facing post-analyzer-availability protocol parser and add `parsePublicStartPushRequestEffect(...)` for typed protocol-channel tests.
+5. Preserve current public source-only ordering: malformed JSON is checked before the `FLAREX_ANALYZER` binding check, but schema-invalid source-only bodies still return the existing no-analyzer `501` when no analyzer is configured.
+6. Keep public Worker route paths, Worker forwarding, analyzer request/response behavior, analyzed package persistence, `DeploymentDO` generated-handler routing, deployment push finish/analyzed-start/abandon behavior, SQL statements, response bodies, request validation messages, protocol schemas, and `ValidatorJson` unchanged.
+7. Validate with focused public source-only route-boundary tests, focused public push parity tests proving no-analyzer and analyzer-configured ordering, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 97 slice:
 
 1. Add `decodePublicFinishPushRequest(...)` and `parsePublicFinishPushRequestEffect(...)` to `deployment/PublicPushRouteBoundary.ts` so public finish-push body parsing exposes `Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError>`.
 2. Keep `readPublicFinishPushRequest(...)` as a compatibility wrapper around the full typed decoder for direct callers.
