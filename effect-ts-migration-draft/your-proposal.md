@@ -2,13 +2,24 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a6b81ff` Tighten deployment abandon service boundary.
-- Active checkpoint: route DeploymentDO read traffic through the generated Deployment HttpApi web handler.
+- Previous completed checkpoint: `489ae2e` Route deployment read paths through HttpApi.
+- Active checkpoint: route compatible DeploymentDO abandon-push traffic through the generated Deployment HttpApi web handler.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 44 slice:
+Current Goal 45 slice:
+
+1. Route `POST /push/:pushId/abandon` through the `DeploymentDO`-owned generated Deployment HttpApi web handler after preserving the existing body boundary.
+2. Keep `DeploymentDO.fetch()` responsible for malformed JSON and `parseAbandonPushRequest` compatibility so existing invalid-body messages remain unchanged.
+3. Rebuild a canonical JSON request for the generated handler after the compatibility parse succeeds, allowing `DeploymentApiHandlers.abandonPush` to own the service call, typed error mapping, and response protocol parsing.
+4. Keep read routes on the generated handler from Goal 44.
+5. Keep analyzed start-push and finish-push on the existing plain router; do not change their request parsing, status mapping, artifact preflight, or response semantics in this slice.
+6. Add focused route coverage proving successful abandon, malformed abandon bodies, terminal-state 409, and unknown-push 404 remain unchanged with the generated handler in the success/error path.
+7. Do not change route paths, response bodies, request validation messages, SQL statements, service/store orchestration, worker forwarding, protocol schemas, or `ValidatorJson`.
+8. Validate with focused abandon/handler/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 44 slice:
 
 1. Add a `DeploymentDO`-owned generated Deployment HttpApi web handler by composing `makeDeploymentApiWebHandler(makeDeploymentLayer(this.ctx.storage, this.sql))` per Durable Object instance.
 2. Route only the current read-safe internal paths through that generated handler in this slice: `GET /health`, `GET /deployment`, and `GET /push/:pushId`.

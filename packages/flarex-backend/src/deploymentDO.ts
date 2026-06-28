@@ -75,7 +75,7 @@ export class DeploymentDO extends DurableObject<Env> {
         }
         if (action === DeploymentPushAction.abandon && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));
-          return json(await this.runDeploymentService(service => service.abandonPush(pushId, body)));
+          return this.deploymentApi.handler(jsonRequest(url, body));
         }
       }
       return json({ error: "Not found." }, { status: 404 });
@@ -113,6 +113,14 @@ export class DeploymentDO extends DurableObject<Env> {
     }
     return result.value;
   }
+}
+
+function jsonRequest(url: URL, body: unknown): Request {
+  return new Request(url.toString(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 function isDeploymentApiReadRoute(request: Request, url: URL): boolean {

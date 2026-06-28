@@ -1,5 +1,57 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Abandon Route Wiring
+
+Previous completed checkpoint: `489ae2e` Route deployment read paths through
+HttpApi.
+
+What changed:
+
+- Routed compatible `POST /push/:pushId/abandon` traffic through the
+  `DeploymentDO`-owned generated Deployment HttpApi web handler.
+- Preserved the existing `DeploymentDO` malformed-body compatibility boundary:
+  invalid JSON and invalid abandon request shapes are still parsed with
+  `readJson` plus `parseAbandonPushRequest` before the generated handler runs.
+- Rebuilt a canonical JSON request for the generated handler after successful
+  compatibility parsing, so `DeploymentApiHandlers.abandonPush` owns the
+  service call, typed error mapping, and response protocol parsing.
+- Kept analyzed start-push and finish-push on the existing plain router.
+
+Why it changed:
+
+Abandon-push now has the smallest mutation surface: service orchestration,
+typed errors, reason normalization, and route compatibility are already locked.
+Routing it through the generated handler moves the migration beyond reads while
+avoiding a body-parser behavior change.
+
+Convex references inspected:
+
+- No new Convex source files were required. This remains a Flarex-specific
+  Durable Object HTTP boundary migration.
+
+Flarex differences:
+
+- The generated handler does not yet own malformed body parsing for abandon,
+  because preserving existing public messages is more important than removing
+  the compatibility pre-parse in this slice.
+
+Known limitations:
+
+- Start-push and finish-push mutation routes still use the plain router.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/push.test.ts -t "abandon"
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment HttpApi Read Route Wiring
 
 Previous completed checkpoint: `a6b81ff` Tighten deployment abandon service

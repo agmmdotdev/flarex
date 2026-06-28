@@ -122,6 +122,52 @@ describe("DeploymentApiHandlers", () => {
     }
   });
 
+  it("handles abandon-push mutations through the Worker-compatible web handler", async () => {
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer());
+    try {
+      const abandoned = await handler(new Request(
+        "https://deployment.test/push/push-web-abandon/abandon",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      ));
+
+      expect(abandoned.status).toBe(200);
+      const abandonedBody: unknown = await abandoned.json();
+      expect(parsePushStatus(abandonedBody)).toMatchObject({
+        pushId: "push-web-abandon",
+        state: "abandoned",
+        error: "Push abandoned before activation.",
+      });
+
+      const conflict = makeDeploymentApiWebHandler(deploymentTestLayer({
+        getPush: pushId => Effect.succeed(pushStatus(pushId, "activated")),
+      }));
+      try {
+        const conflictResponse = await conflict.handler(new Request(
+          "https://deployment.test/push/push-web-abandon-conflict/abandon",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        ));
+
+        expect(conflictResponse.status).toBe(409);
+        const conflictBody: unknown = await conflictResponse.json();
+        expect(parseDeploymentErrorResponse(conflictBody)).toEqual({
+          error: "Cannot abandon push push-web-abandon-conflict in state activated.",
+        });
+      } finally {
+        await conflict.dispose();
+      }
+    } finally {
+      await dispose();
+    }
+  });
+
   it("maps service failures to declared DeploymentApi error response bodies", () => {
     expectMappedFailure(
       deploymentHttpErrorToReadResponse,
