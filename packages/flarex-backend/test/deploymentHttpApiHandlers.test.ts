@@ -6,8 +6,11 @@ import {
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
   DeploymentNotFoundErrorResponse,
+  DeploymentRoute,
   DeploymentStorageErrorResponse,
   parseDeploymentErrorResponse,
+  parseDeploymentHealthResponse,
+  parsePushStatus,
 } from "flarex-protocol/deployment";
 import {
   deploymentHttpErrorToAbandonResponse,
@@ -17,6 +20,7 @@ import {
   DeploymentApiHandlers,
   startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
+import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
 import { deploymentFailureToHttpError } from "../src/deployment/HttpBoundary";
 import {
   DeploymentActiveDeploymentNotFoundError,
@@ -58,6 +62,63 @@ describe("DeploymentApiHandlers", () => {
       ]);
     } finally {
       await runtime.dispose();
+    }
+  });
+
+  it("creates a Worker-compatible web handler for current DeploymentApi routes", async () => {
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer());
+    try {
+      const health = await handler(new Request(`https://deployment.test${DeploymentRoute.health}`));
+      expect(health.status).toBe(200);
+      const healthBody: unknown = await health.json();
+      expect(parseDeploymentHealthResponse(healthBody)).toEqual({
+        service: "flarex-deployment",
+        status: "ok",
+      });
+
+      const push = await handler(new Request("https://deployment.test/push/push-web-handler"));
+      expect(push.status).toBe(200);
+      const pushBody: unknown = await push.json();
+      expect(parsePushStatus(pushBody).pushId).toBe("push-web-handler");
+
+      const invalidStart = await handler(new Request(
+        `https://deployment.test${DeploymentRoute.startAnalyzedPush}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sourcePackage: sourcePackage() }),
+        },
+      ));
+      expect(invalidStart.status).toBe(400);
+      const invalidStartBody: unknown = await invalidStart.json();
+      expect(parseDeploymentErrorResponse(invalidStartBody)).toEqual({
+        error: "A push without analysis must include an error message.",
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("maps service response protocol mismatches to declared storage errors", async () => {
+    const { handler, dispose } = makeDeploymentApiWebHandler(deploymentTestLayer({
+      getPush: pushId => {
+        const malformedPushStatus = {
+          ...pushStatus(pushId),
+          state: "missing-state",
+        };
+        return Effect.succeed(malformedPushStatus as unknown as PushStatus);
+      },
+    }));
+    try {
+      const response = await handler(new Request("https://deployment.test/push/malformed-push"));
+
+      expect(response.status).toBe(500);
+      const body: unknown = await response.json();
+      expect(parseDeploymentErrorResponse(body)).toEqual({
+        error: "Deployment push response did not match the deployment protocol.",
+      });
+    } finally {
+      await dispose();
     }
   });
 
@@ -184,13 +245,17 @@ type DeploymentApiErrorInstance =
   | DeploymentNotFoundErrorResponse
   | DeploymentStorageErrorResponse;
 
-function deploymentTestLayer() {
+interface DeploymentTestLayerOverrides {
+  readonly getPush?: (pushId: string) => Effect.Effect<PushStatus>;
+}
+
+function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {
   return DeploymentService.layer.pipe(
     Layer.provide(
       Layer.succeed(
         DeploymentPushStore,
         DeploymentPushStore.of({
-          getPush: pushId => Effect.succeed(pushStatus(pushId)),
+          getPush: overrides.getPush ?? (pushId => Effect.succeed(pushStatus(pushId))),
           getActiveDeployment: () => Effect.succeed(activeDeploymentStatus()),
           startAnalyzedPush: input => Effect.succeed(pushStatus(input.pushId)),
           finishPush: input => Effect.succeed({

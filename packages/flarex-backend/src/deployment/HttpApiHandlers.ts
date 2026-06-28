@@ -9,7 +9,10 @@ import {
   DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
   DeploymentStorageErrorResponse,
+  parseActiveDeploymentStatus,
   parseAnalyzedStartPushRequest,
+  parseFinishPushResponse,
+  parsePushStatus,
 } from "flarex-protocol/deployment";
 import { HttpError } from "../http";
 import {
@@ -57,26 +60,34 @@ export const DeploymentApiHandlers = HttpApiBuilder.group(
         }))
       )
       .handle("getActiveDeployment", () =>
-        mapDeploymentReadFailure(deployment.getActiveDeployment())
+        mapDeploymentReadFailure(deployment.getActiveDeployment()).pipe(
+          Effect.flatMap(parseActiveDeploymentStatusForHttpApi),
+        )
       )
       .handle("getPush", ({ params }) =>
-        mapDeploymentReadFailure(deployment.getPush(params.pushId))
+        mapDeploymentReadFailure(deployment.getPush(params.pushId)).pipe(
+          Effect.flatMap(parsePushStatusForHttpApi),
+        )
       )
       .handle("startAnalyzedPush", ({ payload }) =>
-        mapDeploymentStartFailure(
-          decodeStartAnalyzedPushHandlerInput(payload).pipe(
-            Effect.flatMap(input => deployment.startAnalyzedPush(input)),
-          ),
+        decodeStartAnalyzedPushHandlerInput(payload).pipe(
+          Effect.flatMap(input => deployment.startAnalyzedPush(input)),
+          mapDeploymentStartFailure,
+          Effect.flatMap(parsePushStatusForHttpApi),
         )
       )
       .handle("finishPush", ({ params }) =>
-        mapDeploymentFinishFailure(deployment.finishPush(params.pushId))
+        mapDeploymentFinishFailure(deployment.finishPush(params.pushId)).pipe(
+          Effect.flatMap(parseFinishPushResponseForHttpApi),
+        )
       )
       .handle("abandonPush", ({ params, payload }) =>
         mapDeploymentAbandonFailure(deployment.abandonPush(
           params.pushId,
           payload.reason === undefined ? {} : { reason: payload.reason },
-        ))
+        )).pipe(
+          Effect.flatMap(parsePushStatusForHttpApi),
+        )
       );
   }),
 );
@@ -187,4 +198,30 @@ export function startAnalyzedPushHandlerInputFromPayload(
     }
     throw cause;
   }
+}
+
+const parsePushStatusForHttpApi = responseParser(
+  "Deployment push response did not match the deployment protocol.",
+  parsePushStatus,
+);
+
+const parseActiveDeploymentStatusForHttpApi = responseParser(
+  "Active deployment response did not match the deployment protocol.",
+  parseActiveDeploymentStatus,
+);
+
+const parseFinishPushResponseForHttpApi = responseParser(
+  "Finish push response did not match the deployment protocol.",
+  parseFinishPushResponse,
+);
+
+function responseParser<A>(
+  message: string,
+  parse: (value: unknown) => A,
+): (value: unknown) => Effect.Effect<A, DeploymentStorageErrorResponse> {
+  return value =>
+    Effect.try({
+      try: () => parse(value),
+      catch: () => new DeploymentStorageErrorResponse({ error: message }),
+    });
 }

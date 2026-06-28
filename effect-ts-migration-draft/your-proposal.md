@@ -2,13 +2,25 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e6be1a2` Add deployment HttpApi error contracts.
-- Active checkpoint: add backend-only Deployment HttpApi handlers without Durable Object server wiring.
+- Previous completed checkpoint: `50e2b52` Add deployment HttpApi handler layer.
+- Active checkpoint: add a backend-only Deployment HttpApi web-handler factory without Durable Object server wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 41 slice:
+Current Goal 42 slice:
+
+1. Add a backend-only `deployment/HttpApiWebHandler.ts` factory that combines `HttpApiBuilder.layer(DeploymentApi)`, `DeploymentApiHandlers`, a provided `DeploymentService` layer, `HttpServer.layerServices`, and `HttpRouter.toWebHandler(...)`.
+2. Keep the factory injectable so a future Durable Object can provide its per-instance `makeDeploymentLayer(...)` without capturing DO state in a global singleton.
+3. Convert Deployment service success DTOs through the shared protocol response parsers inside `DeploymentApiHandlers` so HttpApi response encoding receives protocol schema class values.
+4. Map response protocol mismatches to the declared storage-error body instead of leaving them as implicit, unobserved defects.
+5. Keep the generated web handler's default boundary logging enabled while this remains a spike toward Durable Object integration.
+6. Add focused tests that invoke the generated web handler with real `Request` objects for health, push status, invalid analyzed start-push payload behavior, and malformed service success responses.
+7. Preserve current `DeploymentDO.fetch()` and worker forwarding entirely; do not route live Durable Object traffic through the web handler in this slice.
+8. Do not change service/store orchestration, response bodies, finish-push rejected success semantics, SQL behavior, protocol route paths, or `ValidatorJson`.
+9. Validate with focused deployment web-handler/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 41 slice:
 
 1. Add a backend-only `deployment/HttpApiHandlers.ts` layer with `HttpApiBuilder.group(DeploymentApi, "deployment", ...)`.
 2. Implement handlers for health, active deployment, push status, analyzed start-push, finish-push, and abandon-push by delegating to `DeploymentService`.
