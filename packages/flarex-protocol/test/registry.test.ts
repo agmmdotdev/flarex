@@ -3,6 +3,7 @@ import {
   parseDeploymentRecord,
   parseCreateDeploymentRequest,
   parseRegistryHealthResponse,
+  parseRegistryStorageErrorResponse,
   RegistryApi,
   RegistryRoute,
 } from "../src/registry";
@@ -57,5 +58,16 @@ describe("registry protocol routes", () => {
       updatedAt: 2,
       schemaVersion: 0,
     });
+  });
+
+  it("parses the declared registry storage error body", () => {
+    expect(parseRegistryStorageErrorResponse({
+      error: "Registry storage error.",
+    })).toEqual({
+      error: "Registry storage error.",
+    });
+
+    expect(() => parseRegistryStorageErrorResponse({ error: "raw database message" }))
+      .toThrow("Registry storage error response did not match the registry protocol.");
   });
 });

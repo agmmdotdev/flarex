@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 
 export const RegistryRoute = {
   health: "/health",
@@ -14,6 +14,14 @@ export class RegistryHealthResponse extends Schema.Class<RegistryHealthResponse>
   service: Schema.Literal("flarex-registry"),
   status: Schema.Literal("ok"),
 }) {}
+
+export class RegistryStorageErrorResponse extends Schema.Class<RegistryStorageErrorResponse>(
+  "RegistryStorageErrorResponse",
+)({
+  error: Schema.Literal("Registry storage error."),
+}) {}
+
+export const RegistryStorageError = RegistryStorageErrorResponse.pipe(HttpApiSchema.status(500));
 
 export class ProtocolValidationError extends Schema.TaggedErrorClass<ProtocolValidationError>()(
   "ProtocolValidationError",
@@ -51,10 +59,12 @@ export class RegistryApiGroup extends HttpApiGroup.make("registry", { topLevel: 
   }),
   HttpApiEndpoint.get("listDeployments", RegistryRoute.deployments, {
     success: ListDeploymentsResponse,
+    error: RegistryStorageError,
   }),
   HttpApiEndpoint.post("createDeployment", RegistryRoute.deployments, {
     payload: CreateDeploymentRequest,
     success: DeploymentRecord,
+    error: RegistryStorageError,
   }),
 ) {}
 
@@ -62,6 +72,7 @@ export class RegistryApi extends HttpApi.make("flarex-registry").add(RegistryApi
 
 const decodeCreateDeploymentRequest = Schema.decodeUnknownSync(CreateDeploymentRequest);
 const decodeRegistryHealthResponse = Schema.decodeUnknownSync(RegistryHealthResponse);
+const decodeRegistryStorageErrorResponse = Schema.decodeUnknownSync(RegistryStorageErrorResponse);
 
 export function parseCreateDeploymentRequest(value: unknown): CreateDeploymentRequest {
   try {
@@ -82,6 +93,18 @@ export function parseRegistryHealthResponse(value: unknown): RegistryHealthRespo
     throw new ProtocolValidationError({
       schema: "RegistryHealthResponse",
       message: "Registry health response did not match the registry protocol.",
+      cause,
+    });
+  }
+}
+
+export function parseRegistryStorageErrorResponse(value: unknown): RegistryStorageErrorResponse {
+  try {
+    return decodeRegistryStorageErrorResponse(value);
+  } catch (cause) {
+    throw new ProtocolValidationError({
+      schema: "RegistryStorageErrorResponse",
+      message: "Registry storage error response did not match the registry protocol.",
       cause,
     });
   }
