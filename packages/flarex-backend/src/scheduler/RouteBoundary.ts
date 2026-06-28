@@ -23,6 +23,14 @@ export type SchedulerConnectionReconcileRequest = {
   cursor?: SchedulerExpiredConnectionDeploymentCursor;
 };
 
+export type SchedulerRerunSubscriptionsRequest = {
+  deploymentId: string;
+  projectId?: string;
+  limit?: number;
+  deliveryLimit?: number;
+  maxBatches?: number;
+};
+
 export async function readSchedulerDeliveryReconcileRequest(
   request: Request,
 ): Promise<SchedulerDeliveryReconcileRequest> {
@@ -67,6 +75,34 @@ export function parseSchedulerConnectionReconcileRequest(
       : { expiredAt: dateString(body.expiredAt, "expiredAt") }),
     ...(body.limit === undefined ? {} : { limit: positiveInteger(body.limit, "limit") }),
     ...(body.cursor === undefined ? {} : { cursor: expiredConnectionCursor(body.cursor) }),
+  };
+}
+
+export async function readSchedulerRerunSubscriptionsRequest(
+  request: Request,
+): Promise<SchedulerRerunSubscriptionsRequest> {
+  return parseSchedulerRerunSubscriptionsRequest(await readJson(request));
+}
+
+export function parseSchedulerRerunSubscriptionsRequest(
+  value: unknown,
+): SchedulerRerunSubscriptionsRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, "Live query rerun request body must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  return {
+    deploymentId: nonEmptyString(body.deploymentId, "deploymentId"),
+    ...(body.projectId === undefined
+      ? {}
+      : { projectId: nonEmptyString(body.projectId, "projectId") }),
+    ...(body.limit === undefined ? {} : { limit: positiveInteger(body.limit, "limit") }),
+    ...(body.deliveryLimit === undefined
+      ? {}
+      : { deliveryLimit: positiveInteger(body.deliveryLimit, "deliveryLimit") }),
+    ...(body.maxBatches === undefined
+      ? {}
+      : { maxBatches: positiveInteger(body.maxBatches, "maxBatches") }),
   };
 }
 

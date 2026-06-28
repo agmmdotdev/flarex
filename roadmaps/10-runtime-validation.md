@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Scheduler Live Query Rerun Boundary
+
+Previous completed checkpoint: `4864cd5` Decode scheduler connection reconcile
+bodies.
+
+What changed:
+
+- Extended `packages/flarex-backend/src/scheduler/RouteBoundary.ts` to own
+  `SchedulerDO` live-query subscription rerun body reads.
+- `POST /rerun/live-query-subscriptions` now decodes request JSON through the
+  shared `readJson` boundary before pending rerun state is constructed.
+- The request envelope keeps the current required non-empty `deploymentId`,
+  optional non-empty `projectId`, and optional positive integer `limit`,
+  `deliveryLimit`, and `maxBatches`; extra fields are ignored.
+- Malformed JSON and invalid rerun request fields return JSON `400` responses
+  before executor calls are made.
+- SchedulerDO delivery reconcile, connection cleanup reconcile, dead-letter,
+  cleanup, continuation routes, DeliveryDO, ConnectionDO, PartitionDO,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After the delivery and connection cleanup reconcile routes moved behind the
+scheduler route boundary, live-query subscription rerun remained the next
+SchedulerDO route reading raw JSON before entering pending rerun persistence,
+executor rerun calls, delivery wake fanout, and retry behavior. This
+checkpoint keeps that stateful orchestration in SchedulerDO while making the
+transport envelope explicit.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query subscription rerun JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Connection Cleanup Reconcile Boundary
 
 Previous completed checkpoint: `46d1782` Decode scheduler delivery reconcile

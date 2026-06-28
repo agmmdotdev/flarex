@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Scheduler Live Query Rerun Route Boundary
+
+Previous completed checkpoint: `4864cd5` Decode scheduler connection reconcile
+bodies.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now owns the
+  live-query subscription rerun request-body boundary.
+- `POST /rerun/live-query-subscriptions` decodes through the shared `readJson`
+  boundary and accepts required non-empty `deploymentId`, optional non-empty
+  `projectId`, and optional positive integer `limit`, `deliveryLimit`, and
+  `maxBatches`; extra fields remain ignored.
+- The boundary extracts only the rerun request envelope and leaves pending
+  rerun construction, executor rerun calls, delivery wake fanout, in-flight
+  coalescing, retry scheduling, and persistence in `SchedulerDO`.
+- Other SchedulerDO routes remain on their existing parsers for later slices.
+
+Boundary decision:
+
+Scheduler live-query rerun crosses an HTTP/JSON boundary before it enters
+durable rerun state and executor/delivery fanout behavior. Decoding the request
+at the route edge makes that transport contract explicit without moving
+SchedulerDO's rerun state machine or mixing it with executor-side subscription
+evaluation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "scheduler route boundary|rejects malformed live query subscription rerun JSON"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Scheduler Connection Cleanup Reconcile Route Boundary
 
 Previous completed checkpoint: `46d1782` Decode scheduler delivery reconcile

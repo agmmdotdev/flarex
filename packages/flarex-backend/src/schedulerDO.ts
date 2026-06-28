@@ -5,8 +5,10 @@ import { deliveryObjectName } from "./routing";
 import {
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
+  readSchedulerRerunSubscriptionsRequest,
   type SchedulerConnectionReconcileRequest,
   type SchedulerDeliveryReconcileRequest,
+  type SchedulerRerunSubscriptionsRequest,
 } from "./scheduler/RouteBoundary";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
@@ -97,14 +99,6 @@ type PendingLiveQueryConnectionCleanup = {
   cursor: ExpiredConnectionDeploymentCursor;
   retryAttempt: number;
   nextRunAt: string;
-};
-
-type RerunLiveQuerySubscriptionsRequest = {
-  deploymentId?: string;
-  projectId?: string;
-  limit?: number;
-  deliveryLimit?: number;
-  maxBatches?: number;
 };
 
 type PendingLiveQueryRerun = {
@@ -270,7 +264,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return json(
           await this.rerunLiveQuerySubscriptions(
-            await readJson<unknown>(request),
+            await readSchedulerRerunSubscriptionsRequest(request),
           ),
         );
       }
@@ -691,8 +685,9 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.refreshContinuationAlarm();
   }
 
-  private async rerunLiveQuerySubscriptions(body: unknown): Promise<RerunResult> {
-    const request = rerunRequestFromBody(body);
+  private async rerunLiveQuerySubscriptions(
+    request: SchedulerRerunSubscriptionsRequest,
+  ): Promise<RerunResult> {
     return this.runAndPersistLiveQueryRerun(pendingRerunFromRequest(request));
   }
 
@@ -1139,46 +1134,6 @@ function pendingDeploymentsResultFromUnknown(
     ),
     nextCursor: pendingCursorFromUnknown(record.nextCursor),
     hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
-  };
-}
-
-function rerunRequestFromBody(value: unknown): {
-  deploymentId: string;
-  projectId?: string;
-  limit?: number;
-  deliveryLimit?: number;
-  maxBatches?: number;
-} {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Live query rerun request body must be an object.");
-  }
-  const body = value as RerunLiveQuerySubscriptionsRequest;
-  return {
-    deploymentId: nonEmptyStringFromRequest(body.deploymentId, "deploymentId"),
-    ...(body.projectId === undefined
-      ? {}
-      : { projectId: nonEmptyStringFromRequest(body.projectId, "projectId") }),
-    ...(body.limit === undefined
-      ? {}
-      : { limit: optionalPositiveInteger(body.limit, DEFAULT_DELIVERY_LIMIT, "limit") }),
-    ...(body.deliveryLimit === undefined
-      ? {}
-      : {
-          deliveryLimit: optionalPositiveInteger(
-            body.deliveryLimit,
-            DEFAULT_DELIVERY_LIMIT,
-            "deliveryLimit",
-          ),
-        }),
-    ...(body.maxBatches === undefined
-      ? {}
-      : {
-          maxBatches: optionalPositiveInteger(
-            body.maxBatches,
-            DEFAULT_MAX_BATCHES,
-            "maxBatches",
-          ),
-        }),
   };
 }
 

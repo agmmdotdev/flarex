@@ -3,8 +3,10 @@ import { HttpError } from "../src/http";
 import {
   parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeliveryReconcileRequest,
+  parseSchedulerRerunSubscriptionsRequest,
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
+  readSchedulerRerunSubscriptionsRequest,
 } from "../src/scheduler/RouteBoundary";
 
 describe("scheduler route boundary", () => {
@@ -103,6 +105,69 @@ describe("scheduler route boundary", () => {
   it("preserves malformed connection cleanup reconcile JSON as the shared JSON body error", async () => {
     await expect(readSchedulerConnectionReconcileRequest(new Request(
       "https://flarex.test/reconcile/live-query-connections",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes live query subscription rerun requests", async () => {
+    await expect(readSchedulerRerunSubscriptionsRequest(jsonRequest({
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      ignored: true,
+    }))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+    });
+  });
+
+  it("maps invalid live query subscription rerun bodies to 400", () => {
+    expect(() => parseSchedulerRerunSubscriptionsRequest(null))
+      .toThrow(HttpError);
+    try {
+      parseSchedulerRerunSubscriptionsRequest({
+        deploymentId: "",
+        limit: 1,
+      });
+      throw new Error("Expected parseSchedulerRerunSubscriptionsRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "deploymentId must be a non-empty string.",
+      });
+    }
+  });
+
+  it("maps invalid live query subscription rerun limits to 400", () => {
+    try {
+      parseSchedulerRerunSubscriptionsRequest({
+        deploymentId: "deployment-a",
+        maxBatches: 0,
+      });
+      throw new Error("Expected parseSchedulerRerunSubscriptionsRequest to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        status: 400,
+        message: "maxBatches must be a positive integer.",
+      });
+    }
+  });
+
+  it("preserves malformed live query subscription rerun JSON as the shared JSON body error", async () => {
+    await expect(readSchedulerRerunSubscriptionsRequest(new Request(
+      "https://flarex.test/rerun/live-query-subscriptions",
       {
         method: "POST",
         headers: { "content-type": "application/json" },

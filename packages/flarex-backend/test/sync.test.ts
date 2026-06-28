@@ -4637,6 +4637,51 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("rejects malformed live query subscription rerun JSON", async () => {
+    const executorRequests: unknown[] = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            executorRequests.push(await request.json());
+            return Response.json({
+              changed: 0,
+              unchanged: 0,
+              unsupported: 0,
+              hasMoreStale: false,
+              deliveries: [],
+            });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+    expect(executorRequests).toEqual([]);
+  });
+
   it("continues stale live query reruns from pending alarm state", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
