@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Deployment HttpApi Abandon Push Route Boundary
+
+Previous completed checkpoint: `e619b57` Extract registry create route parser.
+
+What changed:
+
+- Added `readDeploymentAbandonPushRouteRequest(...)` and
+  `parseDeploymentAbandonPushRouteRequest(...)` to
+  `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts`.
+- `deploymentApiRequestForRoute(...)` now delegates
+  `POST /push/:pushId/abandon` body parsing to those helpers before rebuilding
+  the canonical generated-handler request.
+- Deployment read routes still pass through unchanged, malformed JSON still
+  maps through the shared `Request body must be JSON.` boundary, and protocol
+  validation failures still surface as `DeploymentProtocolValidationError`.
+- `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.abandonPush`, `DeploymentPushStore`, finish/start push
+  routes, public Worker push routes, scheduler routes, execution routes,
+  executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The backend deployment HttpApi bridge still had abandon-push route matching,
+JSON reading, protocol parsing, and generated-handler request reconstruction
+in one branch. Abandon orchestration already lives in
+`DeploymentService.abandonPush`; this checkpoint names the remaining transport
+parse boundary without changing service behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Registry HttpApi Create Deployment Route Boundary
 
 Previous completed checkpoint: `1bf9355` Extract public execution action parser.

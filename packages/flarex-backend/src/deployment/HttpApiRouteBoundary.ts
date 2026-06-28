@@ -1,4 +1,5 @@
 import {
+  type AbandonPushRequest,
   DeploymentPushAction,
   DeploymentRoute,
   parseAbandonPushRequest,
@@ -27,9 +28,21 @@ export async function deploymentApiRequestForRoute(request: Request): Promise<Re
     return jsonRequest(url, parseFinishPushRequest(await readJson(request)));
   }
   if (action === DeploymentPushAction.abandon && request.method === "POST") {
-    return jsonRequest(url, parseAbandonPushRequest(await readJson(request)));
+    return jsonRequest(url, await readDeploymentAbandonPushRouteRequest(request));
   }
   return null;
+}
+
+export async function readDeploymentAbandonPushRouteRequest(
+  request: Request,
+): Promise<AbandonPushRequest> {
+  return parseDeploymentAbandonPushRouteRequest(await readJson(request));
+}
+
+export function parseDeploymentAbandonPushRouteRequest(
+  value: unknown,
+): AbandonPushRequest {
+  return parseAbandonPushRequest(value);
 }
 
 function jsonRequest(url: URL, body: unknown): Request {

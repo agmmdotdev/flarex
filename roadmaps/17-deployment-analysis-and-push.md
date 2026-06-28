@@ -1,5 +1,43 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Abandon Push Route Boundary
+
+Previous completed checkpoint: `e619b57` Extract registry create route parser.
+
+What changed:
+
+- Added `readDeploymentAbandonPushRouteRequest(...)` and
+  `parseDeploymentAbandonPushRouteRequest(...)` to the backend deployment
+  HttpApi route boundary.
+- `POST /push/:pushId/abandon` now parses through the named helpers before
+  constructing the canonical generated-handler request.
+- The already-extracted `DeploymentService.abandonPush` orchestration remains
+  unchanged: push lookup, invalid-state checks, reason normalization,
+  timestamp acquisition, and store mutation still live in the service/store
+  layer.
+- `DeploymentDO.fetch()`, DeploymentApi handlers, finish/start push routes,
+  public Worker push routes, scheduler routes, execution routes, executor-http
+  routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+The abandon-push service extraction is already present in the current code.
+This checkpoint continues that migration by naming the backend HttpApi
+transport parse boundary for abandon, matching the recent registry boundary
+cleanup without moving orchestration back into `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Finish Push Raw Body Boundary
 
 Previous completed checkpoint: `6644926` Decode public scheduler trigger bodies.

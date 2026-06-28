@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Deployment HttpApi Abandon Push Route Boundary
+
+Previous completed checkpoint: `e619b57` Extract registry create route parser.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts` now
+  separates abandon-push body parsing from route matching and request
+  reconstruction.
+- `POST /push/:pushId/abandon` uses named read/parse helpers before
+  constructing the canonical generated-handler request.
+- Deployment read routes, malformed JSON handling, protocol validation
+  failures, `DeploymentDO.fetch()`, `DeploymentApiHandlers`,
+  `DeploymentService.abandonPush`, `DeploymentPushStore`, finish/start push
+  routes, public Worker push routes, scheduler routes, execution routes,
+  executor-http routes, and `ValidatorJson` remain in their existing owners.
+
+Boundary decision:
+
+The deployment Durable Object still owns storage initialization and generated
+HttpApi handler execution. `DeploymentService.abandonPush` owns abandon
+orchestration. The route-boundary module owns only transport matching, JSON
+decoding, protocol parsing, and generated-handler request reconstruction.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Registry HttpApi Create Deployment Route Boundary
 
 Previous completed checkpoint: `1bf9355` Extract public execution action parser.

@@ -2,13 +2,21 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `1bf9355` Extract public execution action parser.
-- Active checkpoint: extract registry HttpApi create-deployment route parsing into named boundary helpers while preserving generated handler request reconstruction.
+- Previous completed checkpoint: `e619b57` Extract registry create route parser.
+- Active checkpoint: extract deployment HttpApi abandon-push route parsing into named boundary helpers while preserving generated handler request reconstruction.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 88 slice:
+Current Goal 89 slice:
+
+1. Add `readDeploymentAbandonPushRouteRequest(...)` and `parseDeploymentAbandonPushRouteRequest(...)` to `deployment/HttpApiRouteBoundary.ts` so backend abandon-push body parsing is testable separately from route matching.
+2. Keep deployment HttpApi behavior unchanged: read routes pass through unchanged, `POST /push/:pushId/abandon` still rebuilds a canonical JSON request for the generated handler, malformed JSON keeps the shared `400`, and deployment protocol failures still surface as `DeploymentProtocolValidationError`.
+3. Keep `DeploymentDO.fetch()`, `DeploymentApiHandlers`, `DeploymentService.abandonPush`, `DeploymentPushStore`, finish/start push routes, public Worker push routes, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` untouched.
+4. Add focused route-boundary tests for the new abandon read/parse helpers while preserving existing forwarding and fallback coverage.
+5. Validate with focused deployment HttpApi route-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 88 slice:
 
 1. Add `readRegistryCreateDeploymentRouteRequest(...)` and `parseRegistryCreateDeploymentRouteRequest(...)` to `registry/HttpApiRouteBoundary.ts` so create-deployment body parsing is testable separately from route matching.
 2. Keep registry HttpApi behavior unchanged: read routes pass through unchanged, `POST /deployments` still rebuilds a canonical JSON request for the generated handler, malformed JSON keeps the shared `400`, and registry protocol failures still surface as `ProtocolValidationError`.

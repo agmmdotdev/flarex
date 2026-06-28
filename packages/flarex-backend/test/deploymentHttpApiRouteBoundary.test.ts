@@ -4,7 +4,11 @@ import {
   DeploymentRoute,
   parseAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
-import { deploymentApiRequestForRoute } from "../src/deployment/HttpApiRouteBoundary";
+import {
+  deploymentApiRequestForRoute,
+  parseDeploymentAbandonPushRouteRequest,
+  readDeploymentAbandonPushRouteRequest,
+} from "../src/deployment/HttpApiRouteBoundary";
 
 describe("deploymentApiRequestForRoute", () => {
   it("forwards all read routes to the generated DeploymentApi handler", async () => {
@@ -50,6 +54,19 @@ describe("deploymentApiRequestForRoute", () => {
       },
     );
     await expect(abandon.json()).resolves.toEqual({ reason: "generated output failed" });
+
+    await expect(
+      readDeploymentAbandonPushRouteRequest(jsonRequest(
+        `${DeploymentRoute.push}/push-abandon-helper/${DeploymentPushAction.abandon}`,
+        {
+          method: "POST",
+          body: { reason: "helper parsed reason" },
+        },
+      )),
+    ).resolves.toEqual({ reason: "helper parsed reason" });
+    expect(parseDeploymentAbandonPushRouteRequest({
+      reason: "pure parser reason",
+    })).toEqual({ reason: "pure parser reason" });
   });
 
   it("preserves compatibility parser failures before generated handler routing", async () => {
