@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { DeploymentValidationError } from "../src/deployment/Errors";
 import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
+  decodeSourcePackage,
   pushStatusFromRow,
   startAnalyzedPushInput,
   validateAnalysis,
@@ -38,21 +41,42 @@ describe("deployment validation", () => {
   });
 
   it("preserves source package validation error messages", () => {
-    expect(() =>
-      validateSourcePackage({
-        modules: "not-modules",
-        functions: [],
-        execution: "convex/_generated/server.ts",
-      } as unknown as PushSourcePackage)
-    ).toThrow(new HttpError(400, "Source package modules must be an array."));
+    expectDeploymentValidationFailure(
+      () =>
+        validateSourcePackage({
+          modules: "not-modules",
+          functions: [],
+          execution: "convex/_generated/server.ts",
+        } as unknown as PushSourcePackage),
+      "Source package modules must be an array.",
+    );
 
-    expect(() =>
-      validateSourcePackage({
-        modules: [sourceModule("convex/_generated/server.ts")],
-        functions: ["missing.ts"],
-        execution: "convex/_generated/server.ts",
-      })
-    ).toThrow(new HttpError(400, "Source package function module missing.ts is missing."));
+    expectDeploymentValidationFailure(
+      () =>
+        validateSourcePackage({
+          modules: [sourceModule("convex/_generated/server.ts")],
+          functions: ["missing.ts"],
+          execution: "convex/_generated/server.ts",
+        }),
+      "Source package function module missing.ts is missing.",
+    );
+  });
+
+  it("exposes typed source package validation failures", async () => {
+    await expect(Effect.runPromise(decodeSourcePackage(sourcePackage()))).resolves.toEqual(sourcePackage());
+
+    const failure = await Effect.runPromise(decodeSourcePackage({
+      modules: "not-modules",
+      functions: [],
+      execution: "convex/_generated/server.ts",
+    } as unknown as PushSourcePackage).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(failure).toBeInstanceOf(DeploymentValidationError);
+    if (!(failure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(failure.message).toBe("Source package modules must be an array.");
   });
 
   it("normalizes diagnostics and keeps the newest 100 entries", () => {
@@ -506,4 +530,16 @@ function pushRow(overrides: Partial<DeploymentPushStatusRow> = {}): DeploymentPu
     updated_at: 2_000,
     ...overrides,
   };
+}
+
+function expectDeploymentValidationFailure(callback: () => unknown, message: string): void {
+  try {
+    callback();
+    throw new Error("Expected deployment validation to fail.");
+  } catch (cause) {
+    if (!(cause instanceof DeploymentValidationError)) {
+      throw cause;
+    }
+    expect(cause.message).toBe(message);
+  }
 }

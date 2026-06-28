@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Deployment Source Package Validation Typed Error
+
+Previous completed checkpoint: `b10123e` Type start analyzed handler validation failures.
+
+What changed:
+
+- Added an Effect-returning source-package validation helper that exposes
+  `DeploymentValidationError` directly for typed success/failure channel tests.
+- `validateSourcePackage(...)` now emits `DeploymentValidationError` instead of
+  raw `HttpError(400)` for source-package domain validation failures while
+  retaining its synchronous compatibility shape for existing callers.
+- Generated start-analyzed handler behavior is preserved: invalid source
+  packages still map to start-route `400` responses with the same messages
+  through `deploymentFailureToHttpError(...)`.
+- Diagnostics, analysis, codegen, schema, function metadata validation,
+  finish/abandon/active-deployment behavior, route-boundary JSON/protocol
+  decoders, generated Deployment HttpApi routing, public Worker routes,
+  `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` remain unchanged.
+
+Boundary decision:
+
+Source-package validation is deployment-domain validation, not an HTTP adapter
+decision. The validation boundary now uses `DeploymentValidationError`; HTTP
+status/body conversion remains at the generated handler adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "source package|typed source package|invalid analyzed start-push|typed analyzed start-push|maps service failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Start Handler Validation Typed Error
 
 Previous completed checkpoint: `85e0262` Type finish activation validation failures.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `85e0262` Type finish activation validation failures.
-- Active checkpoint: replace start-analyzed generated-handler validation `HttpError(400)` failures with typed `DeploymentValidationError` while preserving start-route bad-request responses.
+- Previous completed checkpoint: `b10123e` Type start analyzed handler validation failures.
+- Active checkpoint: replace source-package validation `HttpError(400)` failures with typed `DeploymentValidationError` while preserving start-route bad-request responses.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 107 slice:
+Current Goal 108 slice:
+
+1. Add an Effect-returning source-package validation helper that exposes `DeploymentValidationError` directly for typed success/failure channel tests.
+2. Change `validateSourcePackage(...)` so source-package domain validation failures throw `DeploymentValidationError` instead of raw `HttpError(400)` for compatibility callers.
+3. Preserve generated start-analyzed handler mapping: invalid source packages still become start-route `400` responses with the same messages through `deploymentFailureToHttpError(...)`.
+4. Keep diagnostics, analysis, codegen, schema, function metadata validation, finish/abandon/active-deployment behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused deployment validation/start handler/HTTP-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 107 slice:
 
 1. Reuse `DeploymentValidationError` for generated Deployment HttpApi start-analyzed handler-input validation failures.
 2. Change `decodeStartAnalyzedPushHandlerInput(...)` and `startAnalyzedPushHandlerInputFromPayload(...)` so protocol and deployment validation failures become `DeploymentValidationError` instead of raw `HttpError(400)`.

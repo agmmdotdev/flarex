@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { HttpError } from "../http";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import type {
@@ -22,6 +23,7 @@ import type {
   ValidatorJson,
 } from "../types";
 import { assertValidatorJson, BackendValidationError } from "../validation";
+import { DeploymentValidationError } from "./Errors";
 
 export interface DeploymentPushStatusRow extends Record<string, string | number | null> {
   push_id: string;
@@ -36,55 +38,103 @@ export interface DeploymentPushStatusRow extends Record<string, string | number 
   updated_at: number;
 }
 
+export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourcePackage")(
+  function* (sourcePackage: PushSourcePackage): Effect.fn.Return<PushSourcePackage, DeploymentValidationError> {
+    const result = normalizeSourcePackage(sourcePackage);
+    if (!result.success) {
+      return yield* Effect.fail(new DeploymentValidationError({ message: result.message }));
+    }
+    return result.sourcePackage;
+  },
+);
+
 export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
+  const result = normalizeSourcePackage(sourcePackage);
+  if (!result.success) {
+    throwDeploymentValidation(result.message);
+  }
+  return result.sourcePackage;
+}
+
+type SourcePackageValidationResult =
+  | {
+      readonly success: true;
+      readonly sourcePackage: PushSourcePackage;
+    }
+  | {
+      readonly success: false;
+      readonly message: string;
+    };
+
+function normalizeSourcePackage(sourcePackage: PushSourcePackage): SourcePackageValidationResult {
   if (!Array.isArray(sourcePackage.modules)) {
-    throw new HttpError(400, "Source package modules must be an array.");
+    return sourcePackageValidationFailure("Source package modules must be an array.");
   }
   if (!Array.isArray(sourcePackage.functions)) {
-    throw new HttpError(400, "Source package functions must be an array.");
+    return sourcePackageValidationFailure("Source package functions must be an array.");
   }
   if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
-    throw new HttpError(400, "Source package execution module is required.");
+    return sourcePackageValidationFailure("Source package execution module is required.");
   }
   const seen = new Set<string>();
-  const modules = sourcePackage.modules.map(module => {
+  const modules = [];
+  for (const module of sourcePackage.modules) {
     if (typeof module.path !== "string" || module.path.length === 0) {
-      throw new HttpError(400, "Source package module has an invalid path.");
+      return sourcePackageValidationFailure("Source package module has an invalid path.");
     }
-    if (seen.has(module.path)) throw new HttpError(400, `Duplicate source module path: ${module.path}.`);
+    if (seen.has(module.path)) {
+      return sourcePackageValidationFailure(`Duplicate source module path: ${module.path}.`);
+    }
     seen.add(module.path);
     if (module.environment !== "isolate") {
-      throw new HttpError(400, `Source module ${module.path} has unsupported environment ${module.environment}.`);
+      return sourcePackageValidationFailure(
+        `Source module ${module.path} has unsupported environment ${module.environment}.`,
+      );
     }
     if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
-      throw new HttpError(400, `Source module ${module.path} has an invalid sha256.`);
+      return sourcePackageValidationFailure(`Source module ${module.path} has an invalid sha256.`);
     }
     if (module.source !== undefined && typeof module.source !== "string") {
-      throw new HttpError(400, `Source module ${module.path} source must be a string.`);
+      return sourcePackageValidationFailure(`Source module ${module.path} source must be a string.`);
     }
     if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
-      throw new HttpError(400, `Source module ${module.path} sourceMap must be a string.`);
+      return sourcePackageValidationFailure(`Source module ${module.path} sourceMap must be a string.`);
     }
-    return { ...module };
-  }).sort((left, right) => left.path.localeCompare(right.path));
+    modules.push({ ...module });
+  }
+  modules.sort((left, right) => left.path.localeCompare(right.path));
   if (!seen.has(sourcePackage.execution)) {
-    throw new HttpError(400, `Source package execution module ${sourcePackage.execution} is missing.`);
+    return sourcePackageValidationFailure(`Source package execution module ${sourcePackage.execution} is missing.`);
   }
   if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
-    throw new HttpError(400, `Source package schema module ${sourcePackage.schema} is missing.`);
+    return sourcePackageValidationFailure(`Source package schema module ${sourcePackage.schema} is missing.`);
   }
   const functions = [...sourcePackage.functions].sort();
   for (const fn of functions) {
     if (typeof fn !== "string" || !seen.has(fn)) {
-      throw new HttpError(400, `Source package function module ${String(fn)} is missing.`);
+      return sourcePackageValidationFailure(`Source package function module ${String(fn)} is missing.`);
     }
   }
   return {
-    modules,
-    functions,
-    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-    execution: sourcePackage.execution,
+    success: true,
+    sourcePackage: {
+      modules,
+      functions,
+      ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+      execution: sourcePackage.execution,
+    },
   };
+}
+
+function sourcePackageValidationFailure(message: string): SourcePackageValidationResult {
+  return {
+    success: false,
+    message,
+  };
+}
+
+function throwDeploymentValidation(message: string): never {
+  throw new DeploymentValidationError({ message });
 }
 
 export function validateDiagnostics(value: unknown): PushDiagnostic[] {
