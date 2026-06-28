@@ -2,8 +2,10 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ExecutionProtocolValidationError,
+  ExecutionFinishRequestSchema,
   ExecutionStartRequestSchema,
   ExecutionSyscallRequestSchema,
+  parseExecutionFinishRequest,
   parseExecutionStartRequest,
   parseExecutionSyscallRequest,
 } from "../src/execution";
@@ -13,6 +15,9 @@ const decodeExecutionStartRequest = Schema.decodeUnknownSync(
 );
 const decodeExecutionSyscallRequest = Schema.decodeUnknownSync(
   ExecutionSyscallRequestSchema,
+);
+const decodeExecutionFinishRequest = Schema.decodeUnknownSync(
+  ExecutionFinishRequestSchema,
 );
 
 describe("execution protocol schemas", () => {
@@ -181,6 +186,31 @@ describe("execution protocol schemas", () => {
       id: "1:user",
       value: new Date(0),
     }))
+      .toThrow(ExecutionProtocolValidationError);
+  });
+
+  it("parses execution finish requests used by ExecutionDO sessions", () => {
+    expect(parseExecutionFinishRequest({
+      value: { ok: true, ids: ["1:user", null] },
+    })).toEqual({
+      value: { ok: true, ids: ["1:user", null] },
+    });
+    expect(parseExecutionFinishRequest({ value: null }))
+      .toEqual({ value: null });
+    expect(decodeExecutionFinishRequest({ value: ["Ada", 1, false] }))
+      .toEqual({ value: ["Ada", 1, false] });
+  });
+
+  it("rejects invalid execution finish bodies", () => {
+    expect(() => parseExecutionFinishRequest(null))
+      .toThrow(ExecutionProtocolValidationError);
+    expect(() => parseExecutionFinishRequest([]))
+      .toThrow("Execution finish request must be an object.");
+    expect(() => parseExecutionFinishRequest({}))
+      .toThrow("Execution finish request must include JSON value.");
+    expect(() => parseExecutionFinishRequest({ value: Number.NaN }))
+      .toThrow(ExecutionProtocolValidationError);
+    expect(() => parseExecutionFinishRequest({ value: new Date(0) }))
       .toThrow(ExecutionProtocolValidationError);
   });
 });

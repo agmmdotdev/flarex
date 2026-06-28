@@ -55,6 +55,10 @@ export type ExecutionSyscallRequest =
   | { readonly op: "replace"; readonly id: string; readonly value: Json }
   | { readonly op: "delete"; readonly id: string };
 
+export interface ExecutionFinishRequest {
+  readonly value: Json;
+}
+
 export const ExecutionStartRequestSchema = Schema.Struct({
   deploymentId: Schema.String,
   path: Schema.String,
@@ -139,12 +143,20 @@ export const ExecutionSyscallRequestSchema = Schema.Union([
   }),
 ]);
 
+export const ExecutionFinishRequestSchema = Schema.Struct({
+  value: JsonValue,
+});
+
 const decodeExecutionStartRequest = Schema.decodeUnknownSync(
   ExecutionStartRequestSchema,
 );
 
 const decodeExecutionSyscallRequest = Schema.decodeUnknownSync(
   ExecutionSyscallRequestSchema,
+);
+
+const decodeExecutionFinishRequest = Schema.decodeUnknownSync(
+  ExecutionFinishRequestSchema,
 );
 
 export function parseExecutionStartRequest(value: unknown): ExecutionStartRequest {
@@ -238,6 +250,29 @@ export function parseExecutionSyscallRequest(value: unknown): ExecutionSyscallRe
       schema: "ExecutionSyscallRequest",
       message:
         "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
+      cause,
+    });
+  }
+}
+
+export function parseExecutionFinishRequest(value: unknown): ExecutionFinishRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ExecutionProtocolValidationError({
+      schema: "ExecutionFinishRequest",
+      message: "Execution finish request must be an object.",
+      cause: value,
+    });
+  }
+  try {
+    const body = decodeExecutionFinishRequest(value);
+    return {
+      value: body.value,
+    };
+  } catch (cause) {
+    if (cause instanceof ExecutionProtocolValidationError) throw cause;
+    throw new ExecutionProtocolValidationError({
+      schema: "ExecutionFinishRequest",
+      message: "Execution finish request must include JSON value.",
       cause,
     });
   }

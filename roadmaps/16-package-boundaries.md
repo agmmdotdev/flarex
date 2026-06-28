@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Execution Finish Protocol Package Boundary
+
+Previous completed checkpoint: `652936f` Decode execution syscall bodies.
+
+What changed:
+
+- `flarex-protocol/execution` now owns the execution finish request schema and
+  parser for the `{ value }` body currently accepted by `ExecutionDO.finish`.
+- The schema validates the returned value as strict transport JSON without
+  importing backend validator or transaction types.
+- The protocol package remains transport-contract-only; backend Worker,
+  Durable Object, transaction, return validation, and commit code are
+  unchanged.
+
+Boundary decision:
+
+The protocol package should describe the finish body before backend code adapts
+it to runtime validation and commit behavior. The backend should continue to
+own return validator checks, query read-set response construction, mutation
+commit behavior, and session cleanup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Backend Route Boundary
 
 Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.

@@ -1,5 +1,38 @@
 # Runtime Validation
 
+## Execution Finish Request Protocol Boundary
+
+Previous completed checkpoint: `652936f` Decode execution syscall bodies.
+
+What changed:
+
+- Added `ExecutionFinishRequestSchema` and `parseExecutionFinishRequest(...)`
+  to `flarex-protocol/execution` for execution-session finish bodies.
+- The protocol shape covers the current `{ value }` body accepted by
+  `ExecutionDO.finish(...)`.
+- Return values reuse the shared strict JSON transport validator.
+- Worker routing, `ExecutionDO.fetch()`, `ExecutionDO.finish(...)`, start,
+  syscall, abort, PartitionDO, artifact runtime, and executor-http are
+  unchanged.
+
+Why it changed:
+
+Finish requests are the last unchecked execution-session body after start and
+syscall. This checkpoint records the transport shape first, before replacing
+the live `request.json()` parsing in `ExecutionDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Worker And DO Boundary
 
 Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.

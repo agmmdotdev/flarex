@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.
-- Active checkpoint: wire execution syscall request decoding through the ExecutionDO boundary while preserving session behavior.
+- Previous completed checkpoint: `652936f` Decode execution syscall bodies.
+- Active checkpoint: add protocol-only execution finish request schemas before wiring ExecutionDO finish parsing.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 57 slice:
+Current Goal 58 slice:
+
+1. Add `ExecutionFinishRequest`, `ExecutionFinishRequestSchema`, and `parseExecutionFinishRequest` to `flarex-protocol/execution`.
+2. Model the current execution finish body as an object with required JSON `value`.
+3. Reuse the shared strict `JsonValue` contract so finish return values reject non-finite numbers, functions, non-plain objects, and symbol-keyed records.
+4. Keep Worker routing, `ExecutionDO.fetch()`, `ExecutionDO.finish(...)`, start, syscall, abort, PartitionDO, artifact runtime, executor-http, and `ValidatorJson` untouched.
+5. Add focused protocol tests for object, array, primitive, and null return values plus invalid non-object bodies, missing `value`, and invalid JSON values.
+6. Validate with focused execution protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 57 slice:
 
 1. Add a backend-only execution syscall route-boundary helper that reads JSON once, decodes through `parseExecutionSyscallRequest`, maps `ExecutionProtocolValidationError` to `HttpError(400, ...)`, and adapts protocol `Json` to the backend mutable `Json` type.
 2. Share the execution boundary JSON adapter with the existing execution start route-boundary helper.

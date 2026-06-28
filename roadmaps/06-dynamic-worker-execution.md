@@ -1,5 +1,39 @@
 # Dynamic Worker Execution
 
+## Execution Finish Protocol Shape
+
+Previous completed checkpoint: `652936f` Decode execution syscall bodies.
+
+What changed:
+
+- Added the shared execution finish request contract in
+  `flarex-protocol/execution`.
+- The contract covers the current `{ value }` body used when generated
+  execution artifacts finish a query or mutation session.
+- Finish values use the shared strict JSON validator.
+- Generated execution artifacts, Worker forwarding, `ExecutionDO.fetch()`,
+  `ExecutionDO.finish(...)`, transaction commit, return validation, abort, and
+  PartitionDO behavior are unchanged.
+
+Why it changed:
+
+Finish parsing sits at the transaction completion boundary, where queries
+return read sets and mutations commit writes. The safe order is protocol first,
+then a separate `ExecutionDO.fetch()` wiring checkpoint with route-level parity
+tests for invalid JSON, invalid values, return validation, and session cleanup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-protocol/test/execution.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Execution Syscall Decode Boundary
 
 Previous completed checkpoint: `f766101` Add execution syscall protocol bodies.
