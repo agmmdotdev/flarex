@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Abandon Push Effect Decoder
+
+Previous completed checkpoint: `4080592` Add typed finish route decoder.
+
+What changed:
+
+- Added `decodeDeploymentAbandonPushRouteRequest(...)` and
+  `parseDeploymentAbandonPushRouteRequestEffect(...)` to the backend
+  deployment HttpApi route boundary.
+- `POST /push/:pushId/abandon` now parses through the typed Effect decoder
+  before constructing the canonical generated-handler request.
+- Existing plain abandon read/parse helpers remain compatibility wrappers.
+- Malformed JSON uses the typed `RequestJsonError` channel before the adapter
+  maps it back to the preserved `400` response.
+- The already-extracted `DeploymentService.abandonPush` orchestration remains
+  unchanged: push lookup, invalid-state checks, reason normalization,
+  timestamp acquisition, and store mutation still live in the service/store
+  layer.
+- `DeploymentDO.fetch()`, DeploymentApi handlers, finish/start push routes,
+  public Worker push routes, scheduler routes, execution routes, executor-http
+  routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+After the finish route introduced typed request-body decoding, abandon can use
+the same transport boundary pattern. This keeps both backend push mutation
+routes aligned with the updated Effect quality bar without moving abandon
+orchestration back into `DeploymentDO`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts -t "deploymentApiRequestForRoute|handles abandon-push mutations through the Worker-compatible web handler"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Effect-Typed Deployment Route Boundary Target
 
 The deployment push migration should now move from named plain parsers toward

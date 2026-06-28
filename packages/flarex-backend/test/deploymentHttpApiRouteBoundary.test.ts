@@ -8,9 +8,11 @@ import {
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
+  decodeDeploymentAbandonPushRouteRequest,
   decodeDeploymentFinishPushRouteRequest,
   deploymentApiRequestForRoute,
   parseDeploymentAbandonPushRouteRequest,
+  parseDeploymentAbandonPushRouteRequestEffect,
   parseDeploymentFinishPushRouteRequest,
   parseDeploymentFinishPushRouteRequestEffect,
   readDeploymentAbandonPushRouteRequest,
@@ -87,6 +89,15 @@ describe("deploymentApiRequestForRoute", () => {
     );
     await expect(abandon.json()).resolves.toEqual({ reason: "generated output failed" });
 
+    await expect(Effect.runPromise(
+      decodeDeploymentAbandonPushRouteRequest(jsonRequest(
+        `${DeploymentRoute.push}/push-abandon-effect/${DeploymentPushAction.abandon}`,
+        {
+          method: "POST",
+          body: { reason: "effect parsed reason" },
+        },
+      )),
+    )).resolves.toEqual({ reason: "effect parsed reason" });
     await expect(
       readDeploymentAbandonPushRouteRequest(jsonRequest(
         `${DeploymentRoute.push}/push-abandon-helper/${DeploymentPushAction.abandon}`,
@@ -99,6 +110,9 @@ describe("deploymentApiRequestForRoute", () => {
     expect(parseDeploymentAbandonPushRouteRequest({
       reason: "pure parser reason",
     })).toEqual({ reason: "pure parser reason" });
+    await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
+      reason: "effect parser reason",
+    }))).resolves.toEqual({ reason: "effect parser reason" });
   });
 
   it("preserves compatibility parser failures before generated handler routing", async () => {
@@ -156,6 +170,33 @@ describe("deploymentApiRequestForRoute", () => {
     ))).rejects.toMatchObject({
       message: "Abandon push reason must be a string.",
     });
+    await expect(deploymentApiRequestForRoute(jsonRequest(
+      `${DeploymentRoute.push}/push-abandon-malformed/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: "{",
+      },
+    ))).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+    await expect(Effect.runPromise(decodeDeploymentAbandonPushRouteRequest(jsonRequest(
+      `${DeploymentRoute.push}/push-abandon-effect-malformed/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
+    await expect(Effect.runPromise(decodeDeploymentAbandonPushRouteRequest(jsonRequest(
+      `${DeploymentRoute.push}/push-abandon-effect-invalid/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: { reason: 123 },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
+      reason: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
   it("leaves non-API routes and fallback health methods on DeploymentDO", async () => {

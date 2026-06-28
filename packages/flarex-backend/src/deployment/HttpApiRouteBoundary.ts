@@ -47,7 +47,7 @@ export async function readDeploymentFinishPushRouteRequest(
 ): Promise<FinishPushRequest> {
   return await Effect.runPromise(
     decodeDeploymentFinishPushRouteRequest(request).pipe(
-      Effect.mapError(deploymentFinishRouteErrorToHttpError),
+      Effect.mapError(deploymentRouteErrorToHttpError),
     ),
   );
 }
@@ -81,7 +81,7 @@ export function parseDeploymentFinishPushRouteRequestEffect(
   });
 }
 
-function deploymentFinishRouteErrorToHttpError(
+function deploymentRouteErrorToHttpError(
   error: RequestJsonError | DeploymentProtocolValidationError,
 ): HttpError | DeploymentProtocolValidationError {
   if (error instanceof RequestJsonError) {
@@ -93,13 +93,40 @@ function deploymentFinishRouteErrorToHttpError(
 export async function readDeploymentAbandonPushRouteRequest(
   request: Request,
 ): Promise<AbandonPushRequest> {
-  return parseDeploymentAbandonPushRouteRequest(await readJson(request));
+  return await Effect.runPromise(
+    decodeDeploymentAbandonPushRouteRequest(request).pipe(
+      Effect.mapError(deploymentRouteErrorToHttpError),
+    ),
+  );
+}
+
+export function decodeDeploymentAbandonPushRouteRequest(
+  request: Request,
+): Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
+  return readJsonEffect(request).pipe(
+    Effect.flatMap(parseDeploymentAbandonPushRouteRequestEffect),
+  );
 }
 
 export function parseDeploymentAbandonPushRouteRequest(
   value: unknown,
 ): AbandonPushRequest {
   return parseAbandonPushRequest(value);
+}
+
+export function parseDeploymentAbandonPushRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(parseDeploymentAbandonPushRouteRequest(value));
+    } catch (error) {
+      if (error instanceof DeploymentProtocolValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
 }
 
 function jsonRequest(url: URL, body: unknown): Request {
