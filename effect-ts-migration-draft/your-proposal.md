@@ -2,13 +2,22 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `779e602` Add registry HttpApi protocol contract.
-- Active checkpoint: add backend-only `RegistryApi` `HttpApiBuilder` handlers without routing RegistryDO through them yet.
+- Previous completed checkpoint: `f31c545` Add registry HttpApi handler layer.
+- Active checkpoint: verify the abandon-push service extraction remains complete and lock the abandon request protocol parser directly.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 35 slice:
+Current Goal 36 slice:
+
+1. Audit the current abandon-push path and confirm `DeploymentDO.fetch()` only owns route matching, JSON reading, protocol parsing, and HTTP response wrapping.
+2. Keep `DeploymentService.abandonPush(...)` as the orchestration boundary for push lookup, typed not-found/invalid-state checks, controlled timestamp use, and reason normalization.
+3. Keep `DeploymentPushStore.abandonPush(...)` as the SQL transaction boundary for state guards, update writes, and post-update reads.
+4. Add direct `flarex-protocol/deployment` coverage for `parseAbandonPushRequest` so the shared parser used by `DeploymentDO` is locked independently from route tests.
+5. Do not change abandon route behavior, response bodies, request validation messages, SQL statements, runtime boundaries, service/store orchestration, or `ValidatorJson`.
+6. Validate with focused deployment protocol/service/push tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 35 slice:
 
 1. Add a backend-only `registry/HttpApiHandlers.ts` layer with `HttpApiBuilder.group(RegistryApi, "registry", ...)`.
 2. Implement handlers for `health`, `listDeployments`, and `createDeployment` by delegating to `RegistryService`.
@@ -326,7 +335,7 @@ Completed Goal 2 slice:
 4. Do not introduce `HttpApiBuilder`, Alchemy, executor-http replacement, or a large module move in this slice.
 5. Preserve the existing route behavior and validate with focused RegistryDO tests plus backend typecheck/build/test gates.
 
-Next checkpoint after Goal 35 should be one of:
+Next checkpoint after Goal 36 should be one of:
 
 - Review whether `DeploymentDO.fetch()` has any remaining deployment-state branches that should cross the service boundary before semantic validator extraction.
 - Review whether deployment storage initialization should become an Effect layer concern later, after HTTP and store boundaries are stable.

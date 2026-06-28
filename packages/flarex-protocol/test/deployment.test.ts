@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DeploymentProtocolValidationError,
+  parseAbandonPushRequest,
   parseAnalyzedStartPushRequest,
   parseDeploymentAnalysis,
   parseDeploymentCodegenAnalysis,
@@ -59,6 +60,17 @@ describe("deployment protocol schemas", () => {
     expect(parseFinishPushRequest({ activate: true })).toEqual({ activate: true });
     expect(() => parseFinishPushRequest(null)).toThrow(DeploymentProtocolValidationError);
     expect(() => parseFinishPushRequest({ activate: "yes" }))
+      .toThrow(DeploymentProtocolValidationError);
+  });
+
+  it("parses abandon push request bodies", () => {
+    expect(parseAbandonPushRequest({})).toEqual({});
+    expect(parseAbandonPushRequest({ reason: "typecheck failed" })).toEqual({
+      reason: "typecheck failed",
+    });
+    expect(() => parseAbandonPushRequest(null)).toThrow(DeploymentProtocolValidationError);
+    expect(() => parseAbandonPushRequest([])).toThrow(DeploymentProtocolValidationError);
+    expect(() => parseAbandonPushRequest({ reason: 42 }))
       .toThrow(DeploymentProtocolValidationError);
   });
 });
