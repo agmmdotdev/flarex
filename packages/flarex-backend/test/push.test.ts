@@ -685,6 +685,34 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("normalizes abandon reasons through the deployment service from public routes", async () => {
+    const defaultReasonStart = await startPush(
+      "push-abandon-default-reason",
+      analyzedPush(candidateSchema(), candidateFunctions()),
+    );
+    const defaultReasonAbandoned = await abandonPush("push-abandon-default-reason", defaultReasonStart.pushId);
+
+    expect(defaultReasonAbandoned).toMatchObject({
+      pushId: defaultReasonStart.pushId,
+      state: "abandoned",
+      error: "Push abandoned before activation.",
+    });
+
+    const longReasonStart = await startPush(
+      "push-abandon-long-reason",
+      analyzedPush(candidateSchema(), candidateFunctions()),
+    );
+    const longReasonAbandoned = await abandonPush("push-abandon-long-reason", longReasonStart.pushId, {
+      reason: "x".repeat(1_100),
+    });
+
+    expect(longReasonAbandoned).toMatchObject({
+      pushId: longReasonStart.pushId,
+      state: "abandoned",
+      error: "x".repeat(1_000),
+    });
+  });
+
   it("rejects malformed abandon request bodies", async () => {
     const start = await startPush("push-abandon-bad-body", analyzedPush(candidateSchema(), candidateFunctions()));
 

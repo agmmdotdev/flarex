@@ -82,10 +82,7 @@ export const DeploymentApiHandlers = HttpApiBuilder.group(
         )
       )
       .handle("abandonPush", ({ params, payload }) =>
-        mapDeploymentAbandonFailure(deployment.abandonPush(
-          params.pushId,
-          payload.reason === undefined ? {} : { reason: payload.reason },
-        )).pipe(
+        mapDeploymentAbandonFailure(deployment.abandonPush(params.pushId, payload)).pipe(
           Effect.flatMap(parsePushStatusForHttpApi),
         )
       );

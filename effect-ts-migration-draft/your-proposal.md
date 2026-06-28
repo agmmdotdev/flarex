@@ -2,13 +2,23 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `50e2b52` Add deployment HttpApi handler layer.
-- Active checkpoint: add a backend-only Deployment HttpApi web-handler factory without Durable Object server wiring.
+- Previous completed checkpoint: `33d23cd` Add deployment HttpApi web handler factory.
+- Active checkpoint: tighten the abandon-push service boundary before Durable Object HttpApi wiring.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 
-Current Goal 42 slice:
+Current Goal 43 slice:
+
+1. Confirm the abandon-push orchestration already lives in `DeploymentService.abandonPush(...)`: push lookup, typed not-found/invalid-state checks, controlled timestamp use, reason defaulting/truncation, and store delegation.
+2. Keep `DeploymentDO.fetch()` responsible only for route matching, JSON reading, protocol parsing with `parseAbandonPushRequest`, and HTTP response wrapping.
+3. Pass the parsed `AbandonPushRequest` directly from `DeploymentDO.fetch()` into `DeploymentService.abandonPush(...)` instead of re-adapting the optional reason field in the route layer.
+4. Pass the HttpApi handler payload directly into `DeploymentService.abandonPush(...)` for the same reason, preserving the typed error mapping and response parser path.
+5. Add route-level coverage for default and truncated abandon reasons so the service-owned normalization is locked from the public HTTP boundary before generated handler wiring.
+6. Do not change abandon route paths, response bodies, request validation messages, SQL statements, runtime boundaries, store state guards, worker forwarding, protocol schemas, or `ValidatorJson`.
+7. Validate with focused abandon/service/handler/protocol tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 42 slice:
 
 1. Add a backend-only `deployment/HttpApiWebHandler.ts` factory that combines `HttpApiBuilder.layer(DeploymentApi)`, `DeploymentApiHandlers`, a provided `DeploymentService` layer, `HttpServer.layerServices`, and `HttpRouter.toWebHandler(...)`.
 2. Keep the factory injectable so a future Durable Object can provide its per-instance `makeDeploymentLayer(...)` without capturing DO state in a global singleton.

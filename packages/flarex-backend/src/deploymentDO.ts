@@ -71,9 +71,7 @@ export class DeploymentDO extends DurableObject<Env> {
         }
         if (action === DeploymentPushAction.abandon && request.method === "POST") {
           const body = parseAbandonPushRequest(await readJson(request));
-          return json(await this.runDeploymentService(service =>
-            service.abandonPush(pushId, body.reason === undefined ? {} : { reason: body.reason })
-          ));
+          return json(await this.runDeploymentService(service => service.abandonPush(pushId, body)));
         }
       }
       return json({ error: "Not found." }, { status: 404 });

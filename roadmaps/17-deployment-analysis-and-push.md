@@ -1,5 +1,59 @@
 # Deployment Analysis And Push
 
+## Abandon Push Service Boundary Parity
+
+Previous completed checkpoint: `33d23cd` Add deployment HttpApi web handler
+factory.
+
+What changed:
+
+- Tightened the abandon-push boundary so `DeploymentDO.fetch()` parses the
+  request body with `parseAbandonPushRequest` and passes the parsed request
+  directly into `DeploymentService.abandonPush`.
+- Kept `DeploymentService.abandonPush` as the owner of push lookup,
+  not-found/invalid-state checks, controlled timestamp use, and reason
+  defaulting/truncation.
+- Kept `DeploymentPushStore.abandonPush` as the transaction-level SQL guard and
+  write boundary.
+- Mirrored the same direct payload flow in the Deployment HttpApi handler.
+- Added route-level coverage for default and truncated abandon reasons.
+
+Why it changed:
+
+The service extraction already existed, but the route and generated handler
+still re-shaped the optional reason field. Removing that last adaptation keeps
+the HTTP layer smaller before Durable Object HttpApi wiring while preserving the
+public behavior.
+
+Convex references inspected:
+
+- No new Convex source files were required. This is a Flarex-specific boundary
+  cleanup around the existing Cloudflare deployment push state machine.
+
+Flarex differences:
+
+- Abandonment remains a Durable Object SQLite state transition. The generated
+  HttpApi handler is still backend-only and is not yet wired into
+  `DeploymentDO.fetch`.
+
+Known limitations:
+
+- This checkpoint does not route live Durable Object traffic through
+  `HttpRouter.toWebHandler`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/push.test.ts -t "abandon"
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-protocol/test/deployment.test.ts
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
 ## Deployment Finish Response HTTP Status Boundary
 
 Previous completed checkpoint: `78f0661` Add finish push request protocol

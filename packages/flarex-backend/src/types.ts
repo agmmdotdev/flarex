@@ -325,7 +325,7 @@ export type FinishPushRequest = {
 };
 
 export type AbandonPushRequest = {
-  reason?: string;
+  reason?: string | undefined;
 };
 
 export type InvokeRequest = {
