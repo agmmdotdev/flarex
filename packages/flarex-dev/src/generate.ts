@@ -997,7 +997,7 @@ async function postBackend<T>(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
-  const value = await response.json().catch(() => null);
+  const value = await readBackendResponseJson(response);
   if (!response.ok) {
     const code = backendErrorCode(value);
     const message =
@@ -1007,6 +1007,10 @@ async function postBackend<T>(
     throw new BackendRequestError(response.status, code, message);
   }
   return value as T;
+}
+
+async function readBackendResponseJson(response: Response): Promise<unknown> {
+  return await response.json().catch(() => null);
 }
 
 function backendErrorCode(value: unknown): string | undefined {
@@ -1038,6 +1042,10 @@ function authorizeInternalRequest(request: Request, env: Env): Response | null {
   return Response.json({ error: "Unauthorized internal Flarex request." }, { status: 401 });
 }
 
+async function readInvokeRequestJson(request: Request): Promise<InvokeBody> {
+  return await request.json<InvokeBody>();
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1054,7 +1062,9 @@ export default {
       request.method === "POST"
     ) {
       try {
-        return Response.json(await invokeWithBackend(await request.json<InvokeBody>(), env, request));
+        return Response.json(
+          await invokeWithBackend(await readInvokeRequestJson(request), env, request),
+        );
       } catch (error) {
         return Response.json(
           { error: error instanceof Error ? error.message : String(error) },

@@ -589,6 +589,10 @@ export const helper = "not a function";
     expect(worker).toContain('"/invoke/finish"');
     expect(worker).toContain('"/invoke/abort"');
     expect(worker).toContain("x-flarex-project");
+    expect(worker).toContain("async function readInvokeRequestJson(request: Request): Promise<InvokeBody>");
+    expect(worker).toContain("await readInvokeRequestJson(request)");
+    expect(worker).toContain("async function readBackendResponseJson(response: Response): Promise<unknown>");
+    expect(worker).toContain("const value = await readBackendResponseJson(response);");
     await expect(fileExists(path.join(root, "wrangler.generated.jsonc"))).resolves.toBe(false);
   });
 

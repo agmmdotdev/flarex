@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Generated Runtime Worker JSON Boundaries
+
+Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+
+What changed:
+
+- Generated local runtime worker request body reads for invoke and
+  query-session routes now pass through named boundary helpers.
+- Generated backend response JSON reads now pass through a named boundary helper
+  before the existing status/message mapping.
+
+Why it changed:
+
+The runtime-validation migration has typed several adapter response boundaries,
+but generated worker templates still carried anonymous JSON parse sites. This
+checkpoint makes those remaining generated boundaries visible and keeps behavior
+stable before moving back to typed Effect route/service validation.
+
+Known limitations:
+
+- This checkpoint does not add Effect Schema validation to generated worker
+  request payloads.
+- The emitted worker continues to surface malformed request JSON through the
+  existing route `try/catch` and `400 { error }` response.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Scheduler Response Effect Decoders
 
 Previous completed checkpoint: `1fb88f8` Type live query delivery responses

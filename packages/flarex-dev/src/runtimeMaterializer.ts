@@ -244,14 +244,18 @@ export default {
     }
     if (url.pathname === "/__flarex_internal/invoke" && request.method === "POST") {
       try {
-        return Response.json(await invokeWithBackend(await request.json(), env, request));
+        return Response.json(
+          await invokeWithBackend(await readInternalRequestJson(request), env, request),
+        );
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 400 });
       }
     }
     if (url.pathname === "/__flarex_internal/query-session" && request.method === "POST") {
       try {
-        return Response.json(await executeQuerySession(await request.json(), env, request));
+        return Response.json(
+          await executeQuerySession(await readInternalRequestJson(request), env, request),
+        );
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 400 });
       }
@@ -265,6 +269,10 @@ function authorizeInternalRequest(request, env) {
   const expected = \`Bearer \${env.FLAREX_INTERNAL_TOKEN}\`;
   if (request.headers.get("authorization") === expected) return null;
   return Response.json({ error: "Unauthorized internal Flarex request." }, { status: 401 });
+}
+
+async function readInternalRequestJson(request) {
+  return await request.json();
 }
 
 async function invokeWithBackend(body, env, request) {
@@ -713,7 +721,7 @@ async function postBackend(backend, path, body, headers = {}) {
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
-  const value = await response.json().catch(() => null);
+  const value = await readBackendResponseJson(response);
   if (!response.ok) {
     const code = backendErrorCode(value);
     const message =
@@ -723,6 +731,10 @@ async function postBackend(backend, path, body, headers = {}) {
     throw new BackendRequestError(response.status, code, message);
   }
   return value;
+}
+
+async function readBackendResponseJson(response) {
+  return await response.json().catch(() => null);
 }
 
 function backendErrorCode(value) {

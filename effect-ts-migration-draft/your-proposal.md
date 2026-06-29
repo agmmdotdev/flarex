@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `1fb88f8` Type live query delivery responses with Effect.
-- Active checkpoint: route SchedulerDO executor-maintenance and internal DO JSON responses through named Effect decoders while preserving existing `HttpError(502, ...)` and structured delivery wake behavior.
+- Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+- Active checkpoint: make generated/dev runtime worker JSON boundaries explicit by routing generated internal request reads and backend response reads through named helpers while preserving generated worker behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current scheduler response checkpoint:
+Next recommended checkpoint after the current generated runtime boundary checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -52,11 +52,30 @@ Next recommended checkpoint after the current scheduler response checkpoint:
    edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Keep generated runtime-worker source and PartitionDO service extraction
-   separate from adapter-edge refactors until each has dedicated parity
-   coverage.
+4. Return to true Effect route/service conversion after this compatibility
+   checkpoint: typed request/body decoders, typed domain failures, and one
+   adapter HTTP mapping edge.
 
-Current Goal 153 slice:
+Current Goal 154 slice:
+
+1. Route generated runtime worker internal request JSON reads through named
+   `readInternalRequestJson(...)` and `readInvokeRequestJson(...)` helpers in
+   emitted local materializer and application worker source.
+2. Route generated runtime worker backend response JSON reads through a named
+   `readBackendResponseJson(...)` helper in both local materializer and
+   generated application worker source.
+3. Preserve generated behavior: malformed internal request JSON still maps to
+   the existing `400 { error }`, non-OK backend responses keep the same code and
+   message precedence, and successful backend responses still return parsed
+   JSON.
+4. Keep Effect route decoders, backend services, deployment validation,
+   generated API shape, materialized artifact public adapter mapping, and
+   `ValidatorJson` unchanged.
+5. Validate with focused `flarex-dev` generation/runtime materializer tests,
+   package typecheck/build, backend/protocol gates as practical, and only the
+   EffectTS quality checker reviewer.
+
+Completed Goal 153 slice:
 
 1. Add named Effect response decoders for SchedulerDO executor-maintenance responses: rerun, connection cleanup, expired connection deployment scans, dead-letter scans, pending deployment scans, plus successful delivery wake and force-reconnect JSON responses.
 2. Route the remaining SchedulerDO `response.json().catch(() => null)` sites through those decoders before existing payload parsing.

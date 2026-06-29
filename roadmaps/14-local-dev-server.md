@@ -1,5 +1,48 @@
 # Local Dev Server
 
+## Generated Runtime Worker JSON Boundaries
+
+Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+
+What changed:
+
+- Generated local materializer and application worker source now read internal
+  invoke and query-session request bodies through named request JSON
+  boundaries.
+- Generated local materializer and application worker backend response reads now
+  use a named `readBackendResponseJson(...)` boundary instead of anonymous
+  inline `response.json().catch(() => null)` calls.
+- Generated source coverage asserts the emitted worker keeps the backend
+  response boundary helper.
+
+Why it changed:
+
+The dev/runtime side still had generated worker templates with direct JSON
+parsing even after package-local adapters moved to named Effect response
+decoders. This checkpoint keeps generated worker behavior unchanged but makes
+those emitted runtime boundaries explicit before returning to fuller
+route/service Effect conversion.
+
+Known limitations:
+
+- The emitted workers remain plain generated Worker code and do not import
+  Effect.
+- Successful backend response payloads still use existing generated worker
+  contracts rather than Effect Schema.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Backend Push And Artifact Response Effect Boundaries
 
 Previous completed checkpoint: `77c921a` Type materialized artifact responses

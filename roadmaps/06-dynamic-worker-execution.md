@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Generated Runtime Worker JSON Boundaries
+
+Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+
+What changed:
+
+- Local materialized Dynamic Worker source now names the internal request JSON
+  read boundary before invoking generated user functions or query sessions.
+- Local materialized Dynamic Worker backend calls now name the JSON response
+  read boundary before preserving the existing backend error-code/message
+  mapping.
+
+Why it changed:
+
+Dynamic Worker execution still depends on emitted Worker source. Naming these
+generated request/response boundaries closes the remaining anonymous JSON reads
+in the materialized execution path without changing lifecycle, retry, syscall,
+or executor transport behavior.
+
+Known limitations:
+
+- The generated worker source remains a compatibility checkpoint, not a true
+  Effect service migration.
+- Generated request body shapes are still trusted by the existing runtime
+  handlers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Backend Artifact Runtime Service Response Boundary
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with

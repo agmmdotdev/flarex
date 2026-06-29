@@ -1,5 +1,37 @@
 # Deployment Analysis And Push
 
+## Generated Worker Backend Response Boundary
+
+Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+
+What changed:
+
+- Generated application worker source now uses named request and response JSON
+  helpers before invoking backend functions or mapping backend response
+  failures.
+- Generation tests assert the emitted worker includes and uses that helper.
+
+Why it changed:
+
+Deployment analysis produces generated Worker code that still had an anonymous
+backend response JSON read. Naming that boundary keeps generated application
+transport handling consistent with the package-local Effect response decoder
+work while preserving generated API behavior.
+
+Known limitations:
+
+- Generated worker response payloads are still trusted after parsing.
+- The public push/deployment route service migration remains separate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+git diff --check
+```
+
 ## Backend Analyzer Response Effect Boundary
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with
