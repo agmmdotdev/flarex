@@ -22,10 +22,14 @@ import {
 } from "./delivery/PublicWakeRouteBoundary";
 import { DeploymentDO } from "./deploymentDO";
 import {
-  readPublicExecutionActionRequest,
+  decodePublicExecutionActionRequest,
+  publicExecutionActionRouteErrorToHttpError,
   type PublicExecutionAction,
 } from "./execution/ActionRouteBoundary";
-import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary";
+import {
+  decodePublicExecutionStartRouteRequest,
+  executionStartRouteErrorToHttpError,
+} from "./execution/StartRouteBoundary";
 import {
   deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
@@ -614,29 +618,88 @@ async function routeExecution(
   if (parts[0] === "start" && request.method === "POST") {
     const sessionId = crypto.randomUUID();
     const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
-    const body = await readPublicExecutionStartRequest(request, deploymentId);
-    const response = await execution.fetch("https://flarex.internal/start", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) return response;
-    return json({ sessionId, ...((await response.json()) as Record<string, unknown>) });
+    return await Effect.runPromise(
+      routePublicExecutionStart(request, execution, deploymentId, sessionId).pipe(
+        Effect.mapError(publicWorkerExecutionStartRouteErrorToHttpError),
+      ),
+    );
   }
 
   const sessionId = required(parts[0], "execution session id");
   const action = required(parts[1], "execution action");
   const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
   if (isPublicExecutionAction(action) && request.method === "POST") {
-    const body = await readPublicExecutionActionRequest(request, action);
-    return execution.fetch(`https://flarex.internal/${action}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    return await Effect.runPromise(
+      routePublicExecutionAction(request, execution, action).pipe(
+        Effect.mapError(publicWorkerExecutionActionRouteErrorToHttpError),
+      ),
+    );
   }
 
   return json({ error: "Execution route not found." }, { status: 404 });
+}
+
+const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
+  function* (
+    request: Request,
+    execution: DurableObjectStub,
+    deploymentId: string,
+    sessionId: string,
+  ) {
+    const body = yield* decodePublicExecutionStartRouteRequest(request, deploymentId);
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        execution.fetch("https://flarex.internal/start", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+    if (!response.ok) return response;
+    const responseBody = yield* Effect.tryPromise({
+      try: () => response.json() as Promise<Record<string, unknown>>,
+      catch: error => new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+    return json({ sessionId, ...responseBody });
+  },
+);
+
+function publicWorkerExecutionStartRouteErrorToHttpError(
+  error: Parameters<typeof executionStartRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return executionStartRouteErrorToHttpError(error);
+}
+
+const routePublicExecutionAction = Effect.fn("Worker.routePublicExecutionAction")(
+  function* (request: Request, execution: DurableObjectStub, action: PublicExecutionAction) {
+    const body = yield* decodePublicExecutionActionRequest(request, action);
+    return yield* Effect.tryPromise({
+      try: () =>
+        execution.fetch(`https://flarex.internal/${action}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+  },
+);
+
+function publicWorkerExecutionActionRouteErrorToHttpError(
+  error: Parameters<typeof publicExecutionActionRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return publicExecutionActionRouteErrorToHttpError(error);
 }
 
 function isPublicExecutionAction(action: string): action is PublicExecutionAction {

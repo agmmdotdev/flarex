@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `b2b6d7a` Record deployment validation audit.
-- Active checkpoint: convert delivery payload route boundaries to typed Effect decoders across `DeliveryDO`, public wake-delivery, public live-query delivery, and `ConnectionDO`, while preserving route deployment-id precedence and live-query delivery HTTP response semantics.
+- Previous completed checkpoint: `82033a9` Type delivery payload routes with Effect.
+- Active checkpoint: convert execution start/action route boundaries to typed Effect decoders and route public Worker execution start/syscall/finish/abort forwarding through `Effect.fn` helpers while preserving route deployment-id precedence and execution session response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 138 slice:
+Current Goal 139 slice:
+
+1. Add Effect-returning internal and public execution start decoders that keep route `deploymentId` authoritative for public starts and preserve compatibility `readExecutionStartRequest(...)` readers.
+2. Add Effect-returning public execution action decoders for syscall, finish, and abort, reusing the existing typed syscall/finish parsers and preserving abort's well-formed JSON forwarding behavior.
+3. Route public Worker execution start and action forwarding through `Effect.fn` helpers with one adapter mapping edge for `RequestJsonError`, `ExecutionProtocolValidationError`, and downstream `HttpError` failures.
+4. Preserve malformed JSON as shared `RequestJsonError`, invalid execution protocol bodies as `400`, generated ExecutionDO start/syscall/finish behavior, deployment routes, invoke routes, scheduler routes, partition routes, delivery routes, SQL schema, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused execution start/action/finish/syscall route-boundary tests, execution/session regression coverage as practical, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 138 slice:
 
 1. Add Effect-returning delivery wake decoders with `DeliveryWakeRouteValidationError`, preserving internal `DeliveryDO` wake body validation and compatibility `readDeliveryWakeRequest(...)`.
 2. Add public wake-delivery Effect decoders that override any body deployment id with the route deployment id before forwarding to `DeliveryDO`.

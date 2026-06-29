@@ -1,8 +1,15 @@
+import { Effect } from "effect";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeExecutionStartRouteRequest,
+  decodePublicExecutionStartRouteRequest,
+  executionStartRouteErrorToHttpError,
   parseExecutionStartRouteRequest,
+  parseExecutionStartRouteRequestEffect,
   parsePublicExecutionStartRouteRequest,
+  parsePublicExecutionStartRouteRequestEffect,
   readExecutionStartRequest,
   readPublicExecutionStartRequest,
 } from "../src/execution/StartRouteBoundary";
@@ -23,6 +30,15 @@ describe("execution start route boundary", () => {
       partitionKey: "1:user",
       kind: "query",
       idempotencyKey: "start-once",
+    });
+    await expect(Effect.runPromise(decodeExecutionStartRouteRequest(jsonRequest({
+      deploymentId: "deployment-b",
+      path: "users:list",
+      args: {},
+    })))).resolves.toEqual({
+      deploymentId: "deployment-b",
+      path: "users:list",
+      args: {},
     });
   });
 
@@ -49,6 +65,17 @@ describe("execution start route boundary", () => {
       path: "users:list",
       args: [],
       projectId: "project-a",
+    });
+    await expect(Effect.runPromise(decodePublicExecutionStartRouteRequest(jsonRequest({
+      deploymentId: "body-deployment",
+      path: "users:get",
+      args: null,
+      kind: "query",
+    }), "route-deployment"))).resolves.toEqual({
+      deploymentId: "route-deployment",
+      path: "users:get",
+      args: null,
+      kind: "query",
     });
   });
 
@@ -94,6 +121,49 @@ describe("execution start route boundary", () => {
     }))).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("exposes typed execution start failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(parseExecutionStartRouteRequestEffect({
+      deploymentId: "deployment-a",
+      path: "users:get",
+      kind: "query",
+    }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(parsePublicExecutionStartRouteRequestEffect(
+      "not an object",
+      "route-deployment",
+    ))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeExecutionStartRouteRequest(new Request(
+      "https://flarex.test/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed execution start route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(executionStartRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ExecutionProtocolValidationError({
+      schema: "ExecutionStartRequest",
+      message: "Execution start request must include JSON args.",
+      cause: null,
+    });
+    expect(executionStartRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: "Execution start request must include JSON args.",
     });
   });
 });

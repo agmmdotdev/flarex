@@ -1,7 +1,12 @@
+import { Effect } from "effect";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodePublicExecutionActionRequest,
   parsePublicExecutionActionRequest,
+  parsePublicExecutionActionRequestEffect,
+  publicExecutionActionRouteErrorToHttpError,
   readPublicExecutionActionRequest,
 } from "../src/execution/ActionRouteBoundary";
 
@@ -36,6 +41,13 @@ describe("public execution action route boundary", () => {
       id: "1:progress",
       value: { completed: true },
     });
+    await expect(Effect.runPromise(decodePublicExecutionActionRequest(jsonRequest({
+      op: "delete",
+      id: "1:progress",
+    }), "syscall"))).resolves.toEqual({
+      op: "delete",
+      id: "1:progress",
+    });
   });
 
   it("decodes public finish bodies before forwarding", async () => {
@@ -56,6 +68,11 @@ describe("public execution action route boundary", () => {
     }, "finish")).toEqual({
       value: null,
     });
+    await expect(Effect.runPromise(decodePublicExecutionActionRequest(jsonRequest({
+      value: "done",
+    }), "finish"))).resolves.toEqual({
+      value: "done",
+    });
   });
 
   it("keeps public abort as well-formed JSON forwarding", async () => {
@@ -65,6 +82,9 @@ describe("public execution action route boundary", () => {
       ignored: true,
     }), "abort")).resolves.toEqual({ ignored: true });
     expect(parsePublicExecutionActionRequest(null, "abort")).toBeNull();
+    await expect(Effect.runPromise(decodePublicExecutionActionRequest(jsonRequest({
+      ignored: true,
+    }), "abort"))).resolves.toEqual({ ignored: true });
   });
 
   it("preserves malformed public action JSON as the shared body error", async () => {
@@ -80,6 +100,49 @@ describe("public execution action route boundary", () => {
     }), "abort")).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("exposes typed public action failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(parsePublicExecutionActionRequestEffect({
+      op: "query",
+      request: {
+        table: "lessonProgress",
+        order: "sideways",
+      },
+    }, "syscall"))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(parsePublicExecutionActionRequestEffect({}, "finish")))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodePublicExecutionActionRequest(new Request(
+      "https://flarex.test/syscall",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ), "syscall"))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed public action route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(publicExecutionActionRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ExecutionProtocolValidationError({
+      schema: "ExecutionFinishRequest",
+      message: "Execution finish request must include JSON value.",
+      cause: null,
+    });
+    expect(publicExecutionActionRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: "Execution finish request must include JSON value.",
     });
   });
 });

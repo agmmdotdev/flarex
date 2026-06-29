@@ -1,5 +1,54 @@
 # Dynamic Worker Execution
 
+## Execution Route Effect Boundary
+
+Current Effect migration checkpoint: execution start and public execution
+action route bodies are moving from Promise/throw readers to typed Effect
+decoders.
+
+What is changing:
+
+- `packages/flarex-backend/src/execution/StartRouteBoundary.ts` now exposes
+  Effect-returning internal and public start decoders.
+- Public execution starts still take the authoritative `deploymentId` from the
+  route before using the shared execution protocol parser.
+- `packages/flarex-backend/src/execution/ActionRouteBoundary.ts` now exposes
+  an Effect-returning public action decoder for `syscall`, `finish`, and
+  `abort`.
+- Public `syscall` and `finish` reuse the existing typed syscall/finish parser
+  effects; public `abort` still forwards any well-formed JSON body.
+- `packages/flarex-backend/src/worker.ts` routes public execution start and
+  public execution actions through `Effect.fn` helpers before forwarding to
+  `ExecutionDO`.
+
+Why it is changing:
+
+Execution start/action routes were already normalized by named parser helpers,
+but public Worker routing still crossed through Promise/throw compatibility
+readers. This checkpoint moves the execution session ingress to the same typed
+transport-boundary shape as deployment, invoke, scheduler, and delivery routes.
+
+Preserved behavior:
+
+- Malformed JSON still maps to `400` with the shared JSON-body message.
+- Execution protocol validation failures still map to `400`.
+- Public start still uses the route deployment id over any body deployment id.
+- Start still creates an execution session id and returns it with a successful
+  `ExecutionDO` start response.
+- Public action forwarding still targets `/syscall`, `/finish`, and `/abort`
+  on the selected `ExecutionDO`.
+
+Verification plan:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke Worker Effect Boundary
 
 Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
