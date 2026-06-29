@@ -1,5 +1,35 @@
 # OCC And Transactions
 
+## PartitionDO Adapter-Only Effect Checkpoint
+
+Previous completed checkpoint: `e014550` Route execution fetch edges through
+Effect.
+
+What changed:
+
+- `PartitionDO.fetch()` now routes schema-cache, commit, and subscription body
+  reads through named Effect helpers backed by typed partition route decoders.
+- The commit route keeps the existing status contract: `201` for new commits,
+  `200` for idempotency replay, and fetch-level `409` for OCC conflicts.
+
+What did not change:
+
+- SQL table layout, write-log persistence, idempotency-key replay, read-set
+  validation, document/index history writes, partition-owner enforcement, and
+  subscription invalidation scanning remain inside `PartitionDO`.
+- This is not the service-extraction step for `PartitionDO` transaction logic.
+  OCC behavior still needs separate parity coverage before it moves behind a
+  fuller Effect service boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Real Postgres Retry Coordination
 
 Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.

@@ -4,16 +4,18 @@ import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
 import {
-  readPartitionCommitRequest,
-  readPartitionConnectionUnregisterRequest,
-  readPartitionSchemaCacheRequest,
-  readPartitionSubscriptionRegistrationRequest,
-  readPartitionSubscriptionTargetRequest,
+  decodePartitionCommitRequest,
+  decodePartitionConnectionUnregisterRequest,
+  decodePartitionSchemaCacheRequest,
+  decodePartitionSubscriptionRegistrationRequest,
+  decodePartitionSubscriptionTargetRequest,
+  partitionRouteErrorToHttpError,
   type PartitionConnectionUnregisterRequest,
   type PartitionSchemaCacheRequest,
   type PartitionSubscriptionRegistrationRequest,
   type PartitionSubscriptionTargetRequest,
 } from "./partition/RouteBoundary";
+import { Effect } from "effect";
 import type {
   BeginResponse,
   CommitRequest,
@@ -187,31 +189,32 @@ export class PartitionDO extends DurableObject<Env> {
         });
       }
       if (url.pathname === "/schema-cache" && request.method === "PUT") {
-        return json(await this.putSchemaCache(
-          await readPartitionSchemaCacheRequest(request),
-        ));
+        return await Effect.runPromise(
+          routePartitionSchemaCache(request, body => this.putSchemaCache(body)),
+        );
       }
       if (url.pathname === "/begin" && request.method === "POST") {
         return json(this.begin());
       }
       if (url.pathname === "/commit" && request.method === "POST") {
-        const result = await this.commit(await readPartitionCommitRequest(request));
-        return json(result, { status: result.replayed ? 200 : 201 });
+        return await Effect.runPromise(
+          routePartitionCommit(request, body => this.commit(body)),
+        );
       }
       if (url.pathname === "/subscriptions/register" && request.method === "POST") {
-        return json(this.registerSubscription(
-          await readPartitionSubscriptionRegistrationRequest(request),
-        ));
+        return await Effect.runPromise(
+          routePartitionSubscriptionRegistration(request, body => this.registerSubscription(body)),
+        );
       }
       if (url.pathname === "/subscriptions/unregister" && request.method === "POST") {
-        return json(this.unregisterSubscription(
-          await readPartitionSubscriptionTargetRequest(request),
-        ));
+        return await Effect.runPromise(
+          routePartitionSubscriptionUnregister(request, body => this.unregisterSubscription(body)),
+        );
       }
       if (url.pathname === "/subscriptions/unregister-connection" && request.method === "POST") {
-        return json(this.unregisterConnection(
-          await readPartitionConnectionUnregisterRequest(request),
-        ));
+        return await Effect.runPromise(
+          routePartitionConnectionUnregister(request, body => this.unregisterConnection(body)),
+        );
       }
       if (url.pathname === "/document" && request.method === "GET") {
         const tableId = Number(url.searchParams.get("tableId"));
@@ -1008,6 +1011,85 @@ export class PartitionDO extends DurableObject<Env> {
     const row = this.sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
     return row?.value ?? null;
   }
+}
+
+const routePartitionSchemaCache = Effect.fn("PartitionDO.routeSchemaCache")(
+  function* (
+    request: Request,
+    putSchemaCache: (body: PartitionSchemaCacheRequest) => Promise<{ schemaVersion: number }>,
+  ) {
+    const body = yield* decodePartitionSchemaCacheRequest(request).pipe(
+      Effect.mapError(partitionRouteErrorToHttpError),
+    );
+    return yield* routePartitionJsonResult(() => putSchemaCache(body));
+  },
+);
+
+const routePartitionCommit = Effect.fn("PartitionDO.routeCommit")(
+  function* (
+    request: Request,
+    commit: (body: CommitRequest) => Promise<CommitResponse>,
+  ) {
+    const body = yield* decodePartitionCommitRequest(request).pipe(
+      Effect.mapError(partitionRouteErrorToHttpError),
+    );
+    return yield* routePartitionJsonResult(
+      () => commit(body),
+      result => ({ status: result.replayed ? 200 : 201 }),
+    );
+  },
+);
+
+const routePartitionSubscriptionRegistration = Effect.fn("PartitionDO.routeSubscriptionRegistration")(
+  function* (
+    request: Request,
+    registerSubscription: (
+      body: PartitionSubscriptionRegistrationRequest,
+    ) => { registered: true },
+  ) {
+    const body = yield* decodePartitionSubscriptionRegistrationRequest(request).pipe(
+      Effect.mapError(partitionRouteErrorToHttpError),
+    );
+    return yield* routePartitionJsonResult(() => registerSubscription(body));
+  },
+);
+
+const routePartitionSubscriptionUnregister = Effect.fn("PartitionDO.routeSubscriptionUnregister")(
+  function* (
+    request: Request,
+    unregisterSubscription: (
+      body: PartitionSubscriptionTargetRequest,
+    ) => { unregistered: true },
+  ) {
+    const body = yield* decodePartitionSubscriptionTargetRequest(request).pipe(
+      Effect.mapError(partitionRouteErrorToHttpError),
+    );
+    return yield* routePartitionJsonResult(() => unregisterSubscription(body));
+  },
+);
+
+const routePartitionConnectionUnregister = Effect.fn("PartitionDO.routeConnectionUnregister")(
+  function* (
+    request: Request,
+    unregisterConnection: (
+      body: PartitionConnectionUnregisterRequest,
+    ) => { unregistered: true },
+  ) {
+    const body = yield* decodePartitionConnectionUnregisterRequest(request).pipe(
+      Effect.mapError(partitionRouteErrorToHttpError),
+    );
+    return yield* routePartitionJsonResult(() => unregisterConnection(body));
+  },
+);
+
+function routePartitionJsonResult<A extends Json | object>(
+  execute: () => A | Promise<A>,
+  init?: (value: A) => ResponseInit,
+): Effect.Effect<Response> {
+  return Effect.promise(async () => {
+    const value = await execute();
+    return json(value, init?.(value));
+  });
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {

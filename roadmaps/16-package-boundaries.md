@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## PartitionDO Effect Route Adapters
+
+Previous completed checkpoint: `e014550` Route execution fetch edges through
+Effect.
+
+What changed:
+
+- `PartitionDO` now uses named `Effect.fn` route helpers for schema-cache,
+  commit, subscription registration, subscription unregister, and connection
+  unregister POST/PUT routes.
+- Body-reading partition routes consume typed route-boundary decoders directly
+  at the fetch edge instead of using Promise compatibility readers.
+- Commit response mapping keeps the existing `201` for new commits and `200`
+  for replayed idempotency-key commits.
+
+Boundary decision:
+
+This is an adapter-edge migration only. The partition route-boundary module
+owns typed request decode and HTTP error mapping. `PartitionDO` still owns SQL
+schema, schema-cache persistence, write-log/idempotency behavior, OCC
+validation, partition-owner validation, and subscription state.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## ExecutionDO Effect Route Adapters
 
 Previous completed checkpoint: `0974955` Route scheduler fetch edges through

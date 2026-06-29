@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `0974955` Route scheduler fetch edges through Effect.
-- Active checkpoint: route `ExecutionDO` start, syscall, and finish fetch edges through named `Effect.fn` helpers, reusing existing typed execution route decoders and preserving execution session behavior.
+- Previous completed checkpoint: `e014550` Route execution fetch edges through Effect.
+- Active checkpoint: route `PartitionDO` schema-cache, commit, subscription registration, subscription unregister, and connection unregister fetch edges through named `Effect.fn` helpers, reusing existing typed partition route decoders while preserving SQL/OCC behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,18 +44,26 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current ExecutionDO adapter checkpoint:
+Next recommended checkpoint after the current PartitionDO adapter checkpoint:
 
-1. Continue with the next remaining backend route/service boundary that still
-   reads JSON through compatibility wrappers.
+1. Audit remaining compatibility JSON readers and choose the next coherent
+   backend route/service group rather than one branch at a time.
 2. Keep each public Worker or Durable Object entrypoint at one `Effect.runPromise`
    edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Keep `PartitionDO` OCC/SQL semantics out of route-boundary refactors until
-   its service extraction has separate parity coverage.
+4. Keep `PartitionDO` OCC/SQL service extraction separate from adapter-edge
+   refactors until it has dedicated parity coverage.
 
-Current Goal 145 slice:
+Current Goal 146 slice:
+
+1. Convert `PartitionDO.fetch()` `/schema-cache`, `/commit`, `/subscriptions/register`, `/subscriptions/unregister`, and `/subscriptions/unregister-connection` branches to named `Effect.fn` helpers that use the existing typed partition route decoders directly instead of compatibility Promise readers.
+2. Preserve `/commit` replay status mapping: new commits still return `201`, replayed idempotency-key commits still return `200`, and OCC conflicts still map through the fetch-level `409` adapter.
+3. Preserve PartitionDO SQL schema, schema-cache persistence, begin/document/index reads, subscription state, write log/idempotency behavior, partition-owner validation, OCC validation, public Worker partition forwarding, executor-http routes, protocol schemas, and `ValidatorJson` unchanged.
+4. Preserve operation failure behavior: typed body failures map through the existing `errorResponse(...)` adapter, and commit/schema/subscription operation failures still flow to the same fetch-level adapter.
+5. Validate with focused partition route-boundary and transaction/sync coverage, backend typecheck/build, broad protocol gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 145 slice:
 
 1. Convert `ExecutionDO.fetch()` `/start`, `/syscall`, and `/finish` branches to named `Effect.fn` helpers that use the existing typed execution route decoders directly instead of compatibility Promise readers.
 2. Export the syscall and finish route error mappers so `ExecutionDO` uses the same `RequestJsonError` and execution protocol failure-to-HTTP conversion as the compatibility readers.
