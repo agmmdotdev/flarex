@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Finish Push Worker Effect Boundary
+
+Previous completed checkpoint: `36cc6fb` Route public abandon push through Effect.
+
+What changed:
+
+- Public finish-push raw JSON reading now has an exported Effect-returning
+  decoder, with the Promise wrapper kept for compatibility.
+- Worker finish-push forwarding now composes the public deployment route-boundary
+  decoder, artifact preflight, protocol parser, and generated DeploymentApi
+  forwarding in one `Effect.fn` adapter helper.
+- Package ownership remains unchanged: protocol parsing stays in
+  `flarex-protocol`, public route decoding stays in
+  `deployment/PublicPushRouteBoundary.ts`, artifact preflight stays in the
+  Worker adapter, and deployment activation still belongs to `DeploymentDO` /
+  `DeploymentService`.
+
+Boundary decision:
+
+The missing-artifact check is Worker adapter behavior because it validates
+public durable artifact availability before forwarding activation. The route
+still keeps typed JSON/protocol failures until the Worker adapter mapping.
+
+Known limitations and follow-up work:
+
+- Public start-push and analyzed-start Worker forwarding are still candidates
+  for the same typed Effect route-boundary treatment.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage|rejects malformed finish request bodies|does not activate failed or unknown pushes"
+git diff --check
+```
+
 ## Public Abandon Push Worker Effect Boundary
 
 Previous completed checkpoint: `bfb948b` Type deployment validation boundary batch.

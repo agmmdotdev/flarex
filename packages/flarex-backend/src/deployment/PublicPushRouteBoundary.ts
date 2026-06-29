@@ -96,7 +96,11 @@ export function decodePublicFinishPushRequest(
 }
 
 export async function readPublicFinishPushJson(request: Request): Promise<unknown> {
-  return await runPublicDeploymentJsonRequest(readJsonEffect(request));
+  return await runPublicDeploymentJsonRequest(decodePublicFinishPushJson(request));
+}
+
+export function decodePublicFinishPushJson(request: Request): Effect.Effect<unknown, RequestJsonError> {
+  return readJsonEffect(request);
 }
 
 export function parsePublicFinishPushRequest(

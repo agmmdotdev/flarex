@@ -6,6 +6,7 @@ import {
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
   decodePublicFinishPushRequest,
+  decodePublicFinishPushJson,
   decodePublicStartPushRequest,
   deploymentProtocolValidationErrorResponse,
   publicDeploymentRouteErrorToHttpError,
@@ -80,6 +81,9 @@ describe("public deployment push route boundary", () => {
 
   it("decodes public finish and abandon bodies with deployment protocol parsers", async () => {
     await expect(readPublicFinishPushJson(jsonRequest({ activate: true })))
+      .resolves
+      .toEqual({ activate: true });
+    await expect(Effect.runPromise(decodePublicFinishPushJson(jsonRequest({ activate: true }))))
       .resolves
       .toEqual({ activate: true });
     await expect(readPublicFinishPushRequest(jsonRequest({ activate: true })))
@@ -161,6 +165,11 @@ describe("public deployment push route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicFinishPushJson(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(Effect.runPromise(decodePublicFinishPushRequest(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },

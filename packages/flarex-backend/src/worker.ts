@@ -26,11 +26,11 @@ import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary"
 import {
   deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
+  decodePublicFinishPushJson,
   parsePublicStartPushRequest,
-  parsePublicFinishPushRequest,
+  parsePublicFinishPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
   readPublicAnalyzedStartPushRequest,
-  readPublicFinishPushJson,
   readPublicStartPushJson,
 } from "./deployment/PublicPushRouteBoundary";
 import { errorResponse, HttpError, json, required } from "./http";
@@ -326,15 +326,11 @@ async function routeDeploymentPush(
     return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
   }
   if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
-    const rawBody = await readPublicFinishPushJson(request);
-    const missingArtifact = await verifyStoredPushArtifact(env, deployment, pushId);
-    if (missingArtifact !== undefined) return missingArtifact;
-    const body = parsePublicFinishPushRequest(rawBody);
-    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    return await Effect.runPromise(
+      routeDeploymentFinishPush(request, env, deployment, pushId).pipe(
+        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+      ),
+    );
   }
   if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
     return await Effect.runPromise(
@@ -355,6 +351,27 @@ const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush"
     const body = yield* decodePublicAbandonPushRequest(request);
     return yield* Effect.promise(() =>
       deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+  },
+);
+
+const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
+  function* (
+    request: Request,
+    env: Env,
+    deployment: DurableObjectStub,
+    pushId: string,
+  ) {
+    const rawBody = yield* decodePublicFinishPushJson(request);
+    const missingArtifact = yield* Effect.promise(() => verifyStoredPushArtifact(env, deployment, pushId));
+    if (missingArtifact !== undefined) return missingArtifact;
+    const body = yield* parsePublicFinishPushRequestEffect(rawBody);
+    return yield* Effect.promise(() =>
+      deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

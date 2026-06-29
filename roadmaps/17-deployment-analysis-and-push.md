@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Public Finish Push Worker Effect Boundary
+
+Previous completed checkpoint: `36cc6fb` Route public abandon push through Effect.
+
+What changed:
+
+- Added a raw JSON Effect decoder for public finish-push bodies while keeping
+  `readPublicFinishPushJson(...)` as the compatibility Promise wrapper.
+- The public Worker finish-push route now runs through an `Effect.fn` helper
+  that preserves the existing ordering: read JSON first, run missing-artifact
+  preflight second, then parse the finish-push protocol body only when the
+  preflight allows activation to continue.
+- Public HTTP behavior is preserved: malformed JSON still maps to `400`,
+  missing artifacts still return the existing `409` rejection even when the body
+  has invalid protocol fields, and protocol validation failures still map
+  through the Worker adapter response path.
+
+Why it changed:
+
+Finish-push was the remaining deployment push route with a deliberate raw-body
+preflight before protocol parsing. This checkpoint moves that path to the
+Effect target shape without changing that behavior-sensitive ordering.
+
+Known limitations and follow-up work:
+
+- Public start-push and analyzed-start Worker forwarding still use compatibility
+  Promise wrappers and should be migrated in a later grouped route-boundary
+  slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage|rejects malformed finish request bodies|does not activate failed or unknown pushes"
+git diff --check
+```
+
 ## Public Abandon Push Worker Effect Boundary
 
 Previous completed checkpoint: `bfb948b` Type deployment validation boundary batch.
