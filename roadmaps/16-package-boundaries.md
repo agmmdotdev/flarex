@@ -1,5 +1,52 @@
 # Package Boundaries
 
+## Deployment Codegen Coverage Validation Typed Error
+
+Previous completed checkpoint: `47a8724` Type codegen function args validation failures.
+
+What changed:
+
+- `validateCodegenAnalysis(...)` now emits `DeploymentValidationError` instead
+  of raw `HttpError(400)` when codegen analysis does not cover every deployment
+  function.
+- Generated start-analyzed handler behavior is preserved: incomplete codegen
+  function coverage still maps to a start-route `400` response with the same
+  message through `deploymentFailureToHttpError(...)`.
+- `DeploymentPushStore.finishPush(...)` continues to preserve already-typed
+  `DeploymentValidationError` from stored codegen validation so corrupt stored
+  codegen still follows the existing finish validation failure path.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis validation, codegen object validation,
+  codegen schema-mismatch validation, codegen functions-array validation,
+  codegen module object validation, codegen moduleName validation, codegen
+  module functions-array validation, duplicate codegen module validation,
+  codegen function object validation, codegen function moduleName validation,
+  codegen function exportName validation, missing codegen function metadata
+  validation, duplicate codegen function validation, codegen function
+  required-args validation, schema, function metadata, remaining codegen detail
+  validation, abandon/active-deployment behavior, route-boundary JSON/protocol
+  decoders, generated Deployment HttpApi routing, public Worker routes,
+  `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes,
+  execution routes, executor-http routes, and `ValidatorJson` remain unchanged.
+
+Boundary decision:
+
+Codegen coverage is deployment-domain validation. It now uses
+`DeploymentValidationError`; HTTP status/body conversion remains at the
+generated handler adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "codegen analysis validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Codegen Function Required Args Validation Typed Error
 
 Previous completed checkpoint: `8835cf0` Type duplicate codegen function validation failures.

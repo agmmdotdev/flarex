@@ -926,6 +926,44 @@ describe("DeploymentService", () => {
     } finally {
       await typedFunctionArgsRuntime.dispose();
     }
+
+    const typedCodegenCoverageStatus = analyzedPushStatus("push-typed-codegen-coverage-validation-failed");
+    const typedCodegenCoverageRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedCodegenCoverageStatus,
+          codegenAnalysis: {
+            schema: typedCodegenCoverageStatus.analysis!.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedCodegenCoverageError = await typedCodegenCoverageRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedCodegenCoverageStatus.pushId,
+            now: 2_510_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedCodegenCoverageError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedCodegenCoverageError.message).toBe(
+        "Codegen analysis functions must cover every deployment function.",
+      );
+    } finally {
+      await typedCodegenCoverageRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

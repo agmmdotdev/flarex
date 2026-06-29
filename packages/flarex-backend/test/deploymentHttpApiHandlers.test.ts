@@ -604,6 +604,22 @@ describe("DeploymentApiHandlers", () => {
       },
       "$codegen.functions.messages:list.args: Validator is required.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [],
+        },
+      },
+      "Codegen analysis functions must cover every deployment function.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -958,6 +974,29 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(codegenFunctionArgsFailure.message).toBe(
       "$codegen.functions.messages:list.args: Validator is required.",
+    );
+
+    const codegenCoverageFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        ...deploymentAnalysis(),
+        functions: {
+          functions: [{ path: "messages:list", kind: "query" }],
+        },
+      },
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenCoverageFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenCoverageFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenCoverageFailure.message).toBe(
+      "Codegen analysis functions must cover every deployment function.",
     );
   });
 });

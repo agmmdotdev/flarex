@@ -584,6 +584,15 @@ describe("deployment validation", () => {
         }, analysis),
       "$codegen.functions.messages:list.args: Validator is required.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [],
+        }, analysis),
+      "Codegen analysis functions must cover every deployment function.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

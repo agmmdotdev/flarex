@@ -577,7 +577,7 @@ export function validateCodegenAnalysis(
     };
   });
   if (seenPaths.size !== metadataByPath.size) {
-    throw new HttpError(400, "Codegen analysis functions must cover every deployment function.");
+    throwDeploymentValidation("Codegen analysis functions must cover every deployment function.");
   }
   return { schema, functions: modules };
 }
