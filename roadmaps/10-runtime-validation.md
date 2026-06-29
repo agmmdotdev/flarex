@@ -1,5 +1,51 @@
 # Runtime Validation
 
+## Artifact Runtime Service Effect Adapter
+
+Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.
+
+What changed:
+
+- `artifactRuntime/RouteBoundary.ts` now normalizes invoke payload shape checks
+  through a typed validation result helper before exposing the compatibility
+  throwing parser and Effect parser.
+- The artifact invoke route error mapper is exported so the runtime service
+  adapter can reuse the same `RequestJsonError` and payload-shape HTTP mapping.
+- `createExecutionArtifactRuntimeService(...)` now routes `/invoke` through the
+  named `ExecutionArtifactRuntime.routeInvoke` `Effect.fn`.
+- Runtime source-package and operation failures are now tagged runtime errors
+  and mapped once at the fetch adapter edge.
+
+Why it changed:
+
+The artifact runtime route body was already typed, but the runtime service still
+used one broad async `try/catch` around request normalization, payload parsing,
+source-package loading, materializer lookup, and invocation. This checkpoint
+moves that adapter toward the same Effect shape as public Worker routes while
+keeping runtime behavior stable.
+
+Preserved behavior:
+
+- `404 Not found.`, unauthorized runtime requests, artifact header mismatches,
+  malformed JSON, invalid payloads, missing source packages, runtime-store
+  source-package loading, materializer cache reuse/disposal, and invoke failure
+  status preservation keep the same response semantics.
+- Public invoke routes, deployment routes, scheduler routes, execution routes,
+  partition routes, delivery routes, protocol schemas, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Effect Decoder
 
 Previous completed checkpoint: `ea19fc9` Add typed execution finish decoder.

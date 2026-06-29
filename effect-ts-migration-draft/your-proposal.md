@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `083fae0` Route public execution through Effect.
-- Active checkpoint: convert partition commit, schema-cache, subscription, and unregister route bodies to typed Effect decoders and route public Worker partition commit/schema-cache forwarding through `Effect.fn` helpers while preserving PartitionDO SQL/OCC behavior.
+- Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.
+- Active checkpoint: route the execution artifact runtime service invoke adapter through a named `Effect.fn`, keep artifact invoke payload validation typed, and map runtime/source-package/materializer failures once at the fetch adapter edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current partition boundary checkpoint:
+Next recommended checkpoint after the current artifact runtime service checkpoint:
 
 1. Continue with the next remaining backend route/service boundary that still
    reads JSON through compatibility wrappers.
@@ -55,7 +55,15 @@ Next recommended checkpoint after the current partition boundary checkpoint:
 4. Keep `PartitionDO` OCC/SQL semantics out of route-boundary refactors until
    its service extraction has separate parity coverage.
 
-Current Goal 140 slice:
+Current Goal 141 slice:
+
+1. Keep `artifactRuntime/RouteBoundary.ts` Effect-first by normalizing invoke payload validation through a typed result helper and exporting the route error mapper for runtime adapter reuse.
+2. Replace the broad async `try/catch` inside `createExecutionArtifactRuntimeService(...)` with `ExecutionArtifactRuntime.routeInvoke`, a named `Effect.fn` that owns request normalization, authorization ordering, typed payload decode, header validation, source-package resolution, materializer cache lookup, and invoke dispatch.
+3. Model missing source packages and runtime operations as tagged runtime errors, preserving existing JSON error bodies and status codes through one fetch adapter mapping edge.
+4. Preserve runtime authorization, header mismatch behavior, source-package store mode, materializer cache/disposal behavior, public invoke routes, deployment routes, scheduler routes, execution routes, partition routes, delivery routes, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused artifact runtime route-boundary/runtime tests, artifact runtime route integration coverage, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 140 slice:
 
 1. Convert `partition/RouteBoundary.ts` to expose Effect-returning decoders for schema-cache, commit, subscription registration, subscription target, and connection unregister bodies.
 2. Model route-body validation failures as `PartitionRouteValidationError` and keep malformed JSON as the shared `RequestJsonError`.

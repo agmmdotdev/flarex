@@ -13,6 +13,10 @@ export class ExecutionArtifactInvokePayloadError extends Data.TaggedError("Execu
   readonly message: string;
 }> {}
 
+export type ExecutionArtifactInvokeRouteError =
+  | RequestJsonError
+  | ExecutionArtifactInvokePayloadError;
+
 export async function readExecutionArtifactInvokePayload(
   request: Request,
 ): Promise<ExecutionArtifactInvokePayload> {
@@ -25,7 +29,7 @@ export async function readExecutionArtifactInvokePayload(
 
 export function decodeExecutionArtifactInvokePayload(
   request: Request,
-): Effect.Effect<ExecutionArtifactInvokePayload, RequestJsonError | ExecutionArtifactInvokePayloadError> {
+): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokeRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(parseExecutionArtifactInvokePayloadEffect),
   );
@@ -34,28 +38,76 @@ export function decodeExecutionArtifactInvokePayload(
 export function parseExecutionArtifactInvokePayload(
   value: unknown,
 ): ExecutionArtifactInvokePayload {
-  if (isExecutionArtifactInvokePayload(value)) return value;
-  throw new HttpError(400, INVALID_INVOKE_PAYLOAD_MESSAGE);
+  return unwrapExecutionArtifactInvokePayloadValidation(
+    normalizeExecutionArtifactInvokePayload(value),
+  );
 }
 
 export function parseExecutionArtifactInvokePayloadEffect(
   value: unknown,
 ): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
-  if (isExecutionArtifactInvokePayload(value)) {
-    return Effect.succeed(value);
-  }
-  return Effect.fail(new ExecutionArtifactInvokePayloadError({
-    message: INVALID_INVOKE_PAYLOAD_MESSAGE,
-  }));
+  return executionArtifactInvokePayloadValidationResultToEffect(
+    normalizeExecutionArtifactInvokePayload(value),
+  );
 }
 
-function executionArtifactInvokeRouteErrorToHttpError(
-  error: RequestJsonError | ExecutionArtifactInvokePayloadError,
+export function executionArtifactInvokeRouteErrorToHttpError(
+  error: ExecutionArtifactInvokeRouteError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
+}
+
+function normalizeExecutionArtifactInvokePayload(
+  value: unknown,
+): ExecutionArtifactInvokePayloadValidationResult<ExecutionArtifactInvokePayload> {
+  if (isExecutionArtifactInvokePayload(value)) {
+    return executionArtifactInvokePayloadValidationSuccess(value);
+  }
+  return executionArtifactInvokePayloadValidationFailure(INVALID_INVOKE_PAYLOAD_MESSAGE);
+}
+
+type ExecutionArtifactInvokePayloadValidationResult<A> =
+  | {
+      readonly success: true;
+      readonly value: A;
+    }
+  | {
+      readonly success: false;
+      readonly error: ExecutionArtifactInvokePayloadError;
+    };
+
+function executionArtifactInvokePayloadValidationSuccess<A>(
+  value: A,
+): ExecutionArtifactInvokePayloadValidationResult<A> {
+  return {
+    success: true,
+    value,
+  };
+}
+
+function executionArtifactInvokePayloadValidationFailure<A = never>(
+  message: string,
+): ExecutionArtifactInvokePayloadValidationResult<A> {
+  return {
+    success: false,
+    error: new ExecutionArtifactInvokePayloadError({ message }),
+  };
+}
+
+function executionArtifactInvokePayloadValidationResultToEffect<A>(
+  result: ExecutionArtifactInvokePayloadValidationResult<A>,
+): Effect.Effect<A, ExecutionArtifactInvokePayloadError> {
+  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+}
+
+function unwrapExecutionArtifactInvokePayloadValidation<A>(
+  result: ExecutionArtifactInvokePayloadValidationResult<A>,
+): A {
+  if (result.success) return result.value;
+  throw executionArtifactInvokeRouteErrorToHttpError(result.error);
 }
 
 function isExecutionArtifactInvokePayload(

@@ -4,6 +4,7 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionArtifactInvokePayload,
   ExecutionArtifactInvokePayloadError,
+  executionArtifactInvokeRouteErrorToHttpError,
   parseExecutionArtifactInvokePayload,
   parseExecutionArtifactInvokePayloadEffect,
   readExecutionArtifactInvokePayload,
@@ -46,6 +47,21 @@ describe("artifact runtime route boundary", () => {
     })))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
     await expect(Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(null)))
       .rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+
+  it("maps typed invalid payload failures to HttpError at the adapter edge", async () => {
+    try {
+      await Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(null));
+      throw new Error("Expected parseExecutionArtifactInvokePayloadEffect to fail.");
+    } catch (error) {
+      const httpError = executionArtifactInvokeRouteErrorToHttpError(
+        error as Parameters<typeof executionArtifactInvokeRouteErrorToHttpError>[0],
+      );
+      expect(httpError).toMatchObject({
+        status: 400,
+        message: "Invalid execution artifact invoke payload.",
+      });
+    }
   });
 
   it("preserves malformed JSON as the shared JSON body error", async () => {

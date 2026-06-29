@@ -360,6 +360,72 @@ describe("backend execution artifact runtime", () => {
     expect(materializedSources).toEqual([payload.sourcePackage]);
   });
 
+  it("rejects runtime-store mode without a store when sourcePackage is omitted", async () => {
+    const payload = testPayload();
+    const { sourcePackage: _sourcePackage, ...payloadWithoutSource } = payload;
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      materializer: {
+        materialize: async () => {
+          throw new Error("materializer should not run without source package");
+        },
+      },
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payloadWithoutSource),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Execution artifact invoke payload missing sourcePackage.",
+    });
+  });
+
+  it("preserves runtime store source-package load error status codes", async () => {
+    const payload = testPayload();
+    const { sourcePackage: _sourcePackage, ...payloadWithoutSource } = payload;
+    const fetch = createExecutionArtifactRuntimeService({
+      capabilityToken: "runtime-secret",
+      store: {
+        put: async () => payload.ref,
+        get: async () => {
+          const error = new Error("Artifact store unavailable") as Error & { status?: number };
+          error.status = 503;
+          throw error;
+        },
+      },
+      materializer: {
+        materialize: async () => {
+          throw new Error("materializer should not run when store load fails");
+        },
+      },
+    });
+
+    const response = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+      },
+      body: JSON.stringify(payloadWithoutSource),
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Artifact store unavailable",
+    });
+  });
+
   it("rejects malformed or invalid runtime invoke payloads at the route boundary", async () => {
     const fetch = createExecutionArtifactRuntimeService({
       capabilityToken: "runtime-secret",

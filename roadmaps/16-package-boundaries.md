@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Artifact Runtime Service Effect Adapter
+
+Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.
+
+What changed:
+
+- `artifactRuntime/RouteBoundary.ts` still owns execution artifact invoke body
+  shape validation, now through a typed validation result helper and exported
+  route error mapper.
+- `artifactRuntime.ts` now owns runtime adapter orchestration through the named
+  `ExecutionArtifactRuntime.routeInvoke` `Effect.fn` instead of a broad async
+  `try/catch`.
+- Missing source-package cases and runtime operations now have tagged runtime
+  errors before the fetch adapter maps them to the existing JSON error
+  responses.
+
+Boundary decision:
+
+The route-boundary module owns JSON/body decoding. The runtime service owns
+authorization, artifact header checks, source-package resolution, materializer
+cache lifecycle, and artifact invocation. This checkpoint does not move
+`ExecutionArtifactInvokePayload` into `flarex-protocol`, and it does not change
+the runtime materializer/store package contracts.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Worker Effect Boundary
 
 Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
