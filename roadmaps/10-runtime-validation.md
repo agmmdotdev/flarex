@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Invoke Partition Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke partition validation`.
+
+What changed:
+
+- Invoke execution-scope resolution now emits typed partition validation
+  failures for missing metadata, route conflicts, table placement mismatches,
+  field/selector mismatches, invalid args, partitionKey mismatches, invalid
+  create-root preallocated ids, and caller-supplied create-root partition keys.
+- Named Effect helpers back function scope resolution, create-root resolution,
+  partition policy validation, and partition key extraction from args.
+- Direct tests cover typed partition failure channels before adapter mapping.
+
+Why it changed:
+
+Document and function validation were typed, but partition scope validation
+still threw `HttpError` from domain logic. This checkpoint keeps those
+deterministic invoke validation failures typed while preserving the existing
+sync wrapper used by direct invoke and `ExecutionDO`.
+
+Known limitations:
+
+- Query/index planning, mutation commit, and PartitionDO request failures still
+  use the existing compatibility paths.
+- Public Worker invoke routing and artifact-runtime routing are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Document Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke document validation`.
@@ -25,8 +62,9 @@ without changing transaction or PartitionDO behavior.
 
 Known limitations:
 
-- Query/index planning, mutation commit, and PartitionDO request failures still
-  use the existing compatibility paths.
+- Partition scope validation is a separate follow-up completed by the next
+  checkpoint; query/index planning, mutation commit, and PartitionDO request
+  failures still use the existing compatibility paths.
 - Public Worker invoke routing and artifact-runtime routing are unchanged.
 
 Verification:

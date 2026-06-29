@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Invoke Partition Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke partition validation`.
+
+What changed:
+
+- Backend invoke execution-scope planning now has typed partition validation
+  failures for missing metadata, route conflicts, table/field/selector
+  mismatches, bad partition args, partitionKey mismatches, and create-root
+  preallocation failures.
+- `resolveFunctionExecutionScope(...)` remains the sync compatibility wrapper
+  for direct invoke and `ExecutionDO`, while `resolveFunctionExecutionScopeEffect(...)`
+  owns the typed service boundary.
+- Direct tests cover typed partition failures before adapter mapping and focused
+  invoke/ExecutionDO tests preserve behavior.
+
+Why it changed:
+
+Dynamic-worker invoke execution depends on partition scope planning before a
+transaction begins. Keeping those checks typed makes the service boundary more
+consistent without changing transaction/session execution or Durable Object
+storage behavior.
+
+Known limitations:
+
+- Query/index planning, mutation commit, session behavior, and PartitionDO
+  SQL/OCC are unchanged.
+- Artifact runtime service-binding invocation and public route decoding are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Document Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke document validation`.
@@ -24,8 +64,9 @@ that feeds it.
 
 Known limitations:
 
-- Query/index planning, transaction commit, session behavior, and PartitionDO
-  SQL/OCC are unchanged.
+- Partition scope validation is a separate follow-up completed by the next
+  checkpoint. Query/index planning, transaction commit, session behavior, and
+  PartitionDO SQL/OCC are unchanged.
 - Artifact runtime service-binding invocation and public route decoding are
   unchanged.
 

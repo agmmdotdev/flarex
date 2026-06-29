@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Invoke Partition Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke partition validation`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke.ts` now owns typed partition validation
+  failures for execution-scope planning and create-root planning.
+- Effect helpers back scope resolution, create-root validation, partition
+  policy validation, and partition-key extraction.
+- Existing sync callers keep using `resolveFunctionExecutionScope(...)`, which
+  maps typed failures to the same `HttpError` adapter shape.
+
+Boundary decision:
+
+Partition metadata validation is invoke service/domain behavior. This
+checkpoint keeps the typed failure source in `flarex-backend` while preserving
+`ExecutionDO` and direct invoke compatibility at the adapter wrapper.
+
+Known limitations:
+
+- Query/index planning, transaction commit, execution sessions, artifact
+  runtime routing, and PartitionDO SQL/OCC are separate follow-up surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Document Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke document validation`.
@@ -23,8 +57,10 @@ the validator contract or generated handler API.
 
 Known limitations:
 
-- Query/index planning, transaction commit, execution sessions, artifact
-  runtime routing, and PartitionDO SQL/OCC are separate follow-up surfaces.
+- Partition metadata validation is a separate follow-up completed by the next
+  checkpoint. Query/index planning, transaction commit, execution sessions,
+  artifact runtime routing, and PartitionDO SQL/OCC are separate follow-up
+  surfaces.
 
 Verification:
 

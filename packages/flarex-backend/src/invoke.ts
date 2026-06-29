@@ -109,6 +109,12 @@ export class InvokeDocumentNotFoundError
     readonly id: string;
   }> {}
 
+export class InvokePartitionValidationError
+  extends Data.TaggedError("InvokePartitionValidationError")<{
+    readonly message: string;
+    readonly status: 400 | 500;
+  }> {}
+
 export type InvokeFunctionValidationError =
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokeArgumentValidationError
@@ -128,9 +134,14 @@ export type InvokeDocumentValidationFailure =
   | InvokeDocumentValidationError
   | InvokeTableNotFoundError;
 
+export type InvokePartitionValidationFailure =
+  | InvokePartitionValidationError
+  | InvokeTableNotFoundError;
+
 export type InvokeValidationError =
   | InvokeFunctionValidationError
   | InvokeDocumentValidationFailure
+  | InvokePartitionValidationFailure
   | InvokeReturnValidationFailure;
 
 export type BackendQueryCtx = {
@@ -346,36 +357,51 @@ export function resolveFunctionExecutionScope(
     allocateRootId?: (table: SchemaTable) => string;
   } = {},
 ): FunctionExecutionScope {
+  return Effect.runSync(
+    resolveFunctionExecutionScopeEffect(partition, route, request, schema, options).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const resolveFunctionExecutionScopeEffect = Effect.fn(
+  "Invoke.resolveFunctionExecutionScope",
+)(function* (
+  partition: FunctionPartitionMetadata | null | undefined,
+  route: FunctionRoutePolicy | null | undefined,
+  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
+  schema: DeploymentSchema,
+  options: {
+    allocateRootId?: (table: SchemaTable) => string;
+  } = {},
+): Effect.fn.Return<FunctionExecutionScope, InvokePartitionValidationFailure> {
   if (partition === undefined || partition === null) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: function ${request.path} must declare partition metadata.`,
+    return yield* partitionValidationFailure(
+      `function ${request.path} must declare partition metadata.`,
     );
   }
   if (partition.type === "partitionCreateRoot") {
-    return resolveCreateRootExecutionScope(partition, route, request, schema, options);
+    return yield* resolveCreateRootExecutionScopeEffect(partition, route, request, schema, options);
   }
-  validatePartitionPolicyAgainstSchema(partition, request.path, schema);
+  yield* validatePartitionPolicyAgainstSchemaEffect(partition, request.path, schema);
   if (
     route !== null &&
     route !== undefined &&
     route.type === "args" &&
     route.field !== partition.argField
   ) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${request.path} partition argument ${partition.argField} must match route argument ${route.field}.`,
+    return yield* partitionValidationFailure(
+      `${request.path} partition argument ${partition.argField} must match route argument ${route.field}.`,
     );
   }
-  const partitionKey = partitionKeyFromArgs(
+  const partitionKey = yield* partitionKeyFromArgsEffect(
     request,
     partition.argField,
     `partition ${partition.table}.${partition.selector}`,
   );
   if (request.partitionKey !== partitionKey) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: partitionKey must match args.${partition.argField} for ${request.path}.`,
+    return yield* partitionValidationFailure(
+      `partitionKey must match args.${partition.argField} for ${request.path}.`,
     );
   }
   return {
@@ -386,7 +412,7 @@ export function resolveFunctionExecutionScope(
     argField: partition.argField,
     partitionKey,
   };
-}
+});
 
 function resolveCreateRootExecutionScope(
   partition: Extract<FunctionPartitionMetadata, { type: "partitionCreateRoot" }>,
@@ -397,36 +423,50 @@ function resolveCreateRootExecutionScope(
     allocateRootId?: (table: SchemaTable) => string;
   },
 ): FunctionExecutionScope {
+  return Effect.runSync(
+    resolveCreateRootExecutionScopeEffect(partition, route, request, schema, options).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+const resolveCreateRootExecutionScopeEffect = Effect.fn(
+  "Invoke.resolveCreateRootExecutionScope",
+)(function* (
+  partition: Extract<FunctionPartitionMetadata, { type: "partitionCreateRoot" }>,
+  route: FunctionRoutePolicy | null | undefined,
+  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
+  schema: DeploymentSchema,
+  options: {
+    allocateRootId?: (table: SchemaTable) => string;
+  },
+): Effect.fn.Return<FunctionExecutionScope, InvokePartitionValidationFailure> {
   if (route !== null && route !== undefined) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: create-root partition for ${request.path} cannot declare route metadata.`,
+    return yield* partitionValidationFailure(
+      `create-root partition for ${request.path} cannot declare route metadata.`,
     );
   }
-  const table = tableForName(schema, partition.table);
+  const table = yield* tableForNameEffect(schema, partition.table);
   if (table.placement.kind !== "partitionBy") {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${request.path} create-root partition table ${partition.table} is not partitioned.`,
+    return yield* partitionValidationFailure(
+      `${request.path} create-root partition table ${partition.table} is not partitioned.`,
     );
   }
   if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${request.path} create-root partition requires ${partition.table} to be partitioned by _id.`,
+    return yield* partitionValidationFailure(
+      `${request.path} create-root partition requires ${partition.table} to be partitioned by _id.`,
     );
   }
   const preallocatedRootId = options.allocateRootId?.(table) ?? encodeFlarexId(table.tableId);
   if (!isFlarexIdForTable(preallocatedRootId, table.tableId)) {
-    throw new HttpError(
+    return yield* partitionValidationFailure(
+      `preallocated root id for ${request.path} must be an ID for table ${partition.table}.`,
       500,
-      `PartitionValidationError: preallocated root id for ${request.path} must be an ID for table ${partition.table}.`,
     );
   }
   if (request.partitionKey !== undefined && request.partitionKey !== preallocatedRootId) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: partitionKey cannot be supplied for create-root ${request.path}; backend preallocated ${preallocatedRootId}.`,
+    return yield* partitionValidationFailure(
+      `partitionKey cannot be supplied for create-root ${request.path}; backend preallocated ${preallocatedRootId}.`,
     );
   }
   return {
@@ -436,54 +476,82 @@ function resolveCreateRootExecutionScope(
     partitionKey: preallocatedRootId,
     preallocatedRootId,
   };
-}
+});
 
 function validatePartitionPolicyAgainstSchema(
   partition: FunctionPartitionPolicy,
   path: string,
   schema: DeploymentSchema,
 ): void {
-  const table = tableForName(schema, partition.table);
+  Effect.runSync(
+    validatePartitionPolicyAgainstSchemaEffect(partition, path, schema).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const validatePartitionPolicyAgainstSchemaEffect = Effect.fn(
+  "Invoke.validatePartitionPolicyAgainstSchema",
+)(function* (
+  partition: FunctionPartitionPolicy,
+  path: string,
+  schema: DeploymentSchema,
+): Effect.fn.Return<void, InvokePartitionValidationFailure> {
+  const table = yield* tableForNameEffect(schema, partition.table);
   if (table.placement.kind !== "partitionBy") {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${path} partition table ${partition.table} is not partitioned.`,
+    return yield* partitionValidationFailure(
+      `${path} partition table ${partition.table} is not partitioned.`,
     );
   }
   if (table.placement.field !== partition.partitionField) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${path} partition selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
+    return yield* partitionValidationFailure(
+      `${path} partition selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
     );
   }
   const expectedSelector = selectorNameForPartitionField(table.placement.field);
   if (partition.selector !== expectedSelector) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${path} expected partition selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
+    return yield* partitionValidationFailure(
+      `${path} expected partition selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
     );
   }
-}
+});
 
 function partitionKeyFromArgs(
   request: Pick<InvokeRequest, "path" | "args">,
   field: string,
   label: string,
 ): string {
+  return Effect.runSync(
+    partitionKeyFromArgsEffect(request, field, label).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const partitionKeyFromArgsEffect = Effect.fn("Invoke.partitionKeyFromArgs")(function* (
+  request: Pick<InvokeRequest, "path" | "args">,
+  field: string,
+  label: string,
+): Effect.fn.Return<string, InvokePartitionValidationError> {
   if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${request.path} ${label} requires object arguments.`,
+    return yield* partitionValidationFailure(
+      `${request.path} ${label} requires object arguments.`,
     );
   }
   const value = request.args[field];
   if (typeof value !== "string" || value.length === 0) {
-    throw new HttpError(
-      400,
-      `PartitionValidationError: ${request.path} ${label} requires a non-empty string argument.`,
+    return yield* partitionValidationFailure(
+      `${request.path} ${label} requires a non-empty string argument.`,
     );
   }
   return value;
+});
+
+function partitionValidationFailure(
+  message: string,
+  status: 400 | 500 = 400,
+): Effect.Effect<never, InvokePartitionValidationError> {
+  return Effect.fail(new InvokePartitionValidationError({ message, status }));
 }
 
 function selectorNameForPartitionField(field: string): string {
@@ -967,6 +1035,9 @@ export function invokeValidationErrorToHttpError(error: InvokeValidationError): 
   }
   if (error instanceof InvokeDocumentNotFoundError) {
     return new HttpError(404, `Document not found: ${error.id}`);
+  }
+  if (error instanceof InvokePartitionValidationError) {
+    return new HttpError(error.status, `PartitionValidationError: ${error.message}`);
   }
   return new HttpError(400, `ReturnValidationError: ${error.message}`);
 }

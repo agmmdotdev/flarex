@@ -7,16 +7,20 @@ import {
   InvokeDocumentPlacementError,
   InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
+  InvokePartitionValidationError,
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
+  partitionKeyFromArgsEffect,
   resolveInvokeFunctionForRequest,
   resolveFunctionExecutionScope,
+  resolveFunctionExecutionScopeEffect,
   tableFromDocumentIdEffect,
   tableForNameEffect,
   validateDocumentEffect,
   validateDocumentPlacementEffect,
+  validatePartitionPolicyAgainstSchemaEffect,
   validateQueryPlacementEffect,
   validateReturnEffect,
   type BackendFunctionRegistry,
@@ -220,6 +224,97 @@ describe("executeInvoke", () => {
     expect(invokeValidationErrorToHttpError(queryFailure)).toMatchObject({
       status: 400,
       message: 'PlacementValidationError: query on users must include q.eq("userId", partitionKey).',
+    });
+  });
+
+  it("keeps invoke partition scope validation typed until adapter mapping", async () => {
+    const schema = usersPartitionSchema();
+    const missingPartition = await Effect.runPromise(
+      resolveFunctionExecutionScopeEffect(
+        null,
+        null,
+        { path: "users:list", args: { userId: "u1" }, partitionKey: "u1" },
+        schema,
+      ).pipe(
+        Effect.catchTag("InvokePartitionValidationError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(missingPartition).toBeInstanceOf(InvokePartitionValidationError);
+    if (!(missingPartition instanceof InvokePartitionValidationError)) {
+      throw new Error("Expected InvokePartitionValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingPartition)).toMatchObject({
+      status: 400,
+      message: "PartitionValidationError: function users:list must declare partition metadata.",
+    });
+
+    const badArgs = await Effect.runPromise(
+      partitionKeyFromArgsEffect(
+        { path: "users:list", args: null },
+        "userId",
+        "partition users.byId",
+      ).pipe(
+        Effect.catchTag("InvokePartitionValidationError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(badArgs).toBeInstanceOf(InvokePartitionValidationError);
+    if (!(badArgs instanceof InvokePartitionValidationError)) {
+      throw new Error("Expected InvokePartitionValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(badArgs)).toMatchObject({
+      status: 400,
+      message: "PartitionValidationError: users:list partition users.byId requires object arguments.",
+    });
+  });
+
+  it("keeps partition policy and create-root validation typed until adapter mapping", async () => {
+    const schema = usersPartitionSchema();
+    const selectorMismatch = await Effect.runPromise(
+      validatePartitionPolicyAgainstSchemaEffect(
+        {
+          type: "partition",
+          table: "users",
+          selector: "bySlug",
+          partitionField: "_id",
+          argField: "userId",
+        },
+        "users:list",
+        schema,
+      ).pipe(
+        Effect.catchTag("InvokePartitionValidationError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(selectorMismatch).toBeInstanceOf(InvokePartitionValidationError);
+    if (!(selectorMismatch instanceof InvokePartitionValidationError)) {
+      throw new Error("Expected InvokePartitionValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(selectorMismatch)).toMatchObject({
+      status: 400,
+      message: 'PartitionValidationError: users:list expected partition selector byId for users partition field "_id".',
+    });
+
+    const badPreallocation = await Effect.runPromise(
+      resolveFunctionExecutionScopeEffect(
+        {
+          type: "partitionCreateRoot",
+          table: "users",
+          partitionField: "_id",
+        },
+        null,
+        { path: "users:create", args: { name: "Ada" } },
+        schema,
+        { allocateRootId: () => "1:not-a-users-id" },
+      ).pipe(
+        Effect.catchTag("InvokePartitionValidationError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(badPreallocation).toBeInstanceOf(InvokePartitionValidationError);
+    if (!(badPreallocation instanceof InvokePartitionValidationError)) {
+      throw new Error("Expected InvokePartitionValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(badPreallocation)).toMatchObject({
+      status: 500,
+      message: "PartitionValidationError: preallocated root id for users:create must be an ID for table users.",
     });
   });
 
@@ -1919,6 +2014,20 @@ function usersTableWithValidator(): SchemaTable {
       },
     },
     placement: { kind: "colocateWith", table: "users", field: "userId" },
+  };
+}
+
+function usersPartitionSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [
+      {
+        tableId: 2,
+        name: "users",
+        placement: { kind: "partitionBy", field: "_id" },
+      },
+    ],
+    indexes: [],
   };
 }
 
