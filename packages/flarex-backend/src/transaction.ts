@@ -1,3 +1,4 @@
+import { Data, Effect } from "effect";
 import { partitionObjectName } from "./routing";
 import { encodeFlarexId, isFlarexIdForTable } from "./ids";
 import type {
@@ -45,6 +46,13 @@ export class PartitionRequestError extends Error {
     this.name = "PartitionRequestError";
   }
 }
+
+type PartitionHttpResponse = Pick<Response, "json" | "ok" | "status">;
+
+export class PartitionResponseError extends Data.TaggedError("PartitionResponseError")<{
+  readonly status: number;
+  readonly body: unknown;
+}> {}
 
 export class SingleShardTransaction {
   private readonly readSet: ReadSet = {};
@@ -264,9 +272,32 @@ export class SingleShardTransaction {
 
 async function fetchJson<T>(responsePromise: Promise<Response>): Promise<T> {
   const response = await responsePromise;
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new PartitionRequestError(response.status, body);
-  return body as T;
+  return await Effect.runPromise(
+    decodePartitionJsonResponse<T>(response).pipe(
+      Effect.mapError(partitionResponseErrorToRequestError),
+    ),
+  );
+}
+
+export const decodePartitionJsonResponse = Effect.fn("SingleShardTransaction.decodePartitionJsonResponse")(
+  function* <T>(response: PartitionHttpResponse) {
+    const body = yield* readPartitionResponseJson(response);
+    if (!response.ok) {
+      return yield* Effect.fail(new PartitionResponseError({
+        status: response.status,
+        body,
+      }));
+    }
+    return body as T;
+  },
+);
+
+function readPartitionResponseJson(response: PartitionHttpResponse): Effect.Effect<unknown> {
+  return Effect.promise(() => response.json().catch(() => null));
+}
+
+function partitionResponseErrorToRequestError(error: PartitionResponseError): PartitionRequestError {
+  return new PartitionRequestError(error.status, error.body);
 }
 
 function mergeReadSet(target: ReadSet, source: ReadSet): void {

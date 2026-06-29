@@ -1,8 +1,10 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
 import {
   CachedExecutionArtifactMaterializer,
   createExecutionArtifactRuntimeService,
+  decodeServiceBindingExecutionArtifactRuntimeResponse,
   ServiceBindingExecutionArtifactRuntime,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
@@ -15,6 +17,21 @@ import type {
 } from "../src/types";
 
 describe("backend execution artifact runtime", () => {
+  it("exposes typed service-binding runtime response failures before HTTP mapping", async () => {
+    await expect(
+      Effect.runPromise(
+        decodeServiceBindingExecutionArtifactRuntimeResponse(
+          new Response("unavailable", { status: 503 }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      _tag: "ServiceBindingExecutionArtifactRuntimeResponseError",
+      status: 503,
+      message: "Execution artifact runtime failed with status 503",
+      body: null,
+    });
+  });
+
   it("loads the active source package before invoking the runtime service", async () => {
     const sourcePackage = testSourcePackage();
     const calls: Array<{
@@ -114,6 +131,30 @@ describe("backend execution artifact runtime", () => {
         },
       },
     ]);
+  });
+
+  it("maps service-binding runtime response failures to HttpError at the adapter edge", async () => {
+    const store: BackendExecutionArtifactStore = {
+      put: async () => activeDeployment.executionArtifactRef,
+      get: async () => testSourcePackage(),
+    };
+    const runtime = new ServiceBindingExecutionArtifactRuntime({
+      deploymentId: "deployment1",
+      store,
+      runtime: {
+        fetch: async () => new Response("unavailable", { status: 503 }),
+      } as unknown as Fetcher,
+    });
+
+    await expect(runtime.invoke(activeDeployment, {
+      path: "users:get",
+      args: {},
+      kind: "query",
+    })).rejects.toMatchObject({
+      name: "HttpError",
+      status: 503,
+      message: "Execution artifact runtime failed with status 503",
+    });
   });
 
   it("materializes each artifact once and reuses cached artifacts by artifact ID", async () => {

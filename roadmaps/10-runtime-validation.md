@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Backend Internal Response Effect Decoders
+
+Previous completed checkpoint: `e726ae8` Type dev backend responses with
+Effect.
+
+What changed:
+
+- Added named Effect decoders for backend analyzer responses, artifact runtime
+  service-binding responses, and partition transaction responses.
+- Added direct typed success/failure tests for analyzer and partition response
+  decoders, plus typed failure and adapter mapping coverage for artifact
+  runtime responses.
+- Existing push, transaction, and runtime adapters still expose the same public
+  error shapes after mapping.
+
+Why it changed:
+
+These backend response reads are runtime JSON boundaries. The migration now
+captures malformed/non-OK downstream responses as typed Effect failures before
+the adapter decides whether to create `HttpError`, `PartitionRequestError`, or
+failed push status payloads.
+
+Known limitations:
+
+- Successful response payloads still rely on existing parser/domain paths.
+- Delivery, scheduler, live-query delivery, generated worker source, and
+  executor-http response boundaries remain separate follow-up slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Dev Response Effect Decoders
 
 Previous completed checkpoint: `77c921a` Type materialized artifact responses

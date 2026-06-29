@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Backend Internal Response Decoder Ownership
+
+Previous completed checkpoint: `e726ae8` Type dev backend responses with
+Effect.
+
+What changed:
+
+- Backend analyzer response decoding now lives in
+  `packages/flarex-backend/src/backendAnalyzerResponse.ts` so it can be tested
+  without importing the Worker entrypoint and its Cloudflare-only module graph.
+- Artifact runtime service-binding response decoding remains in
+  `artifactRuntime.ts` because it is specific to the backend runtime adapter.
+- Partition response decoding remains in `transaction.ts` because it is
+  specific to `SingleShardTransaction`'s PartitionDO integration.
+
+Boundary decision:
+
+These decoders are backend adapter boundaries, not reusable public protocol
+contracts. They therefore stay in `flarex-backend` and map into existing
+backend error/public shapes at the adapter edge.
+
+Known limitations:
+
+- Shared protocol schemas are not introduced for these successful payloads in
+  this checkpoint.
+- Delivery and scheduler response boundaries still need their own ownership
+  decisions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Flarex Dev Backend Response Boundaries
 
 Previous completed checkpoint: `77c921a` Type materialized artifact responses

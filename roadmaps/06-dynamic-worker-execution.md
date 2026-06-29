@@ -1,5 +1,44 @@
 # Dynamic Worker Execution
 
+## Backend Artifact Runtime Service Response Boundary
+
+Previous completed checkpoint: `e726ae8` Type dev backend responses with
+Effect.
+
+What changed:
+
+- `ServiceBindingExecutionArtifactRuntime.invoke(...)` now reads service-binding
+  runtime responses through a named Effect decoder.
+- Non-OK service-binding responses become typed
+  `ServiceBindingExecutionArtifactRuntimeResponseError` values before the
+  adapter maps them to the existing `HttpError`.
+- Added direct typed failure coverage and adapter-edge `HttpError` mapping
+  coverage.
+
+Why it changed:
+
+The backend artifact runtime is an internal Dynamic Worker execution boundary.
+Its response parsing should expose typed integration failures before the Worker
+adapter converts them into HTTP-shaped errors.
+
+Known limitations:
+
+- The runtime invoke success payload is still trusted as the existing
+  `InvokeResponse` contract.
+- Materialization, source-package loading, cache invalidation, and generated
+  worker execution logic are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Execution Artifact Response Effect Boundaries
 
 Previous completed checkpoint: `77c921a` Type materialized artifact responses

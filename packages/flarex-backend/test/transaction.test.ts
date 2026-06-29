@@ -1,5 +1,7 @@
+import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  decodePartitionJsonResponse,
   PartitionRequestError,
   SingleShardTransaction,
 } from "../src/transaction";
@@ -20,6 +22,20 @@ afterAll(async () => {
 });
 
 describe("SingleShardTransaction", () => {
+  it("exposes typed partition response success and failure before request-error mapping", async () => {
+    await expect(
+      Effect.runPromise(decodePartitionJsonResponse<{ ok: true }>(Response.json({ ok: true }))),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      Effect.runPromise(decodePartitionJsonResponse(new Response("bad gateway", { status: 502 }))),
+    ).rejects.toMatchObject({
+      _tag: "PartitionResponseError",
+      status: 502,
+      body: null,
+    });
+  });
+
   it("rejects malformed partition schema-cache JSON at the route boundary", async () => {
     const partition = env.PARTITIONS.getByName(
       partitionObjectName("schema-cache-boundary-deployment", "user:ada"),

@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Backend Analyzer Response Effect Boundary
+
+Previous completed checkpoint: `e726ae8` Type dev backend responses with
+Effect.
+
+What changed:
+
+- Backend analyzer service responses now decode through
+  `decodeBackendAnalyzerResponse(...)` before push-start turns them into an
+  analyzed push payload.
+- Analyzer failures become typed `BackendAnalyzerResponseError` values with
+  normalized diagnostics before `analyzeSourcePackage(...)` maps them back to
+  the existing failed push status shape.
+- Added direct typed success/failure coverage for backend analyzer response
+  decoding.
+
+Why it changed:
+
+Source-only push uses a service binding to ask an analyzer for deployment
+metadata. That downstream response boundary was still manually reading JSON and
+string-building failures inline in the Worker. The new decoder keeps analyzer
+transport failures typed while preserving push lifecycle behavior.
+
+Known limitations and follow-up work:
+
+- Deployment validation and analyzed-start storage are unchanged.
+- Successful analyzer response payloads still flow through the existing
+  deployment validation path after decoding.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Backend Push Response Effect Boundaries
 
 Previous completed checkpoint: `77c921a` Type materialized artifact responses

@@ -1,5 +1,37 @@
 # OCC And Transactions
 
+## Partition Response Effect Boundary
+
+Previous completed checkpoint: `e726ae8` Type dev backend responses with
+Effect.
+
+What changed:
+
+- `SingleShardTransaction` now reads PartitionDO responses through
+  `decodePartitionJsonResponse(...)`, a named Effect decoder.
+- Non-OK partition responses become typed `PartitionResponseError` values
+  before the transaction adapter maps them to the existing
+  `PartitionRequestError` shape.
+- Added direct typed success/failure coverage for partition response decoding.
+
+What did not change:
+
+- OCC conflict semantics, schema-version checks, write staging, id generation,
+  SQL behavior, and PartitionDO route handling remain unchanged.
+- Successful partition payloads are still trusted by the existing transaction
+  call sites.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## PartitionDO Adapter-Only Effect Checkpoint
 
 Previous completed checkpoint: `e014550` Route execution fetch edges through

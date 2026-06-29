@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
@@ -6,6 +7,7 @@ import {
   parsePushStatus,
 } from "flarex-protocol/deployment";
 import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
+import { decodeBackendAnalyzerResponse } from "../src/backendAnalyzerResponse";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
   ActiveDeploymentStatus,
@@ -35,6 +37,30 @@ afterAll(async () => {
 });
 
 describe("deployment push lifecycle", () => {
+  it("exposes typed backend analyzer response success and failure before push status mapping", async () => {
+    await expect(
+      Effect.runPromise(decodeBackendAnalyzerResponse(Response.json({
+        analysis: { schema: {}, functions: {} },
+        codegenAnalysis: { schema: {}, functions: [] },
+        diagnostics: [{ level: "log", message: "ok" }],
+      }))),
+    ).resolves.toEqual({
+      analysis: { schema: {}, functions: {} },
+      codegenAnalysis: { schema: {}, functions: [] },
+      diagnostics: [{ level: "log", message: "ok" }],
+    });
+
+    await expect(
+      Effect.runPromise(decodeBackendAnalyzerResponse(new Response("bad gateway", { status: 502 }))),
+    ).rejects.toMatchObject({
+      _tag: "BackendAnalyzerResponseError",
+      status: 502,
+      message: "Analyzer request failed with status 502",
+      diagnostics: undefined,
+      body: null,
+    });
+  });
+
   it("stores a candidate and leaves the active deployment unchanged until finish", async () => {
     await putSchema("push-activation", activeSchema());
     await putFunctions("push-activation", activeFunctions());

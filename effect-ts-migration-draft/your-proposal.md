@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `77c921a` Type materialized artifact responses with Effect.
-- Active checkpoint: route `flarex-dev` backend push/analyzer and execution artifact response parsing through named Effect decoders with typed integration failures, preserving existing adapter error shapes.
+- Previous completed checkpoint: `e726ae8` Type dev backend responses with Effect.
+- Active checkpoint: route backend internal service-binding responses through named Effect decoders for artifact runtime invoke, analyzer forwarding, and partition transaction responses while preserving existing adapter/domain error shapes.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current backend push/artifact response checkpoint:
+Next recommended checkpoint after the current backend internal response checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current backend push/artifact response che
    separate from adapter-edge refactors until each has dedicated parity
    coverage.
 
-Current Goal 150 slice:
+Current Goal 151 slice:
+
+1. Add typed Effect response decoders for backend service-binding/internal response reads: execution artifact runtime invoke responses, analyzer service responses used by push start, and partition responses used by `SingleShardTransaction`.
+2. Preserve adapter behavior: artifact runtime failures still map to `HttpError`, analyzer failures still become failed analyzed-push status payloads with diagnostics, and partition failures still map to `PartitionRequestError`.
+3. Keep successful payload validation in the existing parser/domain paths; this checkpoint types the integration response boundary and does not change deployment validation, OCC, SQL, artifact materialization, or public Worker route dispatch.
+4. Add direct typed success/failure tests for the new decoders and adapter-preservation tests for artifact runtime and transaction/push paths.
+5. Validate with focused backend artifact runtime, transaction, and push tests, broad backend/protocol gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 150 slice:
 
 1. Add typed Effect response decoders for `flarex-dev` HTTP backend analyzer, push, finish, local finish, execution artifact analysis, and execution artifact invoke responses.
 2. Preserve public behavior: non-JSON failures still fall back to the existing status messages, backend diagnostics still travel with `ExecutionArtifactAnalysisError`, local finish transport failures still use the legacy plain `Error` message, and successful payload parsers stay unchanged.

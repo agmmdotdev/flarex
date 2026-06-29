@@ -69,6 +69,16 @@ export class ExecutionArtifactRuntimeOperationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+type ExecutionArtifactRuntimeHttpResponse = Pick<Response, "json" | "ok" | "status">;
+
+export class ServiceBindingExecutionArtifactRuntimeResponseError extends Data.TaggedError(
+  "ServiceBindingExecutionArtifactRuntimeResponseError",
+)<{
+  readonly status: number;
+  readonly message: string;
+  readonly body: unknown;
+}> {}
+
 type ExecutionArtifactRuntimeError =
   | ExecutionArtifactInvokeRouteError
   | ExecutionArtifactRuntimeMissingSourcePackageError
@@ -230,16 +240,49 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
       },
       body: JSON.stringify(payload),
     });
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      const message =
-        typeof body === "object" && body !== null && "error" in body
-          ? String((body as { error: unknown }).error)
-          : `Execution artifact runtime failed with status ${response.status}`;
-      throw new HttpError(response.status, message);
-    }
-    return body as InvokeResponse;
+    return await Effect.runPromise(
+      decodeServiceBindingExecutionArtifactRuntimeResponse<InvokeResponse>(response).pipe(
+        Effect.mapError(serviceBindingExecutionArtifactRuntimeResponseErrorToHttpError),
+      ),
+    );
   }
+}
+
+export const decodeServiceBindingExecutionArtifactRuntimeResponse = Effect.fn(
+  "ServiceBindingExecutionArtifactRuntime.decodeResponse",
+)(
+  function* <A>(response: ExecutionArtifactRuntimeHttpResponse) {
+    const body = yield* readServiceBindingExecutionArtifactRuntimeResponseJson(response);
+    if (!response.ok) {
+      return yield* Effect.fail(new ServiceBindingExecutionArtifactRuntimeResponseError({
+        status: response.status,
+        message: serviceBindingExecutionArtifactRuntimeErrorMessage(body, response.status),
+        body,
+      }));
+    }
+    return body as A;
+  },
+);
+
+function readServiceBindingExecutionArtifactRuntimeResponseJson(
+  response: ExecutionArtifactRuntimeHttpResponse,
+): Effect.Effect<unknown> {
+  return Effect.promise(() => response.json().catch(() => null));
+}
+
+function serviceBindingExecutionArtifactRuntimeErrorMessage(
+  body: unknown,
+  status: number,
+): string {
+  return typeof body === "object" && body !== null && "error" in body
+    ? String((body as { error: unknown }).error)
+    : `Execution artifact runtime failed with status ${status}`;
+}
+
+function serviceBindingExecutionArtifactRuntimeResponseErrorToHttpError(
+  error: ServiceBindingExecutionArtifactRuntimeResponseError,
+): HttpError {
+  return new HttpError(error.status, error.message);
 }
 
 function authorizeRuntimeRequest(request: Request, capabilityToken: string | undefined): Response | null {
