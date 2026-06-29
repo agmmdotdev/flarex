@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `82033a9` Type delivery payload routes with Effect.
-- Active checkpoint: convert execution start/action route boundaries to typed Effect decoders and route public Worker execution start/syscall/finish/abort forwarding through `Effect.fn` helpers while preserving route deployment-id precedence and execution session response semantics.
+- Previous completed checkpoint: `083fae0` Route public execution through Effect.
+- Active checkpoint: convert partition commit, schema-cache, subscription, and unregister route bodies to typed Effect decoders and route public Worker partition commit/schema-cache forwarding through `Effect.fn` helpers while preserving PartitionDO SQL/OCC behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,19 +44,28 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current route-parser cleanup:
+Next recommended checkpoint after the current partition boundary checkpoint:
 
-1. Add a backend route-body Effect helper, such as `readJsonEffect(...)`, with
-   a tagged `RequestJsonError`.
-2. Convert one narrow route boundary, preferably deployment finish or abandon,
-   from `Promise + throw` to `Effect + typed error`.
-3. Preserve the existing HTTP response body/status exactly through an adapter
-   mapping test.
-4. Update the EffectTS quality checker expectation so new migration diffs are
-   reviewed against this stronger bar, not only behavior-preserving parser
-   extraction.
+1. Continue with the next remaining backend route/service boundary that still
+   reads JSON through compatibility wrappers.
+2. Keep each public Worker or Durable Object entrypoint at one `Effect.runPromise`
+   edge and one HTTP mapper.
+3. Preserve the existing HTTP response body/status exactly through adapter
+   mapping tests.
+4. Keep `PartitionDO` OCC/SQL semantics out of route-boundary refactors until
+   its service extraction has separate parity coverage.
 
-Current Goal 139 slice:
+Current Goal 140 slice:
+
+1. Convert `partition/RouteBoundary.ts` to expose Effect-returning decoders for schema-cache, commit, subscription registration, subscription target, and connection unregister bodies.
+2. Model route-body validation failures as `PartitionRouteValidationError` and keep malformed JSON as the shared `RequestJsonError`.
+3. Keep throwing `parse*` and Promise `read*` compatibility functions, but route them through the typed Effect/result implementation and a single `partitionRouteErrorToHttpError(...)` adapter.
+4. Convert `partition/PublicSchemaCacheRouteBoundary.ts` to expose public Effect decoders that keep the route `partitionKey` authoritative over the body.
+5. Route public Worker partition `commit` and `schema-cache` forwarding through `Effect.fn` helpers with one adapter mapping edge for typed route errors and downstream `HttpError` failures.
+6. Preserve PartitionDO SQL/OCC behavior, schema-cache persistence, subscription behavior, document/index reads, deployment routes, invoke routes, scheduler routes, execution routes, delivery routes, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+7. Validate with focused partition/public schema-cache route-boundary tests, partition/transaction regression coverage, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 139 slice:
 
 1. Add Effect-returning internal and public execution start decoders that keep route `deploymentId` authoritative for public starts and preserve compatibility `readExecutionStartRequest(...)` readers.
 2. Add Effect-returning public execution action decoders for syscall, finish, and abort, reusing the existing typed syscall/finish parsers and preserving abort's well-formed JSON forwarding behavior.

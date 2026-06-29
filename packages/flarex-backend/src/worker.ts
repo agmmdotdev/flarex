@@ -60,8 +60,14 @@ import {
   decodePublicLiveQueryDeliveryRequest,
   publicLiveQueryDeliveryRouteErrorToHttpError,
 } from "./liveQueryDelivery/RouteBoundary";
-import { readPartitionCommitRequest } from "./partition/RouteBoundary";
-import { readPublicPartitionSchemaCacheRequest } from "./partition/PublicSchemaCacheRouteBoundary";
+import {
+  decodePartitionCommitRequest,
+  partitionRouteErrorToHttpError,
+} from "./partition/RouteBoundary";
+import {
+  decodePublicPartitionSchemaCacheRequest,
+  publicPartitionSchemaCacheRouteErrorToHttpError,
+} from "./partition/PublicSchemaCacheRouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import { rejectedFinishPushResponse } from "./pushResponses.ts";
@@ -789,20 +795,18 @@ async function routePartition(
     return partition.fetch("https://flarex.internal/begin", { method: "POST" });
   }
   if (action === "commit" && request.method === "POST") {
-    const commit = await readPartitionCommitRequest(request);
-    return partition.fetch("https://flarex.internal/commit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(commit),
-    });
+    return await Effect.runPromise(
+      routePublicPartitionCommit(request, partition).pipe(
+        Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
+      ),
+    );
   }
   if (action === "schema-cache" && request.method === "PUT") {
-    const schemaCache = await readPublicPartitionSchemaCacheRequest(request, partitionKey);
-    return partition.fetch("https://flarex.internal/schema-cache", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(schemaCache),
-    });
+    return await Effect.runPromise(
+      routePublicPartitionSchemaCache(request, partition, partitionKey).pipe(
+        Effect.mapError(publicWorkerPartitionSchemaCacheRouteErrorToHttpError),
+      ),
+    );
   }
   if (action === "document" && request.method === "GET") {
     return partition.fetch(`https://flarex.internal/document?${originalUrl.searchParams}`);
@@ -812,6 +816,60 @@ async function routePartition(
   }
 
   return json({ error: "Partition route not found." }, { status: 404 });
+}
+
+const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit")(
+  function* (request: Request, partition: DurableObjectStub) {
+    const commit = yield* decodePartitionCommitRequest(request);
+    return yield* Effect.tryPromise({
+      try: () => partition.fetch("https://flarex.internal/commit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(commit),
+      }),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+  },
+);
+
+function publicWorkerPartitionRouteErrorToHttpError(
+  error: Parameters<typeof partitionRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return partitionRouteErrorToHttpError(error);
+}
+
+const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSchemaCache")(
+  function* (
+    request: Request,
+    partition: DurableObjectStub,
+    partitionKey: string,
+  ) {
+    const schemaCache = yield* decodePublicPartitionSchemaCacheRequest(request, partitionKey);
+    return yield* Effect.tryPromise({
+      try: () => partition.fetch("https://flarex.internal/schema-cache", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(schemaCache),
+      }),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+  },
+);
+
+function publicWorkerPartitionSchemaCacheRouteErrorToHttpError(
+  error: Parameters<typeof publicPartitionSchemaCacheRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return publicPartitionSchemaCacheRouteErrorToHttpError(error);
 }
 
 async function routeLiveQueryDelivery(

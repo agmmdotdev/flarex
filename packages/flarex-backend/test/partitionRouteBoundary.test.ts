@@ -1,7 +1,11 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  decodePartitionCommitRequest,
+  partitionRouteErrorToHttpError,
   parsePartitionCommitRequest,
+  parsePartitionCommitRequestEffect,
   parsePartitionConnectionUnregisterRequest,
   parsePartitionSchemaCacheRequest,
   parsePartitionSubscriptionRegistrationRequest,
@@ -107,6 +111,16 @@ describe("partition route boundary", () => {
     });
   });
 
+  it("decodes commit requests through the Effect boundary", async () => {
+    await expect(Effect.runPromise(decodePartitionCommitRequest(jsonRequest({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    })))).resolves.toEqual({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    });
+  });
+
   it("maps invalid commit envelopes to 400", () => {
     expect(() => parsePartitionCommitRequest(null))
       .toThrow(HttpError);
@@ -118,6 +132,34 @@ describe("partition route boundary", () => {
       throw new Error("Expected parsePartitionCommitRequest to fail.");
     } catch (error) {
       expect(error).toMatchObject({
+        status: 400,
+        message: "writes[0].tableId must be an integer.",
+      });
+    }
+  });
+
+  it("emits typed validation errors from commit Effect parsing", async () => {
+    await expect(Effect.runPromise(parsePartitionCommitRequestEffect({
+      beginTs: 1,
+      writes: [{ tableId: "1", value: null }],
+    }))).rejects.toMatchObject({
+      _tag: "PartitionRouteValidationError",
+      message: "writes[0].tableId must be an integer.",
+    });
+  });
+
+  it("maps partition route validation errors to HttpError", async () => {
+    try {
+      await Effect.runPromise(parsePartitionCommitRequestEffect({
+        beginTs: 1,
+        writes: [{ tableId: "1", value: null }],
+      }));
+      throw new Error("Expected parsePartitionCommitRequestEffect to fail.");
+    } catch (error) {
+      const httpError = partitionRouteErrorToHttpError(
+        error as Parameters<typeof partitionRouteErrorToHttpError>[0],
+      );
+      expect(httpError).toMatchObject({
         status: 400,
         message: "writes[0].tableId must be an integer.",
       });
@@ -169,6 +211,20 @@ describe("partition route boundary", () => {
       },
     ))).rejects.toMatchObject({
       status: 400,
+      message: "Request body must be JSON.",
+    });
+  });
+
+  it("emits typed JSON errors from commit Effect decoding", async () => {
+    await expect(Effect.runPromise(decodePartitionCommitRequest(new Request(
+      "https://flarex.test/commit",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });

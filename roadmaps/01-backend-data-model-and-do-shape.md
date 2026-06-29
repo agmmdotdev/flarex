@@ -1,5 +1,56 @@
 # Backend Data Model And Durable Object Shape
 
+## Partition Route Effect Boundary
+
+Previous completed checkpoint: `083fae0` Route public execution through Effect.
+
+What changed:
+
+- `partition/RouteBoundary.ts` now exposes Effect-returning decoders for
+  schema-cache, commit, subscription registration, subscription target, and
+  connection unregister request bodies.
+- Partition route-body validation now originates as
+  `PartitionRouteValidationError`; malformed JSON remains the shared
+  `RequestJsonError`.
+- Existing throwing parsers and Promise `read*` wrappers remain as compatibility
+  adapters, but they now delegate through the typed validation implementation
+  and `partitionRouteErrorToHttpError(...)`.
+- The public schema-cache boundary now has an Effect decoder that keeps the
+  route `partitionKey` authoritative over any body field.
+- Public Worker partition `commit` and `schema-cache` forwarding now run through
+  `Effect.fn` helpers and convert typed failures at the Worker adapter edge.
+
+Why it changed:
+
+Partition request parsing was one of the remaining hand-written `readJson` plus
+`HttpError` validation clusters. Moving it to typed Effect decoders advances the
+larger migration without changing the correctness-sensitive PartitionDO
+transaction, OCC, schema-cache, or subscription logic.
+
+Preserved behavior:
+
+- PartitionDO still owns SQL initialization, commit conflict detection,
+  idempotency keys, schema-cache persistence, document/index reads, and
+  subscription invalidation.
+- Public Worker partition route behavior still forwards canonical JSON to the
+  internal Durable Object routes and keeps the route partition key authoritative
+  for schema-cache updates.
+- `ValidatorJson`, protocol schemas, deployment routes, invoke routes,
+  scheduler routes, execution routes, delivery routes, and executor-http routes
+  are unchanged in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/partitionDO.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## RegistryDO Effect Host Shape
 
 Previous completed checkpoint: `14930c4` Extract deployment HttpApi route boundary.
