@@ -430,6 +430,20 @@ describe("DeploymentApiHandlers", () => {
       } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
       "Codegen module messages functions must be an array.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [
+            { moduleName: "messages", functions: [] },
+            { moduleName: "messages", functions: [] },
+          ],
+        },
+      },
+      "Duplicate codegen module metadata: messages.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -581,6 +595,25 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(codegenModuleFunctionsFailure.message).toBe("Codegen module messages functions must be an array.");
+
+    const duplicateCodegenModuleFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [
+          { moduleName: "messages", functions: [] },
+          { moduleName: "messages", functions: [] },
+        ],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(duplicateCodegenModuleFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(duplicateCodegenModuleFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(duplicateCodegenModuleFailure.message).toBe("Duplicate codegen module metadata: messages.");
   });
 });
 

@@ -514,7 +514,7 @@ export function validateCodegenAnalysis(
     }
     const moduleName = module.moduleName;
     if (seenModuleNames.has(moduleName)) {
-      throw new HttpError(400, `Duplicate codegen module metadata: ${moduleName}.`);
+      throwDeploymentValidation(`Duplicate codegen module metadata: ${moduleName}.`);
     }
     seenModuleNames.add(moduleName);
     return {

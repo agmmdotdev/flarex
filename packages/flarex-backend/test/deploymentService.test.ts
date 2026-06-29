@@ -592,6 +592,45 @@ describe("DeploymentService", () => {
     } finally {
       await typedModuleFunctionsRuntime.dispose();
     }
+
+    const duplicateModuleStatus = analyzedPushStatus("push-duplicate-module-validation-failed");
+    const duplicateModuleRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...duplicateModuleStatus,
+          codegenAnalysis: {
+            schema: duplicateModuleStatus.analysis!.schema,
+            functions: [
+              { moduleName: "messages", functions: [] },
+              { moduleName: "messages", functions: [] },
+            ],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const duplicateModuleError = await duplicateModuleRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: duplicateModuleStatus.pushId,
+            now: 2_440_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(duplicateModuleError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(duplicateModuleError.message).toBe("Duplicate codegen module metadata: messages.");
+    } finally {
+      await duplicateModuleRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

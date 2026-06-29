@@ -449,6 +449,18 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen module messages functions must be an array.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [
+            { moduleName: "messages", functions: [] },
+            { moduleName: "messages", functions: [] },
+          ],
+        }, analysis),
+      "Duplicate codegen module metadata: messages.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {
