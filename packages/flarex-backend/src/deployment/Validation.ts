@@ -510,7 +510,7 @@ export function validateCodegenAnalysis(
       throwDeploymentValidation(`Codegen module at index ${moduleIndex} has an invalid moduleName.`);
     }
     if (!Array.isArray(module.functions)) {
-      throw new HttpError(400, `Codegen module ${module.moduleName} functions must be an array.`);
+      throwDeploymentValidation(`Codegen module ${module.moduleName} functions must be an array.`);
     }
     const moduleName = module.moduleName;
     if (seenModuleNames.has(moduleName)) {

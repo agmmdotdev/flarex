@@ -437,6 +437,18 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen module at index 0 has an invalid moduleName.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: "not-functions",
+          }],
+        }, analysis),
+      "Codegen module messages functions must be an array.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

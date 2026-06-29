@@ -553,6 +553,45 @@ describe("DeploymentService", () => {
     } finally {
       await typedModuleNameRuntime.dispose();
     }
+
+    const typedModuleFunctionsStatus = analyzedPushStatus("push-typed-module-functions-validation-failed");
+    const typedModuleFunctionsRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedModuleFunctionsStatus,
+          codegenAnalysis: {
+            schema: typedModuleFunctionsStatus.analysis!.schema,
+            functions: [{
+              moduleName: "messages",
+              functions: "not-functions",
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedModuleFunctionsError = await typedModuleFunctionsRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedModuleFunctionsStatus.pushId,
+            now: 2_430_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedModuleFunctionsError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedModuleFunctionsError.message).toBe("Codegen module messages functions must be an array.");
+    } finally {
+      await typedModuleFunctionsRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {
