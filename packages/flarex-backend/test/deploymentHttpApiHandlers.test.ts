@@ -615,6 +615,33 @@ describe("DeploymentApiHandlers", () => {
         },
         codegenAnalysis: {
           schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "list",
+              kind: "mutation",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        },
+      },
+      "Codegen function messages:list must match deployment function metadata.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
           functions: [],
         },
       },
@@ -974,6 +1001,40 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(codegenFunctionArgsFailure.message).toBe(
       "$codegen.functions.messages:list.args: Validator is required.",
+    );
+
+    const codegenFunctionMatchFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        ...deploymentAnalysis(),
+        functions: {
+          functions: [{ path: "messages:list", kind: "query" }],
+        },
+      },
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "messages",
+            exportName: "list",
+            kind: "mutation",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          }],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionMatchFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionMatchFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionMatchFailure.message).toBe(
+      "Codegen function messages:list must match deployment function metadata.",
     );
 
     const codegenCoverageFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({

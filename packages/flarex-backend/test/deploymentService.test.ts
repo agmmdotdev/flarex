@@ -927,6 +927,55 @@ describe("DeploymentService", () => {
       await typedFunctionArgsRuntime.dispose();
     }
 
+    const typedFunctionMatchStatus = analyzedPushStatus("push-typed-function-match-validation-failed");
+    const typedFunctionMatchRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionMatchStatus,
+          codegenAnalysis: {
+            schema: typedFunctionMatchStatus.analysis!.schema,
+            functions: [{
+              moduleName: "lessons",
+              functions: [{
+                moduleName: "lessons",
+                exportName: "list",
+                kind: "mutation",
+                visibility: "public",
+                args: { type: "object", value: {} },
+                returns: null,
+                partition: null,
+              }],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionMatchError = await typedFunctionMatchRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionMatchStatus.pushId,
+            now: 2_520_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionMatchError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionMatchError.message).toBe(
+        "Codegen function lessons:list must match deployment function metadata.",
+      );
+    } finally {
+      await typedFunctionMatchRuntime.dispose();
+    }
+
     const typedCodegenCoverageStatus = analyzedPushStatus("push-typed-codegen-coverage-validation-failed");
     const typedCodegenCoverageRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(

@@ -589,6 +589,26 @@ describe("deployment validation", () => {
       () =>
         validateCodegenAnalysis({
           schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "list",
+              kind: "mutation",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        }, analysis),
+      "Codegen function messages:list must match deployment function metadata.",
+    );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
           functions: [],
         }, analysis),
       "Codegen analysis functions must cover every deployment function.",

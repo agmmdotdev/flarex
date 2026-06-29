@@ -603,7 +603,7 @@ function assertCodegenFunctionMatchesMetadata(
     position: metadata.position,
   };
   if (canonicalJson(codegen) !== canonicalJson(expected)) {
-    throw new HttpError(400, `Codegen function ${path} must match deployment function metadata.`);
+    throwDeploymentValidation(`Codegen function ${path} must match deployment function metadata.`);
   }
 }
 
