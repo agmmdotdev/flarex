@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { HttpError } from "../http";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import type {
   AnalyzedSourcePosition,
@@ -431,21 +430,21 @@ export function validateSchema(schema: unknown): DeploymentSchema {
 
 export function validateFunctions(functions: unknown): DeploymentFunctions {
   if (!isRecord(functions)) {
-    throw new HttpError(400, "Function metadata must be an object.");
+    throwDeploymentValidation("Function metadata must be an object.");
   }
   if (!Array.isArray(functions.functions)) {
-    throw new HttpError(400, "Function metadata must include a functions array.");
+    throwDeploymentValidation("Function metadata must include a functions array.");
   }
   const seen = new Set<string>();
   const normalized = functions.functions.map((metadata, index) => {
     if (!isRecord(metadata)) {
-      throw new HttpError(400, `Function metadata at index ${index} must be an object.`);
+      throwDeploymentValidation(`Function metadata at index ${index} must be an object.`);
     }
     const path = metadata.path;
     if (typeof path !== "string" || path.length === 0) {
-      throw new HttpError(400, `Function metadata at index ${index} has an invalid path.`);
+      throwDeploymentValidation(`Function metadata at index ${index} has an invalid path.`);
     }
-    if (seen.has(path)) throw new HttpError(400, `Duplicate function metadata path: ${path}.`);
+    if (seen.has(path)) throwDeploymentValidation(`Duplicate function metadata path: ${path}.`);
     seen.add(path);
     const kind = parseFunctionKind(metadata.kind, `$functions.${path}.kind`);
     const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
@@ -671,13 +670,13 @@ function validateFunctionPartitions(
 function parseTableState(value: unknown): NonNullable<SchemaTable["state"]> {
   if (value === undefined) return "active";
   if (value === "active" || value === "hidden" || value === "deleted") return value;
-  throw new HttpError(400, "Schema table has invalid state.");
+  throwDeploymentValidation("Schema table has invalid state.");
 }
 
 function parseIndexState(value: unknown): NonNullable<DeploymentSchema["indexes"][number]["state"]> {
   if (value === undefined) return "enabled";
   if (value === "enabled" || value === "staged" || value === "disabled") return value;
-  throw new HttpError(400, "Schema index has invalid state.");
+  throwDeploymentValidation("Schema index has invalid state.");
 }
 
 function validateSourcePosition(
@@ -686,25 +685,25 @@ function validateSourcePosition(
 ): AnalyzedSourcePosition | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, `${path}: Invalid source position.`);
+    throwDeploymentValidation(`${path}: Invalid source position.`);
   }
   const position = value as Partial<AnalyzedSourcePosition>;
   if (typeof position.path !== "string" || position.path.length === 0) {
-    throw new HttpError(400, `${path}.path: Source position path must be a non-empty string.`);
+    throwDeploymentValidation(`${path}.path: Source position path must be a non-empty string.`);
   }
   if (
     typeof position.startLine !== "number" ||
     !Number.isInteger(position.startLine) ||
     position.startLine <= 0
   ) {
-    throw new HttpError(400, `${path}.startLine: Source position line must be a positive integer.`);
+    throwDeploymentValidation(`${path}.startLine: Source position line must be a positive integer.`);
   }
   if (
     typeof position.startColumn !== "number" ||
     !Number.isInteger(position.startColumn) ||
     position.startColumn <= 0
   ) {
-    throw new HttpError(400, `${path}.startColumn: Source position column must be a positive integer.`);
+    throwDeploymentValidation(`${path}.startColumn: Source position column must be a positive integer.`);
   }
   return {
     path: position.path,
@@ -719,13 +718,13 @@ function validateFunctionRoutePolicy(
 ): FunctionRoutePolicy | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, `${path}: Invalid route policy.`);
+    throwDeploymentValidation(`${path}: Invalid route policy.`);
   }
   const route = value as Partial<FunctionRoutePolicy>;
   if (route.type === "args" && typeof route.field === "string" && route.field.length > 0) {
     return { type: "args", field: route.field };
   }
-  throw new HttpError(400, `${path}: Invalid route policy.`);
+  throwDeploymentValidation(`${path}: Invalid route policy.`);
 }
 
 function validateFunctionPartitionPolicy(
@@ -734,7 +733,7 @@ function validateFunctionPartitionPolicy(
 ): FunctionPartitionMetadata | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, `${path}: Invalid partition policy.`);
+    throwDeploymentValidation(`${path}: Invalid partition policy.`);
   }
   const partition = value as Partial<FunctionPartitionMetadata>;
   if (
@@ -768,7 +767,7 @@ function validateFunctionPartitionPolicy(
       argField: partition.argField,
     };
   }
-  throw new HttpError(400, `${path}: Invalid partition policy.`);
+  throwDeploymentValidation(`${path}: Invalid partition policy.`);
 }
 
 function selectorNameForPartitionField(field: string): string {
@@ -796,7 +795,7 @@ function validatorHasRequiredField(validator: ValidatorJson | null, field: strin
 
 function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {
   if (typeof value !== "object" || value === null || Array.isArray(value) || !("kind" in value)) {
-    throw new HttpError(400, `${path}: Invalid placement.`);
+    throwDeploymentValidation(`${path}: Invalid placement.`);
   }
   const placement = value as Partial<SchemaTable["placement"]>;
   if (placement.kind === "global") return { kind: "global" };
@@ -810,7 +809,7 @@ function validatePlacement(value: unknown, path: string): SchemaTable["placement
   ) {
     return { kind: "colocateWith", table: placement.table, field: placement.field };
   }
-  throw new HttpError(400, `${path}: Invalid placement.`);
+  throwDeploymentValidation(`${path}: Invalid placement.`);
 }
 
 function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind {
@@ -822,12 +821,12 @@ function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind
   ) {
     return value;
   }
-  throw new HttpError(400, `${path}: Invalid function kind ${value}.`);
+  throwDeploymentValidation(`${path}: Invalid function kind ${value}.`);
 }
 
 function parseVisibility(value: unknown, path: string): FunctionVisibility {
   if (value === "public" || value === "internal") return value;
-  throw new HttpError(400, `${path}: Invalid function visibility ${value}.`);
+  throwDeploymentValidation(`${path}: Invalid function visibility ${value}.`);
 }
 
 function safeValidator(value: unknown, path: string): ValidatorJson | null {
@@ -835,7 +834,7 @@ function safeValidator(value: unknown, path: string): ValidatorJson | null {
     return assertValidatorJson(jsonValue(value, path), path);
   } catch (error) {
     if (error instanceof BackendValidationError) {
-      throw new HttpError(400, `Invalid validator metadata: ${error.message}`);
+      throwDeploymentValidation(`Invalid validator metadata: ${error.message}`);
     }
     throw error;
   }
@@ -849,7 +848,7 @@ function jsonValue(value: unknown, path: string): Json | undefined {
   if (Array.isArray(value)) {
     return value.map((item, index) => {
       const parsed = jsonValue(item, `${path}[${index}]`);
-      if (parsed === undefined) throw new HttpError(400, `${path}[${index}]: Expected JSON value.`);
+      if (parsed === undefined) throwDeploymentValidation(`${path}[${index}]: Expected JSON value.`);
       return parsed;
     });
   }
@@ -857,12 +856,12 @@ function jsonValue(value: unknown, path: string): Json | undefined {
     const record: { [key: string]: Json } = {};
     for (const [key, item] of Object.entries(value)) {
       const parsed = jsonValue(item, `${path}.${key}`);
-      if (parsed === undefined) throw new HttpError(400, `${path}.${key}: Expected JSON value.`);
+      if (parsed === undefined) throwDeploymentValidation(`${path}.${key}: Expected JSON value.`);
       record[key] = parsed;
     }
     return record;
   }
-  throw new HttpError(400, `${path}: Expected JSON value.`);
+  throwDeploymentValidation(`${path}: Expected JSON value.`);
 }
 
 function canonicalJson(value: unknown): string {

@@ -555,6 +555,48 @@ describe("DeploymentService", () => {
       await typedSchemaRuntime.dispose();
     }
 
+    const typedFunctionMetadataStatus = analyzedPushStatus("push-typed-function-metadata-validation-failed");
+    const typedFunctionMetadataRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionMetadataStatus,
+          analysis: {
+            schema: typedFunctionMetadataStatus.analysis!.schema,
+            functions: {
+              functions: [{ path: "lessons:list", kind: "query", route: "not-route" }],
+            },
+          } as unknown as DeploymentAnalysis,
+          codegenAnalysis: {
+            schema: typedFunctionMetadataStatus.analysis!.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionMetadataError = await typedFunctionMetadataRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionMetadataStatus.pushId,
+            now: 2_413_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionMetadataError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionMetadataError.message).toBe("$functions.lessons:list.route: Invalid route policy.");
+    } finally {
+      await typedFunctionMetadataRuntime.dispose();
+    }
+
     const typedPartitionStatus = analyzedPushStatus("push-typed-partition-validation-failed");
     const typedPartitionAnalysis = deploymentPartitionValidationAnalysis();
     const typedPartitionRuntime = ManagedRuntime.make(
@@ -847,16 +889,16 @@ describe("DeploymentService", () => {
       await typedFunctionExportNameRuntime.dispose();
     }
 
-    const typedFunctionMetadataStatus = analyzedPushStatus("push-typed-function-metadata-validation-failed");
-    const typedFunctionMetadataRuntime = ManagedRuntime.make(
+    const typedCodegenMetadataStatus = analyzedPushStatus("push-typed-codegen-metadata-validation-failed");
+    const typedCodegenMetadataRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(
         {
           transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
         } as DeploymentTransactionStorage,
         sqlWithPushes([{
-          ...typedFunctionMetadataStatus,
+          ...typedCodegenMetadataStatus,
           codegenAnalysis: {
-            schema: typedFunctionMetadataStatus.analysis!.schema,
+            schema: typedCodegenMetadataStatus.analysis!.schema,
             functions: [{
               moduleName: "messages",
               functions: [{
@@ -875,10 +917,10 @@ describe("DeploymentService", () => {
     );
 
     try {
-      const typedFunctionMetadataError = await typedFunctionMetadataRuntime.runPromise(
+      const typedCodegenMetadataError = await typedCodegenMetadataRuntime.runPromise(
         DeploymentPushStore.use(store =>
           store.finishPush({
-            pushId: typedFunctionMetadataStatus.pushId,
+            pushId: typedCodegenMetadataStatus.pushId,
             now: 2_480_000,
             executionArtifactRef: executionArtifactRef(),
           }),
@@ -886,14 +928,14 @@ describe("DeploymentService", () => {
           Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
         ),
       );
-      if (!(typedFunctionMetadataError instanceof DeploymentValidationError)) {
+      if (!(typedCodegenMetadataError instanceof DeploymentValidationError)) {
         throw new Error("Expected DeploymentValidationError.");
       }
-      expect(typedFunctionMetadataError.message).toBe(
+      expect(typedCodegenMetadataError.message).toBe(
         "Codegen function messages:missing has no deployment function metadata.",
       );
     } finally {
-      await typedFunctionMetadataRuntime.dispose();
+      await typedCodegenMetadataRuntime.dispose();
     }
 
     const duplicateFunctionStatus = analyzedPushStatus("push-duplicate-function-validation-failed");

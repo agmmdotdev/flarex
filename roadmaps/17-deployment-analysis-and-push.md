@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment Validation Module Typed Error Batch
+
+Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.
+
+What changed:
+
+- Finished the remaining `deployment/Validation.ts` domain-validation
+  `HttpError(400)` branches by routing function metadata shape, schema state,
+  schema placement, source position, route policy, partition policy, function
+  kind/visibility, validator metadata, and JSON-value validation failures
+  through `DeploymentValidationError`.
+- Generated start-analyzed handler behavior is unchanged: newly typed
+  validation failures still return `400` with the same messages.
+- `DeploymentPushStore.finishPush(...)` continues to preserve already-typed
+  `DeploymentValidationError` from stored deployment validation so corrupt
+  stored metadata remains a finish validation failure rather than a storage
+  failure.
+- This checkpoint adopts the larger-slice alignment requested for the migration:
+  finish coherent validation boundaries in larger batches, then return to fuller
+  route/service Effect conversions.
+
+Why it changed:
+
+`deployment/Validation.ts` is deployment domain code. Keeping adapter-shaped
+`HttpError(400)` branches there forced later Effect pipelines to wrap legacy
+throwing behavior. This batch completes the module-level typed validation
+boundary while preserving adapter HTTP behavior.
+
+Convex source files inspected or used:
+
+- None in this checkpoint. This preserves Flarex's existing validation messages
+  and contracts while continuing the typed Effect error migration.
+
+Known limitations and follow-up work:
+
+- The next migration slice should return to fuller route/service Effect work:
+  typed request/body decoding, protocol decode failures, service failures, and
+  one adapter HTTP mapping edge for a complete route path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "deployment schema validation|deployment function validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Schema Shape Validation Typed Error
 
 Previous completed checkpoint: `7a580ee` Type function partition validation failures.

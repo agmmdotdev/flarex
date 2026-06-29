@@ -374,6 +374,18 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
+        analysis: {
+          schema: deploymentAnalysis().schema,
+          functions: {
+            functions: [{ path: "messages:list", kind: "query", route: "not-route" }],
+          },
+        },
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "$functions.messages:list.route: Invalid route policy.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
         analysis: deploymentPartitionValidationAnalysis(),
       },
       "teams:create.partition: Unknown partition table missing.",
@@ -731,6 +743,23 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(schemaValidationFailure.message).toBe("Schema must be an object.");
+
+    const functionValidationFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        schema: deploymentAnalysis().schema,
+        functions: {
+          functions: [{ path: "messages:list", kind: "query", route: "not-route" }],
+        },
+      },
+    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(functionValidationFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(functionValidationFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(functionValidationFailure.message).toBe("$functions.messages:list.route: Invalid route policy.");
 
     const partitionValidationFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
       sourcePackage: sourcePackage(),

@@ -16,7 +16,6 @@ import {
   validateSourcePackage,
   type DeploymentPushStatusRow,
 } from "../src/deployment/Validation";
-import { HttpError } from "../src/http";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import type { DeploymentFunctions, DeploymentSchema, PushSourcePackage } from "../src/types";
 
@@ -366,6 +365,39 @@ describe("deployment validation", () => {
       }),
       "Index by_author has invalid fields.",
     );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 1, name: "messages", state: "archived", placement: { kind: "global" } }],
+      }),
+      "Schema table has invalid state.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 1, name: "messages", placement: { kind: "nearby" } }],
+      }),
+      "$schema.tables.messages.placement: Invalid placement.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [{
+          tableId: 1,
+          name: "messages",
+          placement: { kind: "global" },
+          validator: { type: "object", value: { body: { optional: false } } },
+        }],
+      }),
+      "Invalid validator metadata: $schema.tables.messages.validator.value.body.fieldType: Validator is required.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        indexes: [{ indexId: 1, tableId: 1, name: "by_author", fields: [], state: "retired" }],
+      }),
+      "Schema index has invalid state.",
+    );
   });
 
   it("normalizes deployment function metadata", () => {
@@ -390,14 +422,152 @@ describe("deployment validation", () => {
   });
 
   it("preserves deployment function validation error messages", () => {
-    expect(() => validateFunctions("not-functions")).toThrow(
-      new HttpError(400, "Function metadata must be an object."),
+    expectDeploymentValidationFailure(
+      () => validateFunctions("not-functions"),
+      "Function metadata must be an object.",
     );
-    expect(() =>
-      validateFunctions({
-        functions: [{ path: "messages:list", kind: "subscription" }],
-      } as unknown as DeploymentFunctions)
-    ).toThrow(new HttpError(400, "$functions.messages:list.kind: Invalid function kind subscription."));
+    expectDeploymentValidationFailure(
+      () => validateFunctions({}),
+      "Function metadata must include a functions array.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateFunctions({ functions: ["not-function"] }),
+      "Function metadata at index 0 must be an object.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateFunctions({ functions: [{ path: "", kind: "query" }] }),
+      "Function metadata at index 0 has an invalid path.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateFunctions({
+        functions: [
+          { path: "messages:list", kind: "query" },
+          { path: "messages:list", kind: "query" },
+        ],
+      }),
+      "Duplicate function metadata path: messages:list.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{ path: "messages:list", kind: "subscription" }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.kind: Invalid function kind subscription.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{ path: "messages:list", kind: "query", visibility: "private" }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.visibility: Invalid function visibility private.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateFunctions({
+        functions: [{ path: "messages:list", kind: "query", route: "not-route" }],
+      }),
+      "$functions.messages:list.route: Invalid route policy.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateFunctions({
+        functions: [{ path: "messages:list", kind: "query", partition: "not-partition" }],
+      }),
+      "$functions.messages:list.partition: Invalid partition policy.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{ path: "messages:list", kind: "query", position: "not-position" }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.position: Invalid source position.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            position: { path: "", startLine: 1, startColumn: 1 },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.position.path: Source position path must be a non-empty string.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            position: { path: "messages.ts", startLine: 0, startColumn: 1 },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.position.startLine: Source position line must be a positive integer.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            position: { path: "messages.ts", startLine: 1, startColumn: 0 },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.position.startColumn: Source position column must be a positive integer.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            args: { type: "object", value: { body: { optional: false } } },
+          }],
+        } as unknown as DeploymentFunctions),
+      "Invalid validator metadata: $functions.messages:list.args.value.body.fieldType: Validator is required.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            args: { type: "array", value: undefined },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.args.value: Expected JSON value.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            args: { type: "array", value: [undefined] },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.args.value[0]: Expected JSON value.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            args: { type: "object", value: { body: undefined } },
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.args.value.body: Expected JSON value.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateFunctions({
+          functions: [{
+            path: "messages:list",
+            kind: "query",
+            args: Symbol("not-json"),
+          }],
+        } as unknown as DeploymentFunctions),
+      "$functions.messages:list.args: Expected JSON value.",
+    );
   });
 
   it("normalizes deployment analysis metadata", () => {
