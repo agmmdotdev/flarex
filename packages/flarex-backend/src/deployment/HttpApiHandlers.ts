@@ -23,7 +23,6 @@ import {
   DeploymentPushNotFoundError,
   DeploymentValidationError,
 } from "./Errors";
-import { deploymentFailureToHttpError } from "./HttpBoundary";
 import { DeploymentService, type StartAnalyzedPushInput } from "./Service";
 import type { DeploymentSqlError } from "./Store";
 import {
@@ -105,7 +104,7 @@ export function mapDeploymentReadFailure<A>(
 ): Effect.Effect<A, DeploymentReadErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
-      Effect.fail(deploymentHttpErrorToReadResponse(deploymentFailureToHttpError(error)))
+      Effect.fail(deploymentReadFailureToResponse(error))
     ),
   );
 }
@@ -115,7 +114,7 @@ export function mapDeploymentStartFailure<A>(
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
-      Effect.fail(deploymentHttpErrorToStartResponse(deploymentFailureToHttpError(error)))
+      Effect.fail(deploymentStartFailureToResponse(error))
     ),
   );
 }
@@ -128,7 +127,7 @@ export function mapDeploymentFinishFailure<A>(
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
-      Effect.fail(deploymentHttpErrorToFinishResponse(deploymentFailureToHttpError(error)))
+      Effect.fail(deploymentFinishFailureToResponse(error))
     ),
   );
 }
@@ -141,9 +140,70 @@ export function mapDeploymentAbandonFailure<A>(
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
-      Effect.fail(deploymentHttpErrorToAbandonResponse(deploymentFailureToHttpError(error)))
+      Effect.fail(deploymentAbandonFailureToResponse(error))
     ),
   );
+}
+
+export function deploymentReadFailureToResponse(
+  error:
+    | DeploymentActiveDeploymentInvalidError
+    | DeploymentActiveDeploymentNotFoundError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError,
+): DeploymentReadErrorResponse {
+  if (error instanceof DeploymentActiveDeploymentNotFoundError) {
+    return new DeploymentNotFoundErrorResponse({ error: "No active deployment." });
+  }
+  if (error instanceof DeploymentPushNotFoundError) {
+    return new DeploymentNotFoundErrorResponse({ error: `Unknown push: ${error.pushId}` });
+  }
+  if (error instanceof DeploymentActiveDeploymentInvalidError) {
+    return new DeploymentStorageErrorResponse({ error: error.message });
+  }
+  return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
+}
+
+export function deploymentStartFailureToResponse(
+  error: DeploymentSqlError | DeploymentValidationError,
+): DeploymentStartErrorResponse {
+  if (error instanceof DeploymentValidationError) {
+    return new DeploymentBadRequestErrorResponse({ error: error.message });
+  }
+  return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
+}
+
+export function deploymentFinishFailureToResponse(
+  error:
+    | DeploymentArtifactRefError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
+    | DeploymentValidationError,
+): DeploymentFinishErrorResponse {
+  if (error instanceof DeploymentValidationError) {
+    return new DeploymentBadRequestErrorResponse({ error: error.message });
+  }
+  if (error instanceof DeploymentPushNotFoundError) {
+    return new DeploymentNotFoundErrorResponse({ error: `Unknown push: ${error.pushId}` });
+  }
+  if (error instanceof DeploymentArtifactRefError) {
+    return new DeploymentStorageErrorResponse({ error: `Deployment artifact error: ${error.message}` });
+  }
+  return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
+}
+
+export function deploymentAbandonFailureToResponse(
+  error: DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError,
+): DeploymentAbandonErrorResponse {
+  if (error instanceof DeploymentPushNotFoundError) {
+    return new DeploymentNotFoundErrorResponse({ error: `Unknown push: ${error.pushId}` });
+  }
+  if (error instanceof DeploymentPushInvalidStateError) {
+    return new DeploymentConflictErrorResponse({
+      error: `Cannot abandon push ${error.pushId} in state ${error.state}.`,
+    });
+  }
+  return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
 }
 
 export function deploymentHttpErrorToReadResponse(error: HttpError): DeploymentReadErrorResponse {

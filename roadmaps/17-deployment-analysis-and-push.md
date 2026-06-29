@@ -458,6 +458,46 @@ corepack pnpm --filter flarex-backend typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=60000 --hookTimeout=60000
 ```
 
+## Deployment HttpApi Direct Failure Response Mapping
+
+Previous completed checkpoint: this commit, `Map deployment handler failures
+directly`.
+
+What changed:
+
+- Generated Deployment HttpApi read, start, finish, and abandon handler
+  failure mappers now convert typed deployment failures directly into declared
+  protocol response classes.
+- The generated handler path no longer converts normal typed service failures
+  through `deploymentFailureToHttpError(...)` before choosing a response class.
+- Explicit `deploymentHttpErrorTo*Response(...)` helpers remain for preserved
+  HTTP adapter compatibility and status-to-response tests.
+
+Why it changed:
+
+The previous checkpoint removed `HttpError` from the deployment service failure
+union, but generated handlers still rebuilt one as an intermediate mapping
+step. Direct typed mapping keeps deployment service failures process-local and
+leaves `HttpError` at actual HTTP adapter compatibility edges.
+
+Preserved behavior:
+
+- Bad-request, not-found, conflict, artifact/storage failure, and active
+  deployment storage response classes and body messages are unchanged.
+- DeploymentService/Store orchestration, SQL behavior, public Worker
+  forwarding, protocol schemas, PartitionDO, executor-http, and
+  `ValidatorJson` remain unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Service HttpError Fallback Removal
 
 Previous completed checkpoint: this commit, `Remove deployment service

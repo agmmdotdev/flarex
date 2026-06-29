@@ -14,16 +14,19 @@ import {
   parsePushStatus,
 } from "flarex-protocol/deployment";
 import {
+  deploymentAbandonFailureToResponse,
+  deploymentFinishFailureToResponse,
   deploymentHttpErrorToAbandonResponse,
   deploymentHttpErrorToFinishResponse,
   deploymentHttpErrorToReadResponse,
   deploymentHttpErrorToStartResponse,
+  deploymentReadFailureToResponse,
+  deploymentStartFailureToResponse,
   DeploymentApiHandlers,
   decodeStartAnalyzedPushHandlerInput,
   startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
 import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
-import { deploymentFailureToHttpError } from "../src/deployment/HttpBoundary";
 import {
   DeploymentActiveDeploymentNotFoundError,
   DeploymentArtifactRefError,
@@ -263,59 +266,59 @@ describe("DeploymentApiHandlers", () => {
     }
   });
 
-  it("maps service failures to declared DeploymentApi error response bodies", () => {
+  it("maps typed service failures to declared DeploymentApi error response bodies", () => {
     expectMappedFailure(
-      deploymentHttpErrorToReadResponse,
-      deploymentFailureToHttpError(new DeploymentActiveDeploymentNotFoundError()),
+      deploymentReadFailureToResponse,
+      new DeploymentActiveDeploymentNotFoundError(),
       DeploymentNotFoundErrorResponse,
       "No active deployment.",
     );
     expectMappedFailure(
-      deploymentHttpErrorToReadResponse,
-      deploymentFailureToHttpError(new DeploymentPushNotFoundError({ pushId: "push-missing" })),
+      deploymentReadFailureToResponse,
+      new DeploymentPushNotFoundError({ pushId: "push-missing" }),
       DeploymentNotFoundErrorResponse,
       "Unknown push: push-missing",
     );
     expectMappedFailure(
-      deploymentHttpErrorToAbandonResponse,
-      deploymentFailureToHttpError(new DeploymentPushInvalidStateError({
+      deploymentAbandonFailureToResponse,
+      new DeploymentPushInvalidStateError({
         action: "abandon",
         pushId: "push-active",
         state: "activated",
-      })),
+      }),
       DeploymentConflictErrorResponse,
       "Cannot abandon push push-active in state activated.",
     );
     expectMappedFailure(
-      deploymentHttpErrorToReadResponse,
-      deploymentFailureToHttpError(new DeploymentSqlError({
+      deploymentReadFailureToResponse,
+      new DeploymentSqlError({
         operation: "getPush",
         cause: new Error("read failed"),
-      })),
+      }),
       DeploymentStorageErrorResponse,
       "Deployment storage error.",
     );
     expectMappedFailure(
-      deploymentHttpErrorToStartResponse,
-      deploymentFailureToHttpError(new DeploymentValidationError({
+      deploymentStartFailureToResponse,
+      new DeploymentValidationError({
         message: "Deployment analysis must be an object.",
-      })),
+      }),
       DeploymentBadRequestErrorResponse,
       "Deployment analysis must be an object.",
     );
     expectMappedFailure(
-      deploymentHttpErrorToFinishResponse,
-      deploymentFailureToHttpError(new DeploymentPushNotFoundError({ pushId: "push-finish-missing" })),
+      deploymentFinishFailureToResponse,
+      new DeploymentPushNotFoundError({ pushId: "push-finish-missing" }),
       DeploymentNotFoundErrorResponse,
       "Unknown push: push-finish-missing",
     );
     expectMappedFailure(
-      deploymentHttpErrorToFinishResponse,
-      deploymentFailureToHttpError(new DeploymentArtifactRefError({
+      deploymentFinishFailureToResponse,
+      new DeploymentArtifactRefError({
         operation: "executionArtifactRefForSourcePackage",
         message: "artifact hash failed",
         cause: new Error("artifact hash failed"),
-      })),
+      }),
       DeploymentStorageErrorResponse,
       "Deployment artifact error: artifact hash failed",
     );
@@ -1187,9 +1190,9 @@ const DeploymentApiGroupContext = Context.Service<DeploymentApiGroupId, {
   readonly handlers: ReadonlyMap<string, unknown>;
 }>(DeploymentApi.groups.deployment.key);
 
-function expectMappedFailure(
-  mapFailure: (error: HttpError) => DeploymentApiErrorInstance,
-  failure: HttpError,
+function expectMappedFailure<E>(
+  mapFailure: (error: E) => DeploymentApiErrorInstance,
+  failure: E,
   expectedClass: new (props: { readonly error: string }) => DeploymentApiErrorInstance,
   message: string,
 ): void {
@@ -1207,7 +1210,7 @@ function expectStartPayloadBadRequest(
     throw new Error("Expected analyzed start-push payload to fail.");
   } catch (cause) {
     if (!(cause instanceof DeploymentValidationError)) throw cause;
-    const error = deploymentHttpErrorToStartResponse(deploymentFailureToHttpError(cause));
+    const error = deploymentStartFailureToResponse(cause);
     expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
     expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
   }

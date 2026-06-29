@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Remove deployment service HttpError fallback`.
+- Previous completed checkpoint: this commit, `Map deployment handler failures directly`.
 - Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -58,6 +58,22 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 175 slice:
+
+1. Route generated Deployment HttpApi read, start, finish, and abandon handler
+   service-failure mapping through typed deployment failure response helpers
+   instead of `deploymentFailureToHttpError(...)`.
+2. Keep `deploymentHttpErrorTo*Response(...)` helpers for preserved HTTP
+   adapter compatibility, but stop using them as the normal generated handler
+   service-failure path.
+3. Preserve not-found, bad-request, conflict, artifact/storage failure, and
+   active-deployment storage response classes and body messages.
+4. Keep DeploymentService/Store orchestration, SQL behavior, public Worker
+   forwarding, protocol schemas, PartitionDO, executor-http, and
+   `ValidatorJson` unchanged.
+5. Validate direct typed failure mapping separately from preserved explicit
+   `HttpError` status-to-response compatibility.
 
 Completed Goal 174 slice:
 

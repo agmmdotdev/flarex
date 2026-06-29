@@ -1169,6 +1169,44 @@ node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vites
 git diff --check
 ```
 
+## Deployment HttpApi Direct Failure Response Mapping
+
+Previous completed checkpoint: this commit, `Map deployment handler failures
+directly`.
+
+What changed:
+
+- Generated Deployment HttpApi handler mapping now branches on typed deployment
+  failures directly and returns declared protocol response classes.
+- `deploymentFailureToHttpError(...)` remains the HTTP boundary adapter for
+  Worker/DO compatibility, but it is no longer the generated handler's normal
+  service-failure bridge.
+- Handler tests now cover direct typed failure mapping separately from
+  preserved explicit `HttpError` response-class mapping.
+
+Boundary decision:
+
+`flarex-backend` owns the generated handler service boundary and can see typed
+deployment service failures. `HttpError` stays at HTTP adapter compatibility
+edges instead of being recreated inside the handler service pipeline.
+
+Preserved behavior:
+
+- Generated Deployment HttpApi route statuses and response bodies are
+  unchanged.
+- Public Worker routes, SQL schema, protocol schemas, PartitionDO,
+  executor-http, and `ValidatorJson` remain in their existing owners.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Service HttpError Fallback Removal
 
 Previous completed checkpoint: this commit, `Remove deployment service
