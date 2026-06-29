@@ -502,6 +502,28 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages[0] has an invalid exportName.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "missing",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        },
+      },
+      "Codegen function messages:missing has no deployment function metadata.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -748,6 +770,35 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(codegenFunctionExportNameFailure.message).toBe(
       "Codegen function messages[0] has an invalid exportName.",
+    );
+
+    const codegenFunctionMetadataFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "messages",
+            exportName: "missing",
+            kind: "query",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          }],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionMetadataFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionMetadataFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionMetadataFailure.message).toBe(
+      "Codegen function messages:missing has no deployment function metadata.",
     );
   });
 });

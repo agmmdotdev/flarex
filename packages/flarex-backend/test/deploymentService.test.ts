@@ -768,6 +768,55 @@ describe("DeploymentService", () => {
     } finally {
       await typedFunctionExportNameRuntime.dispose();
     }
+
+    const typedFunctionMetadataStatus = analyzedPushStatus("push-typed-function-metadata-validation-failed");
+    const typedFunctionMetadataRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionMetadataStatus,
+          codegenAnalysis: {
+            schema: typedFunctionMetadataStatus.analysis!.schema,
+            functions: [{
+              moduleName: "messages",
+              functions: [{
+                moduleName: "messages",
+                exportName: "missing",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              }],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionMetadataError = await typedFunctionMetadataRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionMetadataStatus.pushId,
+            now: 2_480_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionMetadataError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionMetadataError.message).toBe(
+        "Codegen function messages:missing has no deployment function metadata.",
+      );
+    } finally {
+      await typedFunctionMetadataRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

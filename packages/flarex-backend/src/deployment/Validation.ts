@@ -537,7 +537,7 @@ export function validateCodegenAnalysis(
         const path = functionPathFromCodegen(moduleName, exportName);
         const metadata = metadataByPath.get(path);
         if (metadata === undefined) {
-          throw new HttpError(400, `Codegen function ${path} has no deployment function metadata.`);
+          throwDeploymentValidation(`Codegen function ${path} has no deployment function metadata.`);
         }
         if (seenPaths.has(path)) {
           throw new HttpError(400, `Duplicate codegen function metadata path: ${path}.`);

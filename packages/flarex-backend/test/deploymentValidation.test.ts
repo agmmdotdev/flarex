@@ -513,6 +513,26 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen function messages[0] has an invalid exportName.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "missing",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        }, analysis),
+      "Codegen function messages:missing has no deployment function metadata.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {
