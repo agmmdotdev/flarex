@@ -1,5 +1,48 @@
 # Sync And Subscriptions
 
+## SchedulerDO Effect Route Adapters
+
+Previous completed checkpoint: `678cc30` Route sync DO fetch edges through
+Effect.
+
+What changed:
+
+- `SchedulerDO.fetch()` now routes delivery reconcile, connection reconcile,
+  dead-letter deliveries, cleanup connections, and rerun subscriptions through
+  named `Effect.fn` helpers.
+- Those helpers consume the existing typed scheduler route decoders directly
+  instead of the Promise compatibility readers.
+- Scheduler continuation POST routes now use named `Effect.fn` helpers for the
+  fetch edge while preserving their current JSON response behavior.
+
+Boundary decision:
+
+This checkpoint converts only the `SchedulerDO` fetch adapter edge. Scheduler
+state, continuation persistence, retry/alarm scheduling, executor maintenance
+HTTP calls, delivery wake fanout, connection cleanup, rerun orchestration, and
+dead-letter/reconnect behavior remain in the existing `SchedulerDO` methods.
+
+Preserved behavior:
+
+- Malformed JSON and scheduler route validation failures still map through the
+  existing `errorResponse(...)` JSON body shape.
+- Scheduler operation failures still flow to the existing fetch-level
+  `errorResponse(...)` adapter.
+- Public Worker scheduler authorization and forwarding, executor maintenance
+  contracts, continuation alarms, executor-http routes, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Connection And Delivery DO Effect Route Adapters
 
 Previous completed checkpoint: `66139fe` Route executor HTTP bodies through

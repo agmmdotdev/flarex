@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## SchedulerDO Effect Route Adapters
+
+Previous completed checkpoint: `678cc30` Route sync DO fetch edges through
+Effect.
+
+What changed:
+
+- `SchedulerDO` now uses named `Effect.fn` route helpers for its scheduler
+  maintenance POST routes and continuation POST routes.
+- Body-reading scheduler routes consume typed route-boundary decoders directly
+  at the fetch edge instead of using Promise compatibility readers.
+- Continuation routes share the same named JSON response helper while leaving
+  stored-state parsing and retry behavior in `SchedulerDO`.
+
+Boundary decision:
+
+This is an adapter-edge migration only. The scheduler route-boundary module
+owns typed request decode and HTTP error mapping. `SchedulerDO` still owns
+reconcile/rerun/dead-letter orchestration, durable continuation state, and
+executor maintenance calls.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Connection And Delivery DO Effect Route Adapters
 
 Previous completed checkpoint: `66139fe` Route executor HTTP bodies through
