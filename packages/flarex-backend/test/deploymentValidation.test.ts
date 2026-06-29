@@ -493,6 +493,26 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen function messages[0] moduleName must match its module.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        }, analysis),
+      "Codegen function messages[0] has an invalid exportName.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

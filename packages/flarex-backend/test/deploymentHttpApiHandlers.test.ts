@@ -480,6 +480,28 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages[0] moduleName must match its module.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        },
+      },
+      "Codegen function messages[0] has an invalid exportName.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -697,6 +719,35 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(codegenFunctionModuleNameFailure.message).toBe(
       "Codegen function messages[0] moduleName must match its module.",
+    );
+
+    const codegenFunctionExportNameFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "messages",
+            exportName: "",
+            kind: "query",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          }],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionExportNameFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionExportNameFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionExportNameFailure.message).toBe(
+      "Codegen function messages[0] has an invalid exportName.",
     );
   });
 });

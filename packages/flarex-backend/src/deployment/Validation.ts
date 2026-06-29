@@ -529,8 +529,7 @@ export function validateCodegenAnalysis(
           );
         }
         if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
-          throw new HttpError(
-            400,
+          throwDeploymentValidation(
             `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
           );
         }

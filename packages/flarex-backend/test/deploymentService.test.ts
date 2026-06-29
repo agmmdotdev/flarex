@@ -719,6 +719,55 @@ describe("DeploymentService", () => {
     } finally {
       await typedFunctionModuleNameRuntime.dispose();
     }
+
+    const typedFunctionExportNameStatus = analyzedPushStatus("push-typed-function-export-name-validation-failed");
+    const typedFunctionExportNameRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionExportNameStatus,
+          codegenAnalysis: {
+            schema: typedFunctionExportNameStatus.analysis!.schema,
+            functions: [{
+              moduleName: "messages",
+              functions: [{
+                moduleName: "messages",
+                exportName: "",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              }],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionExportNameError = await typedFunctionExportNameRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionExportNameStatus.pushId,
+            now: 2_470_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionExportNameError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionExportNameError.message).toBe(
+        "Codegen function messages[0] has an invalid exportName.",
+      );
+    } finally {
+      await typedFunctionExportNameRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {
