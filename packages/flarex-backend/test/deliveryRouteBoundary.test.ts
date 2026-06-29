@@ -9,6 +9,11 @@ import {
   parseDeliveryWakeRequestEffect,
   readDeliveryWakeRequest,
 } from "../src/delivery/RouteBoundary";
+import {
+  DeliveryRouteOperationError,
+  deliveryRouteOperationError,
+  deliveryRouteOperationErrorToHttpError,
+} from "../src/delivery/RouteOperationError";
 
 describe("delivery route boundary", () => {
   it("decodes wake requests", async () => {
@@ -93,6 +98,37 @@ describe("delivery route boundary", () => {
     expect(deliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("preserves delivery operation failures before HTTP mapping", () => {
+    const cause = new HttpError(503, "Delivery drain temporarily unavailable.");
+    const httpFailure = deliveryRouteOperationError("wake", cause);
+
+    expect(httpFailure).toBeInstanceOf(DeliveryRouteOperationError);
+    expect(httpFailure).toMatchObject({
+      operation: "wake",
+      status: 503,
+      message: "Delivery drain temporarily unavailable.",
+      cause,
+    });
+    expect(deliveryRouteOperationErrorToHttpError(httpFailure)).toMatchObject({
+      status: 503,
+      message: "Delivery drain temporarily unavailable.",
+    });
+
+    const runtimeFailure = deliveryRouteOperationError(
+      "continue",
+      new Error("pending drain storage failed"),
+    );
+    expect(runtimeFailure).toMatchObject({
+      operation: "continue",
+      status: 500,
+      message: "pending drain storage failed",
+    });
+    expect(deliveryRouteOperationErrorToHttpError(runtimeFailure)).toMatchObject({
+      status: 500,
+      message: "pending drain storage failed",
     });
   });
 });

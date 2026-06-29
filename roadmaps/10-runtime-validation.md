@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## DeliveryDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation
+failures.
+
+What changed:
+
+- `DeliveryDO` wake and pending-drain continuation route operations now emit
+  typed `DeliveryRouteOperationError` failures for post-decode defects.
+- `/wake` and `/continue` now run one Effect pipeline per route and map typed
+  request, operation, and structured drain failures at the Durable Object
+  adapter edge.
+- Post-decode route work now uses `Effect.tryPromise(...)` instead of untyped
+  `Effect.promise(...)`.
+
+Why it changed:
+
+The delivery wake body already decoded through a typed Effect boundary, but the
+drain execution still ran through an untyped promise adapter with local catch
+logic. This keeps the existing drain workflow intact while moving HTTP response
+conversion to one route adapter edge.
+
+Known limitations:
+
+- Delivery claim, fanout, ack, retry, and alarm internals remain the existing
+  `DeliveryDO` workflow.
+- PartitionDO SQL/OCC behavior and ExecutionDO route execution remain separate
+  migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## ConnectionDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `395d1d9` Type Worker pass-through dispatch

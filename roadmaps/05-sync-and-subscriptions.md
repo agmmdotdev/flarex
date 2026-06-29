@@ -1,5 +1,40 @@
 # Sync And Subscriptions
 
+## DeliveryDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation
+failures.
+
+What changed:
+
+- `DeliveryDO.fetch()` now routes `/wake` and `/continue` through one adapter
+  helper that maps typed route, operation, and structured drain failures.
+- Wake and pending-drain continuation route work now uses
+  `Effect.tryPromise(...)` with `DeliveryRouteOperationError` for unexpected
+  post-decode failures.
+- Existing structured drain failures still return the same JSON `500` response
+  bodies.
+
+Why it changed:
+
+The delivery route adapter was the next sync hot-path boundary after
+ConnectionDO. This moves route execution defects into the typed Effect channel
+without changing delivery claim, fanout, ack, retry, or continuation semantics.
+
+Known limitations:
+
+- DeliveryDO still owns mutable drain state and retry alarm scheduling directly.
+- Claim/fanout/ack domain extraction remains a later service-layer migration.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Response Effect Boundaries
 
 Previous completed checkpoint: `1fb88f8` Type live query delivery responses

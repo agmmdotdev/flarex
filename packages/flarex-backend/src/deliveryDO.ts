@@ -3,7 +3,14 @@ import {
   decodeDeliveryWakeRequest,
   deliveryWakeRouteErrorToHttpError,
   type DeliveryWakeRequest,
+  type DeliveryWakeRouteError,
 } from "./delivery/RouteBoundary";
+import {
+  DeliveryRouteOperationError,
+  deliveryRouteOperationError,
+  deliveryRouteOperationErrorToHttpError,
+  type DeliveryRouteOperation,
+} from "./delivery/RouteOperationError";
 import { HttpError, errorResponse, json } from "./http";
 import { Effect } from "effect";
 import {
@@ -109,12 +116,12 @@ export class DeliveryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/wake" && request.method === "POST") {
-      return Effect.runPromise(
+      return runDeliveryRoute(
         routeDeliveryWake(request, body => this.wake(body)),
       );
     }
     if (url.pathname === "/continue" && request.method === "POST") {
-      return Effect.runPromise(
+      return runDeliveryRoute(
         routeDeliveryContinue(() => this.continuePendingDrain()),
       );
     }
@@ -443,15 +450,8 @@ const routeDeliveryWake = Effect.fn("DeliveryDO.routeWake")(
     request: Request,
     wake: (body: DeliveryWakeRequest) => Promise<DeliveryDrainResult>,
   ) {
-    const decoded = yield* decodeDeliveryWakeRequest(request).pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(deliveryWakeRouteErrorToHttpError(error)))
-      ),
-    );
-    if (decoded instanceof Response) {
-      return decoded;
-    }
-    return yield* routeDeliveryDrainResult(() => wake(decoded));
+    const decoded = yield* decodeDeliveryWakeRequest(request);
+    return yield* routeDeliveryDrainResult("wake", () => wake(decoded));
   },
 );
 
@@ -459,23 +459,52 @@ const routeDeliveryContinue = Effect.fn("DeliveryDO.routeContinue")(
   function* (
     continuePendingDrain: () => Promise<DeliveryDrainResult | { skipped: true }>,
   ) {
-    return yield* routeDeliveryDrainResult(continuePendingDrain);
+    return yield* routeDeliveryDrainResult("continue", continuePendingDrain);
   },
 );
 
 function routeDeliveryDrainResult<A extends object>(
+  operation: DeliveryRouteOperation,
   execute: () => Promise<A>,
-): Effect.Effect<Response> {
-  return Effect.promise(async () => {
-    try {
-      return json(await execute());
-    } catch (error) {
-      if (error instanceof DeliveryDrainFailureError) {
-        return json(error.result, { status: 500 });
-      }
-      throw error;
-    }
-  });
+): Effect.Effect<Response, DeliveryRouteOperationError | DeliveryDrainFailureError> {
+  return Effect.tryPromise({
+    try: execute,
+    catch: error =>
+      error instanceof DeliveryDrainFailureError
+        ? error
+        : deliveryRouteOperationError(operation, error),
+  }).pipe(
+    Effect.map(result => json(result)),
+  );
+}
+
+type DeliveryInternalRouteError =
+  | DeliveryWakeRouteError
+  | DeliveryRouteOperationError
+  | DeliveryDrainFailureError;
+
+function runDeliveryRoute(
+  effect: Effect.Effect<Response, DeliveryInternalRouteError>,
+): Promise<Response> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error =>
+        Effect.succeed(deliveryInternalRouteErrorToResponse(error))
+      ),
+    ),
+  );
+}
+
+function deliveryInternalRouteErrorToResponse(
+  error: DeliveryInternalRouteError,
+): Response {
+  if (error instanceof DeliveryDrainFailureError) {
+    return json(error.result, { status: 500 });
+  }
+  if (error instanceof DeliveryRouteOperationError) {
+    return errorResponse(deliveryRouteOperationErrorToHttpError(error));
+  }
+  return errorResponse(deliveryWakeRouteErrorToHttpError(error));
 }
 
 function errorMessage(error: unknown): string {

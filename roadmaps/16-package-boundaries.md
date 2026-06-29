@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## DeliveryDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation
+failures.
+
+What changed:
+
+- Added `delivery/RouteOperationError.ts` for typed DeliveryDO route operation
+  failures after request decoding succeeds.
+- `delivery/RouteBoundary.ts` still owns wake request JSON and envelope
+  validation.
+- `DeliveryDO.fetch()` now maps route-boundary, route-operation, and
+  structured drain failures through one adapter helper for `/wake` and
+  `/continue`.
+
+Boundary decision:
+
+Wake request JSON and envelope errors stay in `delivery/RouteBoundary.ts`.
+Post-decode wake and pending-drain continuation failures belong to the
+DeliveryDO route operation boundary because they happen while running the live
+query delivery drain. `DeliveryDrainFailureError` remains its own structured
+route failure so existing public failure summaries are preserved exactly.
+
+Known limitations:
+
+- This checkpoint does not move DeliveryDO claim/fanout/ack or retry alarm
+  internals into reusable services.
+- Executor response decoding stays in the existing live-query delivery response
+  boundary modules.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## ConnectionDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `395d1d9` Type Worker pass-through dispatch
