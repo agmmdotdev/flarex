@@ -631,6 +631,45 @@ describe("DeploymentService", () => {
     } finally {
       await duplicateModuleRuntime.dispose();
     }
+
+    const typedFunctionObjectStatus = analyzedPushStatus("push-typed-function-object-validation-failed");
+    const typedFunctionObjectRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionObjectStatus,
+          codegenAnalysis: {
+            schema: typedFunctionObjectStatus.analysis!.schema,
+            functions: [{
+              moduleName: "messages",
+              functions: ["not-function"],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionObjectError = await typedFunctionObjectRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionObjectStatus.pushId,
+            now: 2_450_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionObjectError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionObjectError.message).toBe("Codegen function messages[0] must be an object.");
+    } finally {
+      await typedFunctionObjectRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

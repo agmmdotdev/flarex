@@ -461,6 +461,18 @@ describe("deployment validation", () => {
         }, analysis),
       "Duplicate codegen module metadata: messages.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: ["not-function"],
+          }],
+        }, analysis),
+      "Codegen function messages[0] must be an object.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

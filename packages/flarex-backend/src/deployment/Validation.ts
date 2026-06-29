@@ -521,10 +521,7 @@ export function validateCodegenAnalysis(
       moduleName,
       functions: module.functions.map((fn, functionIndex) => {
         if (!isRecord(fn)) {
-          throw new HttpError(
-            400,
-            `Codegen function ${moduleName}[${functionIndex}] must be an object.`,
-          );
+          throwDeploymentValidation(`Codegen function ${moduleName}[${functionIndex}] must be an object.`);
         }
         if (fn.moduleName !== moduleName) {
           throw new HttpError(

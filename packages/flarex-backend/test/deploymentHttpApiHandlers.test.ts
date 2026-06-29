@@ -444,6 +444,20 @@ describe("DeploymentApiHandlers", () => {
       },
       "Duplicate codegen module metadata: messages.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: ["not-function"],
+          }],
+        },
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "Codegen function messages[0] must be an object.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -614,6 +628,25 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(duplicateCodegenModuleFailure.message).toBe("Duplicate codegen module metadata: messages.");
+
+    const codegenFunctionObjectFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: ["not-function"],
+        }],
+      },
+    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionObjectFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionObjectFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionObjectFailure.message).toBe("Codegen function messages[0] must be an object.");
   });
 });
 
