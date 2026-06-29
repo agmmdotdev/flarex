@@ -54,12 +54,6 @@ describe("deployment HTTP boundary", () => {
     );
   });
 
-  it("passes through existing HttpError failures", () => {
-    const failure = new HttpError(400, "Deployment analysis must be an object.");
-
-    expect(deploymentFailureToHttpError(failure)).toBe(failure);
-  });
-
   it("maps deployment storage failures to the preserved generic 500", () => {
     const failure = new DeploymentSqlError({
       operation: "getPush",

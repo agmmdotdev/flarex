@@ -1169,6 +1169,41 @@ node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vites
 git diff --check
 ```
 
+## Deployment Service HttpError Fallback Removal
+
+Previous completed checkpoint: this commit, `Remove deployment service
+HttpError fallback`.
+
+What changed:
+
+- Removed `HttpError` from the deployment service failure boundary.
+- Removed legacy `HttpError(400)` validation fallback catches from
+  start-analyzed handler input decoding and finish-push activation storage.
+- Kept generated Deployment HttpApi response helpers as the HTTP adapter edge
+  that maps produced `HttpError` values into protocol response classes.
+
+Boundary decision:
+
+Deployment service, store, and validation code now report typed deployment
+failures. Adapter-shaped `HttpError` remains only at HTTP conversion helpers,
+not in `DeploymentServiceFailure`.
+
+Preserved behavior:
+
+- Generated Deployment HttpApi route behavior and response bodies are
+  unchanged.
+- Public Worker routes, SQL schema, protocol schemas, PartitionDO,
+  executor-http, and `ValidatorJson` remain in their existing owners.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Validator Metadata Result Boundary
 
 Previous completed checkpoint: this commit, `Parse validator metadata without

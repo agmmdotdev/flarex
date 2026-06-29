@@ -1,6 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { validateExecutionArtifactRef } from "flarex/artifacts";
-import { HttpError } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import {
   pushStatusFromRow,
@@ -316,9 +315,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               catch: cause =>
                 cause instanceof DeploymentValidationError
                   ? cause
-                  : cause instanceof HttpError && cause.status === 400
-                    ? new DeploymentValidationError({ message: cause.message })
-                    : new DeploymentSqlError({ operation: "finishPush", cause }),
+                  : new DeploymentSqlError({ operation: "finishPush", cause }),
             });
           },
         );

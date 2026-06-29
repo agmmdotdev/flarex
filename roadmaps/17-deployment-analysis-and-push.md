@@ -458,6 +458,44 @@ corepack pnpm --filter flarex-backend typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=60000 --hookTimeout=60000
 ```
 
+## Deployment Service HttpError Fallback Removal
+
+Previous completed checkpoint: this commit, `Remove deployment service
+HttpError fallback`.
+
+What changed:
+
+- `DeploymentServiceFailure` no longer includes adapter-shaped `HttpError`.
+- `deploymentFailureToHttpError(...)` now maps only typed deployment
+  service/domain/storage failures.
+- Start-analyzed handler input decoding and finish-push activation no longer
+  catch `HttpError(400)` as a compatibility validation path.
+
+Why it changed:
+
+The validation batch made deployment validation failures typed. Keeping
+`HttpError` in the deployment service failure channel preserved an older adapter
+shape inside the route/service path. This narrows the route/service boundary
+toward typed failures with HTTP conversion at the generated handler adapter.
+
+Preserved behavior:
+
+- Start-analyzed bad requests, finish validation failures, abandon conflicts,
+  not-found responses, and storage failures keep the same HTTP response bodies
+  and statuses through generated handler tests.
+- DeploymentService orchestration, SQL behavior, public Worker forwarding,
+  protocol schemas, PartitionDO, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Validator Metadata Result Boundary
 
 Previous completed checkpoint: this commit, `Parse validator metadata without

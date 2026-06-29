@@ -26,7 +26,6 @@ import {
   codegenAnalysisFromDeploymentAnalysis,
   type DeploymentPushStatusRow,
 } from "../src/deployment/Validation";
-import { HttpError } from "../src/http";
 import type {
   ActiveDeploymentStatus,
   DeploymentAnalysis,
@@ -476,45 +475,6 @@ describe("DeploymentService", () => {
   });
 
   it("maps activation validation failures from the finish transaction", async () => {
-    const failure = new HttpError(400, "Schema must be an object.");
-    const status = analyzedPushStatus("push-validation-failed");
-    const storage = {
-      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
-    } as DeploymentTransactionStorage;
-    const sql = sqlWithPushes([status], {
-      onExec: query => {
-        if (query.includes("DELETE FROM indexes")) {
-          throw failure;
-        }
-      },
-    });
-    const runtime = ManagedRuntime.make(
-      DeploymentPushStore.layer(
-        storage,
-        sql,
-      ),
-    );
-
-    try {
-      const error = await runtime.runPromise(
-        DeploymentPushStore.use(store =>
-          store.finishPush({
-            pushId: status.pushId,
-            now: 2_400_000,
-            executionArtifactRef: executionArtifactRef(),
-          }),
-        ).pipe(
-          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
-        ),
-      );
-      if (!(error instanceof DeploymentValidationError)) {
-        throw new Error("Expected DeploymentValidationError.");
-      }
-      expect(error.message).toBe("Schema must be an object.");
-    } finally {
-      await runtime.dispose();
-    }
-
     const typedStatus = analyzedPushStatus("push-typed-validation-failed");
     const typedRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(

@@ -17,8 +17,7 @@ export type DeploymentServiceFailure =
   | DeploymentPushInvalidStateError
   | DeploymentPushNotFoundError
   | DeploymentValidationError
-  | DeploymentSqlError
-  | HttpError;
+  | DeploymentSqlError;
 
 export function deploymentFailureToHttpError(error: DeploymentServiceFailure): HttpError {
   if (error instanceof DeploymentActiveDeploymentNotFoundError) {
@@ -38,9 +37,6 @@ export function deploymentFailureToHttpError(error: DeploymentServiceFailure): H
   }
   if (error instanceof DeploymentValidationError) {
     return new HttpError(400, error.message);
-  }
-  if (error instanceof HttpError) {
-    return error;
   }
   return new HttpError(500, "Deployment storage error.");
 }

@@ -199,9 +199,6 @@ export function startAnalyzedPushHandlerInputFromPayload(
     if (cause instanceof DeploymentProtocolValidationError) {
       throw new DeploymentValidationError({ message: cause.message });
     }
-    if (cause instanceof HttpError && cause.status === 400) {
-      throw new DeploymentValidationError({ message: cause.message });
-    }
     throw cause;
   }
 }
@@ -214,9 +211,6 @@ function decodeStartAnalyzedPushHandlerPayload(
       return Effect.succeed(parseAnalyzedStartPushRequest(payload));
     } catch (cause) {
       if (cause instanceof DeploymentProtocolValidationError) {
-        return Effect.fail(new DeploymentValidationError({ message: cause.message }));
-      }
-      if (cause instanceof HttpError && cause.status === 400) {
         return Effect.fail(new DeploymentValidationError({ message: cause.message }));
       }
       return Effect.die(cause);

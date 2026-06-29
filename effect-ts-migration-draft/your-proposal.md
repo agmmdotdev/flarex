@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Parse validator metadata without throws`.
-- Active checkpoint: choose the next route/service Effect migration slice now that the deployment validation batch is finished.
+- Previous completed checkpoint: this commit, `Remove deployment service HttpError fallback`.
+- Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,27 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 174 slice:
+
+1. Remove `HttpError` from the deployment generated-handler service failure
+   union so `deploymentFailureToHttpError(...)` maps only typed deployment
+   service/domain/storage failures.
+2. Remove the legacy `HttpError(400)` compatibility catches from
+   `decodeStartAnalyzedPushHandlerInput(...)`,
+   `startAnalyzedPushHandlerInputFromPayload(...)`, and
+   `DeploymentPushStore.finishPush(...)`.
+3. Keep the generated Deployment HttpApi response helpers as the adapter HTTP
+   mapping edge; they still convert produced `HttpError` values into protocol
+   error response classes.
+4. Preserve start-analyzed, finish, abandon, read-route, storage-failure, and
+   validation-failure HTTP response bodies/statuses.
+5. Keep DeploymentService orchestration, SQL behavior, public Worker routes,
+   protocol schemas, PartitionDO, executor-http, and `ValidatorJson`
+   unchanged.
+6. Validate with focused deployment HTTP-boundary, generated-handler, and
+   service tests plus backend/protocol gates and only the EffectTS quality
+   checker reviewer.
 
 Completed Goal 173 slice:
 
