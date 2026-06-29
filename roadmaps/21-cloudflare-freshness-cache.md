@@ -1,5 +1,32 @@
 # Cloudflare Freshness Cache
 
+## Public Scheduler Dispatch Effect Boundary
+
+Previous completed checkpoint: `f38ff04` Type live query delivery
+authorization.
+
+What changed:
+
+- Public scheduler control routes now surface scheduler binding dispatch
+  failures as typed Worker dispatch errors.
+- Authorization-before-parse behavior and scheduler request validation are
+  unchanged.
+
+Why it changed:
+
+Freshness-cache maintenance depends on public scheduler control routes for
+delivery reconciliation, connection cleanup, subscription reruns, and dead-letter
+drains. Those routes now keep forwarding failures typed until the Worker adapter
+maps them to HTTP responses.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public Worker route dispatch errors|public scheduler route boundary|unauthorized live query|live query delivery reconcile|live query connection cleanup|live query subscriptions" --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Live Query Authorization Effect Boundary
 
 Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.

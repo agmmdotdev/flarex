@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Scheduler Dispatch Effect Boundary
+
+Previous completed checkpoint: `f38ff04` Type live query delivery
+authorization.
+
+What changed:
+
+- Public scheduler forwarding routes now emit `PublicWorkerDispatchError` for
+  downstream scheduler service-binding failures.
+- Delivery reconcile, connection reconcile, dead-letter delivery, cleanup
+  connections, rerun subscriptions, and trigger subscriptions helpers now use
+  `Effect.tryPromise(...)` instead of untyped `Effect.promise(...)`.
+- The Worker scheduler adapter maps the typed dispatch failure back to the
+  existing HTTP behavior.
+
+Why it changed:
+
+After authorization and body decoding moved into typed Effect route helpers,
+scheduler forwarding remained the last untyped failure point in that route
+group. Typed dispatch failures keep service-binding failures explicit and keep
+HTTP conversion at the Worker adapter edge.
+
+Known limitations:
+
+- SchedulerDO internals and scheduler response parsing remain their existing
+  separate boundaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public Worker route dispatch errors|public scheduler route boundary|unauthorized live query|live query delivery reconcile|live query connection cleanup|live query subscriptions" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Live Query Authorization Effect Boundary
 
 Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.

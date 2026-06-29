@@ -1,5 +1,34 @@
 # Package Boundaries
 
+## Public Scheduler Dispatch Effect Boundary
+
+Previous completed checkpoint: `f38ff04` Type live query delivery
+authorization.
+
+What changed:
+
+- `worker/PublicRouteDispatchError.ts` now covers public scheduler forwarding
+  sources.
+- Scheduler route-boundary modules still own request validation and the Worker
+  authorization boundary still owns token checks.
+- `worker.ts` now composes scheduler validation, live-query delivery
+  authorization, and scheduler forwarding failures through typed route errors
+  before HTTP mapping.
+
+Boundary decision:
+
+Scheduler forwarding failures are Worker adapter failures because they happen
+while forwarding already-decoded public requests to the scheduler binding. They
+do not belong in scheduler request-body validation or SchedulerDO internals.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts -t "public Worker route dispatch errors|public scheduler route boundary|unauthorized live query|live query delivery reconcile|live query connection cleanup|live query subscriptions" --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Live Query Authorization Effect Boundary
 
 Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.

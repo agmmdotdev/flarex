@@ -25,10 +25,13 @@ describe("public Worker route dispatch errors", () => {
   });
 
   it("maps non-HTTP dispatch failures to the existing 500 adapter shape", () => {
-    const error = publicWorkerDispatchError("delivery-wake", new Error("Binding failed."));
+    const error = publicWorkerDispatchError(
+      "scheduler-delivery-reconcile",
+      new Error("Binding failed."),
+    );
 
     expect(error).toMatchObject({
-      source: "delivery-wake",
+      source: "scheduler-delivery-reconcile",
       status: 500,
       message: "Binding failed.",
     });

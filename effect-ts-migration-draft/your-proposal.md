@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.
-- Active checkpoint: route live-query delivery authorization through a typed Worker authorization failure inside migrated Effect route pipelines while preserving unauthorized-before-body-parse behavior.
+- Previous completed checkpoint: `f38ff04` Type live query delivery authorization.
+- Active checkpoint: route public scheduler forwarding failures through the shared typed `PublicWorkerDispatchError` instead of leaving scheduler service-binding fetches as `Effect.promise` defects.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current live-query authorization checkpoint:
+Next recommended checkpoint after the current scheduler dispatch checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,26 @@ Next recommended checkpoint after the current live-query authorization checkpoin
    checkpoint: typed request/body decoders, typed domain failures, and one
    adapter HTTP mapping edge.
 
-Current Goal 157 slice:
+Current Goal 158 slice:
+
+1. Extend `PublicWorkerDispatchError` sources to cover public scheduler
+   forwarding routes.
+2. Convert public scheduler delivery reconcile, connection reconcile,
+   dead-letter delivery, cleanup connections, rerun subscriptions, and trigger
+   subscriptions helpers from `Effect.promise(...)` to `Effect.tryPromise(...)`
+   with typed dispatch failures.
+3. Map scheduler dispatch failures through the Worker scheduler adapter edge
+   while preserving downstream `HttpError` status/message values and non-HTTP
+   `500` behavior.
+4. Preserve scheduler request decoding, typed live-query delivery
+   authorization, scheduler route validation, internal scheduler paths,
+   delivery/live-query runtime behavior, generated workers, executor-http, and
+   `ValidatorJson` unchanged.
+5. Validate with direct dispatch-error tests, focused public scheduler route
+   coverage, backend typecheck/build, broad protocol/backend gates as
+   practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 157 slice:
 
 1. Add `PublicLiveQueryDeliveryAuthorizationError` and
    `authorizePublicLiveQueryDeliveryRequest(...)` as the Worker-owned typed

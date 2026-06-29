@@ -311,9 +311,14 @@ const routePublicSchedulerDeliveryReconcile = Effect.fn("Worker.routePublicSched
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerDeliveryReconcileRequest(request);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-delivery-reconcile", error),
+    });
   },
 );
 
@@ -321,9 +326,14 @@ const routePublicSchedulerConnectionReconcile = Effect.fn("Worker.routePublicSch
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerConnectionReconcileRequest(request);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-connection-reconcile", error),
+    });
   },
 );
 
@@ -331,9 +341,14 @@ const routePublicSchedulerDeadLetterDeliveries = Effect.fn("Worker.routePublicSc
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerDeadLetterDeliveriesRequest(request);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-dead-letter-deliveries", error),
+    });
   },
 );
 
@@ -341,9 +356,14 @@ const routePublicSchedulerCleanupConnections = Effect.fn("Worker.routePublicSche
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerCleanupConnectionsRequest(request, env);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-cleanup-connections", error),
+    });
   },
 );
 
@@ -351,9 +371,14 @@ const routePublicSchedulerRerunSubscriptions = Effect.fn("Worker.routePublicSche
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerRerunSubscriptionsRequest(request);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-rerun-subscriptions", error),
+    });
   },
 );
 
@@ -361,18 +386,27 @@ const routePublicSchedulerTriggerSubscriptions = Effect.fn("Worker.routePublicSc
   function* (request: Request, env: Env) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerTriggerSubscriptionsRequest(request);
-    return yield* Effect.promise(() =>
-      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
-    );
+    return yield* Effect.tryPromise({
+      try: () => forwardLiveQuerySchedulerBody(
+        body,
+        env,
+        LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+      ),
+      catch: error => publicWorkerDispatchError("scheduler-trigger-subscriptions", error),
+    });
   },
 );
 
 function publicWorkerSchedulerRouteErrorToHttpError(
   error: Parameters<typeof publicSchedulerRouteErrorToHttpError>[0]
+    | PublicWorkerDispatchError
     | PublicLiveQueryDeliveryAuthorizationError,
 ): HttpError {
   if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
     return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
+  }
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicSchedulerRouteErrorToHttpError(error);
 }
