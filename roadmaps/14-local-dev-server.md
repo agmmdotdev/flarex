@@ -1,5 +1,50 @@
 # Local Dev Server
 
+## Local Dev Effect Request Boundaries
+
+Previous completed checkpoint: `4aa94cb` Route partition fetch edges through
+Effect.
+
+What changed:
+
+- `/__flarex_dev/invoke` now uses a typed Effect body decoder before forwarding
+  to the backend invoke route.
+- The local analyzer service binding now uses a typed Effect body decoder
+  before invoking the backend analyzer.
+- Invalid local request bodies still return the existing `400 { error }`
+  adapter response shape, and analyzer operation failures still return
+  diagnostics.
+
+Why it changed:
+
+The local dev server is part of the migration surface because it owns HTTP
+request boundaries used by tests and local execution. Moving these normal
+TypeScript adapters to Effect keeps local behavior aligned with backend route
+boundary migration.
+
+Convex references inspected:
+
+- None in this checkpoint. This local dev service-binding shape is specific to
+  Flarex on Cloudflare/Miniflare.
+
+Known limitations:
+
+- The emitted runtime worker source still parses its internal invoke and
+  query-session bodies directly. That generated-source boundary should move in
+  a separate checkpoint with generated worker tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Local Codegen Dry-Run
 
 Previous completed checkpoint: `b40fb92` Preserve generated extension entries.

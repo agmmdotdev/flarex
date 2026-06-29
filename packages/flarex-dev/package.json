@@ -27,6 +27,7 @@
     "@flarex/persistence-postgres": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
+    "effect": "catalog:",
     "miniflare": "catalog:",
     "tsx": "catalog:"
   },

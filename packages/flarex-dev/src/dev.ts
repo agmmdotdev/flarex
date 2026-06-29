@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import type { R2BucketLike } from "flarex-backend/artifact-store";
@@ -29,6 +30,11 @@ import {
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
+import {
+  decodeDevInvokeBody,
+  devRouteErrorMessage,
+  isDevRouteError,
+} from "./routeBoundary.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type FlarexDevRuntimeOptions = FlarexGenerateOptions & {
@@ -274,13 +280,17 @@ export async function createFlarexDevRuntime(
               {
                 method: "POST",
                 headers: requestHeaders(request),
-                body: JSON.stringify(await devInvokeBody(request)),
+                body: JSON.stringify(await Effect.runPromise(decodeDevInvokeBody(request))),
               },
             ),
           );
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : String(error) },
+            {
+              error: isDevRouteError(error)
+                ? devRouteErrorMessage(error)
+                : error instanceof Error ? error.message : String(error),
+            },
             { status: 400 },
           );
         }
@@ -361,18 +371,6 @@ async function maybeTypecheckGeneratedOutput(options: FlarexDevRuntimeOptions): 
   await typecheckGeneratedOutput(typecheckOptions);
 }
 
-async function devInvokeBody(request: Request): Promise<Record<string, unknown>> {
-  const parsed = await request.json();
-  const body = isRecord(parsed) ? parsed : {};
-  return {
-    path: requiredString(body.path, "function path"),
-    args: body.args ?? null,
-    ...optionalPartitionKey(request, body),
-    ...(body.kind === undefined ? {} : { kind: requiredString(body.kind, "function kind") }),
-    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-  };
-}
-
 async function activateExecutorPackage(
   backendRuntime: BackendRuntime,
   deploymentId: string,
@@ -407,27 +405,6 @@ function schemaVersionFromAnalysis(analysis: DevPushStatus["analysis"]): number 
     return (schema as { version: number }).version;
   }
   return 1;
-}
-
-function optionalPartitionKey(
-  request: Request,
-  body: Record<string, unknown>,
-): { partitionKey?: string } {
-  const header = request.headers.get("x-flarex-partition");
-  if (header !== null) return { partitionKey: header };
-  if (body.partitionKey === undefined) return {};
-  return { partitionKey: requiredString(body.partitionKey, "partition key") };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requiredString(value: unknown, name: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Missing ${name}.`);
-  }
-  return value;
 }
 
 async function dispatchMiniflare(target: Miniflare, request: Request): Promise<Response> {

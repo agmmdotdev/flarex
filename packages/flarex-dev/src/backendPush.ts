@@ -1,4 +1,5 @@
 import type { Miniflare } from "miniflare";
+import { Effect } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
@@ -24,6 +25,11 @@ import {
   type ExecutionArtifactAdapter,
   normalizeAnalyzerDiagnostics,
 } from "./executionArtifact.ts";
+import {
+  decodeLocalAnalyzerRequest,
+  devRouteErrorMessage,
+  isDevRouteError,
+} from "./routeBoundary.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type DevPushStatus = {
@@ -318,10 +324,7 @@ export function createLocalAnalyzerService(
       return Response.json({ error: "Analyzer route not found." }, { status: 404 });
     }
     try {
-      const body = await request.json() as { sourcePackage?: SourcePackage };
-      if (body.sourcePackage === undefined) {
-        return Response.json({ error: "Analyzer request missing sourcePackage." }, { status: 400 });
-      }
+      const body = await Effect.runPromise(decodeLocalAnalyzerRequest(request));
       const result = await analyzer.analyze(body.sourcePackage);
       const payload = {
         analysis: backendAnalysisFromCodegenAnalysis(result.analysis),
@@ -331,7 +334,10 @@ export function createLocalAnalyzerService(
       return Response.json(payload);
     } catch (error) {
       return Response.json(
-        { error: errorMessage(error), diagnostics: diagnosticsFromError(error) },
+        {
+          error: isDevRouteError(error) ? devRouteErrorMessage(error) : errorMessage(error),
+          diagnostics: diagnosticsFromError(error),
+        },
         { status: 400 },
       );
     }

@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Flarex Dev Effect Route Boundaries
+
+Previous completed checkpoint: `4aa94cb` Route partition fetch edges through
+Effect.
+
+What changed:
+
+- `flarex-dev` now depends on the workspace Effect v4 catalog entry.
+- Local dev invoke and local analyzer request-body validation lives in
+  `packages/flarex-dev/src/routeBoundary.ts`.
+- The dev runtime and backend-push analyzer service consume the package-local
+  decoders at their HTTP adapter edges.
+
+Boundary decision:
+
+`flarex-dev` owns local development adapter request normalization. Backend
+protocol and Durable Object behavior remain in `flarex-backend`; executor
+transaction semantics remain in executor packages. The generated runtime worker
+string remains a separate generated-artifact boundary rather than importing
+package-level dependencies.
+
+Convex references inspected:
+
+- None in this checkpoint. The touched code is Flarex local adapter plumbing,
+  not a Convex API or storage semantic.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## PartitionDO Effect Route Adapters
 
 Previous completed checkpoint: `e014550` Route execution fetch edges through

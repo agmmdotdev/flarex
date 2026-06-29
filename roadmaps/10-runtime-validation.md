@@ -1,5 +1,60 @@
 # Runtime Validation
 
+## Flarex Dev Local Route Effect Decoders
+
+Previous completed checkpoint: `4aa94cb` Route partition fetch edges through
+Effect.
+
+What changed:
+
+- Added package-local Effect decoders for `flarex-dev` local invoke proxy
+  bodies and local analyzer requests.
+- `/__flarex_dev/invoke` now normalizes request JSON through
+  `decodeDevInvokeBody(...)` before forwarding to the backend invoke route.
+- `createLocalAnalyzerService(...)` now reads analyzer request bodies through
+  `decodeLocalAnalyzerRequest(...)` before calling the analyzer.
+- Added direct tests for typed success and failure channels, including
+  malformed JSON, missing function paths, and missing analyzer
+  `sourcePackage`.
+
+Why it changed:
+
+After the backend Worker and Durable Object route edges moved to Effect
+decoders, the remaining normal TypeScript HTTP body reads were in the local
+dev package. This keeps validation-boundary migration moving beyond
+compatibility wrappers without touching generated runtime-worker source in the
+same checkpoint.
+
+Convex references inspected:
+
+- None in this checkpoint. This is a local Flarex adapter-boundary migration,
+  not a Convex semantics change.
+
+Flarex differences:
+
+- The local dev adapter remains Flarex-specific because it proxies generated
+  local invoke requests and analyzer service binding calls. Convex does not
+  expose this Cloudflare/Miniflare adapter shape.
+
+Known limitations:
+
+- The generated runtime worker source still contains internal
+  `request.json()` reads because that source is emitted as a standalone worker
+  string and cannot import `effect` like normal package TypeScript. Migrate it
+  separately with generated-code parity coverage.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Service Effect Adapter
 
 Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.

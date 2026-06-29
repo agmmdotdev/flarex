@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e014550` Route execution fetch edges through Effect.
-- Active checkpoint: route `PartitionDO` schema-cache, commit, subscription registration, subscription unregister, and connection unregister fetch edges through named `Effect.fn` helpers, reusing existing typed partition route decoders while preserving SQL/OCC behavior.
+- Previous completed checkpoint: `4aa94cb` Route partition fetch edges through Effect.
+- Active checkpoint: route `flarex-dev` local dev invoke and local analyzer request bodies through package-local Effect decoders, preserving existing local HTTP error mapping and keeping generated runtime worker source unchanged.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current PartitionDO adapter checkpoint:
+Next recommended checkpoint after the current flarex-dev local route-boundary checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -52,10 +52,19 @@ Next recommended checkpoint after the current PartitionDO adapter checkpoint:
    edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Keep `PartitionDO` OCC/SQL service extraction separate from adapter-edge
-   refactors until it has dedicated parity coverage.
+4. Keep generated runtime-worker source and PartitionDO service extraction
+   separate from TypeScript package adapter refactors until each has dedicated
+   parity coverage.
 
-Current Goal 146 slice:
+Current Goal 147 slice:
+
+1. Add `effect` to `flarex-dev` and introduce package-local typed Effect decoders for local dev invoke bodies and local analyzer requests.
+2. Convert the `/__flarex_dev/invoke` proxy and `createLocalAnalyzerService(...)` to run those decoders at the adapter edge instead of calling `request.json()` directly.
+3. Preserve existing HTTP mapping: invalid local dev invoke and analyzer bodies still return `400 { error }`, analyzer failures still include diagnostics, and generated runtime worker source remains unchanged.
+4. Add direct typed boundary tests for success, validation failures, malformed JSON, and analyzer `sourcePackage` requirements.
+5. Validate with focused `flarex-dev` typecheck/tests, broad package gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 146 slice:
 
 1. Convert `PartitionDO.fetch()` `/schema-cache`, `/commit`, `/subscriptions/register`, `/subscriptions/unregister`, and `/subscriptions/unregister-connection` branches to named `Effect.fn` helpers that use the existing typed partition route decoders directly instead of compatibility Promise readers.
 2. Preserve `/commit` replay status mapping: new commits still return `201`, replayed idempotency-key commits still return `200`, and OCC conflicts still map through the fetch-level `409` adapter.
