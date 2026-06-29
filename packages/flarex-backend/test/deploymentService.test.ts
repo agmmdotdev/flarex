@@ -514,6 +514,45 @@ describe("DeploymentService", () => {
     } finally {
       await typedRuntime.dispose();
     }
+
+    const typedModuleNameStatus = analyzedPushStatus("push-typed-module-name-validation-failed");
+    const typedModuleNameRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedModuleNameStatus,
+          codegenAnalysis: {
+            schema: typedModuleNameStatus.analysis!.schema,
+            functions: [{
+              moduleName: "",
+              functions: [],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedModuleNameError = await typedModuleNameRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedModuleNameStatus.pushId,
+            now: 2_420_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedModuleNameError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedModuleNameError.message).toBe("Codegen module at index 0 has an invalid moduleName.");
+    } finally {
+      await typedModuleNameRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

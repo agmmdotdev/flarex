@@ -402,6 +402,20 @@ describe("DeploymentApiHandlers", () => {
       } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
       "Codegen module at index 0 must be an object.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "",
+            functions: [],
+          }],
+        },
+      },
+      "Codegen module at index 0 has an invalid moduleName.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -515,6 +529,25 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(codegenModuleFailure.message).toBe("Codegen module at index 0 must be an object.");
+
+    const codegenModuleNameFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "",
+          functions: [],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenModuleNameFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenModuleNameFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenModuleNameFailure.message).toBe("Codegen module at index 0 has an invalid moduleName.");
   });
 });
 
