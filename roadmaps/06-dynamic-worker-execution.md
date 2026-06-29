@@ -1,5 +1,46 @@
 # Dynamic Worker Execution
 
+## Public Worker Typed Dispatch Failures
+
+Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
+
+What changed:
+
+- Added `PublicWorkerDispatchError` for public Worker routes that forward
+  already-decoded requests to ExecutionDO, PartitionDO, DeliveryDO, or
+  live-query delivery helpers.
+- Public execution start/action, partition commit/schema-cache, public
+  live-query delivery, and delivery wake routes now emit that typed failure
+  from downstream dispatch catch branches.
+- Route-specific HTTP mappers still preserve the existing response behavior at
+  the adapter edge.
+
+Why it changed:
+
+These route groups had already moved request decoding into typed Effect
+boundaries, but downstream dispatch failures still put `HttpError` directly in
+the migrated route error channel. The shared typed dispatch failure keeps
+public Worker forwarding failures explicit while preserving the old HTTP
+status/message contract.
+
+Known limitations:
+
+- This checkpoint does not convert the downstream DO/runtime services
+  themselves to typed Effect services.
+- Authorization failures for live-query delivery still use the existing
+  pre-route `HttpError` compatibility path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Invoke Typed Missing-Deployment Failure
 
 Previous completed checkpoint: `c5133c6` Name generated runtime JSON

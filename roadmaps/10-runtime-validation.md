@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Worker Typed Dispatch Failures
+
+Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
+
+What changed:
+
+- Public Worker downstream dispatch failures now flow through
+  `PublicWorkerDispatchError`.
+- The shared error preserves downstream `HttpError` status/message values and
+  maps non-HTTP dispatch failures to the existing `500` adapter behavior.
+- Focused tests cover the direct dispatch error mapping plus the route
+  boundaries that continue to own request validation.
+
+Why it changed:
+
+Migrated public Worker routes should keep HTTP conversion at the adapter edge.
+This checkpoint removes repeated `HttpError` construction from downstream
+dispatch catch branches across execution, partition, delivery, and live-query
+public routes.
+
+Known limitations:
+
+- Downstream runtime and Durable Object internals still have their own
+  compatibility error handling.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Invoke Typed Missing-Deployment Failure
 
 Previous completed checkpoint: `c5133c6` Name generated runtime JSON

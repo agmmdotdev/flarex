@@ -35,6 +35,11 @@ import {
   executionStartRouteErrorToHttpError,
 } from "./execution/StartRouteBoundary";
 import {
+  publicWorkerDispatchError,
+  publicWorkerDispatchErrorToHttpError,
+  PublicWorkerDispatchError,
+} from "./worker/PublicRouteDispatchError";
+import {
   deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
@@ -614,24 +619,22 @@ const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         }),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("execution-start", error),
     });
     if (!response.ok) return response;
     const responseBody = yield* Effect.tryPromise({
       try: () => response.json() as Promise<Record<string, unknown>>,
-      catch: error => new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("execution-start-response", error),
     });
     return json({ sessionId, ...responseBody });
   },
 );
 
 function publicWorkerExecutionStartRouteErrorToHttpError(
-  error: Parameters<typeof executionStartRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof executionStartRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return executionStartRouteErrorToHttpError(error);
 }
@@ -646,18 +649,16 @@ const routePublicExecutionAction = Effect.fn("Worker.routePublicExecutionAction"
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         }),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("execution-action", error),
     });
   },
 );
 
 function publicWorkerExecutionActionRouteErrorToHttpError(
-  error: Parameters<typeof publicExecutionActionRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof publicExecutionActionRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicExecutionActionRouteErrorToHttpError(error);
 }
@@ -778,18 +779,16 @@ const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit"
         headers: { "content-type": "application/json" },
         body: JSON.stringify(commit),
       }),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("partition-commit", error),
     });
   },
 );
 
 function publicWorkerPartitionRouteErrorToHttpError(
-  error: Parameters<typeof partitionRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof partitionRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return partitionRouteErrorToHttpError(error);
 }
@@ -807,18 +806,16 @@ const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSc
         headers: { "content-type": "application/json" },
         body: JSON.stringify(schemaCache),
       }),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("partition-schema-cache", error),
     });
   },
 );
 
 function publicWorkerPartitionSchemaCacheRouteErrorToHttpError(
-  error: Parameters<typeof publicPartitionSchemaCacheRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof publicPartitionSchemaCacheRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicPartitionSchemaCacheRouteErrorToHttpError(error);
 }
@@ -841,18 +838,16 @@ const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDeliv
     const deliveries = yield* decodePublicLiveQueryDeliveryRequest(request);
     return yield* Effect.tryPromise({
       try: async () => json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries)),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("live-query-delivery", error),
     });
   },
 );
 
 function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
-  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicLiveQueryDeliveryRouteErrorToHttpError(error);
 }
@@ -882,18 +877,16 @@ const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
           }),
-      catch: error => error instanceof HttpError
-        ? error
-        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+      catch: error => publicWorkerDispatchError("delivery-wake", error),
     });
   },
 );
 
 function publicWorkerDeliveryWakeRouteErrorToHttpError(
-  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicDeliveryWakeRouteErrorToHttpError(error);
 }

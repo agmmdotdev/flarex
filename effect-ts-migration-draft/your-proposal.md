@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c5133c6` Name generated runtime JSON boundaries.
-- Active checkpoint: remove the remaining public invoke Worker `HttpError` branch by modeling missing deployment id as a typed route failure and mapping it only at the adapter edge.
+- Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
+- Active checkpoint: route public Worker downstream dispatch failures through a shared typed `PublicWorkerDispatchError` instead of carrying `HttpError` through migrated route pipelines.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current public invoke route-error checkpoint:
+Next recommended checkpoint after the current public Worker dispatch-error checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,28 @@ Next recommended checkpoint after the current public invoke route-error checkpoi
    checkpoint: typed request/body decoders, typed domain failures, and one
    adapter HTTP mapping edge.
 
-Current Goal 155 slice:
+Current Goal 156 slice:
+
+1. Add a shared `PublicWorkerDispatchError` for public Worker routes that
+   forward decoded requests to Durable Objects, live-query delivery helpers, or
+   downstream JSON response parsing.
+2. Convert public execution start/action, partition commit/schema-cache,
+   public live-query delivery, and delivery wake route helpers to emit that
+   typed dispatch failure instead of `HttpError` from `Effect.tryPromise`
+   catch branches.
+3. Keep each route-specific adapter mapper responsible for converting
+   `PublicWorkerDispatchError` back to the existing `HttpError` response shape.
+4. Preserve public behavior: downstream `HttpError` status/message values still
+   pass through, non-HTTP dispatch failures still map to `500`, validation
+   failures still use their route-specific typed errors, and public invoke,
+   scheduler, deployment push, generated workers, executor-http, and
+   `ValidatorJson` stay unchanged.
+5. Validate with direct dispatch-error tests, focused public execution,
+   partition, delivery, and live-query route tests, backend typecheck/build,
+   broad protocol/backend gates as practical, and only the EffectTS quality
+   checker reviewer.
+
+Completed Goal 155 slice:
 
 1. Add fieldless `MissingInvokeDeploymentError` to the public invoke route
    boundary and include it in the route error union mapped by

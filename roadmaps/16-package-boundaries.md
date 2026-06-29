@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Public Worker Typed Dispatch Failures
+
+Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
+
+What changed:
+
+- Added `worker/PublicRouteDispatchError.ts` as the Worker-owned package
+  boundary for downstream dispatch failures.
+- Public route-boundary modules still own JSON/protocol validation failures.
+- `worker.ts` composes those route-specific validation failures with the shared
+  Worker dispatch failure before final HTTP mapping.
+
+Boundary decision:
+
+The dispatch error belongs under `worker/` because it is not a protocol error
+and not owned by ExecutionDO, PartitionDO, DeliveryDO, or live-query delivery
+domain logic. It describes the public Worker adapter failing to forward an
+already-decoded request or parse the downstream response.
+
+Known limitations:
+
+- This does not move downstream service internals into reusable Effect services.
+- Scheduler and live-query authorization compatibility paths are separate
+  follow-up candidates.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Typed Missing-Deployment Failure
 
 Previous completed checkpoint: `c5133c6` Name generated runtime JSON
