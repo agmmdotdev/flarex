@@ -110,6 +110,9 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.90
       elysia:
         specifier: ^1.4.13
         version: 1.4.29(@sinclair/typebox@0.34.49)(exact-mirror@1.2.2)(file-type@22.0.1)(openapi-types@12.1.3)(typescript@6.0.3)

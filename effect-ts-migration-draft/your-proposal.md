@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.
-- Active checkpoint: route the execution artifact runtime service invoke adapter through a named `Effect.fn`, keep artifact invoke payload validation typed, and map runtime/source-package/materializer failures once at the fetch adapter edge.
+- Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.
+- Active checkpoint: route the executor-http Elysia POST body adapter through a shared typed `Effect.fn`, keeping endpoint parsers and executor methods unchanged while mapping JSON, body validation, and executor failures once at the HTTP adapter edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current artifact runtime service checkpoint:
+Next recommended checkpoint after the current executor-http adapter checkpoint:
 
 1. Continue with the next remaining backend route/service boundary that still
    reads JSON through compatibility wrappers.
@@ -55,7 +55,15 @@ Next recommended checkpoint after the current artifact runtime service checkpoin
 4. Keep `PartitionDO` OCC/SQL semantics out of route-boundary refactors until
    its service extraction has separate parity coverage.
 
-Current Goal 141 slice:
+Current Goal 142 slice:
+
+1. Add `effect` to `@flarex/executor-http` and introduce typed adapter errors for malformed JSON, body validation failures, and executor operation failures.
+2. Add shared `ExecutorHttp.routeBody`, a named `Effect.fn` that reads JSON, applies the existing endpoint parser, invokes the selected executor method, and maps executor failures to the existing status/body contract.
+3. Convert all executor-http POST body handlers, including invoke/session, live-query subscription, live-query connection, and maintenance routes, to use the shared Effect adapter instead of repeated `request.json()` and executor `try/catch` blocks.
+4. Preserve authorization-before-body parsing, `501` not-configured responses before body parsing, all existing parser messages, all executor error mappings, Elysia route registration, executor core behavior, Nitro inheritance, backend Worker routes, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate with `@flarex/executor-http` typecheck/test/build, broader workspace gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 141 slice:
 
 1. Keep `artifactRuntime/RouteBoundary.ts` Effect-first by normalizing invoke payload validation through a typed result helper and exporting the route error mapper for runtime adapter reuse.
 2. Replace the broad async `try/catch` inside `createExecutionArtifactRuntimeService(...)` with `ExecutionArtifactRuntime.routeInvoke`, a named `Effect.fn` that owns request normalization, authorization ordering, typed payload decode, header validation, source-package resolution, materializer cache lookup, and invoke dispatch.

@@ -1,5 +1,47 @@
 # Package Boundaries
 
+## Executor HTTP Effect Body Adapter
+
+Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.
+
+What changed:
+
+- `@flarex/executor-http` now depends on `effect` and uses a shared
+  `ExecutorHttp.routeBody` `Effect.fn` for all POST body routes.
+- The Elysia adapter now models malformed JSON, body validation failures, and
+  executor operation failures as typed adapter errors before mapping them back
+  to the existing HTTP response bodies.
+- Invoke/session, live-query subscription, live-query connection, and
+  maintenance handlers no longer each own a separate `request.json()` and
+  executor `try/catch` block.
+
+Boundary decision:
+
+`@flarex/executor-http` remains the framework-neutral HTTP adapter over
+`@flarex/executor`. Endpoint parser functions stay local to the adapter, and
+executor core behavior stays in `@flarex/executor`. This checkpoint does not
+move parser contracts into `flarex-protocol`, change Elysia route registration,
+or alter Nitro inheritance of the shared HTTP adapter.
+
+Preserved behavior:
+
+- Capability-token authorization still runs before body parsing.
+- Optional maintenance configurations still return their existing `501`
+  responses before body parsing.
+- Existing parser error messages and executor error status/body mappings are
+  preserved by tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Artifact Runtime Service Effect Adapter
 
 Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.

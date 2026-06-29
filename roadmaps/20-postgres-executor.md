@@ -1,5 +1,44 @@
 # Postgres Executor
 
+## Executor HTTP Effect Body Adapter
+
+Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.
+
+What changed:
+
+- `@flarex/executor-http` now has a shared typed Effect body adapter for all
+  POST routes.
+- `ExecutorHttp.routeBody` owns JSON reading, existing parser invocation,
+  executor method invocation, and adapter-edge response mapping for malformed
+  JSON, body validation, and executor failures.
+- The route-specific handlers now pass parser/executor pairs into the shared
+  adapter instead of duplicating `request.json()` and executor `try/catch`
+  blocks.
+
+Why it changed:
+
+The trusted executor HTTP adapter is one of the main non-Worker entrypoints for
+the Postgres-authoritative track. Moving its body handling to a typed Effect
+adapter makes the migration broader than backend Worker routes while preserving
+the existing Elysia API surface.
+
+Preserved behavior:
+
+- Authorization ordering, not-configured maintenance responses, parser
+  messages, executor error mappings, route paths, Elysia app shape, and Nitro
+  inheritance are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Test SDK Reset For Postgres Runtime
 
 Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres

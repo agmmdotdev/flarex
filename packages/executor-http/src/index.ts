@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { Data, Effect } from "effect";
 import {
   DeploymentFunctionMetadataUnavailableError,
   DeploymentNotFoundError,
@@ -66,6 +67,43 @@ import {
   type RunLiveQuerySubscriptionWithInvokeInput,
   type TouchLiveQueryConnectionInput,
 } from "@flarex/executor";
+
+type ElysiaSet = { status?: number | string };
+
+type BadRequestBody = {
+  error: "bad_request";
+  message: string;
+};
+
+type ExecutorHttpParseResult<A> =
+  | { value: A }
+  | { error: BadRequestBody };
+
+type ExecutorErrorResponse = {
+  status: number;
+  body: object;
+};
+
+export class ExecutorHttpJsonBodyError extends Data.TaggedError("ExecutorHttpJsonBodyError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+export class ExecutorHttpBodyValidationError extends Data.TaggedError(
+  "ExecutorHttpBodyValidationError",
+)<{
+  readonly body: BadRequestBody;
+}> {}
+
+export class ExecutorHttpOperationError extends Data.TaggedError("ExecutorHttpOperationError")<{
+  readonly response: ExecutorErrorResponse;
+  readonly cause: unknown;
+}> {}
+
+type ExecutorHttpRouteError =
+  | ExecutorHttpJsonBodyError
+  | ExecutorHttpBodyValidationError
+  | ExecutorHttpOperationError;
 
 export {
   createFlarexBackendLiveQueryDelivery,
@@ -492,34 +530,87 @@ export function createFlarexHttpHandler(
   return (request) => app.handle(request);
 }
 
-async function handleInvokePrepare(
-  executor: FlarexExecutor,
+function handleExecutorHttpBody<A, R extends object>(
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
-): Promise<Record<string, unknown>> {
+  parse: (body: unknown) => ExecutorHttpParseResult<A>,
+  execute: (input: A) => Promise<R>,
+): Promise<object> {
   const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
+  if (unauthorized !== null) return Promise.resolve(unauthorized);
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  return Effect.runPromise(
+    routeExecutorHttpBody(request, parse, execute).pipe(
+      Effect.catch(error => Effect.succeed(executorHttpRouteErrorBody(error, set))),
+    ),
+  );
+}
+
+const routeExecutorHttpBody = Effect.fn("ExecutorHttp.routeBody")(
+  function* <A, R extends object>(
+    request: Request,
+    parse: (body: unknown) => ExecutorHttpParseResult<A>,
+    execute: (input: A) => Promise<R>,
+  ) {
+    const body = yield* readExecutorHttpJsonBody(request);
+    const input = yield* parseExecutorHttpBody(body, parse);
+    return yield* Effect.tryPromise({
+      try: () => execute(input),
+      catch: cause => new ExecutorHttpOperationError({
+        response: executorErrorBody(cause),
+        cause,
+      }),
+    });
+  },
+);
+
+function readExecutorHttpJsonBody(
+  request: Request,
+): Effect.Effect<unknown, ExecutorHttpJsonBodyError> {
+  return Effect.tryPromise({
+    try: () => request.json() as Promise<unknown>,
+    catch: cause => new ExecutorHttpJsonBodyError({
+      message: "Request body must be valid JSON.",
+      cause,
+    }),
+  });
+}
+
+function parseExecutorHttpBody<A>(
+  body: unknown,
+  parse: (body: unknown) => ExecutorHttpParseResult<A>,
+): Effect.Effect<A, ExecutorHttpBodyValidationError> {
+  const parsed = parse(body);
+  return "error" in parsed
+    ? Effect.fail(new ExecutorHttpBodyValidationError({ body: parsed.error }))
+    : Effect.succeed(parsed.value);
+}
+
+function executorHttpRouteErrorBody(error: ExecutorHttpRouteError, set: ElysiaSet): object {
+  if (error instanceof ExecutorHttpJsonBodyError) {
     set.status = 400;
     return {
       error: "bad_request",
-      message: "Request body must be valid JSON.",
+      message: error.message,
     };
   }
-
-  const input = parsePrepareInvokeBody(body);
-  if ("error" in input) {
+  if (error instanceof ExecutorHttpBodyValidationError) {
     set.status = 400;
-    return input.error;
+    return error.body;
   }
+  set.status = error.response.status;
+  return error.response.body;
+}
 
-  try {
-    const prepared = await executor.prepareInvoke(input.value);
+async function handleInvokePrepare(
+  executor: FlarexExecutor,
+  request: Request,
+  set: ElysiaSet,
+  capabilityToken: string | undefined,
+): Promise<object> {
+  return handleExecutorHttpBody(request, set, capabilityToken, parsePrepareInvokeBody, async input => {
+    const prepared = await executor.prepareInvoke(input);
     return {
       deploymentId: prepared.deployment.deploymentId,
       packageId: prepared.package.packageId,
@@ -529,227 +620,103 @@ async function handleInvokePrepare(
       scope: prepared.scope,
       executionModule: prepared.executionModule,
     };
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  });
 }
 
 async function handleInvokeStart(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseBeginInvokeSessionBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.beginInvokeSession(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseBeginInvokeSessionBody,
+    input => executor.beginInvokeSession(input),
+  );
 }
 
 async function handleInvokeSyscall(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseInvokeSyscallBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.invokeSyscall(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseInvokeSyscallBody,
+    input => executor.invokeSyscall(input),
+  );
 }
 
 async function handleInvokeFinish(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseInvokeFinishBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.finishInvokeSession(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseInvokeFinishBody,
+    input => executor.finishInvokeSession(input),
+  );
 }
 
 async function handleInvokeAbort(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseInvokeAbortBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.abortInvokeSession(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseInvokeAbortBody,
+    input => executor.abortInvokeSession(input),
+  );
 }
 
 async function handleInvokeAbortStale(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseInvokeAbortStaleBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.abortStaleInvokeSessions(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseInvokeAbortStaleBody,
+    input => executor.abortStaleInvokeSessions(input),
+  );
 }
 
 async function handleInvokeSessionMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseInvokeSessionMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.runInvokeSessionMaintenance(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseInvokeSessionMaintenanceBody,
+    input => executor.runInvokeSessionMaintenance(input),
+  );
 }
 
 async function handleLiveQueryRerunMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
   config: FlarexLiveQueryRerunConfig | undefined,
 ): Promise<object> {
@@ -764,27 +731,10 @@ async function handleLiveQueryRerunMaintenance(
     };
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryRerunMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
+  return handleExecutorHttpBody(request, set, capabilityToken, parseLiveQueryRerunMaintenanceBody, async input => {
     const result = await executor.rerunStaleLiveQuerySubscriptions({
-      deploymentId: input.value.deploymentId,
-      ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
+      deploymentId: input.deploymentId,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
       freshnessStore: config.freshnessStore,
       ...(config.deliverChanges === undefined
         ? {}
@@ -792,28 +742,24 @@ async function handleLiveQueryRerunMaintenance(
       runQuery: (subscription) =>
         executor.runLiveQuerySubscriptionWithInvoke({
           subscription,
-          projectId: input.value.projectId,
+          projectId: input.projectId,
           executeQuery: config.executeQuery,
         }),
     });
     if (result.changed.length > 0) {
       await config.notifyDelivery?.({
-        deploymentId: input.value.deploymentId,
-        ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
+        deploymentId: input.deploymentId,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
       });
     }
     return result;
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  });
 }
 
 async function handleLiveQueryDeliveryMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
   config: FlarexLiveQueryDeliveryConfig | undefined,
 ): Promise<object> {
@@ -828,489 +774,212 @@ async function handleLiveQueryDeliveryMaintenance(
     };
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryDeliveryMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.runLiveQueryDeliveryBatch({
-      deploymentId: input.value.deploymentId,
-      ...(input.value.limit === undefined ? {} : { limit: input.value.limit }),
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryDeliveryMaintenanceBody,
+    input => executor.runLiveQueryDeliveryBatch({
+      deploymentId: input.deploymentId,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
       deliver: config.deliver,
-    });
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+    }),
+  );
 }
 
 async function handleLiveQuerySubscriptionRecord(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQuerySubscriptionRecordBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.recordLiveQuerySubscription(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQuerySubscriptionRecordBody,
+    input => executor.recordLiveQuerySubscription(input),
+  );
 }
 
 async function handleLiveQueryConnectionTouch(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryConnectionTouchBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.touchLiveQueryConnection(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryConnectionTouchBody,
+    input => executor.touchLiveQueryConnection(input),
+  );
 }
 
 async function handleLiveQuerySubscriptionRemove(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQuerySubscriptionRemoveBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.removeLiveQuerySubscription(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQuerySubscriptionRemoveBody,
+    input => executor.removeLiveQuerySubscription(input),
+  );
 }
 
 async function handleLiveQuerySubscriptionRemoveConnection(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQuerySubscriptionRemoveConnectionBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.removeLiveQuerySubscriptionsForConnection(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQuerySubscriptionRemoveConnectionBody,
+    input => executor.removeLiveQuerySubscriptionsForConnection(input),
+  );
 }
 
 async function handleLiveQueryConnectionCleanup(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryConnectionCleanupBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.removeExpiredLiveQuerySubscriptions(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryConnectionCleanupBody,
+    input => executor.removeExpiredLiveQuerySubscriptions(input),
+  );
 }
 
 async function handleLiveQueryClaimMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryClaimMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.claimLiveQueryDeliveryBatch(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryClaimMaintenanceBody,
+    input => executor.claimLiveQueryDeliveryBatch(input),
+  );
 }
 
 async function handleLiveQueryAckMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryAckMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.ackLiveQueryDeliveries(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryAckMaintenanceBody,
+    input => executor.ackLiveQueryDeliveries(input),
+  );
 }
 
 async function handleLiveQueryFailureMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryFailureMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.recordLiveQueryDeliveryFailure(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryFailureMaintenanceBody,
+    input => executor.recordLiveQueryDeliveryFailure(input),
+  );
 }
 
 async function handleLiveQueryDeadLetterMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryDeadLetterMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.markLiveQueryDeliveriesDeadLettered(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryDeadLetterMaintenanceBody,
+    input => executor.markLiveQueryDeliveriesDeadLettered(input),
+  );
 }
 
 async function handleLiveQueryDeadLetterStuckMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryDeadLetterStuckMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.deadLetterStuckLiveQueryDeliveries(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryDeadLetterStuckMaintenanceBody,
+    input => executor.deadLetterStuckLiveQueryDeliveries(input),
+  );
 }
 
 async function handleLiveQueryPendingDeploymentsMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryPendingDeploymentsMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.listPendingLiveQueryDeliveryDeployments(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryPendingDeploymentsMaintenanceBody,
+    input => executor.listPendingLiveQueryDeliveryDeployments(input),
+  );
 }
 
 async function handleLiveQueryExpiredConnectionDeploymentsMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.listExpiredLiveQueryConnectionDeployments(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
+    input => executor.listExpiredLiveQueryConnectionDeployments(input),
+  );
 }
 
 async function handleLiveQueryStuckDeliveriesMaintenance(
   executor: FlarexExecutor,
   request: Request,
-  set: { status?: number | string },
+  set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    set.status = 400;
-    return {
-      error: "bad_request",
-      message: "Request body must be valid JSON.",
-    };
-  }
-
-  const input = parseLiveQueryStuckDeliveriesMaintenanceBody(body);
-  if ("error" in input) {
-    set.status = 400;
-    return input.error;
-  }
-
-  try {
-    return await executor.listStuckLiveQueryDeliveries(input.value);
-  } catch (error) {
-    const response = executorErrorBody(error);
-    set.status = response.status;
-    return response.body;
-  }
+  return handleExecutorHttpBody(
+    request,
+    set,
+    capabilityToken,
+    parseLiveQueryStuckDeliveriesMaintenanceBody,
+    input => executor.listStuckLiveQueryDeliveries(input),
+  );
 }
 
 function authorizeExecutorRequest(
