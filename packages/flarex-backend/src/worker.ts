@@ -26,12 +26,12 @@ import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary"
 import {
   deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
+  decodePublicAnalyzedStartPushRequest,
   decodePublicFinishPushJson,
-  parsePublicStartPushRequest,
+  decodePublicStartPushJson,
   parsePublicFinishPushRequestEffect,
+  parsePublicStartPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
-  readPublicAnalyzedStartPushRequest,
-  readPublicStartPushJson,
 } from "./deployment/PublicPushRouteBoundary";
 import { errorResponse, HttpError, json, required } from "./http";
 import { ExecutionDO } from "./executionDO";
@@ -294,32 +294,18 @@ async function routeDeploymentPush(
 ): Promise<Response> {
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
   if (parts[0] === "start" && request.method === "POST") {
-    const rawBody = await readPublicStartPushJson(request);
-    if (env.FLAREX_ANALYZER === undefined) {
-      return json(
-        {
-          error:
-            "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
-        },
-        { status: 501 },
-      );
-    }
-    const body = parsePublicStartPushRequest(rawBody);
-    const analyzed = await analyzeSourcePackage(env.FLAREX_ANALYZER, deploymentId, body);
-    await persistAnalyzedSourcePackage(env, analyzed);
-    return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(analyzed),
-    });
+    return await Effect.runPromise(
+      routeDeploymentStartPush(request, env, deployment, deploymentId).pipe(
+        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+      ),
+    );
   }
   if (parts[0] === "start-analyzed" && request.method === "POST") {
-    const body = await readPublicAnalyzedStartPushRequest(request);
-    return deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    return await Effect.runPromise(
+      routeDeploymentAnalyzedStartPush(request, deployment).pipe(
+        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+      ),
+    );
   }
   const pushId = decodeURIComponent(required(parts[0], "push id"));
   if (parts.length === 1 && request.method === "GET") {
@@ -372,6 +358,53 @@ const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
     const body = yield* parsePublicFinishPushRequestEffect(rawBody);
     return yield* Effect.promise(() =>
       deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+  },
+);
+
+const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
+  function* (
+    request: Request,
+    env: Env,
+    deployment: DurableObjectStub,
+    deploymentId: string,
+  ) {
+    const rawBody = yield* decodePublicStartPushJson(request);
+    const analyzer = env.FLAREX_ANALYZER;
+    if (analyzer === undefined) {
+      return json(
+        {
+          error:
+            "Backend source-package analysis is not configured in this runtime. Use a backend analyzer service before starting a push.",
+        },
+        { status: 501 },
+      );
+    }
+    const body = yield* parsePublicStartPushRequestEffect(rawBody);
+    const analyzed = yield* Effect.promise(() => analyzeSourcePackage(analyzer, deploymentId, body));
+    yield* Effect.promise(() => persistAnalyzedSourcePackage(env, analyzed));
+    return yield* Effect.promise(() =>
+      deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(analyzed),
+      })
+    );
+  },
+);
+
+const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyzedStartPush")(
+  function* (
+    request: Request,
+    deployment: DurableObjectStub,
+  ) {
+    const body = yield* decodePublicAnalyzedStartPushRequest(request);
+    return yield* Effect.promise(() =>
+      deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

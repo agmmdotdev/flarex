@@ -95,6 +95,19 @@ describe("deployment push lifecycle", () => {
   });
 
   it("keeps public start source-only until backend analysis is configured", async () => {
+    const invalidJson = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/push-source-only/push/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(invalidJson.status).toBe(400);
+    await expect(invalidJson.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
     const response = await startSourceOnlyPushResponse("push-source-only", {
       sourcePackage: sourcePackage(),
     });

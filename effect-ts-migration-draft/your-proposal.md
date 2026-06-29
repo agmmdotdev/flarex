@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `36cc6fb` Route public abandon push through Effect.
-- Active checkpoint: convert the public Worker finish-push route to an explicit Effect boundary while preserving raw JSON read before artifact preflight and protocol parsing after the preflight.
+- Previous completed checkpoint: `187392e` Route public finish push through Effect.
+- Active checkpoint: convert the public Worker start-push and analyzed-start routes to explicit Effect boundaries while preserving analyzer-configuration and public HTTP response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 132 slice:
+Current Goal 133 slice:
+
+1. Add a raw JSON Effect decoder for public source-only start-push bodies and keep `readPublicStartPushJson(...)` as the compatibility Promise wrapper.
+2. Route public source-only start-push through an `Effect.fn` helper that reads raw JSON, preserves the analyzer-configuration `501` response before protocol parsing, parses with `parsePublicStartPushRequestEffect(...)` only when an analyzer exists, persists analyzed artifacts, and forwards to the generated DeploymentApi analyzed-start route.
+3. Route public analyzed-start through an `Effect.fn` helper using `decodePublicAnalyzedStartPushRequest(...)` before forwarding to the generated DeploymentApi route.
+4. Keep finish-push, abandon-push, `DeploymentDO` routing, generated Deployment HttpApi routing, deployment service/store behavior, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused public deployment route-boundary and push tests, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 132 slice:
 
 1. Add a raw JSON Effect decoder for public finish-push bodies and keep `readPublicFinishPushJson(...)` as the compatibility Promise wrapper.
 2. Route the public Worker finish-push path through an `Effect.fn` helper that reads raw JSON, runs the missing-artifact preflight before protocol parsing, parses with `parsePublicFinishPushRequestEffect(...)`, and forwards the normalized body to the generated DeploymentApi route.

@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Public Start Push Worker Effect Boundaries
+
+Previous completed checkpoint: `187392e` Route public finish push through Effect.
+
+What changed:
+
+- Added a raw JSON Effect decoder for public source-only start-push bodies while
+  keeping `readPublicStartPushJson(...)` as the compatibility Promise wrapper.
+- Public source-only start-push now runs through an `Effect.fn` helper that
+  preserves the existing ordering: read JSON first, return the analyzer
+  configuration `501` response before protocol parsing when no analyzer exists,
+  parse the protocol body only when an analyzer is configured, persist analyzed
+  artifacts, and forward to the generated DeploymentApi analyzed-start route.
+- Public analyzed-start forwarding now runs through an `Effect.fn` helper using
+  `decodePublicAnalyzedStartPushRequest(...)` before forwarding to the generated
+  DeploymentApi route.
+
+Why it changed:
+
+These were the remaining public deployment push entrypoints still crossing
+through compatibility Promise wrappers in the Worker. This checkpoint moves
+them to the typed Effect route-boundary shape while preserving public response
+semantics and analyzer behavior.
+
+Known limitations and follow-up work:
+
+- Other non-deployment public Worker route groups still use compatibility
+  readers and can be migrated in later route-boundary batches.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|keeps public start source-only|rejects malformed analyzed push request bodies|rejects malformed source-only push bodies|preserves analyzer codegen"
+git diff --check
+```
+
 ## Public Finish Push Worker Effect Boundary
 
 Previous completed checkpoint: `36cc6fb` Route public abandon push through Effect.

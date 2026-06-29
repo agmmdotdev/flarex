@@ -8,6 +8,7 @@ import {
   decodePublicFinishPushRequest,
   decodePublicFinishPushJson,
   decodePublicStartPushRequest,
+  decodePublicStartPushJson,
   deploymentProtocolValidationErrorResponse,
   publicDeploymentRouteErrorToHttpError,
   parsePublicAbandonPushRequest,
@@ -38,6 +39,9 @@ describe("public deployment push route boundary", () => {
     };
 
     await expect(readPublicStartPushJson(jsonRequest(body))).resolves.toEqual(body);
+    await expect(Effect.runPromise(decodePublicStartPushJson(jsonRequest(body))))
+      .resolves
+      .toEqual(body);
     await expect(readPublicStartPushRequest(jsonRequest(body))).resolves.toEqual(body);
     await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest(body))))
       .resolves
@@ -136,6 +140,11 @@ describe("public deployment push route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     } satisfies Partial<HttpError>);
+    await expect(Effect.runPromise(decodePublicStartPushJson(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(readPublicStartPushRequest(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },

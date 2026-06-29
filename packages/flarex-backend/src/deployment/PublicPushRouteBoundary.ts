@@ -20,7 +20,11 @@ import {
 import type { StartPushRequest } from "../types";
 
 export async function readPublicStartPushJson(request: Request): Promise<unknown> {
-  return await runPublicDeploymentJsonRequest(readJsonEffect(request));
+  return await runPublicDeploymentJsonRequest(decodePublicStartPushJson(request));
+}
+
+export function decodePublicStartPushJson(request: Request): Effect.Effect<unknown, RequestJsonError> {
+  return readJsonEffect(request);
 }
 
 export async function readPublicStartPushRequest(

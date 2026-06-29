@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Start Push Worker Effect Boundaries
+
+Previous completed checkpoint: `187392e` Route public finish push through Effect.
+
+What changed:
+
+- Public source-only start-push raw JSON reading now has an exported
+  Effect-returning decoder, with the Promise wrapper kept for compatibility.
+- Worker source-only start and analyzed-start forwarding now compose
+  module-owned typed route decoders inside `Effect.fn` adapter helpers.
+- Package ownership remains unchanged: protocol parsing stays in
+  `flarex-protocol`, public route decoding stays in
+  `deployment/PublicPushRouteBoundary.ts`, analyzer orchestration and artifact
+  persistence stay in the Worker adapter, and deployment persistence still
+  belongs to `DeploymentDO` / `DeploymentService`.
+
+Boundary decision:
+
+The public Worker remains the adapter edge for analyzer availability and
+forwarding. Typed request JSON and deployment protocol errors stay in the Effect
+error channel until the Worker maps them to existing public HTTP responses.
+
+Known limitations and follow-up work:
+
+- Other public Worker route groups outside deployment push still need the same
+  typed Effect route-boundary treatment.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|keeps public start source-only|rejects malformed analyzed push request bodies|rejects malformed source-only push bodies|preserves analyzer codegen"
+git diff --check
+```
+
 ## Public Finish Push Worker Effect Boundary
 
 Previous completed checkpoint: `36cc6fb` Route public abandon push through Effect.
