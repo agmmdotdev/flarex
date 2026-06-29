@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment Validation Result Normalization
+
+Previous completed checkpoint: `29bcffb` Route public start push through Effect.
+
+What changed:
+
+- Deployment validation internals now use one typed
+  `DeploymentValidationResult<A>` helper instead of several helper-specific
+  result shapes and local throw wrappers.
+- Throwing compatibility validators unwrap that shared result, while Effect
+  decoders convert the same result to typed `DeploymentValidationError`
+  failures.
+- Added direct typed decoder coverage for schema, functions, analysis,
+  codegen, source package, diagnostics, and start-push validation paths.
+- Added representative generated start-handler HTTP mapping coverage and stored
+  finish propagation coverage for grouped schema validation failures. Stored
+  JSON rows cannot preserve JavaScript `undefined`, so stored tests cover the
+  serialized validator-metadata branch while direct tests cover the JSON-value
+  branch.
+
+Why it changed:
+
+The previous validation batches removed adapter-shaped `HttpError` from
+deployment domain validation. This checkpoint continues that direction by
+making the normalization helpers share one typed failure source, so Effect
+decoders and compatibility wrappers cannot drift.
+
+Known limitations and follow-up work:
+
+- Public Worker invoke, scheduler, execution, partition, delivery, and
+  live-query public route groups still have compatibility reader paths to
+  migrate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Public Start Push Worker Effect Boundaries
 
 Previous completed checkpoint: `187392e` Route public finish push through Effect.

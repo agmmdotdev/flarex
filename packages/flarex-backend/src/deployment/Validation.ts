@@ -40,194 +40,177 @@ export interface DeploymentPushStatusRow extends Record<string, string | number 
 export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourcePackage")(
   function* (sourcePackage: PushSourcePackage): Effect.fn.Return<PushSourcePackage, DeploymentValidationError> {
     const result = normalizeSourcePackage(sourcePackage);
-    if (!result.success) {
-      return yield* Effect.fail(new DeploymentValidationError({ message: result.message }));
-    }
-    return result.sourcePackage;
+    return yield* deploymentValidationResultToEffect(result);
   },
 );
 
 export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
-  const result = normalizeSourcePackage(sourcePackage);
-  if (!result.success) {
-    throwDeploymentValidation(result.message);
-  }
-  return result.sourcePackage;
+  return unwrapDeploymentValidation(normalizeSourcePackage(sourcePackage));
 }
 
-type SourcePackageValidationResult =
+type DeploymentValidationResult<A> =
   | {
       readonly success: true;
-      readonly sourcePackage: PushSourcePackage;
+      readonly value: A;
     }
   | {
       readonly success: false;
-      readonly message: string;
+      readonly error: DeploymentValidationError;
     };
 
-function normalizeSourcePackage(sourcePackage: PushSourcePackage): SourcePackageValidationResult {
+function deploymentValidationSuccess<A>(value: A): DeploymentValidationResult<A> {
+  return {
+    success: true,
+    value,
+  };
+}
+
+function deploymentValidationFailure<A = never>(message: string): DeploymentValidationResult<A> {
+  return {
+    success: false,
+    error: new DeploymentValidationError({ message }),
+  };
+}
+
+function deploymentValidationResultToEffect<A>(
+  result: DeploymentValidationResult<A>,
+): Effect.Effect<A, DeploymentValidationError> {
+  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+}
+
+function unwrapDeploymentValidation<A>(result: DeploymentValidationResult<A>): A {
+  if (result.success) return result.value;
+  throw result.error;
+}
+
+function normalizeSourcePackage(sourcePackage: PushSourcePackage): DeploymentValidationResult<PushSourcePackage> {
   if (!Array.isArray(sourcePackage.modules)) {
-    return sourcePackageValidationFailure("Source package modules must be an array.");
+    return deploymentValidationFailure("Source package modules must be an array.");
   }
   if (!Array.isArray(sourcePackage.functions)) {
-    return sourcePackageValidationFailure("Source package functions must be an array.");
+    return deploymentValidationFailure("Source package functions must be an array.");
   }
   if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
-    return sourcePackageValidationFailure("Source package execution module is required.");
+    return deploymentValidationFailure("Source package execution module is required.");
   }
   const seen = new Set<string>();
   const modules = [];
   for (const module of sourcePackage.modules) {
     if (typeof module.path !== "string" || module.path.length === 0) {
-      return sourcePackageValidationFailure("Source package module has an invalid path.");
+      return deploymentValidationFailure("Source package module has an invalid path.");
     }
     if (seen.has(module.path)) {
-      return sourcePackageValidationFailure(`Duplicate source module path: ${module.path}.`);
+      return deploymentValidationFailure(`Duplicate source module path: ${module.path}.`);
     }
     seen.add(module.path);
     if (module.environment !== "isolate") {
-      return sourcePackageValidationFailure(
+      return deploymentValidationFailure(
         `Source module ${module.path} has unsupported environment ${module.environment}.`,
       );
     }
     if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
-      return sourcePackageValidationFailure(`Source module ${module.path} has an invalid sha256.`);
+      return deploymentValidationFailure(`Source module ${module.path} has an invalid sha256.`);
     }
     if (module.source !== undefined && typeof module.source !== "string") {
-      return sourcePackageValidationFailure(`Source module ${module.path} source must be a string.`);
+      return deploymentValidationFailure(`Source module ${module.path} source must be a string.`);
     }
     if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
-      return sourcePackageValidationFailure(`Source module ${module.path} sourceMap must be a string.`);
+      return deploymentValidationFailure(`Source module ${module.path} sourceMap must be a string.`);
     }
     modules.push({ ...module });
   }
   modules.sort((left, right) => left.path.localeCompare(right.path));
   if (!seen.has(sourcePackage.execution)) {
-    return sourcePackageValidationFailure(`Source package execution module ${sourcePackage.execution} is missing.`);
+    return deploymentValidationFailure(`Source package execution module ${sourcePackage.execution} is missing.`);
   }
   if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
-    return sourcePackageValidationFailure(`Source package schema module ${sourcePackage.schema} is missing.`);
+    return deploymentValidationFailure(`Source package schema module ${sourcePackage.schema} is missing.`);
   }
   const functions = [...sourcePackage.functions].sort();
   for (const fn of functions) {
     if (typeof fn !== "string" || !seen.has(fn)) {
-      return sourcePackageValidationFailure(`Source package function module ${String(fn)} is missing.`);
+      return deploymentValidationFailure(`Source package function module ${String(fn)} is missing.`);
     }
   }
-  return {
-    success: true,
-    sourcePackage: {
-      modules,
-      functions,
-      ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-      execution: sourcePackage.execution,
-    },
-  };
-}
-
-function sourcePackageValidationFailure(message: string): SourcePackageValidationResult {
-  return {
-    success: false,
-    message,
-  };
-}
-
-function throwDeploymentValidation(message: string): never {
-  throw new DeploymentValidationError({ message });
+  return deploymentValidationSuccess({
+    modules,
+    functions,
+    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+    execution: sourcePackage.execution,
+  });
 }
 
 export function validateDiagnostics(value: unknown): PushDiagnostic[] {
-  const result = normalizeDiagnostics(value);
-  if (!result.success) {
-    throwDeploymentValidation(result.message);
-  }
-  return result.diagnostics;
+  return unwrapDeploymentValidation(normalizeDiagnostics(value));
 }
 
 export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnostics")(
   function* (value: unknown): Effect.fn.Return<PushDiagnostic[], DeploymentValidationError> {
     const result = normalizeDiagnostics(value);
-    if (!result.success) {
-      return yield* Effect.fail(new DeploymentValidationError({ message: result.message }));
-    }
-    return result.diagnostics;
+    return yield* deploymentValidationResultToEffect(result);
   },
 );
 
-type DiagnosticsValidationResult =
-  | {
-      readonly success: true;
-      readonly diagnostics: PushDiagnostic[];
-    }
-  | {
-      readonly success: false;
-      readonly message: string;
-    };
-
-function normalizeDiagnostics(value: unknown): DiagnosticsValidationResult {
+function normalizeDiagnostics(value: unknown): DeploymentValidationResult<PushDiagnostic[]> {
   if (value === undefined) {
-    return {
-      success: true,
-      diagnostics: [],
-    };
+    return deploymentValidationSuccess([]);
   }
   if (!Array.isArray(value)) {
-    return diagnosticsValidationFailure("Push diagnostics must be an array.");
+    return deploymentValidationFailure("Push diagnostics must be an array.");
   }
   const diagnostics: PushDiagnostic[] = [];
   for (const [index, diagnostic] of value.slice(-100).entries()) {
     if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
-      return diagnosticsValidationFailure(`Push diagnostic at index ${index} must be an object.`);
+      return deploymentValidationFailure(`Push diagnostic at index ${index} must be an object.`);
     }
     const record = diagnostic as Partial<PushDiagnostic>;
     if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
-      return diagnosticsValidationFailure(`Push diagnostic at index ${index} has an invalid level.`);
+      return deploymentValidationFailure(`Push diagnostic at index ${index} has an invalid level.`);
     }
     if (typeof record.message !== "string") {
-      return diagnosticsValidationFailure(`Push diagnostic at index ${index} has an invalid message.`);
+      return deploymentValidationFailure(`Push diagnostic at index ${index} has an invalid message.`);
     }
     diagnostics.push({
       level: record.level,
       message: record.message,
     });
   }
-  return {
-    success: true,
-    diagnostics,
-  };
-}
-
-function diagnosticsValidationFailure(message: string): DiagnosticsValidationResult {
-  return {
-    success: false,
-    message,
-  };
+  return deploymentValidationSuccess(diagnostics);
 }
 
 export function analyzedStartPushRequest(
   request: ProtocolAnalyzedStartPushRequest,
 ): AnalyzedStartPushRequest {
-  const sourcePackage = validateSourcePackage(request.sourcePackage as PushSourcePackage);
+  return unwrapDeploymentValidation(normalizeAnalyzedStartPushRequest(request));
+}
+
+function normalizeAnalyzedStartPushRequest(
+  request: ProtocolAnalyzedStartPushRequest,
+): DeploymentValidationResult<AnalyzedStartPushRequest> {
+  const sourcePackageResult = normalizeSourcePackage(request.sourcePackage as PushSourcePackage);
+  if (!sourcePackageResult.success) return sourcePackageResult;
+  const sourcePackage = sourcePackageResult.value;
   const diagnostics = request.diagnostics === undefined
     ? undefined
-    : validateDiagnostics(request.diagnostics);
+    : normalizeDiagnostics(request.diagnostics);
+  if (diagnostics !== undefined && !diagnostics.success) return diagnostics;
   if (request.analysis === undefined) {
     const error = request.error;
     if (error === undefined) {
-      throwDeploymentValidation("A push without analysis must include an error message.");
+      return deploymentValidationFailure("A push without analysis must include an error message.");
     }
-    return {
+    return deploymentValidationSuccess({
       sourcePackage,
       error,
-      ...(diagnostics === undefined ? {} : { diagnostics }),
-    };
+      ...(diagnostics === undefined ? {} : { diagnostics: diagnostics.value }),
+    });
   }
-  return {
+  return deploymentValidationSuccess({
     sourcePackage,
     analysis: request.analysis,
     ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
-    ...(diagnostics === undefined ? {} : { diagnostics }),
-  };
+    ...(diagnostics === undefined ? {} : { diagnostics: diagnostics.value }),
+  });
 }
 
 export const decodeAnalyzedStartPushRequest = Effect.fn(
@@ -235,7 +218,7 @@ export const decodeAnalyzedStartPushRequest = Effect.fn(
 )(function* (
   request: ProtocolAnalyzedStartPushRequest,
 ): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentValidationError> {
-  return yield* deploymentValidationEffect(() => analyzedStartPushRequest(request));
+  return yield* deploymentValidationResultToEffect(normalizeAnalyzedStartPushRequest(request));
 });
 
 export type StartAnalyzedPushServiceInput = {
@@ -254,31 +237,42 @@ export type StartAnalyzedPushServiceInput = {
 export function startAnalyzedPushInput(
   request: AnalyzedStartPushRequest,
 ): StartAnalyzedPushServiceInput {
-  const sourcePackage = validateSourcePackage(request.sourcePackage);
+  return unwrapDeploymentValidation(normalizeStartAnalyzedPushInput(request));
+}
+
+function normalizeStartAnalyzedPushInput(
+  request: AnalyzedStartPushRequest,
+): DeploymentValidationResult<StartAnalyzedPushServiceInput> {
+  const sourcePackageResult = normalizeSourcePackage(request.sourcePackage);
+  if (!sourcePackageResult.success) return sourcePackageResult;
+  const sourcePackage = sourcePackageResult.value;
   const error = request.error;
-  const analysis = request.analysis === undefined ? undefined : validateAnalysis(request.analysis);
-  const diagnostics = validateDiagnostics(request.diagnostics);
+  const analysis = request.analysis === undefined ? undefined : normalizeAnalysis(request.analysis);
+  if (analysis !== undefined && !analysis.success) return analysis;
+  const diagnostics = normalizeDiagnostics(request.diagnostics);
+  if (!diagnostics.success) return diagnostics;
   if (analysis === undefined) {
     if (typeof error !== "string" || error.length === 0) {
-      throwDeploymentValidation("A push without analysis must include an error message.");
+      return deploymentValidationFailure("A push without analysis must include an error message.");
     }
-    return {
+    return deploymentValidationSuccess({
       sourcePackage,
       error,
-      diagnostics,
-    };
+      diagnostics: diagnostics.value,
+    });
   }
   const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
-  const codegenAnalysis = validateCodegenAnalysis(
-    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
-    analysis,
+  const codegenAnalysis = normalizeCodegenAnalysis(
+    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis.value),
+    analysis.value,
   );
-  return {
+  if (!codegenAnalysis.success) return codegenAnalysis;
+  return deploymentValidationSuccess({
     sourcePackage,
-    analysis,
-    codegenAnalysis,
-    diagnostics,
-  };
+    analysis: analysis.value,
+    codegenAnalysis: codegenAnalysis.value,
+    diagnostics: diagnostics.value,
+  });
 }
 
 export const decodeStartAnalyzedPushInput = Effect.fn(
@@ -286,7 +280,7 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
 )(function* (
   request: AnalyzedStartPushRequest,
 ): Effect.fn.Return<StartAnalyzedPushServiceInput, DeploymentValidationError> {
-  return yield* deploymentValidationEffect(() => startAnalyzedPushInput(request));
+  return yield* deploymentValidationResultToEffect(normalizeStartAnalyzedPushInput(request));
 });
 
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
@@ -319,21 +313,6 @@ export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function deploymentValidationEffect<A>(
-  evaluate: () => A,
-): Effect.Effect<A, DeploymentValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(evaluate());
-    } catch (error) {
-      if (error instanceof DeploymentValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
 }
 
 export function codegenAnalysisFromDeploymentAnalysis(
@@ -392,224 +371,302 @@ function parsePushState(value: string): PushStatus["state"] {
 }
 
 export function validateSchema(schema: unknown): DeploymentSchema {
+  return unwrapDeploymentValidation(normalizeSchema(schema));
+}
+
+export const decodeSchema = Effect.fn("DeploymentValidation.decodeSchema")(
+  function* (schema: unknown): Effect.fn.Return<DeploymentSchema, DeploymentValidationError> {
+    return yield* deploymentValidationResultToEffect(normalizeSchema(schema));
+  },
+);
+
+function normalizeSchema(schema: unknown): DeploymentValidationResult<DeploymentSchema> {
   if (!isRecord(schema)) {
-    throwDeploymentValidation("Schema must be an object.");
+    return deploymentValidationFailure("Schema must be an object.");
   }
   if (typeof schema.version !== "number" || !Number.isInteger(schema.version) || schema.version < 0) {
-    throwDeploymentValidation("Schema version must be a non-negative integer.");
+    return deploymentValidationFailure("Schema version must be a non-negative integer.");
   }
-  if (!Array.isArray(schema.tables)) throwDeploymentValidation("Schema tables must be an array.");
-  if (!Array.isArray(schema.indexes)) throwDeploymentValidation("Schema indexes must be an array.");
+  if (!Array.isArray(schema.tables)) return deploymentValidationFailure("Schema tables must be an array.");
+  if (!Array.isArray(schema.indexes)) return deploymentValidationFailure("Schema indexes must be an array.");
 
   const tableIds = new Set<number>();
-  const normalizedTables = schema.tables.map(table => {
+  const normalizedTables: DeploymentSchema["tables"] = [];
+  for (const table of schema.tables) {
     if (!isRecord(table)) {
-      throwDeploymentValidation("Schema table entry must be an object.");
+      return deploymentValidationFailure("Schema table entry must be an object.");
     }
     const tableId = table.tableId;
     if (typeof tableId !== "number" || !Number.isInteger(tableId) || tableId <= 0) {
-      throwDeploymentValidation(`Invalid table id for ${table.name}.`);
+      return deploymentValidationFailure(`Invalid table id for ${table.name}.`);
     }
-    if (tableIds.has(tableId)) throwDeploymentValidation(`Duplicate table id ${tableId}.`);
+    if (tableIds.has(tableId)) return deploymentValidationFailure(`Duplicate table id ${tableId}.`);
     tableIds.add(tableId);
     const tableName = table.name;
     if (typeof tableName !== "string" || tableName.length === 0) {
-      throwDeploymentValidation(`Table ${tableId} has an invalid name.`);
+      return deploymentValidationFailure(`Table ${tableId} has an invalid name.`);
     }
-    return {
+    const state = parseTableState(table.state);
+    if (!state.success) return state;
+    const validator = safeValidator(table.validator ?? null, `$schema.tables.${tableName}.validator`);
+    if (!validator.success) return validator;
+    const placement = validatePlacement(table.placement, `$schema.tables.${tableName}.placement`);
+    if (!placement.success) return placement;
+    normalizedTables.push({
       tableId,
       name: tableName,
-      state: parseTableState(table.state),
-      validator: safeValidator(table.validator ?? null, `$schema.tables.${tableName}.validator`),
-      placement: validatePlacement(table.placement, `$schema.tables.${tableName}.placement`),
-    };
-  });
+      state: state.value,
+      validator: validator.value,
+      placement: placement.value,
+    });
+  }
 
   const indexIds = new Set<number>();
-  const normalizedIndexes = schema.indexes.map(index => {
+  const normalizedIndexes: DeploymentSchema["indexes"] = [];
+  for (const index of schema.indexes) {
     if (!isRecord(index)) {
-      throwDeploymentValidation("Schema index entry must be an object.");
+      return deploymentValidationFailure("Schema index entry must be an object.");
     }
     const indexId = index.indexId;
     if (typeof indexId !== "number" || !Number.isInteger(indexId) || indexId <= 0) {
-      throwDeploymentValidation(`Invalid index id for ${index.name}.`);
+      return deploymentValidationFailure(`Invalid index id for ${index.name}.`);
     }
-    if (indexIds.has(indexId)) throwDeploymentValidation(`Duplicate index id ${indexId}.`);
+    if (indexIds.has(indexId)) return deploymentValidationFailure(`Duplicate index id ${indexId}.`);
     indexIds.add(indexId);
     const tableId = index.tableId;
     if (typeof tableId !== "number" || !tableIds.has(tableId)) {
-      throwDeploymentValidation(`Index ${index.name} references unknown table id ${String(index.tableId)}.`);
+      return deploymentValidationFailure(`Index ${index.name} references unknown table id ${String(index.tableId)}.`);
     }
     const indexName = index.name;
     if (typeof indexName !== "string" || indexName.length === 0) {
-      throwDeploymentValidation(`Index ${indexId} has an invalid name.`);
+      return deploymentValidationFailure(`Index ${indexId} has an invalid name.`);
     }
     if (!Array.isArray(index.fields) || !index.fields.every(field => typeof field === "string")) {
-      throwDeploymentValidation(`Index ${indexName} has invalid fields.`);
+      return deploymentValidationFailure(`Index ${indexName} has invalid fields.`);
     }
-    return {
+    const state = parseIndexState(index.state);
+    if (!state.success) return state;
+    normalizedIndexes.push({
       indexId,
       tableId,
       name: indexName,
       fields: [...index.fields],
-      state: parseIndexState(index.state),
-    };
-  });
+      state: state.value,
+    });
+  }
 
-  return { version: schema.version, tables: normalizedTables, indexes: normalizedIndexes };
+  return deploymentValidationSuccess({ version: schema.version, tables: normalizedTables, indexes: normalizedIndexes });
 }
 
 export function validateFunctions(functions: unknown): DeploymentFunctions {
+  return unwrapDeploymentValidation(normalizeFunctions(functions));
+}
+
+export const decodeFunctions = Effect.fn("DeploymentValidation.decodeFunctions")(
+  function* (functions: unknown): Effect.fn.Return<DeploymentFunctions, DeploymentValidationError> {
+    return yield* deploymentValidationResultToEffect(normalizeFunctions(functions));
+  },
+);
+
+function normalizeFunctions(functions: unknown): DeploymentValidationResult<DeploymentFunctions> {
   if (!isRecord(functions)) {
-    throwDeploymentValidation("Function metadata must be an object.");
+    return deploymentValidationFailure("Function metadata must be an object.");
   }
   if (!Array.isArray(functions.functions)) {
-    throwDeploymentValidation("Function metadata must include a functions array.");
+    return deploymentValidationFailure("Function metadata must include a functions array.");
   }
   const seen = new Set<string>();
-  const normalized = functions.functions.map((metadata, index) => {
+  const normalized: DeploymentFunctions["functions"] = [];
+  for (const [index, metadata] of functions.functions.entries()) {
     if (!isRecord(metadata)) {
-      throwDeploymentValidation(`Function metadata at index ${index} must be an object.`);
+      return deploymentValidationFailure(`Function metadata at index ${index} must be an object.`);
     }
     const path = metadata.path;
     if (typeof path !== "string" || path.length === 0) {
-      throwDeploymentValidation(`Function metadata at index ${index} has an invalid path.`);
+      return deploymentValidationFailure(`Function metadata at index ${index} has an invalid path.`);
     }
-    if (seen.has(path)) throwDeploymentValidation(`Duplicate function metadata path: ${path}.`);
+    if (seen.has(path)) return deploymentValidationFailure(`Duplicate function metadata path: ${path}.`);
     seen.add(path);
     const kind = parseFunctionKind(metadata.kind, `$functions.${path}.kind`);
+    if (!kind.success) return kind;
     const visibility = parseVisibility(metadata.visibility ?? "public", `$functions.${path}.visibility`);
+    if (!visibility.success) return visibility;
     const args = safeValidator(metadata.args ?? null, `$functions.${path}.args`);
+    if (!args.success) return args;
     const returns = safeValidator(metadata.returns ?? null, `$functions.${path}.returns`);
+    if (!returns.success) return returns;
     const route = validateFunctionRoutePolicy(metadata.route, `$functions.${path}.route`);
+    if (!route.success) return route;
     const partition = validateFunctionPartitionPolicy(
       metadata.partition,
       `$functions.${path}.partition`,
     );
+    if (!partition.success) return partition;
     const position = validateSourcePosition(metadata.position, `$functions.${path}.position`);
-    return {
+    if (!position.success) return position;
+    normalized.push({
       path,
-      kind,
-      visibility,
-      args,
-      returns,
-      route,
-      partition,
-      ...(position === undefined ? {} : { position }),
-    };
-  });
-  return { functions: normalized };
+      kind: kind.value,
+      visibility: visibility.value,
+      args: args.value,
+      returns: returns.value,
+      route: route.value,
+      partition: partition.value,
+      ...(position.value === undefined ? {} : { position: position.value }),
+    });
+  }
+  return deploymentValidationSuccess({ functions: normalized });
 }
 
 export function validateAnalysis(analysis: unknown): DeploymentAnalysis {
+  return unwrapDeploymentValidation(normalizeAnalysis(analysis));
+}
+
+export const decodeAnalysis = Effect.fn("DeploymentValidation.decodeAnalysis")(
+  function* (analysis: unknown): Effect.fn.Return<DeploymentAnalysis, DeploymentValidationError> {
+    return yield* deploymentValidationResultToEffect(normalizeAnalysis(analysis));
+  },
+);
+
+function normalizeAnalysis(analysis: unknown): DeploymentValidationResult<DeploymentAnalysis> {
   if (!isRecord(analysis)) {
-    throwDeploymentValidation("Deployment analysis must be an object.");
+    return deploymentValidationFailure("Deployment analysis must be an object.");
   }
-  const schema = validateSchema(analysis.schema);
-  const functions = validateFunctions(analysis.functions);
-  validateFunctionPartitions(functions, schema);
-  return {
-    schema,
-    functions,
-  };
+  const schema = normalizeSchema(analysis.schema);
+  if (!schema.success) return schema;
+  const functions = normalizeFunctions(analysis.functions);
+  if (!functions.success) return functions;
+  const partitions = validateFunctionPartitions(functions.value, schema.value);
+  if (!partitions.success) return partitions;
+  return deploymentValidationSuccess({
+    schema: schema.value,
+    functions: functions.value,
+  });
 }
 
 export function validateCodegenAnalysis(
   codegenAnalysis: unknown,
   analysis: DeploymentAnalysis,
 ): DeploymentCodegenAnalysis {
+  return unwrapDeploymentValidation(normalizeCodegenAnalysis(codegenAnalysis, analysis));
+}
+
+export const decodeCodegenAnalysis = Effect.fn("DeploymentValidation.decodeCodegenAnalysis")(
+  function* (
+    codegenAnalysis: unknown,
+    analysis: DeploymentAnalysis,
+  ): Effect.fn.Return<DeploymentCodegenAnalysis, DeploymentValidationError> {
+    return yield* deploymentValidationResultToEffect(normalizeCodegenAnalysis(codegenAnalysis, analysis));
+  },
+);
+
+function normalizeCodegenAnalysis(
+  codegenAnalysis: unknown,
+  analysis: DeploymentAnalysis,
+): DeploymentValidationResult<DeploymentCodegenAnalysis> {
   if (!isRecord(codegenAnalysis)) {
-    throwDeploymentValidation("Codegen analysis must be an object.");
+    return deploymentValidationFailure("Codegen analysis must be an object.");
   }
-  const schema = validateSchema(codegenAnalysis.schema);
-  if (canonicalJson(schema) !== canonicalJson(analysis.schema)) {
-    throwDeploymentValidation("Codegen analysis schema must match deployment analysis schema.");
+  const schema = normalizeSchema(codegenAnalysis.schema);
+  if (!schema.success) return schema;
+  if (canonicalJson(schema.value) !== canonicalJson(analysis.schema)) {
+    return deploymentValidationFailure("Codegen analysis schema must match deployment analysis schema.");
   }
   if (!Array.isArray(codegenAnalysis.functions)) {
-    throwDeploymentValidation("Codegen analysis functions must be an array.");
+    return deploymentValidationFailure("Codegen analysis functions must be an array.");
   }
 
   const metadataByPath = new Map(analysis.functions.functions.map(metadata => [metadata.path, metadata]));
   const seenModuleNames = new Set<string>();
   const seenPaths = new Set<string>();
-  const modules = codegenAnalysis.functions.map((module, moduleIndex) => {
+  const modules: DeploymentCodegenAnalysis["functions"] = [];
+  for (const [moduleIndex, module] of codegenAnalysis.functions.entries()) {
     if (!isRecord(module)) {
-      throwDeploymentValidation(`Codegen module at index ${moduleIndex} must be an object.`);
+      return deploymentValidationFailure(`Codegen module at index ${moduleIndex} must be an object.`);
     }
     if (typeof module.moduleName !== "string" || module.moduleName.length === 0) {
-      throwDeploymentValidation(`Codegen module at index ${moduleIndex} has an invalid moduleName.`);
+      return deploymentValidationFailure(`Codegen module at index ${moduleIndex} has an invalid moduleName.`);
     }
     if (!Array.isArray(module.functions)) {
-      throwDeploymentValidation(`Codegen module ${module.moduleName} functions must be an array.`);
+      return deploymentValidationFailure(`Codegen module ${module.moduleName} functions must be an array.`);
     }
     const moduleName = module.moduleName;
     if (seenModuleNames.has(moduleName)) {
-      throwDeploymentValidation(`Duplicate codegen module metadata: ${moduleName}.`);
+      return deploymentValidationFailure(`Duplicate codegen module metadata: ${moduleName}.`);
     }
     seenModuleNames.add(moduleName);
-    return {
-      moduleName,
-      functions: module.functions.map((fn, functionIndex) => {
-        if (!isRecord(fn)) {
-          throwDeploymentValidation(`Codegen function ${moduleName}[${functionIndex}] must be an object.`);
-        }
-        if (fn.moduleName !== moduleName) {
-          throwDeploymentValidation(
-            `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
-          );
-        }
-        if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
-          throwDeploymentValidation(
-            `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
-          );
-        }
-        const exportName = fn.exportName;
-        const path = functionPathFromCodegen(moduleName, exportName);
-        const metadata = metadataByPath.get(path);
-        if (metadata === undefined) {
-          throwDeploymentValidation(`Codegen function ${path} has no deployment function metadata.`);
-        }
-        if (seenPaths.has(path)) {
-          throwDeploymentValidation(`Duplicate codegen function metadata path: ${path}.`);
-        }
-        seenPaths.add(path);
-        const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);
-        const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
-        const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
-        if (args === null) {
-          throwDeploymentValidation(`$codegen.functions.${path}.args: Validator is required.`);
-        }
-        const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
-        const partition = validateFunctionPartitionPolicy(
-          fn.partition,
-          `$codegen.functions.${path}.partition`,
+    const normalizedFunctions: DeploymentCodegenModule["functions"] = [];
+    for (const [functionIndex, fn] of module.functions.entries()) {
+      if (!isRecord(fn)) {
+        return deploymentValidationFailure(`Codegen function ${moduleName}[${functionIndex}] must be an object.`);
+      }
+      if (fn.moduleName !== moduleName) {
+        return deploymentValidationFailure(
+          `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
         );
-        const position = validateSourcePosition(fn.position, `$codegen.functions.${path}.position`);
-        assertCodegenFunctionMatchesMetadata(path, {
-          kind,
-          visibility,
-          args,
-          returns,
-          partition,
-          position,
-        }, metadata);
-        return {
-          moduleName,
-          exportName,
-          kind,
-          visibility,
-          args,
-          returns,
-          partition,
-          ...(position === undefined ? {} : { position }),
-        };
-      }),
-    };
-  });
-  if (seenPaths.size !== metadataByPath.size) {
-    throwDeploymentValidation("Codegen analysis functions must cover every deployment function.");
+      }
+      if (typeof fn.exportName !== "string" || fn.exportName.length === 0) {
+        return deploymentValidationFailure(
+          `Codegen function ${moduleName}[${functionIndex}] has an invalid exportName.`,
+        );
+      }
+      const exportName = fn.exportName;
+      const path = functionPathFromCodegen(moduleName, exportName);
+      const metadata = metadataByPath.get(path);
+      if (metadata === undefined) {
+        return deploymentValidationFailure(`Codegen function ${path} has no deployment function metadata.`);
+      }
+      if (seenPaths.has(path)) {
+        return deploymentValidationFailure(`Duplicate codegen function metadata path: ${path}.`);
+      }
+      seenPaths.add(path);
+      const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);
+      if (!kind.success) return kind;
+      const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
+      if (!visibility.success) return visibility;
+      const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
+      if (!args.success) return args;
+      if (args.value === null) {
+        return deploymentValidationFailure(`$codegen.functions.${path}.args: Validator is required.`);
+      }
+      const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
+      if (!returns.success) return returns;
+      const partition = validateFunctionPartitionPolicy(
+        fn.partition,
+        `$codegen.functions.${path}.partition`,
+      );
+      if (!partition.success) return partition;
+      const position = validateSourcePosition(fn.position, `$codegen.functions.${path}.position`);
+      if (!position.success) return position;
+      const matchesMetadata = assertCodegenFunctionMatchesMetadata(path, {
+        kind: kind.value,
+        visibility: visibility.value,
+        args: args.value,
+        returns: returns.value,
+        partition: partition.value,
+        position: position.value,
+      }, metadata);
+      if (!matchesMetadata.success) return matchesMetadata;
+      normalizedFunctions.push({
+        moduleName,
+        exportName,
+        kind: kind.value,
+        visibility: visibility.value,
+        args: args.value,
+        returns: returns.value,
+        partition: partition.value,
+        ...(position.value === undefined ? {} : { position: position.value }),
+      });
+    }
+    modules.push({
+      moduleName,
+      functions: normalizedFunctions,
+    });
   }
-  return { schema, functions: modules };
+  if (seenPaths.size !== metadataByPath.size) {
+    return deploymentValidationFailure("Codegen analysis functions must cover every deployment function.");
+  }
+  return deploymentValidationSuccess({ schema: schema.value, functions: modules });
 }
 
 function assertCodegenFunctionMatchesMetadata(
@@ -623,7 +680,7 @@ function assertCodegenFunctionMatchesMetadata(
     position: AnalyzedSourcePosition | undefined;
   },
   metadata: DeploymentFunctionMetadata,
-): void {
+): DeploymentValidationResult<void> {
   const expected = {
     kind: metadata.kind,
     visibility: metadata.visibility ?? "public",
@@ -633,8 +690,9 @@ function assertCodegenFunctionMatchesMetadata(
     position: metadata.position,
   };
   if (canonicalJson(codegen) !== canonicalJson(expected)) {
-    throwDeploymentValidation(`Codegen function ${path} must match deployment function metadata.`);
+    return deploymentValidationFailure(`Codegen function ${path} must match deployment function metadata.`);
   }
+  return deploymentValidationSuccess(undefined);
 }
 
 function functionPathFromCodegen(moduleName: string, exportName: string): string {
@@ -644,44 +702,44 @@ function functionPathFromCodegen(moduleName: string, exportName: string): string
 function validateFunctionPartitions(
   functions: DeploymentFunctions,
   schema: DeploymentSchema,
-): void {
+): DeploymentValidationResult<void> {
   const tables = new Map(schema.tables.map(table => [table.name, table]));
   for (const metadata of functions.functions) {
     const partition = metadata.partition;
     if (partition === undefined || partition === null) continue;
     const table = tables.get(partition.table);
     if (table === undefined || table.state === "deleted") {
-      throwDeploymentValidation(`${metadata.path}.partition: Unknown partition table ${partition.table}.`);
+      return deploymentValidationFailure(`${metadata.path}.partition: Unknown partition table ${partition.table}.`);
     }
     if (table.placement.kind !== "partitionBy") {
-      throwDeploymentValidation(`${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
+      return deploymentValidationFailure(`${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
     }
     if (partition.type === "partitionCreateRoot") {
       if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
-        throwDeploymentValidation(
+        return deploymentValidationFailure(
           `${metadata.path}.partition: create-root partition requires ${partition.table} to be partitioned by _id.`,
         );
       }
       if (metadata.route !== null && metadata.route !== undefined) {
-        throwDeploymentValidation(
+        return deploymentValidationFailure(
           `${metadata.path}.partition: create-root partition cannot declare route metadata.`,
         );
       }
       continue;
     }
     if (table.placement.field !== partition.partitionField) {
-      throwDeploymentValidation(
+      return deploymentValidationFailure(
         `${metadata.path}.partition: Selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
       );
     }
     const expectedSelector = selectorNameForPartitionField(table.placement.field);
     if (partition.selector !== expectedSelector) {
-      throwDeploymentValidation(
+      return deploymentValidationFailure(
         `${metadata.path}.partition: Expected selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
       );
     }
     if (!validatorHasRequiredField(metadata.args ?? null, partition.argField)) {
-      throwDeploymentValidation(
+      return deploymentValidationFailure(
         `${metadata.path}.partition: args.${partition.argField} is not a required argument.`,
       );
     }
@@ -691,80 +749,87 @@ function validateFunctionPartitions(
       metadata.route.type === "args" &&
       metadata.route.field !== partition.argField
     ) {
-      throwDeploymentValidation(
+      return deploymentValidationFailure(
         `${metadata.path}.partition: partition argument ${partition.argField} must match route argument ${metadata.route.field}.`,
       );
     }
   }
+  return deploymentValidationSuccess(undefined);
 }
 
-function parseTableState(value: unknown): NonNullable<SchemaTable["state"]> {
-  if (value === undefined) return "active";
-  if (value === "active" || value === "hidden" || value === "deleted") return value;
-  throwDeploymentValidation("Schema table has invalid state.");
+function parseTableState(value: unknown): DeploymentValidationResult<NonNullable<SchemaTable["state"]>> {
+  if (value === undefined) return deploymentValidationSuccess("active");
+  if (value === "active" || value === "hidden" || value === "deleted") {
+    return deploymentValidationSuccess(value);
+  }
+  return deploymentValidationFailure("Schema table has invalid state.");
 }
 
-function parseIndexState(value: unknown): NonNullable<DeploymentSchema["indexes"][number]["state"]> {
-  if (value === undefined) return "enabled";
-  if (value === "enabled" || value === "staged" || value === "disabled") return value;
-  throwDeploymentValidation("Schema index has invalid state.");
+function parseIndexState(
+  value: unknown,
+): DeploymentValidationResult<NonNullable<DeploymentSchema["indexes"][number]["state"]>> {
+  if (value === undefined) return deploymentValidationSuccess("enabled");
+  if (value === "enabled" || value === "staged" || value === "disabled") {
+    return deploymentValidationSuccess(value);
+  }
+  return deploymentValidationFailure("Schema index has invalid state.");
 }
 
 function validateSourcePosition(
   value: unknown,
   path: string,
-): AnalyzedSourcePosition | undefined {
-  if (value === undefined) return undefined;
+): DeploymentValidationResult<AnalyzedSourcePosition | undefined> {
+  if (value === undefined) return deploymentValidationSuccess(undefined);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throwDeploymentValidation(`${path}: Invalid source position.`);
+    return deploymentValidationFailure(`${path}: Invalid source position.`);
   }
   const position = value as Partial<AnalyzedSourcePosition>;
   if (typeof position.path !== "string" || position.path.length === 0) {
-    throwDeploymentValidation(`${path}.path: Source position path must be a non-empty string.`);
+    return deploymentValidationFailure(`${path}.path: Source position path must be a non-empty string.`);
   }
   if (
     typeof position.startLine !== "number" ||
     !Number.isInteger(position.startLine) ||
     position.startLine <= 0
   ) {
-    throwDeploymentValidation(`${path}.startLine: Source position line must be a positive integer.`);
+    return deploymentValidationFailure(`${path}.startLine: Source position line must be a positive integer.`);
   }
   if (
     typeof position.startColumn !== "number" ||
     !Number.isInteger(position.startColumn) ||
     position.startColumn <= 0
   ) {
-    throwDeploymentValidation(`${path}.startColumn: Source position column must be a positive integer.`);
+    return deploymentValidationFailure(`${path}.startColumn: Source position column must be a positive integer.`);
   }
-  return {
+  return deploymentValidationSuccess({
     path: position.path,
     startLine: position.startLine,
     startColumn: position.startColumn,
-  };
+  });
 }
 
 function validateFunctionRoutePolicy(
   value: unknown,
   path: string,
-): FunctionRoutePolicy | null {
-  if (value === undefined || value === null) return null;
+): DeploymentValidationResult<FunctionRoutePolicy | null> {
+  if (value === undefined || value === null) return deploymentValidationSuccess(null);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throwDeploymentValidation(`${path}: Invalid route policy.`);
+    return deploymentValidationFailure(`${path}: Invalid route policy.`);
   }
   const route = value as Partial<FunctionRoutePolicy>;
   if (route.type === "args" && typeof route.field === "string" && route.field.length > 0) {
-    return { type: "args", field: route.field };
+    return deploymentValidationSuccess({ type: "args", field: route.field });
   }
-  throwDeploymentValidation(`${path}: Invalid route policy.`);
+  return deploymentValidationFailure(`${path}: Invalid route policy.`);
 }
 
 function validateFunctionPartitionPolicy(
   value: unknown,
   path: string,
-): FunctionPartitionMetadata | null {
-  if (value === undefined || value === null) return null;
+): DeploymentValidationResult<FunctionPartitionMetadata | null> {
+  if (value === undefined || value === null) return deploymentValidationSuccess(null);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throwDeploymentValidation(`${path}: Invalid partition policy.`);
+    return deploymentValidationFailure(`${path}: Invalid partition policy.`);
   }
   const partition = value as Partial<FunctionPartitionMetadata>;
   if (
@@ -773,11 +838,12 @@ function validateFunctionPartitionPolicy(
     partition.table.length > 0 &&
     partition.partitionField === "_id"
   ) {
-    return {
+    const rootPartition: FunctionPartitionMetadata = {
       type: "partitionCreateRoot",
       table: partition.table,
       partitionField: "_id",
     };
+    return deploymentValidationSuccess(rootPartition);
   }
   if (
     partition.type === "partition" &&
@@ -790,15 +856,16 @@ function validateFunctionPartitionPolicy(
     typeof partition.argField === "string" &&
     partition.argField.length > 0
   ) {
-    return {
+    const routedPartition: FunctionPartitionMetadata = {
       type: "partition",
       table: partition.table,
       selector: partition.selector,
       partitionField: partition.partitionField,
       argField: partition.argField,
     };
+    return deploymentValidationSuccess(routedPartition);
   }
-  throwDeploymentValidation(`${path}: Invalid partition policy.`);
+  return deploymentValidationFailure(`${path}: Invalid partition policy.`);
 }
 
 function selectorNameForPartitionField(field: string): string {
@@ -824,75 +891,85 @@ function validatorHasRequiredField(validator: ValidatorJson | null, field: strin
   );
 }
 
-function validatePlacement(value: unknown, path: string): SchemaTable["placement"] {
+function validatePlacement(value: unknown, path: string): DeploymentValidationResult<SchemaTable["placement"]> {
   if (typeof value !== "object" || value === null || Array.isArray(value) || !("kind" in value)) {
-    throwDeploymentValidation(`${path}: Invalid placement.`);
+    return deploymentValidationFailure(`${path}: Invalid placement.`);
   }
   const placement = value as Partial<SchemaTable["placement"]>;
-  if (placement.kind === "global") return { kind: "global" };
+  if (placement.kind === "global") return deploymentValidationSuccess({ kind: "global" });
   if (placement.kind === "partitionBy" && typeof placement.field === "string") {
-    return { kind: "partitionBy", field: placement.field };
+    return deploymentValidationSuccess({ kind: "partitionBy", field: placement.field });
   }
   if (
     placement.kind === "colocateWith" &&
     typeof placement.table === "string" &&
     typeof placement.field === "string"
   ) {
-    return { kind: "colocateWith", table: placement.table, field: placement.field };
+    return deploymentValidationSuccess({ kind: "colocateWith", table: placement.table, field: placement.field });
   }
-  throwDeploymentValidation(`${path}: Invalid placement.`);
+  return deploymentValidationFailure(`${path}: Invalid placement.`);
 }
 
-function parseFunctionKind(value: unknown, path: string): DeploymentFunctionKind {
+function parseFunctionKind(value: unknown, path: string): DeploymentValidationResult<DeploymentFunctionKind> {
   if (
     value === "query" ||
     value === "mutation" ||
     value === "action" ||
     value === "workflowMutation"
   ) {
-    return value;
+    return deploymentValidationSuccess(value);
   }
-  throwDeploymentValidation(`${path}: Invalid function kind ${value}.`);
+  return deploymentValidationFailure(`${path}: Invalid function kind ${value}.`);
 }
 
-function parseVisibility(value: unknown, path: string): FunctionVisibility {
-  if (value === "public" || value === "internal") return value;
-  throwDeploymentValidation(`${path}: Invalid function visibility ${value}.`);
+function parseVisibility(value: unknown, path: string): DeploymentValidationResult<FunctionVisibility> {
+  if (value === "public" || value === "internal") return deploymentValidationSuccess(value);
+  return deploymentValidationFailure(`${path}: Invalid function visibility ${value}.`);
 }
 
-function safeValidator(value: unknown, path: string): ValidatorJson | null {
+function safeValidator(value: unknown, path: string): DeploymentValidationResult<ValidatorJson | null> {
+  const json = jsonValue(value, path);
+  if (!json.success) return json;
   try {
-    return assertValidatorJson(jsonValue(value, path), path);
+    return deploymentValidationSuccess(assertValidatorJson(json.value, path));
   } catch (error) {
     if (error instanceof BackendValidationError) {
-      throwDeploymentValidation(`Invalid validator metadata: ${error.message}`);
+      return deploymentValidationFailure(`Invalid validator metadata: ${error.message}`);
     }
     throw error;
   }
 }
 
-function jsonValue(value: unknown, path: string): Json | undefined {
-  if (value === undefined) return undefined;
+function jsonValue(value: unknown, path: string): DeploymentValidationResult<Json | undefined> {
+  if (value === undefined) return deploymentValidationSuccess(undefined);
   if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
-    return value;
+    return deploymentValidationSuccess(value);
   }
   if (Array.isArray(value)) {
-    return value.map((item, index) => {
+    const parsedArray: Json[] = [];
+    for (const [index, item] of value.entries()) {
       const parsed = jsonValue(item, `${path}[${index}]`);
-      if (parsed === undefined) throwDeploymentValidation(`${path}[${index}]: Expected JSON value.`);
-      return parsed;
-    });
+      if (!parsed.success) return parsed;
+      if (parsed.value === undefined) {
+        return deploymentValidationFailure(`${path}[${index}]: Expected JSON value.`);
+      }
+      parsedArray.push(parsed.value);
+    }
+    return deploymentValidationSuccess(parsedArray);
   }
   if (isRecord(value)) {
     const record: { [key: string]: Json } = {};
     for (const [key, item] of Object.entries(value)) {
       const parsed = jsonValue(item, `${path}.${key}`);
-      if (parsed === undefined) throwDeploymentValidation(`${path}.${key}: Expected JSON value.`);
-      record[key] = parsed;
+      if (!parsed.success) return parsed;
+      if (parsed.value === undefined) {
+        return deploymentValidationFailure(`${path}.${key}: Expected JSON value.`);
+      }
+      record[key] = parsed.value;
     }
-    return record;
+    return deploymentValidationSuccess(record);
   }
-  throwDeploymentValidation(`${path}: Expected JSON value.`);
+  return deploymentValidationFailure(`${path}: Expected JSON value.`);
 }
 
 function canonicalJson(value: unknown): string {

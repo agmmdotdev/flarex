@@ -5,7 +5,11 @@ import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
   decodeAnalyzedStartPushRequest,
+  decodeAnalysis,
+  decodeCodegenAnalysis,
   decodeDiagnostics,
+  decodeFunctions,
+  decodeSchema,
   decodeSourcePackage,
   decodeStartAnalyzedPushInput,
   pushStatusFromRow,
@@ -449,6 +453,54 @@ describe("deployment validation", () => {
     );
   });
 
+  it("exposes typed grouped deployment schema validation failures", async () => {
+    await expectDeploymentValidationEffectFailure(
+      decodeSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 1, name: "messages", state: "archived", placement: { kind: "global" } }],
+      }),
+      "Schema table has invalid state.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 1, name: "messages", placement: { kind: "nearby" } }],
+      }),
+      "$schema.tables.messages.placement: Invalid placement.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeSchema({
+        ...simpleSchema(),
+        tables: [{
+          tableId: 1,
+          name: "messages",
+          placement: { kind: "global" },
+          validator: { type: "object", value: { body: { optional: false } } },
+        }],
+      }),
+      "Invalid validator metadata: $schema.tables.messages.validator.value.body.fieldType: Validator is required.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeSchema({
+        ...simpleSchema(),
+        tables: [{
+          tableId: 1,
+          name: "messages",
+          placement: { kind: "global" },
+          validator: { type: "array", value: undefined },
+        }],
+      }),
+      "$schema.tables.messages.validator.value: Expected JSON value.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeSchema({
+        ...simpleSchema(),
+        indexes: [{ indexId: 1, tableId: 1, name: "by_author", fields: [], state: "retired" }],
+      }),
+      "Schema index has invalid state.",
+    );
+  });
+
   it("normalizes deployment function metadata", () => {
     const normalized = validateFunctions({
       functions: [{
@@ -619,6 +671,53 @@ describe("deployment validation", () => {
     );
   });
 
+  it("exposes typed grouped deployment function validation failures", async () => {
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: ["not-function"] }),
+      "Function metadata at index 0 must be an object.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: [{ path: "messages:list", kind: "subscription" }] }),
+      "$functions.messages:list.kind: Invalid function kind subscription.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: [{ path: "messages:list", kind: "query", visibility: "private" }] }),
+      "$functions.messages:list.visibility: Invalid function visibility private.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: [{ path: "messages:list", kind: "query", route: "not-route" }] }),
+      "$functions.messages:list.route: Invalid route policy.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: [{ path: "messages:list", kind: "query", partition: "not-partition" }] }),
+      "$functions.messages:list.partition: Invalid partition policy.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({ functions: [{ path: "messages:list", kind: "query", position: "not-position" }] }),
+      "$functions.messages:list.position: Invalid source position.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({
+        functions: [{
+          path: "messages:list",
+          kind: "query",
+          args: { type: "object", value: { body: { optional: false } } },
+        }],
+      }),
+      "Invalid validator metadata: $functions.messages:list.args.value.body.fieldType: Validator is required.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeFunctions({
+        functions: [{
+          path: "messages:list",
+          kind: "query",
+          args: { type: "object", value: { body: undefined } },
+        }],
+      }),
+      "$functions.messages:list.args.value.body: Expected JSON value.",
+    );
+  });
+
   it("normalizes deployment analysis metadata", () => {
     const normalized = validateAnalysis({
       schema: simpleSchema(),
@@ -753,6 +852,33 @@ describe("deployment validation", () => {
             route: { type: "args", field: "otherSlug" },
           }),
         }),
+      "teams:create.partition: partition argument teamSlug must match route argument otherSlug.",
+    );
+  });
+
+  it("exposes typed partition validation failures from deployment analysis", async () => {
+    await expectDeploymentValidationEffectFailure(
+      decodeAnalysis({
+        schema: partitionedSchema(),
+        functions: partitionedFunctions({
+          partition: {
+            type: "partition",
+            table: "missing",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "teamSlug",
+          },
+        }),
+      }),
+      "teams:create.partition: Unknown partition table missing.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeAnalysis({
+        schema: partitionedSchema(),
+        functions: partitionedFunctions({
+          route: { type: "args", field: "otherSlug" },
+        }),
+      }),
       "teams:create.partition: partition argument teamSlug must match route argument otherSlug.",
     );
   });
@@ -1016,6 +1142,42 @@ describe("deployment validation", () => {
     );
   });
 
+  it("exposes typed codegen metadata validation failures", async () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: simpleFunctions(),
+    });
+
+    await expectDeploymentValidationEffectFailure(
+      decodeCodegenAnalysis({
+        schema: simpleSchema(),
+        functions: [{
+          moduleName: "messages",
+          functions: ["not-function"],
+        }],
+      }, analysis),
+      "Codegen function messages[0] must be an object.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodeCodegenAnalysis({
+        schema: simpleSchema(),
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "messages",
+            exportName: "list",
+            kind: "mutation",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          }],
+        }],
+      }, analysis),
+      "Codegen function messages:list must match deployment function metadata.",
+    );
+  });
+
   it("generates codegen analysis from deployment analysis", () => {
     const analysis = validateAnalysis({
       schema: simpleSchema(),
@@ -1198,4 +1360,18 @@ function expectDeploymentValidationFailure(callback: () => unknown, message: str
     }
     expect(cause.message).toBe(message);
   }
+}
+
+async function expectDeploymentValidationEffectFailure(
+  effect: Effect.Effect<unknown, DeploymentValidationError>,
+  message: string,
+): Promise<void> {
+  const failure = await Effect.runPromise(effect.pipe(
+    Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+  ));
+  expect(failure).toBeInstanceOf(DeploymentValidationError);
+  if (!(failure instanceof DeploymentValidationError)) {
+    throw new Error("Expected DeploymentValidationError.");
+  }
+  expect(failure.message).toBe(message);
 }

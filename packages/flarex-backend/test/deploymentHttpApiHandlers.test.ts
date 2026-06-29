@@ -375,6 +375,41 @@ describe("DeploymentApiHandlers", () => {
       {
         sourcePackage: sourcePackage(),
         analysis: {
+          schema: {
+            ...deploymentAnalysis().schema,
+            tables: [{
+              tableId: 1,
+              name: "messages",
+              placement: { kind: "nearby" },
+            }],
+          },
+          functions: deploymentAnalysis().functions,
+        },
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "$schema.tables.messages.placement: Invalid placement.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
+          schema: {
+            ...deploymentAnalysis().schema,
+            tables: [{
+              tableId: 1,
+              name: "messages",
+              placement: { kind: "global" },
+              validator: { type: "array", value: undefined },
+            }],
+          },
+          functions: deploymentAnalysis().functions,
+        },
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "$schema.tables.messages.validator.value: Expected JSON value.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
           schema: deploymentAnalysis().schema,
           functions: {
             functions: [{ path: "messages:list", kind: "query", route: "not-route" }],

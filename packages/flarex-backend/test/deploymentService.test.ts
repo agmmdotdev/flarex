@@ -555,6 +555,103 @@ describe("DeploymentService", () => {
       await typedSchemaRuntime.dispose();
     }
 
+    const typedPlacementStatus = analyzedPushStatus("push-typed-placement-validation-failed");
+    const typedPlacementRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedPlacementStatus,
+          analysis: {
+            schema: {
+              ...typedPlacementStatus.analysis!.schema,
+              tables: [{
+                tableId: 1,
+                name: "messages",
+                placement: { kind: "nearby" },
+              }],
+            },
+            functions: typedPlacementStatus.analysis!.functions,
+          } as unknown as DeploymentAnalysis,
+          codegenAnalysis: {
+            schema: typedPlacementStatus.analysis!.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedPlacementError = await typedPlacementRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedPlacementStatus.pushId,
+            now: 2_412_500,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedPlacementError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedPlacementError.message).toBe("$schema.tables.messages.placement: Invalid placement.");
+    } finally {
+      await typedPlacementRuntime.dispose();
+    }
+
+    const typedValidatorJsonStatus = analyzedPushStatus("push-typed-validator-json-validation-failed");
+    const typedValidatorJsonRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedValidatorJsonStatus,
+          analysis: {
+            schema: {
+              ...typedValidatorJsonStatus.analysis!.schema,
+              tables: [{
+                tableId: 1,
+                name: "messages",
+                placement: { kind: "global" },
+                validator: { type: "array", value: undefined },
+              }],
+            },
+            functions: typedValidatorJsonStatus.analysis!.functions,
+          } as unknown as DeploymentAnalysis,
+          codegenAnalysis: {
+            schema: typedValidatorJsonStatus.analysis!.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedValidatorJsonError = await typedValidatorJsonRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedValidatorJsonStatus.pushId,
+            now: 2_412_750,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedValidatorJsonError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedValidatorJsonError.message).toBe(
+        "Invalid validator metadata: $schema.tables.messages.validator.value: Validator is required.",
+      );
+    } finally {
+      await typedValidatorJsonRuntime.dispose();
+    }
+
     const typedFunctionMetadataStatus = analyzedPushStatus("push-typed-function-metadata-validation-failed");
     const typedFunctionMetadataRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(
