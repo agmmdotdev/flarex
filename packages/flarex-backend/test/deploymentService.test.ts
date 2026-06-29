@@ -478,6 +478,42 @@ describe("DeploymentService", () => {
     } finally {
       await runtime.dispose();
     }
+
+    const typedStatus = analyzedPushStatus("push-typed-validation-failed");
+    const typedRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedStatus,
+          codegenAnalysis: {
+            schema: typedStatus.analysis!.schema,
+            functions: ["not-module"],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedError = await typedRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedStatus.pushId,
+            now: 2_410_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedError.message).toBe("Codegen module at index 0 must be an object.");
+    } finally {
+      await typedRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

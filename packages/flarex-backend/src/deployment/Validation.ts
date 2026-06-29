@@ -504,7 +504,7 @@ export function validateCodegenAnalysis(
   const seenPaths = new Set<string>();
   const modules = codegenAnalysis.functions.map((module, moduleIndex) => {
     if (!isRecord(module)) {
-      throw new HttpError(400, `Codegen module at index ${moduleIndex} must be an object.`);
+      throwDeploymentValidation(`Codegen module at index ${moduleIndex} must be an object.`);
     }
     if (typeof module.moduleName !== "string" || module.moduleName.length === 0) {
       throw new HttpError(400, `Codegen module at index ${moduleIndex} has an invalid moduleName.`);

@@ -314,9 +314,11 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                   return response;
                 }),
               catch: cause =>
-                cause instanceof HttpError && cause.status === 400
-                  ? new DeploymentValidationError({ message: cause.message })
-                  : new DeploymentSqlError({ operation: "finishPush", cause }),
+                cause instanceof DeploymentValidationError
+                  ? cause
+                  : cause instanceof HttpError && cause.status === 400
+                    ? new DeploymentValidationError({ message: cause.message })
+                    : new DeploymentSqlError({ operation: "finishPush", cause }),
             });
           },
         );

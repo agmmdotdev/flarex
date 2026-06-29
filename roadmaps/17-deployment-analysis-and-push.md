@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment Codegen Module Object Validation Typed Error
+
+Previous completed checkpoint: `bad1db8` Type codegen schema validation failures.
+
+What changed:
+
+- `validateCodegenAnalysis(...)` now emits `DeploymentValidationError` instead
+  of raw `HttpError(400)` when a codegen module entry is not an object.
+- Generated start-analyzed handler behavior is unchanged: non-object codegen
+  modules still return `400` with the same message.
+- `DeploymentPushStore.finishPush(...)` preserves already-typed
+  `DeploymentValidationError` from stored codegen validation so corrupt stored
+  codegen remains a finish validation failure rather than a storage failure.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis validation, codegen object validation,
+  codegen schema-mismatch validation, codegen functions-array validation,
+  schema, function metadata, remaining codegen detail validation,
+  abandon/active-deployment behavior, route-boundary JSON/protocol decoders,
+  generated Deployment HttpApi routing, public Worker routes, `DeploymentDO`
+  routing, SQL schema, protocol schemas, scheduler routes, execution routes,
+  executor-http routes, and `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Codegen module entry shape is part of deployment domain validation. Keeping it
+as `HttpError(400)` made the domain layer depend on an adapter-shaped error.
+This checkpoint moves that failure to `DeploymentValidationError` and leaves
+HTTP conversion at the generated handler boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "codegen analysis validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Codegen Schema Mismatch Validation Typed Error
 
 Previous completed checkpoint: `510f891` Type codegen functions validation failures.

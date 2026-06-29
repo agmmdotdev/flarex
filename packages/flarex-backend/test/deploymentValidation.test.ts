@@ -416,6 +416,15 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen analysis functions must be an array.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: ["not-module"],
+        }, analysis),
+      "Codegen module at index 0 must be an object.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {
