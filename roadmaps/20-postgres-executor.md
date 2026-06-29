@@ -1,5 +1,47 @@
 # Postgres Executor
 
+## Executor HTTP Live Query Body Effect Decoders
+
+Previous completed checkpoint: `8d99add` Decode executor invoke bodies with
+Effect.
+
+What changed:
+
+- The remaining executor HTTP live-query and maintenance POST bodies now have
+  exported Effect-returning body decoders.
+- Live-query rerun/delivery maintenance, subscription record/remove, connection
+  touch/remove/cleanup, delivery claim/ack/failure/dead-letter, pending
+  deployment scans, expired connection deployment scans, and stuck delivery
+  scans now use the decoder-based route adapter.
+- Direct decoder tests cover typed success and typed validation failure
+  channels for the migrated live-query/maintenance body group.
+
+Why it changed:
+
+The previous checkpoint moved invoke lifecycle bodies to typed Effect decoders.
+This checkpoint finishes the same executor HTTP request-body migration for the
+remaining trusted-executor POST routes without replacing Elysia or changing
+executor semantics.
+
+Preserved behavior:
+
+- Authorization ordering, not-configured maintenance responses, malformed JSON
+  `400`, validation `400`, executor error mappings, route paths, Elysia app
+  shape, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Executor HTTP Invoke Body Effect Decoders
 
 Previous completed checkpoint: `3675397` Name generated worker JSON failures.

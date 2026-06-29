@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Executor HTTP Live Query Body Effect Decoders
+
+Previous completed checkpoint: `8d99add` Decode executor invoke bodies with
+Effect.
+
+What changed:
+
+- Executor HTTP live-query and maintenance POST bodies now have exported
+  Effect-returning decoders.
+- All remaining live-query executor HTTP handlers now use the decoder-based
+  Effect adapter instead of passing parser unions directly to the route
+  adapter.
+- Direct decoder tests cover typed success and typed validation failure
+  channels before HTTP adapter mapping.
+
+Why it changed:
+
+This completes the executor-http request-body decoder migration begun by the
+invoke lifecycle checkpoint. The trusted executor adapter now has typed JSON
+read, typed body validation, typed executor operation failures, and one HTTP
+mapping edge for all POST body routes.
+
+Known limitations:
+
+- Successful executor-http payload validation still uses the existing
+  compatibility parser logic behind the Effect decoder boundary rather than
+  Effect Schema.
+- Backend Worker/DO route-service hotspots remain separate follow-up work.
+- PartitionDO SQL/OCC behavior and `ValidatorJson` are untouched.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Executor HTTP Invoke Body Effect Decoders
 
 Previous completed checkpoint: `3675397` Name generated worker JSON failures.

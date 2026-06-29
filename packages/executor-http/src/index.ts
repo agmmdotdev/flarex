@@ -536,22 +536,6 @@ export function createFlarexHttpHandler(
   return (request) => app.handle(request);
 }
 
-function handleExecutorHttpBody<A, R extends object>(
-  request: Request,
-  set: ElysiaSet,
-  capabilityToken: string | undefined,
-  parse: ExecutorHttpBodyParser<A>,
-  execute: (input: A) => Promise<R>,
-): Promise<object> {
-  return handleExecutorHttpDecodedBody(
-    request,
-    set,
-    capabilityToken,
-    body => decodeExecutorHttpParsedBody(body, parse),
-    execute,
-  );
-}
-
 function handleExecutorHttpDecodedBody<A, R extends object>(
   request: Request,
   set: ElysiaSet,
@@ -657,6 +641,99 @@ export const decodeInvokeSessionMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeInvokeSessionMaintenanceBody",
 )(
   (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeSessionMaintenanceBody),
+);
+
+export const decodeLiveQueryRerunMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryRerunMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryRerunMaintenanceBody),
+);
+
+export const decodeLiveQueryDeliveryMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryDeliveryMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeliveryMaintenanceBody),
+);
+
+export const decodeLiveQuerySubscriptionRecordBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQuerySubscriptionRecordBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRecordBody),
+);
+
+export const decodeLiveQuerySubscriptionRemoveBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQuerySubscriptionRemoveBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRemoveBody),
+);
+
+export const decodeLiveQueryConnectionTouchBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryConnectionTouchBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryConnectionTouchBody),
+);
+
+export const decodeLiveQuerySubscriptionRemoveConnectionBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQuerySubscriptionRemoveConnectionBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRemoveConnectionBody),
+);
+
+export const decodeLiveQueryConnectionCleanupBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryConnectionCleanupBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryConnectionCleanupBody),
+);
+
+export const decodeLiveQueryClaimMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryClaimMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryClaimMaintenanceBody),
+);
+
+export const decodeLiveQueryAckMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryAckMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryAckMaintenanceBody),
+);
+
+export const decodeLiveQueryFailureMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryFailureMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryFailureMaintenanceBody),
+);
+
+export const decodeLiveQueryDeadLetterMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryDeadLetterMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeadLetterMaintenanceBody),
+);
+
+export const decodeLiveQueryDeadLetterStuckMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryDeadLetterStuckMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeadLetterStuckMaintenanceBody),
+);
+
+export const decodeLiveQueryPendingDeploymentsMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryPendingDeploymentsMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryPendingDeploymentsMaintenanceBody),
+);
+
+export const decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(
+    body,
+    parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
+  ),
+);
+
+export const decodeLiveQueryStuckDeliveriesMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeLiveQueryStuckDeliveriesMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryStuckDeliveriesMaintenanceBody),
 );
 
 async function handleInvokePrepare(
@@ -793,29 +870,35 @@ async function handleLiveQueryRerunMaintenance(
     };
   }
 
-  return handleExecutorHttpBody(request, set, capabilityToken, parseLiveQueryRerunMaintenanceBody, async input => {
-    const result = await executor.rerunStaleLiveQuerySubscriptions({
-      deploymentId: input.deploymentId,
-      ...(input.limit === undefined ? {} : { limit: input.limit }),
-      freshnessStore: config.freshnessStore,
-      ...(config.deliverChanges === undefined
-        ? {}
-        : { deliverChanges: config.deliverChanges }),
-      runQuery: (subscription) =>
-        executor.runLiveQuerySubscriptionWithInvoke({
-          subscription,
-          projectId: input.projectId,
-          executeQuery: config.executeQuery,
-        }),
-    });
-    if (result.changed.length > 0) {
-      await config.notifyDelivery?.({
+  return handleExecutorHttpDecodedBody(
+    request,
+    set,
+    capabilityToken,
+    decodeLiveQueryRerunMaintenanceBody,
+    async input => {
+      const result = await executor.rerunStaleLiveQuerySubscriptions({
         deploymentId: input.deploymentId,
         ...(input.limit === undefined ? {} : { limit: input.limit }),
+        freshnessStore: config.freshnessStore,
+        ...(config.deliverChanges === undefined
+          ? {}
+          : { deliverChanges: config.deliverChanges }),
+        runQuery: (subscription) =>
+          executor.runLiveQuerySubscriptionWithInvoke({
+            subscription,
+            projectId: input.projectId,
+            executeQuery: config.executeQuery,
+          }),
       });
-    }
-    return result;
-  });
+      if (result.changed.length > 0) {
+        await config.notifyDelivery?.({
+          deploymentId: input.deploymentId,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        });
+      }
+      return result;
+    },
+  );
 }
 
 async function handleLiveQueryDeliveryMaintenance(
@@ -836,11 +919,11 @@ async function handleLiveQueryDeliveryMaintenance(
     };
   }
 
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryDeliveryMaintenanceBody,
+    decodeLiveQueryDeliveryMaintenanceBody,
     input => executor.runLiveQueryDeliveryBatch({
       deploymentId: input.deploymentId,
       ...(input.limit === undefined ? {} : { limit: input.limit }),
@@ -855,11 +938,11 @@ async function handleLiveQuerySubscriptionRecord(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQuerySubscriptionRecordBody,
+    decodeLiveQuerySubscriptionRecordBody,
     input => executor.recordLiveQuerySubscription(input),
   );
 }
@@ -870,11 +953,11 @@ async function handleLiveQueryConnectionTouch(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryConnectionTouchBody,
+    decodeLiveQueryConnectionTouchBody,
     input => executor.touchLiveQueryConnection(input),
   );
 }
@@ -885,11 +968,11 @@ async function handleLiveQuerySubscriptionRemove(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQuerySubscriptionRemoveBody,
+    decodeLiveQuerySubscriptionRemoveBody,
     input => executor.removeLiveQuerySubscription(input),
   );
 }
@@ -900,11 +983,11 @@ async function handleLiveQuerySubscriptionRemoveConnection(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQuerySubscriptionRemoveConnectionBody,
+    decodeLiveQuerySubscriptionRemoveConnectionBody,
     input => executor.removeLiveQuerySubscriptionsForConnection(input),
   );
 }
@@ -915,11 +998,11 @@ async function handleLiveQueryConnectionCleanup(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryConnectionCleanupBody,
+    decodeLiveQueryConnectionCleanupBody,
     input => executor.removeExpiredLiveQuerySubscriptions(input),
   );
 }
@@ -930,11 +1013,11 @@ async function handleLiveQueryClaimMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryClaimMaintenanceBody,
+    decodeLiveQueryClaimMaintenanceBody,
     input => executor.claimLiveQueryDeliveryBatch(input),
   );
 }
@@ -945,11 +1028,11 @@ async function handleLiveQueryAckMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryAckMaintenanceBody,
+    decodeLiveQueryAckMaintenanceBody,
     input => executor.ackLiveQueryDeliveries(input),
   );
 }
@@ -960,11 +1043,11 @@ async function handleLiveQueryFailureMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryFailureMaintenanceBody,
+    decodeLiveQueryFailureMaintenanceBody,
     input => executor.recordLiveQueryDeliveryFailure(input),
   );
 }
@@ -975,11 +1058,11 @@ async function handleLiveQueryDeadLetterMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryDeadLetterMaintenanceBody,
+    decodeLiveQueryDeadLetterMaintenanceBody,
     input => executor.markLiveQueryDeliveriesDeadLettered(input),
   );
 }
@@ -990,11 +1073,11 @@ async function handleLiveQueryDeadLetterStuckMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryDeadLetterStuckMaintenanceBody,
+    decodeLiveQueryDeadLetterStuckMaintenanceBody,
     input => executor.deadLetterStuckLiveQueryDeliveries(input),
   );
 }
@@ -1005,11 +1088,11 @@ async function handleLiveQueryPendingDeploymentsMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryPendingDeploymentsMaintenanceBody,
+    decodeLiveQueryPendingDeploymentsMaintenanceBody,
     input => executor.listPendingLiveQueryDeliveryDeployments(input),
   );
 }
@@ -1020,11 +1103,11 @@ async function handleLiveQueryExpiredConnectionDeploymentsMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
+    decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
     input => executor.listExpiredLiveQueryConnectionDeployments(input),
   );
 }
@@ -1035,11 +1118,11 @@ async function handleLiveQueryStuckDeliveriesMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseLiveQueryStuckDeliveriesMaintenanceBody,
+    decodeLiveQueryStuckDeliveriesMaintenanceBody,
     input => executor.listStuckLiveQueryDeliveries(input),
   );
 }

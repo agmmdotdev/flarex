@@ -52,6 +52,21 @@ import {
   decodeInvokeFinishBody,
   decodeInvokeSessionMaintenanceBody,
   decodeInvokeSyscallBody,
+  decodeLiveQueryAckMaintenanceBody,
+  decodeLiveQueryClaimMaintenanceBody,
+  decodeLiveQueryConnectionCleanupBody,
+  decodeLiveQueryConnectionTouchBody,
+  decodeLiveQueryDeadLetterMaintenanceBody,
+  decodeLiveQueryDeadLetterStuckMaintenanceBody,
+  decodeLiveQueryDeliveryMaintenanceBody,
+  decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
+  decodeLiveQueryFailureMaintenanceBody,
+  decodeLiveQueryPendingDeploymentsMaintenanceBody,
+  decodeLiveQueryRerunMaintenanceBody,
+  decodeLiveQueryStuckDeliveriesMaintenanceBody,
+  decodeLiveQuerySubscriptionRecordBody,
+  decodeLiveQuerySubscriptionRemoveBody,
+  decodeLiveQuerySubscriptionRemoveConnectionBody,
   decodePrepareInvokeBody,
   ExecutorHttpBodyValidationError,
 } from "../src";
@@ -171,6 +186,249 @@ describe("executor HTTP invoke body decoders", () => {
     expect(failure.body).toEqual({
       error: "bad_request",
       message: "value must be a JSON value.",
+    });
+  });
+});
+
+describe("executor HTTP live query body decoders", () => {
+  it("decodes live query and maintenance bodies through typed Effect boundaries", async () => {
+    await expect(Effect.runPromise(decodeLiveQueryRerunMaintenanceBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      limit: 2,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      limit: 2,
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryDeliveryMaintenanceBody({
+      deploymentId: "deployment_active",
+      limit: 5,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      limit: 5,
+    });
+
+    await expect(Effect.runPromise(decodeLiveQuerySubscriptionRecordBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      queryId: 7,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: null,
+      beginTs: 12,
+      readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
+      resultJson: ["fresh"],
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      queryId: 7,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      partitionKey: null,
+      beginTs: 12,
+      readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
+      resultJson: ["fresh"],
+      updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+    });
+
+    await expect(Effect.runPromise(decodeLiveQuerySubscriptionRemoveBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      queryId: 7,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      queryId: 7,
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryConnectionTouchBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      leaseDurationMs: 45000,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+      leaseDurationMs: 45000,
+    });
+
+    await expect(Effect.runPromise(decodeLiveQuerySubscriptionRemoveConnectionBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      connectionId: "connection_a",
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryConnectionCleanupBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      expiredAt: "2026-06-23T00:02:00.000Z",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      expiredAt: new Date("2026-06-23T00:02:00.000Z"),
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryClaimMaintenanceBody({
+      deploymentId: "deployment_active",
+      limit: 2,
+      leaseDurationMs: 30000,
+      claimOwner: "delivery-worker",
+      cursor: {
+        createdAt: "2026-06-21T00:00:00.000Z",
+        deliveryId: "delivery_1",
+      },
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      limit: 2,
+      leaseDurationMs: 30000,
+      claimOwner: "delivery-worker",
+      cursor: {
+        createdAt: new Date("2026-06-21T00:00:00.000Z"),
+        deliveryId: "delivery_1",
+      },
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryAckMaintenanceBody({
+      deploymentId: "deployment_active",
+      deliveryIds: ["delivery_1"],
+      deliveredAt: "2026-06-21T00:00:01.000Z",
+      claimOwner: "delivery-worker",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      deliveryIds: ["delivery_1"],
+      deliveredAt: new Date("2026-06-21T00:00:01.000Z"),
+      claimOwner: "delivery-worker",
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryFailureMaintenanceBody({
+      deploymentId: "deployment_active",
+      deliveryIds: ["delivery_1"],
+      stage: "fanout",
+      error: "ConnectionDO failed",
+      failedAt: "2026-06-21T00:00:02.000Z",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      deliveryIds: ["delivery_1"],
+      stage: "fanout",
+      error: "ConnectionDO failed",
+      failedAt: new Date("2026-06-21T00:00:02.000Z"),
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryDeadLetterMaintenanceBody({
+      deploymentId: "deployment_dead",
+      deliveryIds: ["delivery_dead"],
+      reason: "force reconnect",
+      deadLetteredAt: "2026-06-21T00:10:00.000Z",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_dead",
+      deliveryIds: ["delivery_dead"],
+      reason: "force reconnect",
+      deadLetteredAt: new Date("2026-06-21T00:10:00.000Z"),
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryDeadLetterStuckMaintenanceBody({
+      deploymentId: "deployment_stuck",
+      olderThan: "2026-06-21T00:05:00.000Z",
+      minAttempts: 3,
+      limit: 10,
+      reason: "force reconnect",
+      deadLetteredAt: "2026-06-21T00:10:00.000Z",
+      cursor: {
+        lastAttemptedAt: "2026-06-20T00:00:00.000Z",
+        deploymentId: "deployment_before",
+        deliveryId: "delivery_before",
+      },
+    }))).resolves.toEqual({
+      deploymentId: "deployment_stuck",
+      olderThan: new Date("2026-06-21T00:05:00.000Z"),
+      minAttempts: 3,
+      limit: 10,
+      reason: "force reconnect",
+      deadLetteredAt: new Date("2026-06-21T00:10:00.000Z"),
+      cursor: {
+        lastAttemptedAt: new Date("2026-06-20T00:00:00.000Z"),
+        deploymentId: "deployment_before",
+        deliveryId: "delivery_before",
+      },
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryPendingDeploymentsMaintenanceBody({
+      limit: 2,
+      cursor: {
+        oldestCreatedAt: "2026-06-20T00:00:00.000Z",
+        deploymentId: "deployment_before",
+      },
+    }))).resolves.toEqual({
+      limit: 2,
+      cursor: {
+        oldestCreatedAt: new Date("2026-06-20T00:00:00.000Z"),
+        deploymentId: "deployment_before",
+      },
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody({
+      expiredAt: "2026-06-23T00:02:00.000Z",
+      limit: 5,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:00.000Z",
+        deploymentId: "deployment_before",
+      },
+    }))).resolves.toEqual({
+      expiredAt: new Date("2026-06-23T00:02:00.000Z"),
+      limit: 5,
+      cursor: {
+        oldestExpiredAt: new Date("2026-06-23T00:00:00.000Z"),
+        deploymentId: "deployment_before",
+      },
+    });
+
+    await expect(Effect.runPromise(decodeLiveQueryStuckDeliveriesMaintenanceBody({
+      deploymentId: "deployment_stuck",
+      olderThan: "2026-06-21T00:05:00.000Z",
+      minAttempts: 2,
+      limit: 1,
+      cursor: {
+        lastAttemptedAt: "2026-06-20T00:00:00.000Z",
+        deploymentId: "deployment_before",
+        deliveryId: "delivery_before",
+      },
+    }))).resolves.toEqual({
+      deploymentId: "deployment_stuck",
+      olderThan: new Date("2026-06-21T00:05:00.000Z"),
+      minAttempts: 2,
+      limit: 1,
+      cursor: {
+        lastAttemptedAt: new Date("2026-06-20T00:00:00.000Z"),
+        deploymentId: "deployment_before",
+        deliveryId: "delivery_before",
+      },
+    });
+  });
+
+  it("returns typed live query body validation failures", async () => {
+    const failure = await Effect.runPromise(
+      decodeLiveQueryClaimMaintenanceBody({
+        deploymentId: "deployment_active",
+        limit: 0,
+      }).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(ExecutorHttpBodyValidationError);
+    expect(failure.body).toEqual({
+      error: "bad_request",
+      message: "limit must be a positive integer.",
     });
   });
 });
