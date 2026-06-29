@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import {
   createExecutionArtifactRuntimeService,
   type ExecutionArtifactMaterializer,
@@ -23,7 +24,9 @@ import {
 } from "../src/generate";
 import {
   createMaterializedArtifactLiveQueryExecutionHost,
+  decodeMaterializedArtifactResponse,
   LocalMiniflareExecutionArtifactMaterializer,
+  MaterializedArtifactResponseError,
 } from "../src/runtimeMaterializer";
 import type { PushSourcePackage } from "flarex-backend/types";
 import type {
@@ -39,6 +42,39 @@ describe("runtime materializer", () => {
 
   afterAll(async () => {
     await Promise.all(harnesses.map(harness => harness.dispose()));
+  });
+
+  it("decodes materialized artifact responses through typed Effect failures", async () => {
+    await expect(Effect.runPromise(
+      decodeMaterializedArtifactResponse<{ value: { ok: true } }>(
+        Response.json({ value: { ok: true } }),
+        "Materialized execution artifact failed",
+      ),
+    )).resolves.toEqual({ value: { ok: true } });
+
+    await expect(Effect.runPromise(
+      decodeMaterializedArtifactResponse(
+        Response.json({ error: "artifact failed" }, { status: 409 }),
+        "Materialized execution artifact failed",
+      ),
+    )).rejects.toMatchObject({
+      _tag: "MaterializedArtifactResponseError",
+      status: 409,
+      message: "artifact failed",
+      body: { error: "artifact failed" },
+    } satisfies Partial<MaterializedArtifactResponseError>);
+
+    await expect(Effect.runPromise(
+      decodeMaterializedArtifactResponse(
+        new Response("not json", { status: 502 }),
+        "Materialized execution artifact failed",
+      ),
+    )).rejects.toMatchObject({
+      _tag: "MaterializedArtifactResponseError",
+      status: 502,
+      message: "Materialized execution artifact failed with status 502",
+      body: null,
+    } satisfies Partial<MaterializedArtifactResponseError>);
   });
 
   it("materializes a stored source package and invokes it through backend sessions", async () => {

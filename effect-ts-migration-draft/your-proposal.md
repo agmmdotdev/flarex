@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `425de44` Route flarex dev bodies through Effect.
-- Active checkpoint: route generated RegistryDO and DeploymentDO HttpApi request builders through named Effect decoders at the Durable Object fetch edge, preserving generated HttpApi handlers and existing HTTP error mapping.
+- Previous completed checkpoint: `92df423` Route generated HttpApi requests through Effect.
+- Active checkpoint: route `flarex-dev` materialized execution artifact response parsing through a named Effect decoder with typed integration failures, preserving public `Error & { status }` adapter behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current generated HttpApi adapter checkpoint:
+Next recommended checkpoint after the current materialized artifact response checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current generated HttpApi adapter checkpoi
    separate from adapter-edge refactors until each has dedicated parity
    coverage.
 
-Current Goal 148 slice:
+Current Goal 149 slice:
+
+1. Add a typed `MaterializedArtifactResponseError` and named Effect decoder for materialized execution artifact HTTP responses in `flarex-dev`.
+2. Route both `LocalMiniflareMaterializedExecutionArtifact.invoke(...)` and `executeQuerySession(...)` through that decoder instead of duplicating `response.json().catch(() => null)` and ad hoc status error construction.
+3. Preserve public behavior: successful responses still return parsed JSON, non-OK responses still throw `Error & { status }` with the same message precedence, and generated runtime-worker source remains unchanged.
+4. Add direct typed decoder tests for successful JSON, structured error JSON, and non-JSON error responses.
+5. Validate with focused runtime materializer coverage, `flarex-dev` typecheck/test/build, backend/protocol gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 148 slice:
 
 1. Add named Effect request builders for `RegistryDO` and `DeploymentDO` generated HttpApi routes so read routes pass through unchanged and mutation routes decode/canonicalize bodies through existing typed route decoders.
 2. Convert `RegistryDO.fetch()` and `DeploymentDO.fetch()` to run those builders at the Durable Object adapter edge instead of calling Promise compatibility request builders.

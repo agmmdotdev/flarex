@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Materialized Artifact Response Effect Decoder
+
+Previous completed checkpoint: `92df423` Route generated HttpApi requests
+through Effect.
+
+What changed:
+
+- Added `decodeMaterializedArtifactResponse(...)`, a named Effect decoder for
+  local materialized artifact HTTP responses.
+- Non-OK responses now use typed `MaterializedArtifactResponseError` before
+  being mapped to the existing status-bearing public Error.
+- Added tests for success, structured error JSON, and malformed error-body
+  JSON.
+
+Why it changed:
+
+The local artifact adapter is a runtime JSON boundary. Keeping response
+decoding in one typed Effect helper reduces duplicated unchecked parsing and
+keeps integration failures explicit.
+
+Convex references inspected:
+
+- None in this checkpoint. This is local Flarex runtime adapter behavior.
+
+Known limitations:
+
+- Successful response payloads are still trusted as the existing runtime
+  contract; this checkpoint only typed the integration failure boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Generated HttpApi Request Builder Effect Boundary
 
 Previous completed checkpoint: `425de44` Route flarex dev bodies through

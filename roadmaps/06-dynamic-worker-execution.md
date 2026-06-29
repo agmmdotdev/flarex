@@ -1,5 +1,50 @@
 # Dynamic Worker Execution
 
+## Materialized Artifact Response Effect Boundary
+
+Previous completed checkpoint: `92df423` Route generated HttpApi requests
+through Effect.
+
+What changed:
+
+- The local Miniflare materialized execution artifact client now parses invoke
+  and query-session responses through one named Effect decoder.
+- Artifact response failures are represented as typed
+  `MaterializedArtifactResponseError` values at the integration boundary.
+- The public local artifact methods still throw the same status-bearing Error
+  shape after adapter conversion.
+
+Why it changed:
+
+Dynamic Worker execution uses materialized artifacts as the local stand-in for
+deployed execution artifacts. Response parsing is an integration boundary, so
+it should emit a typed Effect failure before local API compatibility mapping.
+
+Convex references inspected:
+
+- None in this checkpoint. The materialized Dynamic Worker artifact flow is a
+  Cloudflare-specific execution boundary.
+
+Known limitations:
+
+- This does not change generated worker source request parsing, function
+  execution, retry behavior, or backend session semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## ExecutionDO Effect Route Adapters
 
 Previous completed checkpoint: `0974955` Route scheduler fetch edges through

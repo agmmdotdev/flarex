@@ -1,5 +1,53 @@
 # Local Dev Server
 
+## Materialized Artifact Response Effect Boundary
+
+Previous completed checkpoint: `92df423` Route generated HttpApi requests
+through Effect.
+
+What changed:
+
+- Local materialized execution artifact invocation now decodes artifact HTTP
+  responses through a named Effect helper.
+- Non-OK invoke and query-session responses become typed
+  `MaterializedArtifactResponseError` values before the local adapter maps them
+  back to the existing public `Error & { status }` shape.
+- Added direct tests for successful JSON, structured error JSON, and non-JSON
+  error responses.
+
+Why it changed:
+
+The local materialized artifact client had duplicated
+`response.json().catch(() => null)` and ad hoc status-error construction in
+both invoke paths. Moving this into one typed Effect boundary continues the
+migration from duplicated promise/try-catch edges to typed integration
+failures.
+
+Convex references inspected:
+
+- None in this checkpoint. This is Flarex local Miniflare artifact adapter
+  plumbing around the Cloudflare execution artifact model.
+
+Known limitations:
+
+- The generated runtime-worker source still reads its internal request bodies
+  directly. That generated-source boundary remains a separate migration target.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Local Dev Effect Request Boundaries
 
 Previous completed checkpoint: `4aa94cb` Route partition fetch edges through

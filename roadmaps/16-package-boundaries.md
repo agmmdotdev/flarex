@@ -1,5 +1,49 @@
 # Package Boundaries
 
+## Materialized Artifact Response Boundary
+
+Previous completed checkpoint: `92df423` Route generated HttpApi requests
+through Effect.
+
+What changed:
+
+- `flarex-dev` now exposes a package-local typed Effect decoder for
+  materialized execution artifact responses.
+- `LocalMiniflareMaterializedExecutionArtifact` uses that decoder for invoke
+  and query-session responses, then maps typed failures back to the legacy
+  status-bearing Error shape expected by callers.
+
+Boundary decision:
+
+The response decoder belongs in `flarex-dev` because it is specific to the
+local Miniflare artifact adapter. Backend artifact runtime contracts and
+generated execution worker source remain in `flarex-backend` and generated
+worker code respectively.
+
+Convex references inspected:
+
+- None in this checkpoint. This is Flarex local artifact adapter wiring.
+
+Known limitations:
+
+- This does not validate successful artifact response payload schemas yet.
+  It preserves existing casts and only types the integration failure channel.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Generated HttpApi Effect Request Builders
 
 Previous completed checkpoint: `425de44` Route flarex dev bodies through

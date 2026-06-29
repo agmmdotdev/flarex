@@ -1,4 +1,5 @@
 import { Miniflare } from "miniflare";
+import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
 import type {
   ExecutionArtifactQuerySessionRequest,
@@ -24,6 +25,18 @@ export type MaterializedArtifactLiveQueryExecutionHostOptions = {
   artifact: MaterializedExecutionArtifact;
   payload: MaterializedExecutionArtifactPayload;
   projectId?: string;
+};
+
+export class MaterializedArtifactResponseError extends Data.TaggedError("MaterializedArtifactResponseError")<{
+  readonly status: number;
+  readonly message: string;
+  readonly body: unknown;
+}> {}
+
+export type MaterializedArtifactHttpResponse = {
+  readonly ok: boolean;
+  readonly status: number;
+  json(): Promise<unknown>;
 };
 
 export function createMaterializedArtifactLiveQueryExecutionHost(
@@ -134,17 +147,14 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         }),
       },
     );
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      const message =
-        typeof body === "object" && body !== null && "error" in body
-          ? String((body as { error: unknown }).error)
-          : `Materialized execution artifact failed with status ${response.status}`;
-      const error = new Error(message) as Error & { status?: number };
-      error.status = response.status;
-      throw error;
-    }
-    return body as InvokeResponse;
+    return await Effect.runPromise(
+      decodeMaterializedArtifactResponse<InvokeResponse>(
+        response,
+        "Materialized execution artifact failed",
+      ).pipe(
+        Effect.mapError(materializedArtifactResponseErrorToError),
+      ),
+    );
   }
 
   async executeQuerySession(
@@ -166,22 +176,59 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         body: JSON.stringify(input),
       },
     );
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      const message =
-        typeof body === "object" && body !== null && "error" in body
-          ? String((body as { error: unknown }).error)
-          : `Materialized execution artifact failed with status ${response.status}`;
-      const error = new Error(message) as Error & { status?: number };
-      error.status = response.status;
-      throw error;
-    }
-    return body as Json;
+    return await Effect.runPromise(
+      decodeMaterializedArtifactResponse<Json>(
+        response,
+        "Materialized execution artifact failed",
+      ).pipe(
+        Effect.mapError(materializedArtifactResponseErrorToError),
+      ),
+    );
   }
 
   async dispose(): Promise<void> {
     await this.artifact.dispose();
   }
+}
+
+export const decodeMaterializedArtifactResponse = Effect.fn(
+  "LocalMiniflareMaterializedExecutionArtifact.decodeResponse",
+)(
+  function* <A>(response: MaterializedArtifactHttpResponse, fallbackMessage: string) {
+    const body = yield* readMaterializedArtifactResponseJson(response);
+    if (!response.ok) {
+      return yield* Effect.fail(new MaterializedArtifactResponseError({
+        status: response.status,
+        message: materializedArtifactErrorMessage(body, fallbackMessage, response.status),
+        body,
+      }));
+    }
+    return body as A;
+  },
+);
+
+function readMaterializedArtifactResponseJson(
+  response: MaterializedArtifactHttpResponse,
+): Effect.Effect<unknown> {
+  return Effect.promise(() => response.json().catch(() => null));
+}
+
+function materializedArtifactErrorMessage(
+  body: unknown,
+  fallbackMessage: string,
+  status: number,
+): string {
+  return typeof body === "object" && body !== null && "error" in body
+    ? String((body as { error: unknown }).error)
+    : `${fallbackMessage} with status ${status}`;
+}
+
+function materializedArtifactResponseErrorToError(
+  error: MaterializedArtifactResponseError,
+): Error & { status?: number } {
+  const legacy = new Error(error.message) as Error & { status?: number };
+  legacy.status = error.status;
+  return legacy;
 }
 
 function runtimeWorkerSource(executionModule: string): string {
