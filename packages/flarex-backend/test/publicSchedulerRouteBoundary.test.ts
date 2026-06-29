@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { Effect } from "effect";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodePublicSchedulerCleanupConnectionsRequest,
+  decodePublicSchedulerConnectionReconcileRequest,
+  decodePublicSchedulerDeadLetterDeliveriesRequest,
+  decodePublicSchedulerDeliveryReconcileRequest,
+  decodePublicSchedulerRerunSubscriptionsRequest,
+  decodePublicSchedulerTriggerSubscriptionsRequest,
   parsePublicSchedulerCleanupConnectionsRequest,
   parsePublicSchedulerConnectionReconcileRequest,
   parsePublicSchedulerDeadLetterDeliveriesRequest,
@@ -13,7 +20,9 @@ import {
   readPublicSchedulerDeliveryReconcileRequest,
   readPublicSchedulerRerunSubscriptionsRequest,
   readPublicSchedulerTriggerSubscriptionsRequest,
+  publicSchedulerRouteErrorToHttpError,
 } from "../src/scheduler/PublicRouteBoundary";
+import { SchedulerRouteValidationError } from "../src/scheduler/RouteBoundary";
 import type { Env } from "../src/types";
 
 describe("public scheduler route boundary", () => {
@@ -344,6 +353,85 @@ describe("public scheduler route boundary", () => {
     ))).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("exposes typed public scheduler decoder failures", async () => {
+    await expect(Effect.runPromise(decodePublicSchedulerDeliveryReconcileRequest(jsonRequest({
+      limit: 5,
+    })))).resolves.toEqual({ limit: 5 });
+
+    await expect(Effect.runPromise(decodePublicSchedulerConnectionReconcileRequest(jsonRequest(
+      {
+        cursor: {
+          oldestExpiredAt: "not a date",
+          deploymentId: "deployment-a",
+        },
+      },
+      "/scheduler/live-query-connections/reconcile",
+    )))).rejects.toMatchObject({
+      _tag: "SchedulerRouteValidationError",
+      message: "cursor.oldestExpiredAt must be an ISO date string.",
+    });
+
+    await expect(Effect.runPromise(decodePublicSchedulerDeadLetterDeliveriesRequest(jsonRequest(
+      null,
+      "/scheduler/live-query-deliveries/dead-letter",
+    )))).rejects.toMatchObject({
+      _tag: "SchedulerRouteValidationError",
+      message: "Dead-letter request body must be an object.",
+    });
+
+    await expect(Effect.runPromise(decodePublicSchedulerCleanupConnectionsRequest(jsonRequest(
+      { deploymentId: "deployment-a" },
+      "/scheduler/live-query-connections/cleanup",
+    ), { FLAREX_PROJECT_ID: "" } as Env))).rejects.toMatchObject({
+      _tag: "SchedulerRouteValidationError",
+      message: "projectId is required when FLAREX_PROJECT_ID is not configured.",
+    });
+
+    await expect(Effect.runPromise(decodePublicSchedulerRerunSubscriptionsRequest(jsonRequest(
+      { deploymentId: "", limit: 1 },
+      "/scheduler/live-query-subscriptions/rerun",
+    )))).rejects.toMatchObject({
+      _tag: "SchedulerRouteValidationError",
+      message: "deploymentId must be a non-empty string.",
+    });
+
+    await expect(Effect.runPromise(decodePublicSchedulerTriggerSubscriptionsRequest(jsonRequest(
+      { deploymentId: "deployment-a", deliveryLimit: 0 },
+      "/scheduler/live-query-subscriptions/trigger",
+    )))).rejects.toMatchObject({
+      _tag: "SchedulerRouteValidationError",
+      message: "deliveryLimit must be a positive integer.",
+    });
+
+    await expect(Effect.runPromise(decodePublicSchedulerDeliveryReconcileRequest(new Request(
+      "https://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed public scheduler route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(publicSchedulerRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new SchedulerRouteValidationError({
+      message: "deploymentId must be a non-empty string.",
+    });
+    expect(publicSchedulerRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "deploymentId must be a non-empty string.",
     });
   });
 });

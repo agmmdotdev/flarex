@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
-- Active checkpoint: convert the public Worker invoke routes to an explicit Effect boundary using `decodePublicInvokeRouteRequest(...)`, while preserving deployment-id resolution and public HTTP response semantics.
+- Previous completed checkpoint: `2cfd89b` Route public invoke through Effect.
+- Active checkpoint: convert the public scheduler maintenance routes to explicit Effect boundaries using typed scheduler request decoders, while preserving public auth, `SchedulerDO` forwarding, default values, and JSON/validation HTTP response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 135 slice:
+Current Goal 136 slice:
+
+1. Add Effect-returning scheduler route decoders for delivery reconciliation, connection reconciliation, dead-letter delivery maintenance, connection cleanup, rerun subscriptions, and trigger subscriptions while keeping existing throwing parsers and `read*` Promise wrappers for compatibility.
+2. Model scheduler request-shape failures as `SchedulerRouteValidationError` and keep malformed JSON as the shared `RequestJsonError`.
+3. Export public scheduler Effect decoders and route all public Worker scheduler maintenance endpoints through `Effect.fn` helpers that decode, then forward the normalized body to `SchedulerDO`.
+4. Preserve public response semantics: malformed JSON and invalid scheduler bodies still map to `400`, cleanup requests still resolve `projectId` from request or `FLAREX_PROJECT_ID`, and scheduler trigger remains an alias for the rerun internal path.
+5. Keep deployment push routes, public invoke behavior, execution routes, partition routes, delivery routes, artifact runtime routes, deployment service/store behavior, SQL schema, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused scheduler/public scheduler route-boundary tests, Worker scheduler forwarding coverage as available, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 135 slice:
 
 1. Export the public invoke route error mapper so Worker adapter code can reuse the same JSON/protocol-to-HTTP conversion as the compatibility reader.
 2. Route both public invoke entrypoints (`/invoke` and `/deployments/:deploymentId/invoke`) through one `Effect.fn` helper that decodes with `decodePublicInvokeRouteRequest(...)`, resolves deployment id from route/header/body in the existing precedence order, and delegates to the existing invoke runtime.

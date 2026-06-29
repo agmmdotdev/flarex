@@ -65,12 +65,13 @@ import {
 } from "./routing";
 import { SchedulerDO } from "./schedulerDO";
 import {
-  readPublicSchedulerCleanupConnectionsRequest,
-  readPublicSchedulerConnectionReconcileRequest,
-  readPublicSchedulerDeadLetterDeliveriesRequest,
-  readPublicSchedulerDeliveryReconcileRequest,
-  readPublicSchedulerRerunSubscriptionsRequest,
-  readPublicSchedulerTriggerSubscriptionsRequest,
+  decodePublicSchedulerCleanupConnectionsRequest,
+  decodePublicSchedulerConnectionReconcileRequest,
+  decodePublicSchedulerDeadLetterDeliveriesRequest,
+  decodePublicSchedulerDeliveryReconcileRequest,
+  decodePublicSchedulerRerunSubscriptionsRequest,
+  decodePublicSchedulerTriggerSubscriptionsRequest,
+  publicSchedulerRouteErrorToHttpError,
 } from "./scheduler/PublicRouteBoundary";
 import {
   LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
@@ -159,11 +160,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerDeliveryReconcileRequest(request);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries,
+    return await Effect.runPromise(
+      routePublicSchedulerDeliveryReconcile(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -172,11 +172,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerConnectionReconcileRequest(request);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections,
+    return await Effect.runPromise(
+      routePublicSchedulerConnectionReconcile(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -185,11 +184,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerDeadLetterDeliveriesRequest(request);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries,
+    return await Effect.runPromise(
+      routePublicSchedulerDeadLetterDeliveries(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -198,11 +196,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerCleanupConnectionsRequest(request, env);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections,
+    return await Effect.runPromise(
+      routePublicSchedulerCleanupConnections(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -211,11 +208,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerRerunSubscriptionsRequest(request);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+    return await Effect.runPromise(
+      routePublicSchedulerRerunSubscriptions(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -224,11 +220,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     request.method === "POST"
   ) {
     authorizeLiveQueryDeliveryRequest(request, env);
-    const body = await readPublicSchedulerTriggerSubscriptionsRequest(request);
-    return forwardLiveQuerySchedulerBody(
-      body,
-      env,
-      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+    return await Effect.runPromise(
+      routePublicSchedulerTriggerSubscriptions(request, env).pipe(
+        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+      ),
     );
   }
 
@@ -293,6 +288,60 @@ async function forwardLiveQuerySchedulerBody(
       body: JSON.stringify(body),
     });
 }
+
+const routePublicSchedulerDeliveryReconcile = Effect.fn("Worker.routePublicSchedulerDeliveryReconcile")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerDeliveryReconcileRequest(request);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries)
+    );
+  },
+);
+
+const routePublicSchedulerConnectionReconcile = Effect.fn("Worker.routePublicSchedulerConnectionReconcile")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerConnectionReconcileRequest(request);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections)
+    );
+  },
+);
+
+const routePublicSchedulerDeadLetterDeliveries = Effect.fn("Worker.routePublicSchedulerDeadLetterDeliveries")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerDeadLetterDeliveriesRequest(request);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries)
+    );
+  },
+);
+
+const routePublicSchedulerCleanupConnections = Effect.fn("Worker.routePublicSchedulerCleanupConnections")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerCleanupConnectionsRequest(request, env);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections)
+    );
+  },
+);
+
+const routePublicSchedulerRerunSubscriptions = Effect.fn("Worker.routePublicSchedulerRerunSubscriptions")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerRerunSubscriptionsRequest(request);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
+    );
+  },
+);
+
+const routePublicSchedulerTriggerSubscriptions = Effect.fn("Worker.routePublicSchedulerTriggerSubscriptions")(
+  function* (request: Request, env: Env) {
+    const body = yield* decodePublicSchedulerTriggerSubscriptionsRequest(request);
+    return yield* Effect.promise(() =>
+      forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
+    );
+  },
+);
 
 async function routeDeploymentPush(
   request: Request,

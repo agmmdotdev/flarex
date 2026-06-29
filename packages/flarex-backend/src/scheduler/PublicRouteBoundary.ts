@@ -1,4 +1,9 @@
 import {
+  decodeSchedulerCleanupConnectionsRequest,
+  decodeSchedulerConnectionReconcileRequest,
+  decodeSchedulerDeadLetterDeliveriesRequest,
+  decodeSchedulerDeliveryReconcileRequest,
+  decodeSchedulerRerunSubscriptionsRequest,
   parseSchedulerCleanupConnectionsRequest,
   parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeadLetterDeliveriesRequest,
@@ -13,14 +18,24 @@ import {
   type SchedulerConnectionReconcileRequest,
   type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
+  type SchedulerRouteError,
   type SchedulerRerunSubscriptionsRequest,
+  schedulerRouteErrorToHttpError,
 } from "./RouteBoundary";
+import type { Effect } from "effect";
+import type { HttpError } from "../http";
 import type { Env } from "../types";
 
 export async function readPublicSchedulerDeliveryReconcileRequest(
   request: Request,
 ): Promise<SchedulerDeliveryReconcileRequest> {
   return readSchedulerDeliveryReconcileRequest(request);
+}
+
+export function decodePublicSchedulerDeliveryReconcileRequest(
+  request: Request,
+): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
+  return decodeSchedulerDeliveryReconcileRequest(request);
 }
 
 export function parsePublicSchedulerDeliveryReconcileRequest(
@@ -35,6 +50,12 @@ export async function readPublicSchedulerConnectionReconcileRequest(
   return readSchedulerConnectionReconcileRequest(request);
 }
 
+export function decodePublicSchedulerConnectionReconcileRequest(
+  request: Request,
+): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
+  return decodeSchedulerConnectionReconcileRequest(request);
+}
+
 export function parsePublicSchedulerConnectionReconcileRequest(
   value: unknown,
 ): SchedulerConnectionReconcileRequest {
@@ -45,6 +66,12 @@ export async function readPublicSchedulerDeadLetterDeliveriesRequest(
   request: Request,
 ): Promise<SchedulerDeadLetterDeliveriesRequest> {
   return readSchedulerDeadLetterDeliveriesRequest(request);
+}
+
+export function decodePublicSchedulerDeadLetterDeliveriesRequest(
+  request: Request,
+): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
+  return decodeSchedulerDeadLetterDeliveriesRequest(request);
 }
 
 export function parsePublicSchedulerDeadLetterDeliveriesRequest(
@@ -60,6 +87,13 @@ export async function readPublicSchedulerCleanupConnectionsRequest(
   return readSchedulerCleanupConnectionsRequest(request, env);
 }
 
+export function decodePublicSchedulerCleanupConnectionsRequest(
+  request: Request,
+  env: Env,
+): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
+  return decodeSchedulerCleanupConnectionsRequest(request, env);
+}
+
 export function parsePublicSchedulerCleanupConnectionsRequest(
   value: unknown,
   env: Env,
@@ -71,6 +105,12 @@ export async function readPublicSchedulerRerunSubscriptionsRequest(
   request: Request,
 ): Promise<SchedulerRerunSubscriptionsRequest> {
   return readSchedulerRerunSubscriptionsRequest(request);
+}
+
+export function decodePublicSchedulerRerunSubscriptionsRequest(
+  request: Request,
+): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
+  return decodeSchedulerRerunSubscriptionsRequest(request);
 }
 
 export function parsePublicSchedulerRerunSubscriptionsRequest(
@@ -85,8 +125,18 @@ export async function readPublicSchedulerTriggerSubscriptionsRequest(
   return readSchedulerRerunSubscriptionsRequest(request);
 }
 
+export function decodePublicSchedulerTriggerSubscriptionsRequest(
+  request: Request,
+): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
+  return decodeSchedulerRerunSubscriptionsRequest(request);
+}
+
 export function parsePublicSchedulerTriggerSubscriptionsRequest(
   value: unknown,
 ): SchedulerRerunSubscriptionsRequest {
   return parseSchedulerRerunSubscriptionsRequest(value);
+}
+
+export function publicSchedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
+  return schedulerRouteErrorToHttpError(error);
 }

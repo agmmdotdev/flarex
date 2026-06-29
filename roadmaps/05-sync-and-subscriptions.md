@@ -1,5 +1,49 @@
 # Sync And Subscriptions
 
+## Scheduler Route Effect Boundary
+
+Current Effect migration checkpoint: public and internal scheduler
+maintenance route bodies are moving to typed Effect decoders.
+
+What is changing:
+
+- `packages/flarex-backend/src/scheduler/RouteBoundary.ts` now exposes
+  Effect-returning decoders for delivery reconciliation, connection
+  reconciliation, dead-letter delivery maintenance, connection cleanup, and
+  live-query subscription rerun bodies.
+- `packages/flarex-backend/src/scheduler/PublicRouteBoundary.ts` re-exports
+  public Effect decoders and the scheduler route error-to-HTTP adapter.
+- `packages/flarex-backend/src/worker.ts` routes public scheduler maintenance
+  endpoints through `Effect.fn` helpers before forwarding to `SchedulerDO`.
+
+Why it is changing:
+
+The scheduler routes are transport boundaries with repeated JSON/body parsing.
+This checkpoint keeps existing compatibility readers while making the migrated
+Worker path prefer typed JSON and validation failures before the final HTTP
+adapter mapping.
+
+Preserved behavior:
+
+- Malformed JSON still maps to `400` with the shared JSON-body message.
+- Invalid scheduler request bodies still map to `400` with the existing field
+  validation messages.
+- Cleanup requests still resolve `projectId` from the body or
+  `FLAREX_PROJECT_ID`.
+- The public trigger-subscriptions route still forwards to the same internal
+  rerun path.
+
+Verification plan:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Packed Consumer Postgres Subscription
 
 Previous completed checkpoint: `9b0486f` Cover packed test SDK Postgres invoke

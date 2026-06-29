@@ -1,16 +1,25 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeSchedulerCleanupConnectionsRequest,
+  decodeSchedulerConnectionReconcileRequest,
+  decodeSchedulerDeadLetterDeliveriesRequest,
+  decodeSchedulerDeliveryReconcileRequest,
+  decodeSchedulerRerunSubscriptionsRequest,
   parseSchedulerCleanupConnectionsRequest,
   parseSchedulerDeadLetterDeliveriesRequest,
   parseSchedulerConnectionReconcileRequest,
   parseSchedulerDeliveryReconcileRequest,
+  parseSchedulerDeliveryReconcileRequestEffect,
   parseSchedulerRerunSubscriptionsRequest,
   readSchedulerCleanupConnectionsRequest,
   readSchedulerDeadLetterDeliveriesRequest,
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
   readSchedulerRerunSubscriptionsRequest,
+  SchedulerRouteValidationError,
+  schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
 import type { Env } from "../src/types";
 
@@ -34,6 +43,9 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
     });
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(jsonRequest({
+      limit: 3,
+    })))).resolves.toEqual({ limit: 3 });
   });
 
   it("maps invalid delivery reconcile bodies to 400", () => {
@@ -55,6 +67,15 @@ describe("scheduler route boundary", () => {
     }
   });
 
+  it("exposes typed delivery reconcile validation failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(parseSchedulerDeliveryReconcileRequestEffect({
+      cursor: {
+        oldestCreatedAt: "not a date",
+        deploymentId: "deployment-a",
+      },
+    }))).rejects.toBeInstanceOf(SchedulerRouteValidationError);
+  });
+
   it("preserves malformed JSON as the shared JSON body error", async () => {
     await expect(readSchedulerDeliveryReconcileRequest(new Request(
       "https://flarex.test/reconcile/live-query-deliveries",
@@ -67,6 +88,14 @@ describe("scheduler route boundary", () => {
       status: 400,
       message: "Request body must be JSON.",
     });
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(new Request(
+      "https://flarex.test/reconcile/live-query-deliveries",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("decodes connection cleanup reconcile requests", async () => {
@@ -86,6 +115,9 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
     });
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRequest(jsonRequest({
+      limit: 4,
+    })))).resolves.toEqual({ limit: 4 });
   });
 
   it("maps invalid connection cleanup reconcile bodies to 400", () => {
@@ -136,6 +168,9 @@ describe("scheduler route boundary", () => {
       deliveryLimit: 10,
       maxBatches: 2,
     });
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(jsonRequest({
+      deploymentId: "deployment-b",
+    })))).resolves.toEqual({ deploymentId: "deployment-b" });
   });
 
   it("maps invalid live query subscription rerun bodies to 400", () => {
@@ -206,6 +241,12 @@ describe("scheduler route boundary", () => {
       reason: "stuck test delivery",
       deadLetteredAt: "2026-06-23T00:00:10.000Z",
       maxBatches: 2,
+    });
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(jsonRequest({
+      olderThan: "2026-06-23T00:00:05.000Z",
+    })))).resolves.toMatchObject({
+      olderThan: "2026-06-23T00:00:05.000Z",
+      stuckAfterMs: 5 * 60 * 1000,
     });
   });
 
@@ -295,6 +336,12 @@ describe("scheduler route boundary", () => {
       projectId: "project-a",
       expiredAt: "2026-06-23T00:00:10.000Z",
     });
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRequest(jsonRequest({
+      deploymentId: "deployment-b",
+    }), env))).resolves.toEqual({
+      deploymentId: "deployment-b",
+      projectId: "project-default",
+    });
   });
 
   it("uses the configured project id for cleanup requests without projectId", () => {
@@ -349,6 +396,25 @@ describe("scheduler route boundary", () => {
     ), env)).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("maps typed scheduler route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(schedulerRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new SchedulerRouteValidationError({
+      message: "limit must be a positive integer.",
+    });
+    expect(schedulerRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "limit must be a positive integer.",
     });
   });
 });
