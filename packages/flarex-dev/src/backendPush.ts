@@ -30,6 +30,7 @@ import {
   devRouteErrorMessage,
   isDevRouteError,
 } from "./routeBoundary.ts";
+import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type DevPushStatus = {
@@ -389,7 +390,7 @@ const decodeLocalBackendFinishBody = Effect.fn("FlarexDev.decodeLocalBackendFini
 function readBackendPushResponseJson(
   response: BackendPushHttpResponse,
 ): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readDevResponseJsonOrNullEffect(response);
 }
 
 function backendPushResponseFailure(

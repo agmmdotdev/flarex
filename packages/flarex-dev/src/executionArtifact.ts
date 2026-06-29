@@ -2,6 +2,7 @@ import { Data, Effect } from "effect";
 import { Miniflare } from "miniflare";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentAnalysis } from "./analyze.ts";
+import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type { ExecutionArtifactRef } from "flarex/artifacts";
@@ -165,7 +166,7 @@ const decodeExecutionArtifactInvokeBody = Effect.fn("ExecutionArtifact.decodeInv
 function readExecutionArtifactResponseJson(
   response: ExecutionArtifactHttpResponse,
 ): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readDevResponseJsonOrNullEffect(response);
 }
 
 function diagnosticsFromBody(body: unknown): AnalyzerDiagnostic[] {

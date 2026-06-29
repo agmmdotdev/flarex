@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Flarex Dev Response JSON Shared Boundary
+
+Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
+
+What changed:
+
+- Added `flarex-dev/src/responseJson.ts` for shared dev response JSON read
+  failures through `DevResponseJsonError`.
+- `backendPush.ts`, `executionArtifact.ts`, and `runtimeMaterializer.ts` use
+  `readDevResponseJsonOrNullEffect(...)` instead of local anonymous JSON-read
+  promises.
+- The shared boundary covers local backend push/analyzer/finish, execution
+  artifact analysis/invoke, and materialized artifact response decoders.
+
+Boundary decision:
+
+`flarex-dev` has its own request route boundary and local runtime adapter
+package surface, so its response body parsing stays inside `flarex-dev` rather
+than importing the backend `http.ts` helper. Higher-level dev decoders still
+own their operation-specific status/message/diagnostics error shapes.
+
+Known limitations:
+
+- The helper intentionally preserves the existing malformed-body `null`
+  compatibility fallback for current callers.
+- Generated worker source remains plain emitted Worker code and is not moved
+  to this TypeScript Effect helper.
+- This checkpoint does not introduce Effect Schema validation for successful
+  dev response payloads.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/responseJson.test.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Backend Response JSON Effect Boundary
 
 Previous completed checkpoint: `47af99a` Type SchedulerDO route operation

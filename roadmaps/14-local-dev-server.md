@@ -1,5 +1,47 @@
 # Local Dev Server
 
+## Flarex Dev Response JSON Shared Boundary
+
+Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
+
+What changed:
+
+- `flarex-dev` now has a shared `DevResponseJsonError` response-read boundary
+  in `responseJson.ts`.
+- HTTP backend analyzer/push/finish, execution artifact analysis/invoke, and
+  materialized artifact response decoders now use
+  `readDevResponseJsonOrNullEffect(...)`.
+- Direct tests cover the typed read failure before the compatibility `null`
+  fallback.
+
+Why it changed:
+
+The dev package already had named Effect response decoders, but each decoder
+still owned its own anonymous malformed-JSON fallback. Centralizing that read
+boundary keeps low-level transport failures source-owned while preserving the
+existing local-dev error messages and diagnostics behavior.
+
+Known limitations:
+
+- Generated worker source still has its own plain JavaScript
+  `readBackendResponseJson(...)` helpers and does not import Effect.
+- Successful response payload validation remains the existing parser/cast
+  behavior rather than Effect Schema.
+- Deployment runtime artifact-ref generation remains a separate backend
+  service boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/responseJson.test.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Generated Runtime Worker JSON Boundaries
 
 Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.

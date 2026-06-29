@@ -8,6 +8,7 @@ import type {
   MaterializedExecutionArtifact,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse, Json } from "flarex-backend/types";
+import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 
 export type RuntimeBackendDispatcher = (request: Request) => Response | Promise<Response>;
 
@@ -210,7 +211,7 @@ export const decodeMaterializedArtifactResponse = Effect.fn(
 function readMaterializedArtifactResponseJson(
   response: MaterializedArtifactHttpResponse,
 ): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readDevResponseJsonOrNullEffect(response);
 }
 
 function materializedArtifactErrorMessage(

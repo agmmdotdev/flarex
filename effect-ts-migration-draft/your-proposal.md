@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `47af99a` Type SchedulerDO route operation failures.
-- Active checkpoint: move backend response JSON reads to a shared typed `ResponseJsonError` boundary while preserving the existing `null` fallback for malformed response bodies.
+- Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
+- Active checkpoint: move `flarex-dev` local/runtime response JSON reads to a shared typed `DevResponseJsonError` boundary while preserving the existing `null` fallback for malformed response bodies.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,15 +44,15 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current backend response JSON boundary checkpoint:
+Next recommended checkpoint after the current `flarex-dev` response JSON boundary checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
    at a time.
 2. Prefer the next route/service boundary that can move post-decode work to
    typed failures without changing PartitionDO SQL/OCC behavior; likely next
-   candidates are deployment runtime artifact-ref generation or local dev
-   runtime response boundaries rather than PartitionDO.
+   candidates are deployment runtime artifact-ref generation or generated
+   worker response/request boundaries rather than PartitionDO.
 3. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 4. Preserve the existing HTTP response body/status exactly through adapter
@@ -60,7 +60,26 @@ Next recommended checkpoint after the current backend response JSON boundary che
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 166 slice:
+Current Goal 167 slice:
+
+1. Add shared typed `DevResponseJsonError`,
+   `readDevResponseJsonEffect(...)`, and
+   `readDevResponseJsonOrNullEffect(...)` in `flarex-dev`.
+2. Route HTTP backend push/analyzer/finish, execution artifact analysis/invoke,
+   and local materialized artifact response body reads through the shared dev
+   response boundary.
+3. Preserve malformed response bodies as `null` for existing non-JSON failure
+   behavior, status fallback messages, diagnostics extraction, local finish
+   response mapping, execution artifact response mapping, and materialized
+   artifact response mapping.
+4. Preserve backend runtime response boundaries, generated worker source,
+   deployment runtime artifact-ref generation, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate with shared dev response-boundary tests, focused `flarex-dev`
+   response decoder coverage, backend/protocol compatibility gates as
+   practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 166 slice:
 
 1. Add shared typed `ResponseJsonError`, `readResponseJsonEffect(...)`, and
    `readResponseJsonOrNullEffect(...)` in the backend HTTP boundary module.

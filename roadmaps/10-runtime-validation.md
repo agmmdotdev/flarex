@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Flarex Dev Response JSON Shared Boundary
+
+Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
+
+What changed:
+
+- `flarex-dev` response body reads now share
+  `readDevResponseJsonEffect(...)` and
+  `readDevResponseJsonOrNullEffect(...)`.
+- Malformed dev/runtime response JSON now has a typed
+  `DevResponseJsonError` source before compatibility fallback.
+- Backend push/analyzer/finish, execution artifact, and materialized artifact
+  response decoders all use the shared boundary.
+
+Why it changed:
+
+The backend response-read checkpoint removed duplicated fallbacks from
+`flarex-backend`. The dev package still had the same fallback pattern in its
+Effect response decoders. This keeps validation moving across package
+boundaries without changing generated workers or PartitionDO correctness
+logic.
+
+Known limitations:
+
+- Successful response payloads still use existing compatibility parsers/casts.
+- Generated worker source still uses plain JavaScript helpers.
+- PartitionDO SQL/OCC behavior remains untouched.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/responseJson.test.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Backend Response JSON Effect Boundary
 
 Previous completed checkpoint: `47af99a` Type SchedulerDO route operation

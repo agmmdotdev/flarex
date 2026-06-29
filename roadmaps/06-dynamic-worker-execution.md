@@ -1,5 +1,39 @@
 # Dynamic Worker Execution
 
+## Flarex Dev Response JSON Shared Boundary
+
+Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
+
+What changed:
+
+- Local execution artifact analysis/invoke response decoding now reads JSON
+  through the shared `flarex-dev` response boundary.
+- Local materialized artifact response decoding now shares the same typed
+  malformed-JSON source error before compatibility fallback.
+- Existing execution artifact diagnostics, materialized artifact status
+  mapping, and successful response casts are unchanged.
+
+Why it changed:
+
+Dynamic-worker local development uses several internal service-style response
+decoders. This checkpoint removes duplicated response JSON read fallbacks from
+those TypeScript Effect decoders while keeping generated worker code and
+runtime behavior stable.
+
+Known limitations:
+
+- Generated worker source still owns plain JavaScript backend response helpers.
+- Deployment runtime artifact-ref generation and backend `DeploymentArtifacts`
+  service conversion remain separate follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/responseJson.test.ts packages/flarex-dev/test/executionArtifact.test.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Backend Response JSON Effect Boundary
 
 Previous completed checkpoint: `47af99a` Type SchedulerDO route operation
