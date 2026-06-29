@@ -8,6 +8,7 @@ import {
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
+  decodeDeploymentApiRequestForRoute,
   decodeDeploymentAnalyzedStartPushRouteRequest,
   decodeDeploymentAbandonPushRouteRequest,
   decodeDeploymentFinishPushRouteRequest,
@@ -40,9 +41,18 @@ describe("deploymentApiRequestForRoute", () => {
       method: "POST",
       body,
     });
+    const effectApiRequest = await expectEffectApiRequest(DeploymentRoute.startAnalyzedPush, {
+      method: "POST",
+      body,
+    });
 
     const parsedBody: unknown = await apiRequest.json();
     expect(parseAnalyzedStartPushRequest(parsedBody)).toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
+    await expect(effectApiRequest.json()).resolves.toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
       diagnostics: body.diagnostics,
@@ -86,6 +96,14 @@ describe("deploymentApiRequestForRoute", () => {
       },
     );
     await expect(finish.json()).resolves.toEqual({ activate: true });
+    const effectFinish = await expectEffectApiRequest(
+      `${DeploymentRoute.push}/push-finish-effect-request/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: { activate: true },
+      },
+    );
+    await expect(effectFinish.json()).resolves.toEqual({ activate: true });
 
     await expect(Effect.runPromise(
       decodeDeploymentFinishPushRouteRequest(jsonRequest(
@@ -120,6 +138,14 @@ describe("deploymentApiRequestForRoute", () => {
       },
     );
     await expect(abandon.json()).resolves.toEqual({ reason: "generated output failed" });
+    const effectAbandon = await expectEffectApiRequest(
+      `${DeploymentRoute.push}/push-abandon-effect-request/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: { reason: "generated output failed" },
+      },
+    );
+    await expect(effectAbandon.json()).resolves.toEqual({ reason: "generated output failed" });
 
     await expect(Effect.runPromise(
       decodeDeploymentAbandonPushRouteRequest(jsonRequest(
@@ -162,11 +188,25 @@ describe("deploymentApiRequestForRoute", () => {
         body: "{",
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
     await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
       method: "POST",
       body: { sourcePackage: 123 },
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: { sourcePackage: 123 },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(
       DeploymentRoute.startAnalyzedPush,
       {
         method: "POST",
@@ -194,6 +234,13 @@ describe("deploymentApiRequestForRoute", () => {
         body: "{",
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-effect-request-malformed/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
 
     await expect(deploymentApiRequestForRoute(jsonRequest(
       `${DeploymentRoute.push}/push-finish/${DeploymentPushAction.finish}`,
@@ -206,6 +253,13 @@ describe("deploymentApiRequestForRoute", () => {
     });
     await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
       `${DeploymentRoute.push}/push-finish-effect-invalid/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: { activate: "yes" },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-effect-request-invalid/${DeploymentPushAction.finish}`,
       {
         method: "POST",
         body: { activate: "yes" },
@@ -248,6 +302,13 @@ describe("deploymentApiRequestForRoute", () => {
         body: { reason: 123 },
       },
     )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(
+      `${DeploymentRoute.push}/push-abandon-effect-request-invalid/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: { reason: 123 },
+      },
+    )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
       reason: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
@@ -265,6 +326,9 @@ describe("deploymentApiRequestForRoute", () => {
     await expect(deploymentApiRequestForRoute(jsonRequest("/not-found", {
       method: "GET",
     }))).resolves.toBeNull();
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest("/not-found", {
+      method: "GET",
+    })))).resolves.toBeNull();
   });
 });
 
@@ -275,6 +339,16 @@ interface RequestOptions {
 
 async function expectApiRequest(path: string, options: RequestOptions): Promise<Request> {
   const apiRequest = await deploymentApiRequestForRoute(jsonRequest(path, options));
+  if (apiRequest === null) {
+    throw new Error(`Expected ${options.method} ${path} to route to DeploymentApi.`);
+  }
+  expect(apiRequest.url).toBe(`https://deployment.test${path}`);
+  expect(apiRequest.method).toBe(options.method);
+  return apiRequest;
+}
+
+async function expectEffectApiRequest(path: string, options: RequestOptions): Promise<Request> {
+  const apiRequest = await Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(path, options)));
   if (apiRequest === null) {
     throw new Error(`Expected ${options.method} ${path} to route to DeploymentApi.`);
   }

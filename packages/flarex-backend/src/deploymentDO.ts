@@ -1,9 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import {
   DeploymentRoute,
   DeploymentProtocolValidationError,
 } from "flarex-protocol/deployment";
-import { deploymentApiRequestForRoute } from "./deployment/HttpApiRouteBoundary";
+import {
+  decodeDeploymentApiRequestForRoute,
+  deploymentRouteErrorToHttpError,
+} from "./deployment/HttpApiRouteBoundary";
 import { makeDeploymentLayer } from "./deployment/Layer";
 import { makeDeploymentApiWebHandler } from "./deployment/HttpApiWebHandler";
 import { initializeDeploymentStorage } from "./deployment/StorageSchema";
@@ -26,7 +30,11 @@ export class DeploymentDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      const apiRequest = await deploymentApiRequestForRoute(request);
+      const apiRequest = await Effect.runPromise(
+        decodeDeploymentApiRequestForRoute(request).pipe(
+          Effect.mapError(deploymentRouteErrorToHttpError),
+        ),
+      );
       if (apiRequest !== null) {
         return this.deploymentApi.handler(apiRequest);
       }

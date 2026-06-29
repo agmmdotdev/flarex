@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `4aa94cb` Route partition fetch edges through Effect.
-- Active checkpoint: route `flarex-dev` local dev invoke and local analyzer request bodies through package-local Effect decoders, preserving existing local HTTP error mapping and keeping generated runtime worker source unchanged.
+- Previous completed checkpoint: `425de44` Route flarex dev bodies through Effect.
+- Active checkpoint: route generated RegistryDO and DeploymentDO HttpApi request builders through named Effect decoders at the Durable Object fetch edge, preserving generated HttpApi handlers and existing HTTP error mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current flarex-dev local route-boundary checkpoint:
+Next recommended checkpoint after the current generated HttpApi adapter checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -53,10 +53,18 @@ Next recommended checkpoint after the current flarex-dev local route-boundary ch
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Keep generated runtime-worker source and PartitionDO service extraction
-   separate from TypeScript package adapter refactors until each has dedicated
-   parity coverage.
+   separate from adapter-edge refactors until each has dedicated parity
+   coverage.
 
-Current Goal 147 slice:
+Current Goal 148 slice:
+
+1. Add named Effect request builders for `RegistryDO` and `DeploymentDO` generated HttpApi routes so read routes pass through unchanged and mutation routes decode/canonicalize bodies through existing typed route decoders.
+2. Convert `RegistryDO.fetch()` and `DeploymentDO.fetch()` to run those builders at the Durable Object adapter edge instead of calling Promise compatibility request builders.
+3. Preserve generated `HttpApi` handlers, registry/deployment service layers, storage behavior, malformed JSON mapping, protocol validation mapping, fallback health/not-found behavior, public Worker routes, executor-http routes, and `ValidatorJson` unchanged.
+4. Keep Promise compatibility wrappers for existing tests/callers while routing them through the same named Effect builders.
+5. Validate with focused registry/deployment HttpApi route-boundary tests, backend typecheck/build, broader protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 147 slice:
 
 1. Add `effect` to `flarex-dev` and introduce package-local typed Effect decoders for local dev invoke bodies and local analyzer requests.
 2. Convert the `/__flarex_dev/invoke` proxy and `createLocalAnalyzerService(...)` to run those decoders at the adapter edge instead of calling `request.json()` directly.

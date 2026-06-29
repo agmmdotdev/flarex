@@ -13,15 +13,26 @@ import {
 } from "../http";
 
 export async function registryApiRequestForRoute(request: Request): Promise<Request | null> {
-  const url = new URL(request.url);
-  if (isRegistryApiReadRoute(request, url)) {
-    return request;
-  }
-  if (url.pathname === RegistryRoute.deployments && request.method === "POST") {
-    return jsonRequest(url, await readRegistryCreateDeploymentRouteRequest(request));
-  }
-  return null;
+  return await Effect.runPromise(
+    decodeRegistryApiRequestForRoute(request).pipe(
+      Effect.mapError(registryRouteErrorToHttpError),
+    ),
+  );
 }
+
+export const decodeRegistryApiRequestForRoute = Effect.fn("RegistryDO.decodeApiRequestForRoute")(
+  function* (request: Request) {
+    const url = new URL(request.url);
+    if (isRegistryApiReadRoute(request, url)) {
+      return request;
+    }
+    if (url.pathname === RegistryRoute.deployments && request.method === "POST") {
+      const body = yield* decodeRegistryCreateDeploymentRouteRequest(request);
+      return jsonRequest(url, body);
+    }
+    return null;
+  },
+);
 
 export async function readRegistryCreateDeploymentRouteRequest(
   request: Request,
@@ -62,7 +73,7 @@ export function parseRegistryCreateDeploymentRouteRequestEffect(
   });
 }
 
-function registryRouteErrorToHttpError(
+export function registryRouteErrorToHttpError(
   error: RequestJsonError | ProtocolValidationError,
 ): HttpError | ProtocolValidationError {
   if (error instanceof RequestJsonError) {

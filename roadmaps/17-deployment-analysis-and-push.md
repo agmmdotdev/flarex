@@ -1,5 +1,52 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Effect Request Builder
+
+Previous completed checkpoint: `425de44` Route flarex dev bodies through
+Effect.
+
+What changed:
+
+- `DeploymentDO.fetch()` now runs a named Effect request builder before
+  dispatching to the generated DeploymentApi web handler.
+- The request builder preserves read-route pass-through and canonicalizes
+  analyzed-start, finish, and abandon push mutation bodies through existing
+  typed deployment route decoders.
+- Promise compatibility helpers remain available but now share the same
+  request-builder path.
+
+Why it changed:
+
+The deployment push route bodies were already typed, but the generated
+DeploymentApi adapter still used a Promise compatibility builder at the
+Durable Object edge. This moves the full request-builder decision into the
+Effect migration path while leaving deployment services and storage untouched.
+
+Convex references inspected:
+
+- None in this checkpoint. This is generated HttpApi adapter wiring around
+  existing Flarex deployment push contracts.
+
+Known limitations:
+
+- This does not change backend deployment analysis, activation, storage, or
+  public Worker push routes.
+- Generated runtime-worker body reads remain separate follow-up work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Deployment Validation Result Normalization
 
 Previous completed checkpoint: `29bcffb` Route public start push through Effect.

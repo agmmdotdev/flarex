@@ -1,5 +1,52 @@
 # Package Boundaries
 
+## Generated HttpApi Effect Request Builders
+
+Previous completed checkpoint: `425de44` Route flarex dev bodies through
+Effect.
+
+What changed:
+
+- Added named Effect request builders for RegistryDO and DeploymentDO generated
+  HttpApi routes.
+- Registry and deployment Durable Object fetch handlers now run those builders
+  at the adapter edge before dispatching to the generated HttpApi web handler.
+- Promise compatibility wrappers remain for existing tests and callers, but
+  now route through the same Effect request-builder implementation.
+
+Boundary decision:
+
+This is an adapter-edge migration only. Registry and deployment route-boundary
+modules own JSON/protocol decoding and canonical generated-handler requests.
+Generated HttpApi handlers still own request dispatch into the service layers,
+and the registry/deployment service and storage layers are unchanged.
+
+Convex references inspected:
+
+- None in this checkpoint. The touched path is Flarex's generated HttpApi
+  adapter wiring around existing route contracts.
+
+Known limitations:
+
+- The generated runtime-worker source still has its own direct body reads and
+  needs a separate generated-source checkpoint.
+- This does not extract RegistryDO or DeploymentDO service logic further; it
+  only moves request-builder composition to the Effect adapter shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Flarex Dev Effect Route Boundaries
 
 Previous completed checkpoint: `4aa94cb` Route partition fetch edges through

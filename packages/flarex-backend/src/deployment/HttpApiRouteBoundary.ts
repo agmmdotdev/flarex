@@ -20,27 +20,40 @@ import {
 const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(?:/([^/]+))?$`);
 
 export async function deploymentApiRequestForRoute(request: Request): Promise<Request | null> {
-  const url = new URL(request.url);
-  if (isDeploymentApiReadRoute(request, url)) {
-    return request;
-  }
-  if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
-    return jsonRequest(url, await readDeploymentAnalyzedStartPushRouteRequest(request));
-  }
-
-  const pushMatch = url.pathname.match(deploymentPushRoutePattern);
-  if (pushMatch === null) {
-    return null;
-  }
-  const action = pushMatch[2];
-  if (action === DeploymentPushAction.finish && request.method === "POST") {
-    return jsonRequest(url, await readDeploymentFinishPushRouteRequest(request));
-  }
-  if (action === DeploymentPushAction.abandon && request.method === "POST") {
-    return jsonRequest(url, await readDeploymentAbandonPushRouteRequest(request));
-  }
-  return null;
+  return await Effect.runPromise(
+    decodeDeploymentApiRequestForRoute(request).pipe(
+      Effect.mapError(deploymentRouteErrorToHttpError),
+    ),
+  );
 }
+
+export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decodeApiRequestForRoute")(
+  function* (request: Request) {
+    const url = new URL(request.url);
+    if (isDeploymentApiReadRoute(request, url)) {
+      return request;
+    }
+    if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
+      const body = yield* decodeDeploymentAnalyzedStartPushRouteRequest(request);
+      return jsonRequest(url, body);
+    }
+
+    const pushMatch = url.pathname.match(deploymentPushRoutePattern);
+    if (pushMatch === null) {
+      return null;
+    }
+    const action = pushMatch[2];
+    if (action === DeploymentPushAction.finish && request.method === "POST") {
+      const body = yield* decodeDeploymentFinishPushRouteRequest(request);
+      return jsonRequest(url, body);
+    }
+    if (action === DeploymentPushAction.abandon && request.method === "POST") {
+      const body = yield* decodeDeploymentAbandonPushRouteRequest(request);
+      return jsonRequest(url, body);
+    }
+    return null;
+  },
+);
 
 export async function readDeploymentAnalyzedStartPushRouteRequest(
   request: Request,
@@ -90,7 +103,7 @@ export function parseDeploymentFinishPushRouteRequestEffect(
   return parseDeploymentProtocolRequestEffect(value, parseDeploymentFinishPushRouteRequest);
 }
 
-function deploymentRouteErrorToHttpError(
+export function deploymentRouteErrorToHttpError(
   error: RequestJsonError | DeploymentProtocolValidationError,
 ): HttpError | DeploymentProtocolValidationError {
   if (error instanceof RequestJsonError) {

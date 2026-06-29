@@ -1,10 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import {
   ProtocolValidationError,
   RegistryRoute,
 } from "flarex-protocol/registry";
 import { errorResponse, json } from "./http";
-import { registryApiRequestForRoute } from "./registry/HttpApiRouteBoundary";
+import {
+  decodeRegistryApiRequestForRoute,
+  registryRouteErrorToHttpError,
+} from "./registry/HttpApiRouteBoundary";
 import { makeRegistryApiWebHandler } from "./registry/HttpApiWebHandler";
 import { makeRegistryLayer } from "./registry/Layer";
 import { initializeRegistryStorage } from "./registry/StorageSchema";
@@ -23,7 +27,11 @@ export class RegistryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      const apiRequest = await registryApiRequestForRoute(request);
+      const apiRequest = await Effect.runPromise(
+        decodeRegistryApiRequestForRoute(request).pipe(
+          Effect.mapError(registryRouteErrorToHttpError),
+        ),
+      );
       if (apiRequest !== null) {
         return this.registryApi.handler(apiRequest);
       }

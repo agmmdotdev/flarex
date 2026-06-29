@@ -1,5 +1,52 @@
 # Runtime Validation
 
+## Generated HttpApi Request Builder Effect Boundary
+
+Previous completed checkpoint: `425de44` Route flarex dev bodies through
+Effect.
+
+What changed:
+
+- Registry and deployment generated HttpApi request builders now expose named
+  Effect entrypoints.
+- Mutation request bodies still use the existing typed JSON/protocol decoders,
+  but RegistryDO and DeploymentDO now run the full request-builder Effect at
+  their fetch adapters.
+- Direct route-boundary tests cover the full Effect request-builder success and
+  typed failure paths, not only the lower body decoders.
+
+Why it changed:
+
+The backend generated HttpApi routes already had typed body decoders, but their
+Durable Object adapters still entered through Promise compatibility request
+builders. This checkpoint moves the full adapter decision to the same
+one-runtime-boundary Effect shape used by the other backend route adapters.
+
+Convex references inspected:
+
+- None in this checkpoint. This is Flarex adapter validation wiring, not a
+  Convex semantic change.
+
+Known limitations:
+
+- Promise compatibility functions remain for existing tests and callers.
+- Generated runtime-worker source body reads are still a separate migration
+  target.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
 ## Flarex Dev Local Route Effect Decoders
 
 Previous completed checkpoint: `4aa94cb` Route partition fetch edges through
