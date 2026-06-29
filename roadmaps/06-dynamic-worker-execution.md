@@ -1,5 +1,40 @@
 # Dynamic Worker Execution
 
+## Public Invoke Worker Effect Boundary
+
+Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
+
+What changed:
+
+- Top-level `/invoke` and deployment-scoped `/deployments/:deploymentId/invoke`
+  now share one Worker `Effect.fn` route helper.
+- The helper decodes request bodies with `decodePublicInvokeRouteRequest(...)`,
+  preserves route/header/body deployment-id precedence, and delegates to the
+  existing invoke runtime.
+- Public invoke compatibility parsing remains available through
+  `readPublicInvokeRequest(...)` for existing callers and tests.
+
+Why it changed:
+
+The public invoke route boundary already exposed typed Effect decoders, but the
+Worker still crossed through the Promise/throw compatibility reader. This
+checkpoint moves invoke routing to the same typed boundary shape as the
+deployment push routes.
+
+Known limitations and follow-up work:
+
+- `routeInvoke(...)` still catches execution/runtime failures internally and
+  returns `invokeErrorResponse(...)`; a later service-layer migration should
+  model those failures as typed invoke/domain errors before HTTP conversion.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|Worker invoke route|decodes public Worker invoke bodies"
+git diff --check
+```
+
 ## Public Execution Action Route Normalization
 
 Previous completed checkpoint: `6397855` Extract public execution start parser.

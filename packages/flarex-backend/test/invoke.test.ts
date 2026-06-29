@@ -1604,6 +1604,22 @@ describe("executeInvoke", () => {
     await expect(malformed.json()).resolves.toEqual({
       error: "Request body must be JSON.",
     });
+
+    const missingDeployment = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "missing:function",
+          kind: "query",
+        }),
+      },
+    );
+    expect(missingDeployment.status).toBe(400);
+    await expect(missingDeployment.json()).resolves.toEqual({
+      error: "Missing deployment id.",
+    });
   });
 });
 

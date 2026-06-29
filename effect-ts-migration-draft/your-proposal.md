@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `29bcffb` Route public start push through Effect.
-- Active checkpoint: normalize deployment validation internals around a typed `DeploymentValidationResult<A>` helper so compatibility throwing validators and Effect decoders share the same typed failure source.
+- Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
+- Active checkpoint: convert the public Worker invoke routes to an explicit Effect boundary using `decodePublicInvokeRouteRequest(...)`, while preserving deployment-id resolution and public HTTP response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 134 slice:
+Current Goal 135 slice:
+
+1. Export the public invoke route error mapper so Worker adapter code can reuse the same JSON/protocol-to-HTTP conversion as the compatibility reader.
+2. Route both public invoke entrypoints (`/invoke` and `/deployments/:deploymentId/invoke`) through one `Effect.fn` helper that decodes with `decodePublicInvokeRouteRequest(...)`, resolves deployment id from route/header/body in the existing precedence order, and delegates to the existing invoke runtime.
+3. Preserve public response semantics: malformed JSON and invoke protocol failures still return `400`, missing top-level deployment id still returns `400`, unknown functions still return `404`, and route-scoped deployment ids remain authoritative over body deployment ids.
+4. Keep deployment push routes, execution routes, scheduler routes, partition routes, delivery routes, artifact runtime routes, deployment service/store behavior, SQL schema, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused public invoke route-boundary and Worker invoke tests, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 134 slice:
 
 1. Replace deployment validation helper-specific result shapes with one typed `DeploymentValidationResult<A>` helper carrying either a normalized value or a `DeploymentValidationError`.
 2. Route existing throwing compatibility validators through `unwrapDeploymentValidation(...)` and Effect decoders through `deploymentValidationResultToEffect(...)` so both paths preserve one typed failure source.
@@ -65,14 +73,6 @@ Current Goal 134 slice:
 5. Add representative generated start-handler HTTP mapping coverage and stored finish propagation coverage for grouped schema validation failures. Stored JSON rows cannot preserve JavaScript `undefined`, so the stored validator case proves the serialized validator-metadata branch while direct validation proves the JSON-value branch.
 6. Keep public Worker deployment push routes, public invoke routes, `DeploymentDO` routing, generated Deployment HttpApi routing, deployment service/store behavior, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` semantics unchanged.
 7. Validate with focused deployment validation, generated handler, and deployment service tests, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
-
-Planned Goal 135 slice:
-
-1. Export the public invoke route error mapper so Worker adapter code can reuse the same JSON/protocol-to-HTTP conversion as the compatibility reader.
-2. Route both public invoke entrypoints (`/invoke` and `/deployments/:deploymentId/invoke`) through one `Effect.fn` helper that decodes with `decodePublicInvokeRouteRequest(...)`, resolves deployment id from route/header/body in the existing precedence order, and delegates to the existing invoke runtime.
-3. Preserve public response semantics: malformed JSON and invoke protocol failures still return `400`, missing top-level deployment id still returns `400`, unknown functions still return `404`, and route-scoped deployment ids remain authoritative over body deployment ids.
-4. Keep deployment push routes, execution routes, scheduler routes, partition routes, delivery routes, artifact runtime routes, deployment service/store behavior, SQL schema, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
-5. Validate with focused public invoke route-boundary and Worker invoke tests, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
 
 Completed Goal 133 slice:
 

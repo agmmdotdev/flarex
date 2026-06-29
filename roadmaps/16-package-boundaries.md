@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Invoke Worker Effect Boundary
+
+Previous completed checkpoint: `3440a4f` Normalize deployment validation results.
+
+What changed:
+
+- The public invoke route-boundary module now exports its typed route error
+  mapper for Worker adapter reuse.
+- Both public Worker invoke entrypoints now compose the module-owned typed
+  decoder through one `Effect.fn` helper instead of calling the compatibility
+  Promise reader directly.
+- Package ownership remains unchanged: invoke protocol parsing stays in
+  `flarex-protocol`, public invoke body decoding stays in
+  `invoke/PublicInvokeRouteBoundary.ts`, and execution dispatch stays in
+  `worker.ts` / `invoke.ts`.
+
+Boundary decision:
+
+The Worker remains the adapter edge for deployment-id precedence and invoke
+dispatch. JSON and invoke protocol failures stay typed until the Worker maps
+them to the existing public HTTP response envelope.
+
+Known limitations and follow-up work:
+
+- Scheduler, execution, partition, delivery, and live-query public Worker route
+  groups still have compatibility reader paths to migrate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|Worker invoke route|decodes public Worker invoke bodies"
+git diff --check
+```
+
 ## Public Start Push Worker Effect Boundaries
 
 Previous completed checkpoint: `187392e` Route public finish push through Effect.

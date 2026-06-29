@@ -6,6 +6,7 @@ import {
   decodePublicInvokeRouteRequest,
   parsePublicInvokeRouteRequest,
   parsePublicInvokeRouteRequestEffect,
+  publicInvokeRouteErrorToHttpError,
   readPublicInvokeRequest,
 } from "../src/invoke/PublicInvokeRouteBoundary";
 
@@ -93,6 +94,29 @@ describe("public invoke route boundary", () => {
       headers: { "content-type": "application/json" },
       body: "{",
     })))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed invoke route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(publicInvokeRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new InvokeProtocolValidationError({
+      schema: "PublicInvokeRequestBody",
+      message:
+        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+      cause: null,
+    });
+    expect(publicInvokeRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message:
+        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+    });
   });
 });
 

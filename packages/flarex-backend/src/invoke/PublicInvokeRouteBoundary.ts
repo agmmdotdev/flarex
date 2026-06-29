@@ -57,7 +57,7 @@ export function parsePublicInvokeRouteRequestEffect(
   });
 }
 
-function publicInvokeRouteErrorToHttpError(
+export function publicInvokeRouteErrorToHttpError(
   error: RequestJsonError | InvokeProtocolValidationError,
 ): HttpError {
   if (error instanceof RequestJsonError) {

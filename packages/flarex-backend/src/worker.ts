@@ -42,7 +42,10 @@ import {
   parseInvokeKind,
   type BackendFunctionRegistry,
 } from "./invoke";
-import { readPublicInvokeRequest } from "./invoke/PublicInvokeRouteBoundary";
+import {
+  decodePublicInvokeRouteRequest,
+  publicInvokeRouteErrorToHttpError,
+} from "./invoke/PublicInvokeRouteBoundary";
 import {
   deliverLiveQueryChangesToConnections,
 } from "./liveQueryDelivery";
@@ -140,10 +143,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/invoke" && request.method === "POST") {
-    const body = await readPublicInvokeRequest(request);
-    const deploymentId =
-      request.headers.get("x-flarex-deployment") ?? required(body.deploymentId, "deployment id");
-    return routeInvoke(env, deploymentId, body);
+    return await Effect.runPromise(
+      routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined).pipe(
+        Effect.mapError(publicWorkerInvokeRouteErrorToHttpError),
+      ),
+    );
   }
 
   if (url.pathname === "/deployments" && ["GET", "POST"].includes(request.method)) {
@@ -239,7 +243,11 @@ async function route(request: Request, env: Env): Promise<Response> {
         .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment));
     }
     if (parts[2] === "invoke" && request.method === "POST") {
-      return routeInvoke(env, deploymentId, await readPublicInvokeRequest(request));
+      return await Effect.runPromise(
+        routePublicInvoke(request, env, deploymentId).pipe(
+          Effect.mapError(publicWorkerInvokeRouteErrorToHttpError),
+        ),
+      );
     }
     if (parts[2] === "executions") {
       return routeExecution(request, env, deploymentId, parts.slice(3));
@@ -605,6 +613,30 @@ async function routeInvoke(
   } catch (error) {
     return invokeErrorResponse(error);
   }
+}
+
+const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
+  function* (
+    request: Request,
+    env: Env,
+    routeDeploymentId: string | undefined,
+  ) {
+    const body = yield* decodePublicInvokeRouteRequest(request);
+    const deploymentId = routeDeploymentId ?? body.deploymentId;
+    if (deploymentId === undefined || deploymentId.length === 0) {
+      return yield* Effect.fail(new HttpError(400, "Missing deployment id."));
+    }
+    return yield* Effect.promise(() => routeInvoke(env, deploymentId, body));
+  },
+);
+
+function publicWorkerInvokeRouteErrorToHttpError(
+  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return publicInvokeRouteErrorToHttpError(error);
 }
 
 function artifactRuntimeFromEnv(
