@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## Public Live Query Authorization Effect Boundary
+
+Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.
+
+What changed:
+
+- Added `worker/PublicLiveQueryDeliveryAuthorization.ts` as the Worker-owned
+  authorization boundary for public live-query delivery control routes.
+- Scheduler, live-query delivery, and delivery wake route-boundary modules
+  continue to own request shape validation.
+- Worker route helpers now compose authorization, route validation, and
+  dispatch failures through typed channels before HTTP mapping.
+
+Boundary decision:
+
+Authorization stays under `worker/` because it is driven by Worker environment
+bindings and applies across multiple route families. It is not part of the
+scheduler, delivery, or protocol request body contracts.
+
+Known limitations:
+
+- The authorization helper is still environment-value based; no Effect Layer is
+  introduced in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicLiveQueryDeliveryAuthorization.test.ts packages/flarex-backend/test/sync.test.ts -t "public live query delivery authorization|unauthorized public live query delivery|unauthorized public DeliveryDO wake|unauthorized live query" --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Worker Typed Dispatch Failures
 
 Previous completed checkpoint: `a079a26` Type public invoke deployment errors.

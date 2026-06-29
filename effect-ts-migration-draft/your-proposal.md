@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
-- Active checkpoint: route public Worker downstream dispatch failures through a shared typed `PublicWorkerDispatchError` instead of carrying `HttpError` through migrated route pipelines.
+- Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.
+- Active checkpoint: route live-query delivery authorization through a typed Worker authorization failure inside migrated Effect route pipelines while preserving unauthorized-before-body-parse behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current public Worker dispatch-error checkpoint:
+Next recommended checkpoint after the current live-query authorization checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,27 @@ Next recommended checkpoint after the current public Worker dispatch-error check
    checkpoint: typed request/body decoders, typed domain failures, and one
    adapter HTTP mapping edge.
 
-Current Goal 156 slice:
+Current Goal 157 slice:
+
+1. Add `PublicLiveQueryDeliveryAuthorizationError` and
+   `authorizePublicLiveQueryDeliveryRequest(...)` as the Worker-owned typed
+   authorization boundary for public live-query delivery control routes.
+2. Move authorization for public scheduler reconcile/cleanup/rerun/trigger,
+   public live-query delivery, and public DeliveryDO wake routes into the
+   relevant `Effect.fn` route helpers before request-body decoding.
+3. Map the typed authorization failure at each Worker adapter edge back to the
+   unchanged `401 { error: "Unauthorized live query delivery request." }`
+   response.
+4. Preserve behavior: no-token environments stay open, valid bearer tokens pass,
+   unauthorized requests still fail before malformed JSON is parsed, route
+   validation failures keep their existing typed errors, and downstream
+   dispatch failures keep `PublicWorkerDispatchError`.
+5. Validate with direct authorization tests, focused scheduler/delivery/wake
+   authorization-before-parse integration tests, backend typecheck/build, broad
+   protocol/backend gates as practical, and only the EffectTS quality checker
+   reviewer.
+
+Completed Goal 156 slice:
 
 1. Add a shared `PublicWorkerDispatchError` for public Worker routes that
    forward decoded requests to Durable Objects, live-query delivery helpers, or

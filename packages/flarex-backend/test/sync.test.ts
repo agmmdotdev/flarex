@@ -2037,6 +2037,27 @@ describe("sync protocol", () => {
     });
   });
 
+  it("rejects unauthorized public live query delivery before parsing JSON", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-auth-boundary/sync/deliver-live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
+    });
+  });
+
   it("rejects invalid public live query delivery envelopes at the Worker boundary", async () => {
     const harness = await createSyncHarness([], undefined, undefined, {
       bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret" },
@@ -2278,6 +2299,27 @@ describe("sync protocol", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: "Request body must be JSON.",
+    });
+  });
+
+  it("rejects unauthorized public DeliveryDO wake before parsing JSON", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "wake-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-wake-auth/sync/wake-delivery",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized live query delivery request.",
     });
   });
 

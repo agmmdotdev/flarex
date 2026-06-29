@@ -1,5 +1,31 @@
 # Cloudflare Freshness Cache
 
+## Public Live Query Authorization Effect Boundary
+
+Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.
+
+What changed:
+
+- Public live-query delivery, wake, and scheduler-control routes now perform
+  authorization inside their typed Effect route helpers.
+- Unauthorized requests still return the same `401` response before malformed
+  JSON is parsed.
+
+Why it changed:
+
+Live-query freshness and delivery control routes are public Worker entrypoints
+guarded by `FLAREX_LIVE_QUERY_DELIVERY_TOKEN`. Moving that guard into the typed
+route pipeline keeps the freshness/delivery control surface aligned with the
+Effect migration without changing runtime behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicLiveQueryDeliveryAuthorization.test.ts packages/flarex-backend/test/sync.test.ts -t "public live query delivery authorization|unauthorized public live query delivery|unauthorized public DeliveryDO wake|unauthorized live query" --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Scheduler Maintenance Response Effect Boundary
 
 Previous completed checkpoint: `1fb88f8` Type live query delivery responses

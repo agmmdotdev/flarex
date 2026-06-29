@@ -40,6 +40,11 @@ import {
   PublicWorkerDispatchError,
 } from "./worker/PublicRouteDispatchError";
 import {
+  authorizePublicLiveQueryDeliveryRequest,
+  publicLiveQueryDeliveryAuthorizationErrorToHttpError,
+  PublicLiveQueryDeliveryAuthorizationError,
+} from "./worker/PublicLiveQueryDeliveryAuthorization";
+import {
   deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
@@ -178,10 +183,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-deliveries/reconcile" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerDeliveryReconcile(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -190,10 +194,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-connections/reconcile" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerConnectionReconcile(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -202,10 +205,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-deliveries/dead-letter" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerDeadLetterDeliveries(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -214,10 +216,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-connections/cleanup" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerCleanupConnections(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -226,10 +227,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-subscriptions/rerun" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerRerunSubscriptions(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -238,10 +238,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     url.pathname === "/scheduler/live-query-subscriptions/trigger" &&
     request.method === "POST"
   ) {
-    authorizeLiveQueryDeliveryRequest(request, env);
     return await Effect.runPromise(
       routePublicSchedulerTriggerSubscriptions(request, env).pipe(
-        Effect.mapError(publicSchedulerRouteErrorToHttpError),
+        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
       ),
     );
   }
@@ -310,6 +309,7 @@ async function forwardLiveQuerySchedulerBody(
 
 const routePublicSchedulerDeliveryReconcile = Effect.fn("Worker.routePublicSchedulerDeliveryReconcile")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerDeliveryReconcileRequest(request);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries)
@@ -319,6 +319,7 @@ const routePublicSchedulerDeliveryReconcile = Effect.fn("Worker.routePublicSched
 
 const routePublicSchedulerConnectionReconcile = Effect.fn("Worker.routePublicSchedulerConnectionReconcile")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerConnectionReconcileRequest(request);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections)
@@ -328,6 +329,7 @@ const routePublicSchedulerConnectionReconcile = Effect.fn("Worker.routePublicSch
 
 const routePublicSchedulerDeadLetterDeliveries = Effect.fn("Worker.routePublicSchedulerDeadLetterDeliveries")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerDeadLetterDeliveriesRequest(request);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries)
@@ -337,6 +339,7 @@ const routePublicSchedulerDeadLetterDeliveries = Effect.fn("Worker.routePublicSc
 
 const routePublicSchedulerCleanupConnections = Effect.fn("Worker.routePublicSchedulerCleanupConnections")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerCleanupConnectionsRequest(request, env);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections)
@@ -346,6 +349,7 @@ const routePublicSchedulerCleanupConnections = Effect.fn("Worker.routePublicSche
 
 const routePublicSchedulerRerunSubscriptions = Effect.fn("Worker.routePublicSchedulerRerunSubscriptions")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerRerunSubscriptionsRequest(request);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
@@ -355,12 +359,23 @@ const routePublicSchedulerRerunSubscriptions = Effect.fn("Worker.routePublicSche
 
 const routePublicSchedulerTriggerSubscriptions = Effect.fn("Worker.routePublicSchedulerTriggerSubscriptions")(
   function* (request: Request, env: Env) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicSchedulerTriggerSubscriptionsRequest(request);
     return yield* Effect.promise(() =>
       forwardLiveQuerySchedulerBody(body, env, LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions)
     );
   },
 );
+
+function publicWorkerSchedulerRouteErrorToHttpError(
+  error: Parameters<typeof publicSchedulerRouteErrorToHttpError>[0]
+    | PublicLiveQueryDeliveryAuthorizationError,
+): HttpError {
+  if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
+    return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
+  }
+  return publicSchedulerRouteErrorToHttpError(error);
+}
 
 async function routeDeploymentPush(
   request: Request,
@@ -825,7 +840,6 @@ async function routeLiveQueryDelivery(
   env: Env,
   deploymentId: string,
 ): Promise<Response> {
-  authorizeLiveQueryDeliveryRequest(request, env);
   return await Effect.runPromise(
     routePublicLiveQueryDelivery(request, env, deploymentId).pipe(
       Effect.mapError(publicWorkerLiveQueryDeliveryRouteErrorToHttpError),
@@ -835,6 +849,7 @@ async function routeLiveQueryDelivery(
 
 const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDelivery")(
   function* (request: Request, env: Env, deploymentId: string) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const deliveries = yield* decodePublicLiveQueryDeliveryRequest(request);
     return yield* Effect.tryPromise({
       try: async () => json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries)),
@@ -844,8 +859,13 @@ const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDeliv
 );
 
 function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
-  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0]
+    | PublicWorkerDispatchError
+    | PublicLiveQueryDeliveryAuthorizationError,
 ): HttpError {
+  if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
+    return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
+  }
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
@@ -857,7 +877,6 @@ async function routeWakeDelivery(
   env: Env,
   deploymentId: string,
 ): Promise<Response> {
-  authorizeLiveQueryDeliveryRequest(request, env);
   return await Effect.runPromise(
     routePublicDeliveryWake(request, env, deploymentId).pipe(
       Effect.mapError(publicWorkerDeliveryWakeRouteErrorToHttpError),
@@ -867,6 +886,7 @@ async function routeWakeDelivery(
 
 const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
   function* (request: Request, env: Env, deploymentId: string) {
+    yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicDeliveryWakeRequest(request, deploymentId);
     return yield* Effect.tryPromise({
       try: () =>
@@ -883,17 +903,15 @@ const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
 );
 
 function publicWorkerDeliveryWakeRouteErrorToHttpError(
-  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0]
+    | PublicWorkerDispatchError
+    | PublicLiveQueryDeliveryAuthorizationError,
 ): HttpError {
+  if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
+    return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
+  }
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicDeliveryWakeRouteErrorToHttpError(error);
-}
-
-function authorizeLiveQueryDeliveryRequest(request: Request, env: Env): void {
-  if (env.FLAREX_LIVE_QUERY_DELIVERY_TOKEN === undefined) return;
-  const expected = `Bearer ${env.FLAREX_LIVE_QUERY_DELIVERY_TOKEN}`;
-  if (request.headers.get("authorization") === expected) return;
-  throw new HttpError(401, "Unauthorized live query delivery request.");
 }

@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Live Query Authorization Effect Boundary
+
+Previous completed checkpoint: `8491c10` Type public Worker dispatch failures.
+
+What changed:
+
+- Public live-query delivery authorization now flows through
+  `PublicLiveQueryDeliveryAuthorizationError`.
+- Public scheduler control routes, public live-query delivery, and public
+  DeliveryDO wake route helpers yield the typed authorization check before body
+  decoding.
+- Existing `401` responses are preserved by mapping the typed authorization
+  error at the Worker adapter edge.
+
+Why it changed:
+
+The migrated public route helpers should own their boundary checks in the
+Effect pipeline. Authorization was still a throwing `HttpError` helper outside
+those routes, which meant unauthorized failures skipped the typed route error
+channel. This checkpoint keeps authorization-before-parse semantics while
+moving the failure into a typed boundary.
+
+Known limitations:
+
+- This does not introduce a broader authentication service or Layer.
+- Downstream dispatch and runtime internals remain separate typed/compatibility
+  boundaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicLiveQueryDeliveryAuthorization.test.ts packages/flarex-backend/test/sync.test.ts -t "public live query delivery authorization|unauthorized public live query delivery|unauthorized public DeliveryDO wake|unauthorized live query" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Worker Typed Dispatch Failures
 
 Previous completed checkpoint: `a079a26` Type public invoke deployment errors.
