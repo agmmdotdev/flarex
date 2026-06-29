@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## ConnectionDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `395d1d9` Type Worker pass-through dispatch
+failures.
+
+What changed:
+
+- Added `connection/RouteOperationError.ts` for typed ConnectionDO route
+  operation failures after request decoding succeeds.
+- `connection/RouteBoundary.ts` still owns JSON and request-shape validation.
+- `ConnectionDO.fetch()` now maps route-boundary and route-operation failures
+  through one adapter helper for `/invalidate` and `/deliver/live-query`.
+
+Boundary decision:
+
+Request JSON and envelope errors stay in `connection/RouteBoundary.ts`.
+Stateful invalidation and delivery failures belong to the ConnectionDO route
+operation boundary because they happen after decoding while mutating live query
+state and sending WebSocket transitions.
+
+Known limitations:
+
+- This checkpoint does not move ConnectionDO WebSocket message handling or
+  executor/partition subscription calls into reusable services.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Worker Pass-Through Dispatch Effect Boundary
 
 Previous completed checkpoint: `de9e3ee` Type public invoke and partition

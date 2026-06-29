@@ -5,7 +5,13 @@ import {
   connectionRouteErrorToHttpError,
   decodeConnectionInvalidationRequest,
   decodeConnectionLiveQueryDeliveryRequest,
+  type ConnectionRouteError,
 } from "./connection/RouteBoundary";
+import {
+  connectionRouteOperationError,
+  connectionRouteOperationErrorToHttpError,
+  ConnectionRouteOperationError,
+} from "./connection/RouteOperationError";
 import { errorResponse, json } from "./http";
 import { Effect } from "effect";
 import {
@@ -88,12 +94,12 @@ export class ConnectionDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/invalidate" && request.method === "POST") {
-      return Effect.runPromise(
+      return runConnectionRoute(
         routeConnectionInvalidation(request, queryId => this.invalidate(queryId)),
       );
     }
     if (url.pathname === "/deliver/live-query" && request.method === "POST") {
-      return Effect.runPromise(
+      return runConnectionRoute(
         routeConnectionLiveQueryDelivery(request, deliveries =>
           this.deliverLiveQueryChanges(deliveries),
         ),
@@ -667,15 +673,11 @@ const routeConnectionInvalidation = Effect.fn("ConnectionDO.routeInvalidation")(
     request: Request,
     invalidate: (queryId: QueryId) => Promise<Response>,
   ) {
-    const decoded = yield* decodeConnectionInvalidationRequest(request).pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(connectionRouteErrorToHttpError(error)))
-      ),
-    );
-    if (decoded instanceof Response) {
-      return decoded;
-    }
-    return yield* Effect.promise(() => invalidate(decoded));
+    const decoded = yield* decodeConnectionInvalidationRequest(request);
+    return yield* Effect.tryPromise({
+      try: () => invalidate(decoded),
+      catch: error => connectionRouteOperationError("invalidate", error),
+    });
   },
 );
 
@@ -684,17 +686,38 @@ const routeConnectionLiveQueryDelivery = Effect.fn("ConnectionDO.routeLiveQueryD
     request: Request,
     deliver: (deliveries: LiveQueryDeliveryChange[]) => Promise<Response>,
   ) {
-    const decoded = yield* decodeConnectionLiveQueryDeliveryRequest(request).pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(connectionRouteErrorToHttpError(error)))
-      ),
-    );
-    if (decoded instanceof Response) {
-      return decoded;
-    }
-    return yield* Effect.promise(() => deliver(decoded));
+    const decoded = yield* decodeConnectionLiveQueryDeliveryRequest(request);
+    return yield* Effect.tryPromise({
+      try: () => deliver(decoded),
+      catch: error => connectionRouteOperationError("deliver-live-query", error),
+    });
   },
 );
+
+type ConnectionInternalRouteError =
+  | ConnectionRouteError
+  | ConnectionRouteOperationError;
+
+function runConnectionRoute(
+  effect: Effect.Effect<Response, ConnectionInternalRouteError>,
+): Promise<Response> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error =>
+        Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error)))
+      ),
+    ),
+  );
+}
+
+function connectionInternalRouteErrorToHttpError(
+  error: ConnectionInternalRouteError,
+) {
+  if (error instanceof ConnectionRouteOperationError) {
+    return connectionRouteOperationErrorToHttpError(error);
+  }
+  return connectionRouteErrorToHttpError(error);
+}
 
 async function executeSyncInvoke(
   env: Env,

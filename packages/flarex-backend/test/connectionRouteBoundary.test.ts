@@ -13,6 +13,11 @@ import {
   readConnectionInvalidationRequest,
   readConnectionLiveQueryDeliveryRequest,
 } from "../src/connection/RouteBoundary";
+import {
+  connectionRouteOperationError,
+  connectionRouteOperationErrorToHttpError,
+  ConnectionRouteOperationError,
+} from "../src/connection/RouteOperationError";
 
 describe("connection route boundary", () => {
   it("decodes invalidation requests", async () => {
@@ -157,6 +162,37 @@ describe("connection route boundary", () => {
     expect(connectionRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "Invalidation queryId must be an integer.",
+    });
+  });
+
+  it("preserves connection operation failures before HTTP mapping", () => {
+    const cause = new HttpError(409, "Invalidation already in flight.");
+    const httpFailure = connectionRouteOperationError("invalidate", cause);
+
+    expect(httpFailure).toBeInstanceOf(ConnectionRouteOperationError);
+    expect(httpFailure).toMatchObject({
+      operation: "invalidate",
+      status: 409,
+      message: "Invalidation already in flight.",
+      cause,
+    });
+    expect(connectionRouteOperationErrorToHttpError(httpFailure)).toMatchObject({
+      status: 409,
+      message: "Invalidation already in flight.",
+    });
+
+    const runtimeFailure = connectionRouteOperationError(
+      "deliver-live-query",
+      new Error("socket send failed"),
+    );
+    expect(runtimeFailure).toMatchObject({
+      operation: "deliver-live-query",
+      status: 500,
+      message: "socket send failed",
+    });
+    expect(connectionRouteOperationErrorToHttpError(runtimeFailure)).toMatchObject({
+      status: 500,
+      message: "socket send failed",
     });
   });
 });

@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## ConnectionDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `395d1d9` Type Worker pass-through dispatch
+failures.
+
+What changed:
+
+- `ConnectionDO` invalidation and live-query delivery route operations now emit
+  typed `ConnectionRouteOperationError` failures.
+- `/invalidate` and `/deliver/live-query` now run one Effect pipeline per route
+  and map typed request/operation failures at the Durable Object adapter edge.
+- Post-decode route work now uses `Effect.tryPromise(...)` instead of untyped
+  `Effect.promise(...)`.
+
+Why it changed:
+
+The connection route bodies already decoded through typed Effect boundaries,
+but the route helpers still converted validation failures inside the pipeline
+and ran stateful route work as untyped promises. This moves the HTTP response
+conversion to one adapter edge for the route while preserving the existing
+ConnectionDO session and WebSocket behavior.
+
+Known limitations:
+
+- WebSocket message handling, heartbeat, force-reconnect, executor calls, and
+  partition subscription fetches remain separate migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Worker Pass-Through Dispatch Effect Boundary
 
 Previous completed checkpoint: `de9e3ee` Type public invoke and partition
