@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Worker Pass-Through Dispatch Effect Boundary
+
+Previous completed checkpoint: `de9e3ee` Type public invoke and partition
+dispatch failures.
+
+What changed:
+
+- `worker/PublicRouteDispatchError.ts` now covers the remaining Worker
+  pass-through route sources: registry deployments, active deployment reads,
+  connection sync forwarding, and deployment scheduler forwarding.
+- `worker.ts` routes those pass-throughs through named Worker adapter helpers
+  before final HTTP mapping.
+- The owning Durable Objects still own their request validation, service logic,
+  and response bodies.
+
+Boundary decision:
+
+These failures are Worker adapter dispatch failures because they occur while
+forwarding already-matched public Worker routes to Durable Object bindings.
+They are not Registry, Deployment, Connection, or Scheduler domain errors.
+
+Known limitations:
+
+- Scheduled event fanout is intentionally not folded into this HTTP route
+  boundary.
+- The next migration slice should return to deeper route/service Effect work
+  now that Worker route dispatch handoffs are typed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/registryDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke And Partition Dispatch Effect Boundary
 
 Previous completed checkpoint: `0a9faee` Type public deployment push dispatch

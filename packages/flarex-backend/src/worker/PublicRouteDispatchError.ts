@@ -11,6 +11,8 @@ export type PublicWorkerDispatchSource =
   | "scheduler-cleanup-connections"
   | "scheduler-rerun-subscriptions"
   | "scheduler-trigger-subscriptions"
+  | "registry-deployments"
+  | "deployment-active-read"
   | "deployment-read-push"
   | "deployment-start-push-analyze"
   | "deployment-start-push-store-artifact"
@@ -26,6 +28,8 @@ export type PublicWorkerDispatchSource =
   | "partition-document-read"
   | "partition-index-read"
   | "live-query-delivery"
+  | "connection-sync"
+  | "deployment-scheduler"
   | "delivery-wake";
 
 export class PublicWorkerDispatchError

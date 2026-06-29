@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Worker Pass-Through Dispatch Effect Boundary
+
+Previous completed checkpoint: `de9e3ee` Type public invoke and partition
+dispatch failures.
+
+What changed:
+
+- Top-level Worker pass-through routes now emit `PublicWorkerDispatchError`
+  for registry deployments, active deployment reads, connection sync
+  forwarding, and deployment scheduler forwarding.
+- Those routes now use named `Effect.fn` helpers with `Effect.tryPromise(...)`
+  instead of returning direct Durable Object `fetch(...)` promises.
+- The Worker adapter maps dispatch failures back to the existing HTTP behavior.
+
+Why it changed:
+
+After public invoke, partition, scheduler, deployment push, delivery, and
+execution routes moved to typed dispatch boundaries, these direct pass-through
+routes were the remaining Worker route handoffs that could defect outside the
+typed error channel. This closes the Worker adapter dispatch gap before moving
+back to deeper route/service conversions.
+
+Known limitations:
+
+- Scheduled event `ctx.waitUntil(...)` fanout remains a background-event
+  boundary, not an HTTP route response boundary.
+- RegistryDO, DeploymentDO, ConnectionDO, and SchedulerDO internals remain
+  separate migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/registryDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Invoke And Partition Dispatch Effect Boundary
 
 Previous completed checkpoint: `0a9faee` Type public deployment push dispatch

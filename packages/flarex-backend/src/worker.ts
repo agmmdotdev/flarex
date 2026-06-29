@@ -176,7 +176,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/deployments" && ["GET", "POST"].includes(request.method)) {
-    return env.REGISTRY.getByName("registry:v1").fetch(request);
+    return await Effect.runPromise(
+      routeRegistryDeployments(request, env).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      ),
+    );
   }
 
   if (
@@ -251,9 +255,11 @@ async function route(request: Request, env: Env): Promise<Response> {
       return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
     }
     if (parts[2] === "deployment" && request.method === "GET") {
-      return env.DEPLOYMENTS
-        .getByName(deploymentObjectName(deploymentId))
-        .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment));
+      return await Effect.runPromise(
+        routeDeploymentActiveRead(env, deploymentId).pipe(
+          Effect.mapError(publicWorkerDispatchErrorToHttpError),
+        ),
+      );
     }
     if (parts[2] === "invoke" && request.method === "POST") {
       return await Effect.runPromise(
@@ -278,20 +284,73 @@ async function route(request: Request, env: Env): Promise<Response> {
       }
       const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
       const connectionName = connectionObjectName(deploymentId, sessionId);
-      const headers = new Headers(request.headers);
-      headers.set("x-flarex-deployment", deploymentId);
-      headers.set("x-flarex-connection", connectionName);
-      return env.CONNECTIONS
-        .getByName(connectionName)
-        .fetch(new Request(request, { headers }));
+      return await Effect.runPromise(
+        routeConnectionSync(request, env, deploymentId, connectionName).pipe(
+          Effect.mapError(publicWorkerDispatchErrorToHttpError),
+        ),
+      );
     }
     if (parts[2] === "scheduler") {
-      return env.SCHEDULERS.getByName(schedulerObjectName(deploymentId)).fetch(request);
+      return await Effect.runPromise(
+        routeDeploymentScheduler(request, env, deploymentId).pipe(
+          Effect.mapError(publicWorkerDispatchErrorToHttpError),
+        ),
+      );
     }
   }
 
   return json({ error: "Not found." }, { status: 404 });
 }
+
+const routeRegistryDeployments = Effect.fn("Worker.routeRegistryDeployments")(
+  function* (request: Request, env: Env) {
+    return yield* Effect.tryPromise({
+      try: () => env.REGISTRY.getByName("registry:v1").fetch(request),
+      catch: error => publicWorkerDispatchError("registry-deployments", error),
+    });
+  },
+);
+
+const routeDeploymentActiveRead = Effect.fn("Worker.routeDeploymentActiveRead")(
+  function* (env: Env, deploymentId: string) {
+    return yield* Effect.tryPromise({
+      try: () => env.DEPLOYMENTS
+        .getByName(deploymentObjectName(deploymentId))
+        .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment)),
+      catch: error => publicWorkerDispatchError("deployment-active-read", error),
+    });
+  },
+);
+
+const routeConnectionSync = Effect.fn("Worker.routeConnectionSync")(
+  function* (
+    request: Request,
+    env: Env,
+    deploymentId: string,
+    connectionName: string,
+  ) {
+    return yield* Effect.tryPromise({
+      try: () => {
+        const headers = new Headers(request.headers);
+        headers.set("x-flarex-deployment", deploymentId);
+        headers.set("x-flarex-connection", connectionName);
+        return env.CONNECTIONS
+          .getByName(connectionName)
+          .fetch(new Request(request, { headers }));
+      },
+      catch: error => publicWorkerDispatchError("connection-sync", error),
+    });
+  },
+);
+
+const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
+  function* (request: Request, env: Env, deploymentId: string) {
+    return yield* Effect.tryPromise({
+      try: () => env.SCHEDULERS.getByName(schedulerObjectName(deploymentId)).fetch(request),
+      catch: error => publicWorkerDispatchError("deployment-scheduler", error),
+    });
+  },
+);
 
 async function forwardLiveQuerySchedulerBody(
   body: unknown,

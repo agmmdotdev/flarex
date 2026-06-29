@@ -90,4 +90,27 @@ describe("public Worker route dispatch errors", () => {
       });
     }
   });
+
+  it("covers Worker pass-through dispatch sources", () => {
+    const sources = [
+      "registry-deployments",
+      "deployment-active-read",
+      "connection-sync",
+      "deployment-scheduler",
+    ] as const;
+
+    for (const source of sources) {
+      const error = publicWorkerDispatchError(source, new Error(`${source} failed.`));
+
+      expect(error).toMatchObject({
+        source,
+        status: 500,
+        message: `${source} failed.`,
+      });
+      expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+        status: 500,
+        message: `${source} failed.`,
+      });
+    }
+  });
 });
