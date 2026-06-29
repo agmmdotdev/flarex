@@ -1,5 +1,70 @@
 # Deployment Analysis And Push
 
+## Deployment Schema Shape Validation Typed Error
+
+Previous completed checkpoint: `7a580ee` Type function partition validation failures.
+
+What changed:
+
+- `validateSchema(...)` now emits `DeploymentValidationError` instead of raw
+  `HttpError(400)` when deployment schema shape metadata is invalid.
+- Generated start-analyzed handler behavior is unchanged: non-object schemas,
+  invalid versions, non-array tables/indexes, invalid table/index entries,
+  duplicate ids, unknown index table references, invalid names, and invalid
+  index fields still return `400` with the same messages.
+- `DeploymentPushStore.finishPush(...)` continues to preserve already-typed
+  `DeploymentValidationError` from stored schema validation so corrupt stored
+  schema metadata remains a finish validation failure rather than a storage
+  failure.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis object validation, function partition
+  validation, codegen object validation, codegen schema-mismatch validation,
+  codegen functions-array validation, codegen module object validation, codegen
+  moduleName validation, codegen module functions-array validation, duplicate
+  codegen module validation, codegen function object validation, codegen
+  function moduleName validation, codegen function exportName validation,
+  missing codegen function metadata validation, duplicate codegen function
+  validation, codegen function required-args validation, codegen coverage
+  validation, codegen function metadata-match validation, function metadata
+  shape validation, remaining schema/detail validation, abandon/active-deployment
+  behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi
+  routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol
+  schemas, scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` are unchanged.
+
+Why it changed:
+
+Schema shape validation is part of deployment domain validation. Keeping it as
+`HttpError(400)` made the domain validation layer depend on an adapter-shaped
+error. This checkpoint moves those failures to `DeploymentValidationError` and
+leaves HTTP conversion at the generated handler boundary.
+
+Convex source files inspected or used:
+
+- None in this checkpoint. This preserves Flarex's existing deployment schema
+  semantics while continuing the typed Effect error migration.
+
+Known limitations and follow-up work:
+
+- Remaining schema state, placement, validator metadata, function metadata
+  shape, source-position, route-policy, partition-policy, kind/visibility, and
+  validator metadata branches still need typed validation conversion.
+- The updated Effect migration quality bar also expects future route-boundary
+  work to prefer Effect-returning decoders and typed body-read failures at the
+  adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "deployment schema validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Function Partition Validation Typed Error
 
 Previous completed checkpoint: `641a567` Type codegen metadata match validation failures.
@@ -49,9 +114,9 @@ Convex source files inspected or used:
 
 Known limitations and follow-up work:
 
-- Remaining schema shape, function metadata shape, source-position,
-  route-policy, partition-policy, placement, kind/visibility, and validator
-  metadata branches still need typed validation conversion.
+- Remaining schema state, placement, validator metadata, function metadata
+  shape, source-position, route-policy, partition-policy, kind/visibility, and
+  validator metadata branches still need typed validation conversion.
 - The updated Effect migration quality bar also expects future route-boundary
   work to prefer Effect-returning decoders and typed body-read failures at the
   adapter edge.

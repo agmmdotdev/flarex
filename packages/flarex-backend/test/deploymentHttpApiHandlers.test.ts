@@ -364,6 +364,16 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
+        analysis: {
+          schema: "not-schema",
+          functions: deploymentAnalysis().functions,
+        },
+      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      "Schema must be an object.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
         analysis: deploymentPartitionValidationAnalysis(),
       },
       "teams:create.partition: Unknown partition table missing.",
@@ -706,6 +716,21 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(analysisFailure.message).toBe("Deployment analysis must be an object.");
+
+    const schemaValidationFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        schema: "not-schema",
+        functions: deploymentAnalysis().functions,
+      },
+    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(schemaValidationFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(schemaValidationFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(schemaValidationFailure.message).toBe("Schema must be an object.");
 
     const partitionValidationFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
       sourcePackage: sourcePackage(),

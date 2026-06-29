@@ -515,6 +515,46 @@ describe("DeploymentService", () => {
       await typedRuntime.dispose();
     }
 
+    const typedSchemaStatus = analyzedPushStatus("push-typed-schema-validation-failed");
+    const typedSchemaRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedSchemaStatus,
+          analysis: {
+            schema: "not-schema",
+            functions: typedSchemaStatus.analysis!.functions,
+          } as unknown as DeploymentAnalysis,
+          codegenAnalysis: {
+            schema: typedSchemaStatus.analysis!.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedSchemaError = await typedSchemaRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedSchemaStatus.pushId,
+            now: 2_412_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedSchemaError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedSchemaError.message).toBe("Schema must be an object.");
+    } finally {
+      await typedSchemaRuntime.dispose();
+    }
+
     const typedPartitionStatus = analyzedPushStatus("push-typed-partition-validation-failed");
     const typedPartitionAnalysis = deploymentPartitionValidationAnalysis();
     const typedPartitionRuntime = ManagedRuntime.make(

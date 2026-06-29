@@ -363,28 +363,28 @@ function parsePushState(value: string): PushStatus["state"] {
 
 export function validateSchema(schema: unknown): DeploymentSchema {
   if (!isRecord(schema)) {
-    throw new HttpError(400, "Schema must be an object.");
+    throwDeploymentValidation("Schema must be an object.");
   }
   if (typeof schema.version !== "number" || !Number.isInteger(schema.version) || schema.version < 0) {
-    throw new HttpError(400, "Schema version must be a non-negative integer.");
+    throwDeploymentValidation("Schema version must be a non-negative integer.");
   }
-  if (!Array.isArray(schema.tables)) throw new HttpError(400, "Schema tables must be an array.");
-  if (!Array.isArray(schema.indexes)) throw new HttpError(400, "Schema indexes must be an array.");
+  if (!Array.isArray(schema.tables)) throwDeploymentValidation("Schema tables must be an array.");
+  if (!Array.isArray(schema.indexes)) throwDeploymentValidation("Schema indexes must be an array.");
 
   const tableIds = new Set<number>();
   const normalizedTables = schema.tables.map(table => {
     if (!isRecord(table)) {
-      throw new HttpError(400, "Schema table entry must be an object.");
+      throwDeploymentValidation("Schema table entry must be an object.");
     }
     const tableId = table.tableId;
     if (typeof tableId !== "number" || !Number.isInteger(tableId) || tableId <= 0) {
-      throw new HttpError(400, `Invalid table id for ${table.name}.`);
+      throwDeploymentValidation(`Invalid table id for ${table.name}.`);
     }
-    if (tableIds.has(tableId)) throw new HttpError(400, `Duplicate table id ${tableId}.`);
+    if (tableIds.has(tableId)) throwDeploymentValidation(`Duplicate table id ${tableId}.`);
     tableIds.add(tableId);
     const tableName = table.name;
     if (typeof tableName !== "string" || tableName.length === 0) {
-      throw new HttpError(400, `Table ${tableId} has an invalid name.`);
+      throwDeploymentValidation(`Table ${tableId} has an invalid name.`);
     }
     return {
       tableId,
@@ -398,24 +398,24 @@ export function validateSchema(schema: unknown): DeploymentSchema {
   const indexIds = new Set<number>();
   const normalizedIndexes = schema.indexes.map(index => {
     if (!isRecord(index)) {
-      throw new HttpError(400, "Schema index entry must be an object.");
+      throwDeploymentValidation("Schema index entry must be an object.");
     }
     const indexId = index.indexId;
     if (typeof indexId !== "number" || !Number.isInteger(indexId) || indexId <= 0) {
-      throw new HttpError(400, `Invalid index id for ${index.name}.`);
+      throwDeploymentValidation(`Invalid index id for ${index.name}.`);
     }
-    if (indexIds.has(indexId)) throw new HttpError(400, `Duplicate index id ${indexId}.`);
+    if (indexIds.has(indexId)) throwDeploymentValidation(`Duplicate index id ${indexId}.`);
     indexIds.add(indexId);
     const tableId = index.tableId;
     if (typeof tableId !== "number" || !tableIds.has(tableId)) {
-      throw new HttpError(400, `Index ${index.name} references unknown table id ${String(index.tableId)}.`);
+      throwDeploymentValidation(`Index ${index.name} references unknown table id ${String(index.tableId)}.`);
     }
     const indexName = index.name;
     if (typeof indexName !== "string" || indexName.length === 0) {
-      throw new HttpError(400, `Index ${indexId} has an invalid name.`);
+      throwDeploymentValidation(`Index ${indexId} has an invalid name.`);
     }
     if (!Array.isArray(index.fields) || !index.fields.every(field => typeof field === "string")) {
-      throw new HttpError(400, `Index ${indexName} has invalid fields.`);
+      throwDeploymentValidation(`Index ${indexName} has invalid fields.`);
     }
     return {
       indexId,

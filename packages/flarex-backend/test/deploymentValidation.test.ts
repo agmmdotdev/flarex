@@ -278,14 +278,94 @@ describe("deployment validation", () => {
   });
 
   it("preserves deployment schema validation error messages", () => {
-    expect(() => validateSchema("not-schema")).toThrow(new HttpError(400, "Schema must be an object."));
-    expect(() =>
-      validateSchema({
-        version: 1,
-        tables: [],
-        indexes: [{ indexId: 1, tableId: 99, name: "bad", fields: [] }],
-      } satisfies DeploymentSchema)
-    ).toThrow(new HttpError(400, "Index bad references unknown table id 99."));
+    expectDeploymentValidationFailure(
+      () => validateSchema("not-schema"),
+      "Schema must be an object.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({ ...simpleSchema(), version: -1 }),
+      "Schema version must be a non-negative integer.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({ ...simpleSchema(), tables: "not-tables" }),
+      "Schema tables must be an array.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({ ...simpleSchema(), indexes: "not-indexes" }),
+      "Schema indexes must be an array.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({ ...simpleSchema(), tables: ["not-table"] }),
+      "Schema table entry must be an object.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 0, name: "messages", placement: { kind: "global" } }],
+      }),
+      "Invalid table id for messages.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [
+          { tableId: 1, name: "messages", placement: { kind: "global" } },
+          { tableId: 1, name: "messages2", placement: { kind: "global" } },
+        ],
+      }),
+      "Duplicate table id 1.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        tables: [{ tableId: 1, name: "", placement: { kind: "global" } }],
+      }),
+      "Table 1 has an invalid name.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({ ...simpleSchema(), indexes: ["not-index"] }),
+      "Schema index entry must be an object.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        indexes: [{ indexId: 0, tableId: 1, name: "bad", fields: [] }],
+      }),
+      "Invalid index id for bad.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        indexes: [
+          { indexId: 1, tableId: 1, name: "by_author", fields: [] },
+          { indexId: 1, tableId: 1, name: "by_title", fields: [] },
+        ],
+      }),
+      "Duplicate index id 1.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateSchema({
+          version: 1,
+          tables: [],
+          indexes: [{ indexId: 1, tableId: 99, name: "bad", fields: [] }],
+        } satisfies DeploymentSchema),
+      "Index bad references unknown table id 99.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        indexes: [{ indexId: 1, tableId: 1, name: "", fields: [] }],
+      }),
+      "Index 1 has an invalid name.",
+    );
+    expectDeploymentValidationFailure(
+      () => validateSchema({
+        ...simpleSchema(),
+        indexes: [{ indexId: 1, tableId: 1, name: "by_author", fields: [123] }],
+      }),
+      "Index by_author has invalid fields.",
+    );
   });
 
   it("normalizes deployment function metadata", () => {

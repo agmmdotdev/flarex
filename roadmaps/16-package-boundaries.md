@@ -1,5 +1,69 @@
 # Package Boundaries
 
+## Deployment Schema Shape Validation Typed Error
+
+Previous completed checkpoint: `7a580ee` Type function partition validation failures.
+
+What changed:
+
+- `validateSchema(...)` now emits `DeploymentValidationError` instead of raw
+  `HttpError(400)` for deployment schema shape validation failures.
+- Generated start-analyzed handler behavior is preserved: non-object schemas,
+  invalid versions, non-array tables/indexes, invalid table/index entries,
+  duplicate ids, unknown index table references, invalid names, and invalid
+  index fields still map to start-route `400` responses with the same messages
+  through `deploymentFailureToHttpError(...)`.
+- `DeploymentPushStore.finishPush(...)` continues to preserve already-typed
+  `DeploymentValidationError` from stored schema validation so corrupt stored
+  schema metadata still follows the existing finish validation failure path.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis object validation, function partition
+  validation, codegen object validation, codegen schema-mismatch validation,
+  codegen functions-array validation, codegen module object validation, codegen
+  moduleName validation, codegen module functions-array validation, duplicate
+  codegen module validation, codegen function object validation, codegen
+  function moduleName validation, codegen function exportName validation,
+  missing codegen function metadata validation, duplicate codegen function
+  validation, codegen function required-args validation, codegen coverage
+  validation, codegen function metadata-match validation, function metadata
+  shape validation, remaining schema/detail validation, abandon/active-deployment
+  behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi
+  routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol
+  schemas, scheduler routes, execution routes, executor-http routes, and
+  `ValidatorJson` remain unchanged.
+
+Boundary decision:
+
+Schema shape validation is deployment-domain validation. It now uses
+`DeploymentValidationError`; HTTP status/body conversion remains at the
+generated handler adapter.
+
+Convex source files inspected or used:
+
+- None in this checkpoint. This preserves the existing Flarex schema contract
+  while removing another adapter error dependency from deployment validation.
+
+Known limitations and follow-up work:
+
+- Schema state, schema placement, schema validator metadata, function metadata
+  shape, source-position, route-policy, partition-policy, kind/visibility, and
+  validator metadata branches still need typed validation conversion.
+- Future route-boundary work should continue moving toward Effect-returning
+  decoders and typed body-read failures under the updated Effect migration
+  quality bar.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "deployment schema validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Function Partition Validation Typed Error
 
 Previous completed checkpoint: `641a567` Type codegen metadata match validation failures.

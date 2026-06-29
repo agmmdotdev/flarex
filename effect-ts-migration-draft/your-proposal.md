@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `641a567` Type codegen metadata match validation failures.
-- Active checkpoint: replace function partition validation `HttpError(400)` failures with typed `DeploymentValidationError` while preserving start-route bad-request responses.
+- Previous completed checkpoint: `7a580ee` Type function partition validation failures.
+- Active checkpoint: replace deployment schema shape `HttpError(400)` failures with typed `DeploymentValidationError` while preserving start-route bad-request responses.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -55,7 +55,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 127 slice:
+Current Goal 128 slice:
+
+1. Change `validateSchema(...)` so deployment schema shape guards throw `DeploymentValidationError` instead of raw `HttpError(400)` for compatibility callers.
+2. Preserve generated start-analyzed handler mapping: non-object schemas, invalid versions, non-array tables/indexes, invalid table/index entries, duplicate ids, unknown index table references, invalid names, and invalid index fields still become start-route `400` responses with the same messages through `deploymentFailureToHttpError(...)`.
+3. Preserve finish transaction behavior by propagating typed `DeploymentValidationError` from stored deployment schema shape validation instead of wrapping it as `DeploymentSqlError`.
+4. Keep source-package validation, diagnostics validation, failed start-input validation, deployment analysis object validation, function partition validation, codegen object validation, codegen schema-mismatch validation, codegen functions-array validation, codegen module object validation, codegen moduleName validation, codegen module functions-array validation, duplicate codegen module validation, codegen function object validation, codegen function moduleName validation, codegen function exportName validation, missing codegen function metadata validation, duplicate codegen function validation, codegen function required-args validation, codegen coverage validation, codegen function metadata-match validation, function metadata shape validation, remaining schema/detail validation, abandon/active-deployment behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused deployment validation/start handler/service/HTTP-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 127 slice:
 
 1. Change `validateFunctionPartitions(...)` so deployment function partition/schema semantic guards throw `DeploymentValidationError` instead of raw `HttpError(400)` for compatibility callers.
 2. Preserve generated start-analyzed handler mapping: invalid partition table references, non-partitioned target tables, create-root partition mismatches, selector mismatches, missing required partition args, and route/partition argument mismatches still become start-route `400` responses with the same messages through `deploymentFailureToHttpError(...)`.
