@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Scheduler Response Effect Decoders
+
+Previous completed checkpoint: `1fb88f8` Type live query delivery responses
+with Effect.
+
+What changed:
+
+- Added named Effect decoders for SchedulerDO executor-maintenance and internal
+  DO JSON responses.
+- Added direct tests for typed scheduler response success, typed failure, and
+  adapter mapping back to `HttpError(502, ...)`.
+- SchedulerDO now reads successful JSON bodies through these decoders before
+  running existing result parsers.
+
+Why it changed:
+
+SchedulerDO response reads are runtime JSON boundaries. The migration now
+captures non-OK executor-maintenance responses as typed failures before the
+adapter maps them, matching the rest of the backend response migration.
+
+Known limitations:
+
+- Successful scheduler payload schemas are still validated by existing parsers.
+- Non-OK delivery wake and force-reconnect text handling intentionally remains
+  outside the JSON response decoder.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Delivery Response Effect Decoders
 
 Previous completed checkpoint: `fb563e3` Type backend internal responses with

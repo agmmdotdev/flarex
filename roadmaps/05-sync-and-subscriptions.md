@@ -1,5 +1,46 @@
 # Sync And Subscriptions
 
+## Scheduler Response Effect Boundaries
+
+Previous completed checkpoint: `1fb88f8` Type live query delivery responses
+with Effect.
+
+What changed:
+
+- SchedulerDO executor-maintenance responses now pass through named Effect
+  response decoders before existing payload parsers run.
+- The migrated responses cover live-query rerun, connection cleanup, expired
+  connection deployment scan, dead-letter scan, pending deployment scan, and
+  successful delivery wake / force-reconnect JSON bodies.
+- Non-OK executor-maintenance responses still map to `HttpError(502, ...)` with
+  the existing message text.
+- Delivery wake and force-reconnect non-OK text handling remain unchanged.
+
+Why it changed:
+
+SchedulerDO coordinates several live-query maintenance flows and had the last
+large backend cluster of inline JSON response reads. This checkpoint gives that
+workflow a typed response boundary while preserving scheduler routing, alarm,
+continuation, and orchestration behavior.
+
+Known limitations:
+
+- Successful scheduler payloads still use the existing compatibility parsers.
+- Generated runtime-worker source and executor-http request bodies remain
+  separate follow-up slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Delivery Response Effect Boundaries
 
 Previous completed checkpoint: `fb563e3` Type backend internal responses with

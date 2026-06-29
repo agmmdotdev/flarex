@@ -22,6 +22,16 @@ import {
   type SchedulerRouteError,
   type SchedulerRerunSubscriptionsRequest,
 } from "./scheduler/RouteBoundary";
+import {
+  decodeSchedulerCleanupConnectionsResponse,
+  decodeSchedulerDeadLetterStuckResponse,
+  decodeSchedulerExpiredConnectionDeploymentsResponse,
+  decodeSchedulerForceReconnectJsonResponse,
+  decodeSchedulerPendingDeploymentsResponse,
+  decodeSchedulerRerunResponse,
+  decodeSchedulerWakeDeliveryJsonResponse,
+  schedulerResponseErrorToHttpError,
+} from "./scheduler/Responses";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
 import type { DeliveryDrainFailureResult } from "./deliveryDO";
@@ -837,14 +847,13 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/rerun",
       body,
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query rerun failed with status ${response.status}.`,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeSchedulerRerunResponse<unknown>(response).pipe(
+        Effect.mapError(schedulerResponseErrorToHttpError),
+      ),
+    );
     return executorLiveQueryRerunResultFromUnknown(
-      await response.json().catch(() => null),
+      payload,
     );
   }
 
@@ -882,10 +891,13 @@ export class SchedulerDO extends DurableObject<Env> {
         error: responseBodyError(result),
       };
     }
+    const result = await Effect.runPromise(
+      decodeSchedulerWakeDeliveryJsonResponse<unknown>(response),
+    );
     return {
       woken: true,
       status: response.status,
-      result: await response.json().catch(() => null),
+      result,
       error: null,
     };
   }
@@ -974,14 +986,13 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/connections/cleanup",
       body,
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query connection cleanup failed with status ${response.status}.`,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeSchedulerCleanupConnectionsResponse<unknown>(response).pipe(
+        Effect.mapError(schedulerResponseErrorToHttpError),
+      ),
+    );
     return cleanupConnectionsResultFromUnknown(
-      await response.json().catch(() => null),
+      payload,
     );
   }
 
@@ -992,14 +1003,13 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/expired-connection-deployments",
       body,
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query connection cleanup deployment scan failed with status ${response.status}.`,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(response).pipe(
+        Effect.mapError(schedulerResponseErrorToHttpError),
+      ),
+    );
     return expiredConnectionDeploymentsResultFromUnknown(
-      await response.json().catch(() => null),
+      payload,
     );
   }
 
@@ -1010,14 +1020,13 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/dead-letter-stuck",
       body,
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query dead-letter scan failed with status ${response.status}.`,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeSchedulerDeadLetterStuckResponse<unknown>(response).pipe(
+        Effect.mapError(schedulerResponseErrorToHttpError),
+      ),
+    );
     return executorDeadLetterResultFromUnknown(
-      await response.json().catch(() => null),
+      payload,
     );
   }
 
@@ -1041,9 +1050,10 @@ export class SchedulerDO extends DurableObject<Env> {
         closed: 0,
       };
     }
-    const result = forceReconnectResultFromUnknown(
-      await response.json().catch(() => null),
+    const payload = await Effect.runPromise(
+      decodeSchedulerForceReconnectJsonResponse<unknown>(response),
     );
+    const result = forceReconnectResultFromUnknown(payload);
     return {
       ok: true,
       status: response.status,
@@ -1063,14 +1073,13 @@ export class SchedulerDO extends DurableObject<Env> {
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       },
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query pending deployment scan failed with status ${response.status}.`,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeSchedulerPendingDeploymentsResponse<unknown>(response).pipe(
+        Effect.mapError(schedulerResponseErrorToHttpError),
+      ),
+    );
     return pendingDeploymentsResultFromUnknown(
-      await response.json().catch(() => null),
+      payload,
     );
   }
 

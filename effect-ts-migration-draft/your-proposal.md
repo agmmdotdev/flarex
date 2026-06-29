@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `fb563e3` Type backend internal responses with Effect.
-- Active checkpoint: route live-query delivery claim, ack, and connection fanout responses through named Effect decoders while preserving existing `HttpError(502, ...)` adapter mapping.
+- Previous completed checkpoint: `1fb88f8` Type live query delivery responses with Effect.
+- Active checkpoint: route SchedulerDO executor-maintenance and internal DO JSON responses through named Effect decoders while preserving existing `HttpError(502, ...)` and structured delivery wake behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current live-query delivery response checkpoint:
+Next recommended checkpoint after the current scheduler response checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current live-query delivery response check
    separate from adapter-edge refactors until each has dedicated parity
    coverage.
 
-Current Goal 152 slice:
+Current Goal 153 slice:
+
+1. Add named Effect response decoders for SchedulerDO executor-maintenance responses: rerun, connection cleanup, expired connection deployment scans, dead-letter scans, pending deployment scans, plus successful delivery wake and force-reconnect JSON responses.
+2. Route the remaining SchedulerDO `response.json().catch(() => null)` sites through those decoders before existing payload parsing.
+3. Preserve adapter behavior: non-OK executor-maintenance responses still map to `HttpError` status `502` with the same message text, delivery wake non-OK text/body handling remains unchanged, and force-reconnect non-OK text handling remains unchanged.
+4. Keep SchedulerDO route decoders, continuation storage, alarms, delivery wake orchestration, dead-letter/reconnect orchestration, and executor persistence contracts unchanged.
+5. Validate with focused scheduler response tests, backend typecheck/build, backend/protocol gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 152 slice:
 
 1. Add named Effect response decoders for live-query delivery claim, ack, and ConnectionDO fanout responses.
 2. Route `DeliveryDO` claim/ack and `deliverLiveQueryChangesToConnections(...)` through those decoders before existing payload parsing.

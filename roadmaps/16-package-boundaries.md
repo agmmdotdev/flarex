@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Scheduler Response Decoder Ownership
+
+Previous completed checkpoint: `1fb88f8` Type live query delivery responses
+with Effect.
+
+What changed:
+
+- Scheduler response decoding now lives in
+  `packages/flarex-backend/src/scheduler/Responses.ts`.
+- SchedulerDO consumes that module for executor-maintenance and internal DO
+  JSON responses while keeping result parsing and orchestration in
+  `schedulerDO.ts`.
+- Typed scheduler response failures map back to the existing backend
+  `HttpError` adapter shape.
+
+Boundary decision:
+
+The decoder belongs under `scheduler/` because it is specific to SchedulerDO's
+maintenance workflow and not a public protocol contract. It is testable without
+importing `cloudflare:workers` Durable Object classes.
+
+Known limitations:
+
+- This does not promote scheduler maintenance response schemas into
+  `flarex-protocol`.
+- Generated runtime-worker and executor-http boundaries remain separate.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Delivery Response Decoder Ownership
 
 Previous completed checkpoint: `fb563e3` Type backend internal responses with

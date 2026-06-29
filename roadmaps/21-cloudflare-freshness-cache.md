@@ -1,5 +1,44 @@
 # Cloudflare Freshness Cache
 
+## Scheduler Maintenance Response Effect Boundary
+
+Previous completed checkpoint: `1fb88f8` Type live query delivery responses
+with Effect.
+
+What changed:
+
+- Scheduler maintenance responses now pass through named Effect decoders before
+  rerun, cleanup, dead-letter, pending-deployment, delivery wake, and reconnect
+  result parsing.
+- Non-OK executor-maintenance responses still surface as `HttpError(502, ...)`
+  with the same messages.
+- Delivery wake and force-reconnect non-OK text/body handling remains unchanged.
+
+Why it changed:
+
+The freshness cache relies on SchedulerDO to continue delivery scans, reruns,
+connection cleanup, and dead-letter recovery. Typed response boundaries make
+maintenance failures explicit without changing durable scheduler state or
+retry behavior.
+
+Known limitations:
+
+- This does not change scheduler continuation storage, alarm timing, claim
+  cursors, dead-letter semantics, or reconnect behavior.
+- Successful maintenance payload validation remains in existing parsers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Delivery Response Effect Boundary
 
 Previous completed checkpoint: `fb563e3` Type backend internal responses with
