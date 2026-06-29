@@ -1,5 +1,38 @@
 # Package Boundaries
 
+## Connection And Delivery DO Effect Route Adapters
+
+Previous completed checkpoint: `66139fe` Route executor HTTP bodies through
+Effect.
+
+What changed:
+
+- `ConnectionDO` now uses named `Effect.fn` route helpers for its internal
+  invalidation and live-query delivery POST routes.
+- `DeliveryDO` now uses named `Effect.fn` route helpers for wake and continue
+  drain endpoints.
+- Both Durable Objects consume their existing typed route-boundary decoders
+  directly at the fetch edge instead of going through Promise compatibility
+  readers.
+
+Boundary decision:
+
+This is an adapter-edge migration only. `ConnectionDO` keeps WebSocket/session
+state ownership, and `DeliveryDO` keeps delivery drain ownership. The route
+boundary modules own typed request decode and HTTP error mapping; the DOs own
+stateful operation execution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Executor HTTP Effect Body Adapter
 
 Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.

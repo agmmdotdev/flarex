@@ -1,9 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import {
-  readDeliveryWakeRequest,
+  decodeDeliveryWakeRequest,
+  deliveryWakeRouteErrorToHttpError,
   type DeliveryWakeRequest,
 } from "./delivery/RouteBoundary";
 import { HttpError, errorResponse, json } from "./http";
+import { Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
   deliverLiveQueryChangesToConnections,
@@ -102,30 +104,14 @@ export class DeliveryDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/wake" && request.method === "POST") {
-      let body: DeliveryWakeRequest;
-      try {
-        body = await readDeliveryWakeRequest(request);
-      } catch (error) {
-        return errorResponse(error);
-      }
-      try {
-        return json(await this.wake(body));
-      } catch (error) {
-        if (error instanceof DeliveryDrainFailureError) {
-          return json(error.result, { status: 500 });
-        }
-        throw error;
-      }
+      return Effect.runPromise(
+        routeDeliveryWake(request, body => this.wake(body)),
+      );
     }
     if (url.pathname === "/continue" && request.method === "POST") {
-      try {
-        return json(await this.continuePendingDrain());
-      } catch (error) {
-        if (error instanceof DeliveryDrainFailureError) {
-          return json(error.result, { status: 500 });
-        }
-        throw error;
-      }
+      return Effect.runPromise(
+        routeDeliveryContinue(() => this.continuePendingDrain()),
+      );
     }
     return json({ service: "flarex-delivery", status: "ok" });
   }
@@ -447,6 +433,46 @@ export class DeliveryDO extends DurableObject<Env> {
     }
     return fetch(request);
   }
+}
+
+const routeDeliveryWake = Effect.fn("DeliveryDO.routeWake")(
+  function* (
+    request: Request,
+    wake: (body: DeliveryWakeRequest) => Promise<DeliveryDrainResult>,
+  ) {
+    const decoded = yield* decodeDeliveryWakeRequest(request).pipe(
+      Effect.catch(error =>
+        Effect.succeed(errorResponse(deliveryWakeRouteErrorToHttpError(error)))
+      ),
+    );
+    if (decoded instanceof Response) {
+      return decoded;
+    }
+    return yield* routeDeliveryDrainResult(() => wake(decoded));
+  },
+);
+
+const routeDeliveryContinue = Effect.fn("DeliveryDO.routeContinue")(
+  function* (
+    continuePendingDrain: () => Promise<DeliveryDrainResult | { skipped: true }>,
+  ) {
+    return yield* routeDeliveryDrainResult(continuePendingDrain);
+  },
+);
+
+function routeDeliveryDrainResult<A extends object>(
+  execute: () => Promise<A>,
+): Effect.Effect<Response> {
+  return Effect.promise(async () => {
+    try {
+      return json(await execute());
+    } catch (error) {
+      if (error instanceof DeliveryDrainFailureError) {
+        return json(error.result, { status: 500 });
+      }
+      throw error;
+    }
+  });
 }
 
 function errorMessage(error: unknown): string {

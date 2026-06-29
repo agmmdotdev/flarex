@@ -2,10 +2,12 @@ import { DurableObject } from "cloudflare:workers";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
-  readConnectionInvalidationRequest,
-  readConnectionLiveQueryDeliveryRequest,
+  connectionRouteErrorToHttpError,
+  decodeConnectionInvalidationRequest,
+  decodeConnectionLiveQueryDeliveryRequest,
 } from "./connection/RouteBoundary";
 import { errorResponse, json } from "./http";
+import { Effect } from "effect";
 import {
   executeInvoke,
   loadActiveDeployment,
@@ -86,22 +88,16 @@ export class ConnectionDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/invalidate" && request.method === "POST") {
-      let queryId: QueryId;
-      try {
-        queryId = await readConnectionInvalidationRequest(request);
-      } catch (error) {
-        return errorResponse(error);
-      }
-      return this.invalidate(queryId);
+      return Effect.runPromise(
+        routeConnectionInvalidation(request, queryId => this.invalidate(queryId)),
+      );
     }
     if (url.pathname === "/deliver/live-query" && request.method === "POST") {
-      let deliveries: LiveQueryDeliveryChange[];
-      try {
-        deliveries = await readConnectionLiveQueryDeliveryRequest(request);
-      } catch (error) {
-        return errorResponse(error);
-      }
-      return this.deliverLiveQueryChanges(deliveries);
+      return Effect.runPromise(
+        routeConnectionLiveQueryDelivery(request, deliveries =>
+          this.deliverLiveQueryChanges(deliveries),
+        ),
+      );
     }
     if (url.pathname === "/force-reconnect" && request.method === "POST") {
       return this.forceReconnect();
@@ -665,6 +661,40 @@ export class ConnectionDO extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + CONNECTION_HEARTBEAT_INTERVAL_MS);
   }
 }
+
+const routeConnectionInvalidation = Effect.fn("ConnectionDO.routeInvalidation")(
+  function* (
+    request: Request,
+    invalidate: (queryId: QueryId) => Promise<Response>,
+  ) {
+    const decoded = yield* decodeConnectionInvalidationRequest(request).pipe(
+      Effect.catch(error =>
+        Effect.succeed(errorResponse(connectionRouteErrorToHttpError(error)))
+      ),
+    );
+    if (decoded instanceof Response) {
+      return decoded;
+    }
+    return yield* Effect.promise(() => invalidate(decoded));
+  },
+);
+
+const routeConnectionLiveQueryDelivery = Effect.fn("ConnectionDO.routeLiveQueryDelivery")(
+  function* (
+    request: Request,
+    deliver: (deliveries: LiveQueryDeliveryChange[]) => Promise<Response>,
+  ) {
+    const decoded = yield* decodeConnectionLiveQueryDeliveryRequest(request).pipe(
+      Effect.catch(error =>
+        Effect.succeed(errorResponse(connectionRouteErrorToHttpError(error)))
+      ),
+    );
+    if (decoded instanceof Response) {
+      return decoded;
+    }
+    return yield* Effect.promise(() => deliver(decoded));
+  },
+);
 
 async function executeSyncInvoke(
   env: Env,

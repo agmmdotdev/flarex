@@ -1,5 +1,55 @@
 # Sync And Subscriptions
 
+## Connection And Delivery DO Effect Route Adapters
+
+Previous completed checkpoint: `66139fe` Route executor HTTP bodies through
+Effect.
+
+What changed:
+
+- `ConnectionDO.fetch()` now routes `/invalidate` through
+  `ConnectionDO.routeInvalidation`, a named `Effect.fn` that decodes with the
+  existing typed connection invalidation route boundary.
+- `ConnectionDO.fetch()` now routes `/deliver/live-query` through
+  `ConnectionDO.routeLiveQueryDelivery`, reusing the typed internal
+  live-query delivery decoder before invoking the existing delivery logic.
+- `DeliveryDO.fetch()` now routes `/wake` through `DeliveryDO.routeWake`,
+  using the typed wake decoder directly instead of the compatibility Promise
+  reader.
+- `DeliveryDO.fetch()` now routes `/continue` through
+  `DeliveryDO.routeContinue`, sharing the drain-result response mapping used by
+  `/wake`.
+
+Boundary decision:
+
+This checkpoint converts only the Durable Object fetch edges. It does not move
+WebSocket sync state, active-query transition logic, delivery claim/fanout/ack
+logic, executor maintenance contracts, or retry alarm behavior into new
+services. `ConnectionDO` and `DeliveryDO` still own their current mutable DO
+state and operational workflows.
+
+Preserved behavior:
+
+- Malformed JSON and typed route validation failures still map through the
+  existing `errorResponse(...)` JSON body shape.
+- `DeliveryDrainFailureError` still returns the structured `500` drain failure
+  response for `/wake` and `/continue`.
+- Non-route operation failures keep their existing propagation behavior.
+- WebSocket upgrade, heartbeat, force reconnect, alarm continuation, public
+  Worker forwarding, scheduler routes, executor-http routes, protocol schemas,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery Payload Effect Boundary
 
 Current Effect migration checkpoint: delivery payload route bodies are moving

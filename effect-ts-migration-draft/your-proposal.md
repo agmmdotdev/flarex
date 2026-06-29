@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.
-- Active checkpoint: route the executor-http Elysia POST body adapter through a shared typed `Effect.fn`, keeping endpoint parsers and executor methods unchanged while mapping JSON, body validation, and executor failures once at the HTTP adapter edge.
+- Previous completed checkpoint: `66139fe` Route executor HTTP bodies through Effect.
+- Active checkpoint: route `ConnectionDO` and `DeliveryDO` request fetch edges through named `Effect.fn` helpers, reusing their existing typed route decoders and keeping operation/drain behavior unchanged.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current executor-http adapter checkpoint:
+Next recommended checkpoint after the current ConnectionDO/DeliveryDO adapter checkpoint:
 
 1. Continue with the next remaining backend route/service boundary that still
    reads JSON through compatibility wrappers.
@@ -55,7 +55,15 @@ Next recommended checkpoint after the current executor-http adapter checkpoint:
 4. Keep `PartitionDO` OCC/SQL semantics out of route-boundary refactors until
    its service extraction has separate parity coverage.
 
-Current Goal 142 slice:
+Current Goal 143 slice:
+
+1. Convert `ConnectionDO.fetch()` `/invalidate` and `/deliver/live-query` branches to named `Effect.fn` helpers that use the existing typed connection route decoders directly instead of compatibility Promise readers.
+2. Convert `DeliveryDO.fetch()` `/wake` and `/continue` branches to named `Effect.fn` helpers, keeping typed wake decode failures at the route adapter edge and preserving structured drain failure responses.
+3. Preserve WebSocket upgrade behavior, heartbeat/force-reconnect routes, `ConnectionDO` active query state transitions, `DeliveryDO` claim/fanout/ack/drain internals, retry alarm behavior, scheduler/public Worker routes, executor-http routes, protocol schemas, and `ValidatorJson` unchanged.
+4. Preserve operation failure behavior: typed body failures map to the existing `errorResponse(...)` JSON bodies, delivery drain failures still return structured `500` JSON, and other operation failures keep propagating as before.
+5. Validate with focused connection/delivery route-boundary and sync coverage, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 142 slice:
 
 1. Add `effect` to `@flarex/executor-http` and introduce typed adapter errors for malformed JSON, body validation failures, and executor operation failures.
 2. Add shared `ExecutorHttp.routeBody`, a named `Effect.fn` that reads JSON, applies the existing endpoint parser, invokes the selected executor method, and maps executor failures to the existing status/body contract.
