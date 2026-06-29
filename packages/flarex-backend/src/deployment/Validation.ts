@@ -547,7 +547,7 @@ export function validateCodegenAnalysis(
         const visibility = parseVisibility(fn.visibility, `$codegen.functions.${path}.visibility`);
         const args = safeValidator(fn.args, `$codegen.functions.${path}.args`);
         if (args === null) {
-          throw new HttpError(400, `$codegen.functions.${path}.args: Validator is required.`);
+          throwDeploymentValidation(`$codegen.functions.${path}.args: Validator is required.`);
         }
         const returns = safeValidator(fn.returns ?? null, `$codegen.functions.${path}.returns`);
         const partition = validateFunctionPartitionPolicy(

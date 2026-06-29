@@ -577,6 +577,33 @@ describe("DeploymentApiHandlers", () => {
       },
       "Duplicate codegen function metadata path: messages:list.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: null,
+              returns: null,
+              partition: null,
+            }],
+          }],
+        },
+      },
+      "$codegen.functions.messages:list.args: Validator is required.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -897,6 +924,40 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(duplicateCodegenFunctionFailure.message).toBe(
       "Duplicate codegen function metadata path: messages:list.",
+    );
+
+    const codegenFunctionArgsFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        ...deploymentAnalysis(),
+        functions: {
+          functions: [{ path: "messages:list", kind: "query" }],
+        },
+      },
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "messages",
+            exportName: "list",
+            kind: "query",
+            visibility: "public",
+            args: null,
+            returns: null,
+            partition: null,
+          }],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionArgsFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionArgsFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionArgsFailure.message).toBe(
+      "$codegen.functions.messages:list.args: Validator is required.",
     );
   });
 });

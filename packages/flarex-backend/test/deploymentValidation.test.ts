@@ -564,6 +564,26 @@ describe("deployment validation", () => {
         }, analysis),
       "Duplicate codegen function metadata path: messages:list.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "messages",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: null,
+              returns: null,
+              partition: null,
+            }],
+          }],
+        }, analysis),
+      "$codegen.functions.messages:list.args: Validator is required.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

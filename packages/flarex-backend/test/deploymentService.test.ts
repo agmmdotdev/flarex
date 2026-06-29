@@ -877,6 +877,55 @@ describe("DeploymentService", () => {
     } finally {
       await duplicateFunctionRuntime.dispose();
     }
+
+    const typedFunctionArgsStatus = analyzedPushStatus("push-typed-function-args-validation-failed");
+    const typedFunctionArgsRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionArgsStatus,
+          codegenAnalysis: {
+            schema: typedFunctionArgsStatus.analysis!.schema,
+            functions: [{
+              moduleName: "lessons",
+              functions: [{
+                moduleName: "lessons",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: null,
+                returns: null,
+                partition: null,
+              }],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionArgsError = await typedFunctionArgsRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionArgsStatus.pushId,
+            now: 2_500_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionArgsError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionArgsError.message).toBe(
+        "$codegen.functions.lessons:list.args: Validator is required.",
+      );
+    } finally {
+      await typedFunctionArgsRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {
