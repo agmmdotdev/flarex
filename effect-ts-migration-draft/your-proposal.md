@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation failures.
-- Active checkpoint: move `DeliveryDO` wake and continue routes to typed route plus operation failures with one adapter HTTP mapping edge while preserving structured drain failure responses.
+- Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation failures.
+- Active checkpoint: move `ExecutionDO` start, syscall, and finish routes to typed route plus operation failures with one adapter HTTP mapping edge while preserving the existing `invokeErrorResponse(...)` response shape.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,19 +44,42 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current DeliveryDO route operation checkpoint:
+Next recommended checkpoint after the current ExecutionDO route operation checkpoint:
 
-1. Convert the next coherent Durable Object route group, likely `ExecutionDO`
-   route execution helpers, from untyped `Effect.promise(...)` work to typed
-   route/service failures with a single adapter mapper.
-2. Keep each public Worker or Durable Object entrypoint at one
+1. Audit the remaining `Effect.promise(...)` route, response, and runtime
+   service hotspots and choose the next coherent group instead of one helper at
+   a time.
+2. Prefer the next route/service boundary that can move post-decode work to
+   typed failures without changing PartitionDO SQL/OCC behavior.
+3. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
-3. Preserve the existing HTTP response body/status exactly through adapter
+4. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
+5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 163 slice:
+Current Goal 164 slice:
+
+1. Add typed `ExecutionRouteOperationError` failures for `ExecutionDO` start,
+   syscall, and finish route operations.
+2. Convert `ExecutionDO.fetch()` `/start`, `/syscall`, and `/finish` handlers
+   to run one Effect pipeline per route and map typed request, protocol, and
+   operation failures at the Durable Object adapter edge.
+3. Convert post-decode start/syscall/finish route work from
+   `Effect.promise(...)` to `Effect.tryPromise(...)` operation failures while
+   preserving malformed JSON `400`, execution protocol validation `400`,
+   active-session `409`, unknown-session `409`, transaction/session behavior,
+   structured partition/OCC response bodies, and `invokeErrorResponse(...)`
+   JSON response bodies.
+4. Preserve public Worker forwarding, generated execution artifacts,
+   PartitionDO, DeliveryDO, SchedulerDO, executor-http, protocol schemas, and
+   `ValidatorJson` unchanged.
+5. Validate with direct operation-error tests, focused execution
+   route-boundary and invoke/transaction coverage, backend typecheck/build,
+   broad protocol/backend gates as practical, and only the EffectTS quality
+   checker reviewer.
+
+Completed Goal 163 slice:
 
 1. Add typed `DeliveryRouteOperationError` failures for `DeliveryDO` wake and
    pending-drain continuation route operations.

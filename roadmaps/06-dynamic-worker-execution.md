@@ -1,5 +1,49 @@
 # Dynamic Worker Execution
 
+## ExecutionDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation
+failures.
+
+What changed:
+
+- `ExecutionDO` start, syscall, and finish route operations now emit typed
+  `ExecutionRouteOperationError` failures for post-decode execution defects.
+- Internal `/start`, `/syscall`, and `/finish` now run one Effect pipeline per
+  route and map typed request/protocol/operation failures at the Durable Object
+  adapter edge.
+- Post-decode route work now uses `Effect.tryPromise(...)` instead of untyped
+  `Effect.promise(...)`.
+
+Why it changed:
+
+ExecutionDO request bodies already decoded through typed Effect boundaries,
+but route helpers still converted decoder failures to `HttpError` inside the
+pipeline and ran session work as an untyped promise. This checkpoint keeps the
+existing execution session workflow intact while moving route failures into the
+typed channel until the `invokeErrorResponse(...)` adapter edge.
+
+Known limitations:
+
+- Execution session lifecycle, active deployment metadata lookup, transaction
+  ownership, syscall read/write behavior, return validation, commit behavior,
+  and abort remain in `ExecutionDO`.
+- Structured `PartitionRequestError` bodies from transaction calls still pass
+  through `invokeErrorResponse(...)` unchanged at the adapter edge.
+- Generated execution artifacts, public Worker execution forwarding, and
+  PartitionDO SQL/OCC behavior remain separate migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Worker Typed Dispatch Failures
 
 Previous completed checkpoint: `a079a26` Type public invoke deployment errors.

@@ -13,6 +13,8 @@ import {
 import type { ExecutionFinishRequest } from "../types";
 import { backendJson } from "./JsonRouteBoundary";
 
+export type ExecutionFinishRouteError = RequestJsonError | ExecutionProtocolValidationError;
+
 export async function readExecutionFinishRequest(
   request: Request,
 ): Promise<ExecutionFinishRequest> {
@@ -25,7 +27,7 @@ export async function readExecutionFinishRequest(
 
 export function decodeExecutionFinishRouteRequest(
   request: Request,
-): Effect.Effect<ExecutionFinishRequest, RequestJsonError | ExecutionProtocolValidationError> {
+): Effect.Effect<ExecutionFinishRequest, ExecutionFinishRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(parseExecutionFinishRouteRequestEffect),
   );
@@ -60,7 +62,7 @@ export function parseExecutionFinishRouteRequestEffect(
 }
 
 export function executionFinishRouteErrorToHttpError(
-  error: RequestJsonError | ExecutionProtocolValidationError,
+  error: ExecutionFinishRouteError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);

@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## ExecutionDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation
+failures.
+
+What changed:
+
+- `ExecutionDO` start, syscall, and finish route operations now emit typed
+  `ExecutionRouteOperationError` failures after request decoding succeeds.
+- `/start`, `/syscall`, and `/finish` now run one Effect pipeline per route and
+  map typed request, protocol, and operation failures at the Durable Object
+  adapter edge.
+- Post-decode route work now uses `Effect.tryPromise(...)` instead of untyped
+  `Effect.promise(...)`.
+
+Why it changed:
+
+The execution route bodies already decoded through typed Effect boundaries,
+but the route helpers still converted those failures to `HttpError` inside the
+pipeline and ran execution work through an untyped promise adapter. This keeps
+the existing `invokeErrorResponse(...)` public shape while making the route
+failure channel typed until the adapter edge.
+
+Known limitations:
+
+- Execution start/syscall/finish internals still use existing `HttpError`
+  compatibility failures inside `ExecutionDO`.
+- Partition request failures from transaction calls still preserve their
+  structured status/body through the existing `invokeErrorResponse(...)`
+  mapping.
+- Abort remains a bodyless route and is not converted in this checkpoint.
+- PartitionDO SQL/OCC behavior remains a separate migration surface.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## DeliveryDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation

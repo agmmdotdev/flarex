@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## ExecutionDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation
+failures.
+
+What changed:
+
+- Added `execution/RouteOperationError.ts` for typed ExecutionDO route
+  operation failures after request decoding succeeds.
+- `execution/StartRouteBoundary.ts`, `execution/SyscallRouteBoundary.ts`, and
+  `execution/FinishRouteBoundary.ts` still own request JSON and execution
+  protocol validation.
+- `ExecutionDO.fetch()` now maps route-boundary and route-operation failures
+  through one adapter helper for `/start`, `/syscall`, and `/finish`.
+
+Boundary decision:
+
+Request JSON and execution protocol errors stay in the execution route
+boundary modules. Stateful session start, syscall, and finish failures belong
+to the ExecutionDO route operation boundary because they happen after decoding
+while reading active deployment metadata, using transaction state, validating
+returns, or committing writes.
+Partition request failures remain source-owned by `transaction.ts`; the
+ExecutionDO operation boundary preserves those causes so the invoke adapter can
+return the original structured status/body.
+
+Known limitations:
+
+- This checkpoint does not extract ExecutionDO session lifecycle or transaction
+  behavior into reusable services.
+- Public Worker execution forwarding and generated execution artifacts remain
+  separate package boundaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## DeliveryDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation

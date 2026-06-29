@@ -14,6 +14,8 @@ import {
 import type { ExecutionSyscallRequest, Json } from "../types";
 import { backendJson, backendJsonRecord } from "./JsonRouteBoundary";
 
+export type ExecutionSyscallRouteError = RequestJsonError | ExecutionProtocolValidationError;
+
 export async function readExecutionSyscallRequest(
   request: Request,
 ): Promise<ExecutionSyscallRequest> {
@@ -26,7 +28,7 @@ export async function readExecutionSyscallRequest(
 
 export function decodeExecutionSyscallRouteRequest(
   request: Request,
-): Effect.Effect<ExecutionSyscallRequest, RequestJsonError | ExecutionProtocolValidationError> {
+): Effect.Effect<ExecutionSyscallRequest, ExecutionSyscallRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(parseExecutionSyscallRouteRequestEffect),
   );
@@ -61,7 +63,7 @@ export function parseExecutionSyscallRouteRequestEffect(
 }
 
 export function executionSyscallRouteErrorToHttpError(
-  error: RequestJsonError | ExecutionProtocolValidationError,
+  error: ExecutionSyscallRouteError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);

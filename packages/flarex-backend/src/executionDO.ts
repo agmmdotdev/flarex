@@ -1,17 +1,24 @@
 import { DurableObject } from "cloudflare:workers";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import {
   decodeExecutionFinishRouteRequest,
-  executionFinishRouteErrorToHttpError,
+  type ExecutionFinishRouteError,
 } from "./execution/FinishRouteBoundary";
 import {
   decodeExecutionStartRouteRequest,
-  executionStartRouteErrorToHttpError,
+  type ExecutionStartRouteError,
 } from "./execution/StartRouteBoundary";
 import {
   decodeExecutionSyscallRouteRequest,
-  executionSyscallRouteErrorToHttpError,
+  type ExecutionSyscallRouteError,
 } from "./execution/SyscallRouteBoundary";
-import { HttpError } from "./http";
+import {
+  ExecutionRouteOperationError,
+  executionRouteOperationError,
+  executionRouteOperationErrorToAdapterError,
+  type ExecutionRouteOperation,
+} from "./execution/RouteOperationError";
+import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
 import { Effect } from "effect";
 import {
   idValidatorForSchema,
@@ -59,17 +66,17 @@ export class ExecutionDO extends DurableObject<Env> {
     try {
       const url = new URL(request.url);
       if (url.pathname === "/start" && request.method === "POST") {
-        return await Effect.runPromise(
+        return await runExecutionRoute(
           routeExecutionStart(request, body => this.start(body)),
         );
       }
       if (url.pathname === "/syscall" && request.method === "POST") {
-        return await Effect.runPromise(
+        return await runExecutionRoute(
           routeExecutionSyscall(request, body => this.syscall(body)),
         );
       }
       if (url.pathname === "/finish" && request.method === "POST") {
-        return await Effect.runPromise(
+        return await runExecutionRoute(
           routeExecutionFinish(request, body => this.finish(body)),
         );
       }
@@ -238,10 +245,8 @@ const routeExecutionStart = Effect.fn("ExecutionDO.routeStart")(
     request: Request,
     start: (body: ExecutionStartRequest) => Promise<ExecutionStartResponse>,
   ) {
-    const body = yield* decodeExecutionStartRouteRequest(request).pipe(
-      Effect.mapError(executionStartRouteErrorToHttpError),
-    );
-    return yield* routeExecutionJsonResult(() => start(body));
+    const body = yield* decodeExecutionStartRouteRequest(request);
+    return yield* routeExecutionJsonResult("start", () => start(body));
   },
 );
 
@@ -250,10 +255,8 @@ const routeExecutionSyscall = Effect.fn("ExecutionDO.routeSyscall")(
     request: Request,
     syscall: (body: ExecutionSyscallRequest) => Promise<Json>,
   ) {
-    const body = yield* decodeExecutionSyscallRouteRequest(request).pipe(
-      Effect.mapError(executionSyscallRouteErrorToHttpError),
-    );
-    return yield* routeExecutionJsonResult(() => syscall(body));
+    const body = yield* decodeExecutionSyscallRouteRequest(request);
+    return yield* routeExecutionJsonResult("syscall", () => syscall(body));
   },
 );
 
@@ -262,15 +265,63 @@ const routeExecutionFinish = Effect.fn("ExecutionDO.routeFinish")(
     request: Request,
     finish: (body: ExecutionFinishRequest) => Promise<InvokeResponse>,
   ) {
-    const body = yield* decodeExecutionFinishRouteRequest(request).pipe(
-      Effect.mapError(executionFinishRouteErrorToHttpError),
-    );
-    return yield* routeExecutionJsonResult(() => finish(body));
+    const body = yield* decodeExecutionFinishRouteRequest(request);
+    return yield* routeExecutionJsonResult("finish", () => finish(body));
   },
 );
 
 function routeExecutionJsonResult<A extends Json | object>(
+  operation: ExecutionRouteOperation,
   execute: () => Promise<A>,
-): Effect.Effect<Response> {
-  return Effect.promise(async () => Response.json(await execute()));
+): Effect.Effect<Response, ExecutionRouteOperationError> {
+  return Effect.tryPromise({
+    try: execute,
+    catch: error => executionRouteOperationError(operation, error),
+  }).pipe(
+    Effect.map(result => Response.json(result)),
+  );
+}
+
+type ExecutionInternalRouteError =
+  | ExecutionStartRouteError
+  | ExecutionSyscallRouteError
+  | ExecutionFinishRouteError
+  | ExecutionRouteOperationError;
+
+function runExecutionRoute(
+  effect: Effect.Effect<Response, ExecutionInternalRouteError>,
+): Promise<Response> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error =>
+        Effect.succeed(executionInternalRouteErrorToResponse(error))
+      ),
+    ),
+  );
+}
+
+type ExecutionRouteDecodeError =
+  | ExecutionStartRouteError
+  | ExecutionSyscallRouteError
+  | ExecutionFinishRouteError;
+
+function executionInternalRouteErrorToResponse(
+  error: ExecutionInternalRouteError,
+): Response {
+  if (error instanceof ExecutionRouteOperationError) {
+    return invokeErrorResponse(executionRouteOperationErrorToAdapterError(error));
+  }
+  return invokeErrorResponse(executionRouteDecodeErrorToHttpError(error));
+}
+
+function executionRouteDecodeErrorToHttpError(
+  error: ExecutionRouteDecodeError,
+): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof ExecutionProtocolValidationError) {
+    return new HttpError(400, error.message);
+  }
+  return new HttpError(500, "Unexpected execution route error.");
 }
