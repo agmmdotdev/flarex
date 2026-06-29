@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Map deployment handler failures directly`.
+- Previous completed checkpoint: this commit, `Type invoke validation failures`.
 - Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -58,6 +58,24 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 176 slice:
+
+1. Add typed invoke validation failures for active metadata lookup, function
+   lookup, unsupported function kind, metadata/handler kind mismatch, request
+   kind mismatch, argument validation, and return validation.
+2. Add `resolveInvokeFunctionForRequest(...)`, `validateInvokeArgumentsEffect(...)`,
+   and `validateReturnEffect(...)` as named Effect helpers for the top-level
+   invoke validation service boundary.
+3. Keep `executeInvoke(...)` and `validateReturn(...)` as Promise/throwing
+   compatibility adapters that map typed invoke failures to the same
+   `HttpError` statuses and messages.
+4. Preserve SingleShardTransaction, PartitionDO SQL/OCC behavior, function
+   handler execution, public Worker route decoding, artifact runtime routing,
+   execution sessions, protocol schemas, deployment routes, and
+   `ValidatorJson` semantics.
+5. Validate typed invoke failure channels directly, then preserve public
+   invoke route and legacy Promise adapter behavior with focused tests.
 
 Completed Goal 175 slice:
 

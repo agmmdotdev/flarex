@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Invoke Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke validation failures`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke.ts` now owns typed invoke validation
+  errors for function metadata lookup, handler lookup, function kind checks,
+  argument validation, and return validation.
+- The legacy `executeInvoke(...)` Promise API and `validateReturn(...)`
+  compatibility helper map those typed failures to the same `HttpError`
+  adapter shape.
+- Tests distinguish direct typed Effect failures from adapter response mapping.
+
+Boundary decision:
+
+Invoke validation is backend service/domain behavior, so it should not depend
+on `HttpError`. The adapter-shaped error remains at the Promise/HTTP boundary
+for existing Worker, ConnectionDO, and ExecutionDO callers.
+
+Known limitations:
+
+- Runtime user document validation still uses `BackendValidationError` and the
+  existing `ValidatorJson` implementation behind the newly typed invoke
+  validation boundary.
+- PartitionDO SQL/OCC, transaction read/write validation, execution sessions,
+  and artifact runtime routing are separate follow-up surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Artifact Ref Effect Boundary
 
 Previous completed checkpoint: `8990f06` Share dev response JSON reads.

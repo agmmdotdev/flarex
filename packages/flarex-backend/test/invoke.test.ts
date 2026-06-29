@@ -1,13 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
   executeInvoke,
+  InvokeArgumentValidationError,
+  InvokeFunctionNotFoundError,
+  InvokeReturnValidationError,
+  invokeValidationErrorToHttpError,
+  loadActiveDeployment,
+  resolveInvokeFunctionForRequest,
   resolveFunctionExecutionScope,
+  validateReturnEffect,
   type BackendFunctionRegistry,
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
 import { SingleShardTransaction } from "../src/transaction";
 import type {
   AnalyzedStartPushRequest,
+  ActiveDeploymentStatus,
   DeploymentFunctions,
   DeploymentSchema,
   Env,
@@ -30,6 +39,99 @@ afterAll(async () => {
 });
 
 describe("executeInvoke", () => {
+  it("reports invoke argument validation as a typed Effect failure before adapter mapping", async () => {
+    await putSchema("typed-argument-validation-deployment", {
+      version: 1,
+      tables: [],
+      indexes: [],
+    });
+    const activeDeployment = await loadActiveDeployment(env, "typed-argument-validation-deployment");
+    const functions: BackendFunctionRegistry = {
+      "users:greet": {
+        kind: "query",
+        args: {
+          type: "object",
+          value: {
+            name: { fieldType: { type: "string" }, optional: false },
+          },
+        },
+        handler: () => null,
+      },
+    };
+
+    const failure = await Effect.runPromise(
+      resolveInvokeFunctionForRequest(
+        activeDeployment,
+        {
+          path: "users:greet",
+          kind: "query",
+          partitionKey: "user:u1",
+          args: { name: 42 },
+        },
+        functions,
+      ).pipe(
+        Effect.catchTag("InvokeArgumentValidationError", error => Effect.succeed(error)),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvokeArgumentValidationError);
+    if (!(failure instanceof InvokeArgumentValidationError)) {
+      throw new Error("Expected InvokeArgumentValidationError.");
+    }
+    expect(failure.message).toBe("$args.name: Expected a string.");
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "ArgumentValidationError: $args.name: Expected a string.",
+    });
+  });
+
+  it("reports invoke return validation as a typed Effect failure before adapter mapping", async () => {
+    const failure = await Effect.runPromise(
+      validateReturnEffect(
+        { type: "string" },
+        123,
+        emptyActiveDeployment().analysis.schema,
+      ).pipe(
+        Effect.catchTag("InvokeReturnValidationError", error => Effect.succeed(error)),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvokeReturnValidationError);
+    if (!(failure instanceof InvokeReturnValidationError)) {
+      throw new Error("Expected InvokeReturnValidationError.");
+    }
+    expect(failure.message).toBe("$return: Expected a string.");
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "ReturnValidationError: $return: Expected a string.",
+    });
+  });
+
+  it("keeps unknown invoke functions typed until the adapter boundary", async () => {
+    const failure = await Effect.runPromise(
+      resolveInvokeFunctionForRequest(
+        emptyActiveDeployment(),
+        {
+          path: "missing:function",
+          kind: "query",
+          args: null,
+        },
+        {},
+      ).pipe(
+        Effect.catchTag("InvokeFunctionNotFoundError", error => Effect.succeed(error)),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvokeFunctionNotFoundError);
+    if (!(failure instanceof InvokeFunctionNotFoundError)) {
+      throw new Error("Expected InvokeFunctionNotFoundError.");
+    }
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 404,
+      message: "Unknown Flarex function: missing:function",
+    });
+  });
+
   it("plans create-root partitions by preallocating the root id before execution", () => {
     const schema: DeploymentSchema = {
       version: 1,
@@ -1679,6 +1781,39 @@ async function startPushResponse(
       body: JSON.stringify(body),
     },
   );
+}
+
+function emptyActiveDeployment(): ActiveDeploymentStatus {
+  return {
+    activePushId: "typed-active-push",
+    activatedAt: 1_700_000,
+    schemaVersion: 1,
+    executionArtifactRef: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact_1234567890abcdef1234567890abcdef",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage: sourcePackageForFunctions({ functions: [] }),
+    analysis: {
+      schema: {
+        version: 1,
+        tables: [],
+        indexes: [],
+      },
+      functions: {
+        functions: [],
+      },
+    },
+    codegenAnalysis: {
+      schema: {
+        version: 1,
+        tables: [],
+        indexes: [],
+      },
+      functions: [],
+    },
+  };
 }
 
 function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStartPushRequest["sourcePackage"] {

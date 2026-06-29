@@ -1,3 +1,4 @@
+import { Data, Effect } from "effect";
 import { DeploymentRoute } from "flarex-protocol/deployment";
 import { HttpError } from "./http";
 import {
@@ -31,6 +32,59 @@ import type {
 import { BackendValidationError, validateJsonValue } from "./validation";
 
 type InvokeEnv = Pick<Env, "DEPLOYMENTS" | "PARTITIONS">;
+
+export class InvokeActiveFunctionMetadataNotFoundError
+  extends Data.TaggedError("InvokeActiveFunctionMetadataNotFoundError")<{
+    readonly path: string;
+  }> {}
+
+export class InvokeFunctionNotFoundError
+  extends Data.TaggedError("InvokeFunctionNotFoundError")<{
+    readonly path: string;
+  }> {}
+
+export class InvokeUnsupportedFunctionKindError
+  extends Data.TaggedError("InvokeUnsupportedFunctionKindError")<{
+    readonly path: string;
+    readonly kind: DeploymentFunctionKind;
+  }> {}
+
+export class InvokeFunctionKindMismatchError
+  extends Data.TaggedError("InvokeFunctionKindMismatchError")<{
+    readonly path: string;
+    readonly metadataKind: DeploymentFunctionKind;
+    readonly handlerKind: BackendFunctionKind;
+  }> {}
+
+export class InvokeRequestKindMismatchError
+  extends Data.TaggedError("InvokeRequestKindMismatchError")<{
+    readonly requestKind: BackendFunctionKind;
+    readonly functionKind: BackendFunctionKind;
+  }> {}
+
+export class InvokeArgumentValidationError
+  extends Data.TaggedError("InvokeArgumentValidationError")<{
+    readonly message: string;
+  }> {}
+
+export class InvokeReturnValidationError
+  extends Data.TaggedError("InvokeReturnValidationError")<{
+    readonly message: string;
+  }> {}
+
+export type InvokeFunctionValidationError =
+  | InvokeActiveFunctionMetadataNotFoundError
+  | InvokeArgumentValidationError
+  | InvokeFunctionKindMismatchError
+  | InvokeFunctionNotFoundError
+  | InvokeRequestKindMismatchError
+  | InvokeUnsupportedFunctionKindError;
+
+export type InvokeReturnValidationFailure = InvokeReturnValidationError;
+
+export type InvokeValidationError =
+  | InvokeFunctionValidationError
+  | InvokeReturnValidationFailure;
 
 export type BackendQueryCtx = {
   db: BackendDatabaseReader;
@@ -116,48 +170,11 @@ export async function executeInvoke(
   functions: BackendFunctionRegistry,
 ): Promise<InvokeResponse> {
   const activeDeployment = await loadActiveDeployment(env, deploymentId);
-  const activeFunctions = activeDeployment.analysis.functions.functions;
-  const activeMetadata = activeFunctions.find(
-    candidate => candidate.path === request.path,
+  const { fn, metadata, schema } = await Effect.runPromise(
+    resolveInvokeFunctionForRequest(activeDeployment, request, functions).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
   );
-  if (activeFunctions.length > 0 && activeMetadata === undefined) {
-    throw new HttpError(404, `Unknown active Flarex function metadata: ${request.path}`);
-  }
-
-  const fn = functions[request.path];
-  if (!fn) {
-    throw new HttpError(404, `Unknown Flarex function: ${request.path}`);
-  }
-  const metadata = activeMetadata;
-  const declaredKind = metadata?.kind ?? fn.kind;
-  if (!isInvokableKind(declaredKind)) {
-    throw new HttpError(400, `${declaredKind} execution is not implemented by /invoke.`);
-  }
-  if (declaredKind !== fn.kind) {
-    throw new HttpError(
-      500,
-      `Function metadata kind mismatch for ${request.path}. Metadata has ${declaredKind}, handler is ${fn.kind}.`,
-    );
-  }
-
-  if (request.kind !== undefined && request.kind !== declaredKind) {
-    throw new HttpError(
-      400,
-      `Function kind mismatch. Request has ${request.kind}, function is ${declaredKind}.`,
-    );
-  }
-  const schema = activeDeployment.analysis.schema;
-  try {
-    const args = metadata?.args ?? fn.args;
-    if (args !== undefined && args !== null) {
-      validateJsonValue(args, request.args, "$args", { validateId: idValidatorForSchema(schema) });
-    }
-  } catch (error) {
-    if (error instanceof BackendValidationError) {
-      throw new HttpError(400, `ArgumentValidationError: ${error.message}`);
-    }
-    throw error;
-  }
   const scope = resolveFunctionExecutionScope(
     metadata?.partition ?? fn.partition ?? null,
     metadata?.route ?? fn.route ?? null,
@@ -182,7 +199,11 @@ export async function executeInvoke(
     fn.kind === "query"
       ? await fn.handler({ db: readerFor(tx, schema) }, request.args)
       : await fn.handler({ db: writerFor(tx, schema) }, request.args);
-  validateReturn(metadata?.returns ?? fn.returns, value, schema);
+  await Effect.runPromise(
+    validateReturnEffect(metadata?.returns ?? fn.returns, value, schema).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
 
   if (fn.kind === "query") {
     return { value, readSet: tx.currentReadSet(), readTs: tx.beginTs };
@@ -195,6 +216,79 @@ export async function executeInvoke(
     writes: commit.writes,
   };
 }
+
+type ResolvedInvokeFunction = {
+  readonly fn: BackendRegisteredFunction;
+  readonly metadata: DeploymentFunctionMetadata | undefined;
+  readonly schema: DeploymentSchema;
+};
+
+export const resolveInvokeFunctionForRequest = Effect.fn(
+  "Invoke.resolveFunctionForRequest",
+)(function* (
+  activeDeployment: ActiveDeploymentStatus,
+  request: InvokeRequest,
+  functions: BackendFunctionRegistry,
+): Effect.fn.Return<ResolvedInvokeFunction, InvokeFunctionValidationError> {
+  const activeFunctions = activeDeployment.analysis.functions.functions;
+  const activeMetadata = activeFunctions.find(
+    candidate => candidate.path === request.path,
+  );
+  if (activeFunctions.length > 0 && activeMetadata === undefined) {
+    return yield* Effect.fail(new InvokeActiveFunctionMetadataNotFoundError({ path: request.path }));
+  }
+
+  const fn = functions[request.path];
+  if (!fn) {
+    return yield* Effect.fail(new InvokeFunctionNotFoundError({ path: request.path }));
+  }
+  const metadata = activeMetadata;
+  const declaredKind = metadata?.kind ?? fn.kind;
+  if (!isInvokableKind(declaredKind)) {
+    return yield* Effect.fail(new InvokeUnsupportedFunctionKindError({
+      path: request.path,
+      kind: declaredKind,
+    }));
+  }
+  if (declaredKind !== fn.kind) {
+    return yield* Effect.fail(new InvokeFunctionKindMismatchError({
+      path: request.path,
+      metadataKind: declaredKind,
+      handlerKind: fn.kind,
+    }));
+  }
+
+  if (request.kind !== undefined && request.kind !== declaredKind) {
+    return yield* Effect.fail(new InvokeRequestKindMismatchError({
+      requestKind: request.kind,
+      functionKind: declaredKind,
+    }));
+  }
+  const schema = activeDeployment.analysis.schema;
+  yield* validateInvokeArgumentsEffect(metadata?.args ?? fn.args, request.args, schema);
+  return { fn, metadata, schema };
+});
+
+export const validateInvokeArgumentsEffect = Effect.fn(
+  "Invoke.validateArguments",
+)(function* (
+  validator: ValidatorJson | null | undefined,
+  value: Json,
+  schema: DeploymentSchema,
+): Effect.fn.Return<void, InvokeArgumentValidationError> {
+  if (validator === undefined || validator === null) return;
+  return yield* Effect.suspend(() => {
+    try {
+      validateJsonValue(validator, value, "$args", { validateId: idValidatorForSchema(schema) });
+      return Effect.void;
+    } catch (error) {
+      if (error instanceof BackendValidationError) {
+        return Effect.fail(new InvokeArgumentValidationError({ message: error.message }));
+      }
+      return Effect.die(error);
+    }
+  });
+});
 
 export function resolveFunctionExecutionScope(
   partition: FunctionPartitionMetadata | null | undefined,
@@ -673,15 +767,58 @@ export function validateReturn(
   value: Json,
   schema: DeploymentSchema,
 ): void {
+  Effect.runSync(
+    validateReturnEffect(validator, value, schema).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const validateReturnEffect = Effect.fn("Invoke.validateReturn")(function* (
+  validator: ValidatorJson | null | undefined,
+  value: Json,
+  schema: DeploymentSchema,
+): Effect.fn.Return<void, InvokeReturnValidationError> {
   if (validator === undefined || validator === null) return;
-  try {
-    validateJsonValue(validator, value, "$return", { validateId: idValidatorForSchema(schema) });
-  } catch (error) {
-    if (error instanceof BackendValidationError) {
-      throw new HttpError(400, `ReturnValidationError: ${error.message}`);
+  return yield* Effect.suspend(() => {
+    try {
+      validateJsonValue(validator, value, "$return", { validateId: idValidatorForSchema(schema) });
+      return Effect.void;
+    } catch (error) {
+      if (error instanceof BackendValidationError) {
+        return Effect.fail(new InvokeReturnValidationError({ message: error.message }));
+      }
+      return Effect.die(error);
     }
-    throw error;
+  });
+});
+
+export function invokeValidationErrorToHttpError(error: InvokeValidationError): HttpError {
+  if (error instanceof InvokeActiveFunctionMetadataNotFoundError) {
+    return new HttpError(404, `Unknown active Flarex function metadata: ${error.path}`);
   }
+  if (error instanceof InvokeFunctionNotFoundError) {
+    return new HttpError(404, `Unknown Flarex function: ${error.path}`);
+  }
+  if (error instanceof InvokeUnsupportedFunctionKindError) {
+    return new HttpError(400, `${error.kind} execution is not implemented by /invoke.`);
+  }
+  if (error instanceof InvokeFunctionKindMismatchError) {
+    return new HttpError(
+      500,
+      `Function metadata kind mismatch for ${error.path}. Metadata has ${error.metadataKind}, handler is ${error.handlerKind}.`,
+    );
+  }
+  if (error instanceof InvokeRequestKindMismatchError) {
+    return new HttpError(
+      400,
+      `Function kind mismatch. Request has ${error.requestKind}, function is ${error.functionKind}.`,
+    );
+  }
+  if (error instanceof InvokeArgumentValidationError) {
+    return new HttpError(400, `ArgumentValidationError: ${error.message}`);
+  }
+  return new HttpError(400, `ReturnValidationError: ${error.message}`);
 }
 
 export function idValidatorForSchema(schema: DeploymentSchema) {

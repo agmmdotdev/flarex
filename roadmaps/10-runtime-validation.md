@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Invoke Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke validation failures`.
+
+What changed:
+
+- Top-level invoke function resolution now emits typed failures for active
+  metadata lookup, function lookup, unsupported function kind, metadata/handler
+  kind mismatch, request kind mismatch, and argument validation.
+- Return validation now has a typed `validateReturnEffect(...)` path used by
+  `executeInvoke(...)` before the Promise adapter maps failures to `HttpError`.
+- Direct invoke tests cover the typed Effect failure channels before adapter
+  mapping.
+
+Why it changed:
+
+`executeInvoke(...)` had moved behind typed public request decoders, but its
+core validation path still threw adapter-shaped `HttpError` values for domain
+validation. This checkpoint makes the invoke validation service boundary typed
+while preserving the existing Promise API and HTTP response envelope.
+
+Known limitations:
+
+- Query planning, document validation, placement validation, transaction
+  commit, and PartitionDO request failures still use the existing compatibility
+  paths.
+- Public Worker invoke routing and artifact-runtime routing are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Executor HTTP Live Query Body Effect Decoders
 
 Previous completed checkpoint: `8d99add` Decode executor invoke bodies with

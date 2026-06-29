@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Invoke Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke validation failures`.
+
+What changed:
+
+- `executeInvoke(...)` now resolves active deployment function metadata,
+  registered handlers, invoke kind compatibility, argument validation, and
+  return validation through named Effect helpers.
+- Invoke validation failures stay typed until the compatibility adapter maps
+  them to the existing `invokeErrorResponse(...)`/`HttpError` response shape.
+- Direct tests cover typed argument, return, and unknown-function failures
+  before adapter mapping.
+
+Why it changed:
+
+Public Worker invoke request bodies were already decoded through typed Effect
+boundaries, but the direct backend invoke service still threw `HttpError` for
+its own validation decisions. This checkpoint moves that top-level service
+validation path toward the Effect target shape without changing execution or
+transaction semantics.
+
+Known limitations:
+
+- Query/index planning, document validation, placement validation, mutation
+  commit, and transaction/session behavior remain in the existing compatibility
+  flow.
+- Artifact runtime service-binding invocation and public route decoding are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Artifact Ref Effect Boundary
 
 Previous completed checkpoint: `8990f06` Share dev response JSON reads.
