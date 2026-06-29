@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Type service-binding runtime invoke failures`.
-- Active checkpoint: continue the remaining non-Partition route/service Effect operation hotspots before touching PartitionDO SQL/OCC behavior.
+- Previous completed checkpoint: this commit, `Parse validator metadata without throws`.
+- Active checkpoint: choose the next route/service Effect migration slice now that the deployment validation batch is finished.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,24 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 173 slice:
+
+1. Add a shared non-throwing `parseValidatorJson(...)` result helper beside the
+   compatibility `assertValidatorJson(...)` API.
+2. Route `deployment/Validation.ts` validator metadata normalization through
+   `parseValidatorJson(...)` so schema, function, and codegen validator
+   metadata failures become `DeploymentValidationError` without catching a
+   thrown `BackendValidationError`.
+3. Preserve `assertValidatorJson(...)` throwing behavior for existing runtime
+   validation callers and keep all validator metadata error messages unchanged.
+4. Preserve `ValidatorJson` as the user document/function validation
+   representation; do not replace it with Effect Schema.
+5. Keep deployment route behavior, generated Deployment HttpApi handlers,
+   DeploymentService/Store orchestration, SQL behavior, protocol schemas,
+   PartitionDO, executor-http, and public Worker routes unchanged.
+6. Add direct shared validation coverage for the result helper and compatibility
+   wrapper plus focused deployment validation coverage.
 
 Completed Goal 172 slice:
 

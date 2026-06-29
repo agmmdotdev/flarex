@@ -1017,6 +1017,36 @@ corepack pnpm --filter flarex-backend build
 git diff --check
 ```
 
+## Validator Metadata Result Boundary
+
+Previous completed checkpoint: this commit, `Parse validator metadata without
+throws`.
+
+What changed:
+
+- Shared backend validator metadata parsing now has a non-throwing
+  `parseValidatorJson(...)` result helper.
+- `assertValidatorJson(...)` remains available for existing runtime validation
+  compatibility and preserves the same thrown `BackendValidationError`
+  messages.
+- Deployment metadata validation uses the result helper directly so validator
+  metadata failures stay in the typed deployment validation channel.
+
+Runtime boundary:
+
+This is not a runtime value-validation rewrite. `validateJsonValue(...)` and
+runtime user data validation still use `BackendValidationError`; this checkpoint
+only changes metadata parsing used by deployment validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/validation.test.ts packages/flarex-backend/test/deploymentValidation.test.ts
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Service Effect Adapter
 
 Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.

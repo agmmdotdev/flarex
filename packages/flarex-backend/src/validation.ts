@@ -14,6 +14,33 @@ export class BackendValidationError extends Error {
   }
 }
 
+export type BackendValidationResult<A> =
+  | {
+      readonly success: true;
+      readonly value: A;
+    }
+  | {
+      readonly success: false;
+      readonly error: BackendValidationError;
+    };
+
+function backendValidationSuccess<A>(value: A): BackendValidationResult<A> {
+  return {
+    success: true,
+    value,
+  };
+}
+
+function backendValidationFailure<A = never>(
+  message: string,
+  path: string,
+): BackendValidationResult<A> {
+  return {
+    success: false,
+    error: new BackendValidationError(message, path),
+  };
+}
+
 export function validateJsonValue(
   validator: ValidatorJson,
   value: Json,
@@ -71,10 +98,23 @@ export function validateJsonValue(
 }
 
 export function assertValidatorJson(value: Json | undefined | null, path: string): ValidatorJson | null {
-  if (value === undefined || value === null) return null;
-  assertJsonObject(value, "Expected validator object.", path);
+  const result = parseValidatorJson(value, path);
+  if (result.success) return result.value;
+  throw result.error;
+}
+
+export function parseValidatorJson(
+  value: Json | undefined | null,
+  path: string,
+): BackendValidationResult<ValidatorJson | null> {
+  if (value === undefined || value === null) return backendValidationSuccess(null);
+  if (!isJsonObject(value)) {
+    return backendValidationFailure("Expected validator object.", path);
+  }
   const type = value.type;
-  if (typeof type !== "string") throw new BackendValidationError("Validator type must be a string.", `${path}.type`);
+  if (typeof type !== "string") {
+    return backendValidationFailure("Validator type must be a string.", `${path}.type`);
+  }
   switch (type) {
     case "null":
     case "number":
@@ -83,13 +123,16 @@ export function assertValidatorJson(value: Json | undefined | null, path: string
     case "string":
     case "bytes":
     case "any":
-      return { type };
+      return backendValidationSuccess({ type });
     case "id": {
       const tableName = value.tableName;
       if (typeof tableName !== "string" || tableName.length === 0) {
-        throw new BackendValidationError("ID validator tableName must be a non-empty string.", `${path}.tableName`);
+        return backendValidationFailure(
+          "ID validator tableName must be a non-empty string.",
+          `${path}.tableName`,
+        );
       }
-      return { type, tableName };
+      return backendValidationSuccess({ type, tableName });
     }
     case "literal": {
       const literal = value.value;
@@ -98,50 +141,86 @@ export function assertValidatorJson(value: Json | undefined | null, path: string
         typeof literal !== "number" &&
         typeof literal !== "boolean"
       ) {
-        throw new BackendValidationError("Literal validator value must be string, number, or boolean.", `${path}.value`);
+        return backendValidationFailure(
+          "Literal validator value must be string, number, or boolean.",
+          `${path}.value`,
+        );
       }
-      return { type, value: literal };
+      return backendValidationSuccess({ type, value: literal });
     }
-    case "array":
-      return { type, value: assertValidatorJson(value.value, `${path}.value`) ?? missingValidator(`${path}.value`) };
+    case "array": {
+      const item = parseRequiredValidatorJson(value.value, `${path}.value`);
+      if (!item.success) return item;
+      return backendValidationSuccess({ type, value: item.value });
+    }
     case "object": {
       const rawFields = value.value;
-      assertJsonObject(rawFields, "Object validator value must be an object.", `${path}.value`);
+      if (!isJsonObject(rawFields)) {
+        return backendValidationFailure("Object validator value must be an object.", `${path}.value`);
+      }
       const fields: Record<string, { fieldType: ValidatorJson; optional: boolean }> = {};
       for (const [name, rawField] of Object.entries(rawFields)) {
-        assertJsonObject(rawField, "Object validator field must be an object.", `${path}.value.${name}`);
-        if (typeof rawField.optional !== "boolean") {
-          throw new BackendValidationError("Object validator optional flag must be a boolean.", `${path}.value.${name}.optional`);
+        if (!isJsonObject(rawField)) {
+          return backendValidationFailure("Object validator field must be an object.", `${path}.value.${name}`);
         }
+        if (typeof rawField.optional !== "boolean") {
+          return backendValidationFailure(
+            "Object validator optional flag must be a boolean.",
+            `${path}.value.${name}.optional`,
+          );
+        }
+        const fieldType = parseRequiredValidatorJson(
+          rawField.fieldType,
+          `${path}.value.${name}.fieldType`,
+        );
+        if (!fieldType.success) return fieldType;
         fields[name] = {
-          fieldType: assertValidatorJson(rawField.fieldType, `${path}.value.${name}.fieldType`) ??
-            missingValidator(`${path}.value.${name}.fieldType`),
+          fieldType: fieldType.value,
           optional: rawField.optional,
         };
       }
-      return { type, value: fields };
+      return backendValidationSuccess({ type, value: fields });
     }
-    case "record":
-      return {
+    case "record": {
+      const keys = parseRequiredValidatorJson(value.keys, `${path}.keys`);
+      if (!keys.success) return keys;
+      const values = parseRequiredValidatorJson(value.values, `${path}.values`);
+      if (!values.success) return values;
+      return backendValidationSuccess({
         type,
-        keys: assertValidatorJson(value.keys, `${path}.keys`) ?? missingValidator(`${path}.keys`),
-        values: assertValidatorJson(value.values, `${path}.values`) ?? missingValidator(`${path}.values`),
-      };
+        keys: keys.value,
+        values: values.value,
+      });
+    }
     case "union": {
       if (!Array.isArray(value.value)) {
-        throw new BackendValidationError("Union validator value must be an array.", `${path}.value`);
+        return backendValidationFailure("Union validator value must be an array.", `${path}.value`);
       }
-      return {
+      const members: ValidatorJson[] = [];
+      for (const [index, member] of value.value.entries()) {
+        const parsed = parseRequiredValidatorJson(member, `${path}.value[${index}]`);
+        if (!parsed.success) return parsed;
+        members.push(parsed.value);
+      }
+      return backendValidationSuccess({
         type,
-        value: value.value.map((member, index) =>
-          assertValidatorJson(member, `${path}.value[${index}]`) ??
-            missingValidator(`${path}.value[${index}]`),
-        ),
-      };
+        value: members,
+      });
     }
     default:
-      throw new BackendValidationError(`Unknown validator type ${type}.`, `${path}.type`);
+      return backendValidationFailure(`Unknown validator type ${type}.`, `${path}.type`);
   }
+}
+
+function parseRequiredValidatorJson(
+  value: Json | undefined,
+  path: string,
+): BackendValidationResult<ValidatorJson> {
+  const parsed = parseValidatorJson(value, path);
+  if (!parsed.success) return parsed;
+  return parsed.value === null
+    ? backendValidationFailure("Validator is required.", path)
+    : backendValidationSuccess(parsed.value);
 }
 
 function validateObject(
@@ -169,18 +248,4 @@ function expect(condition: boolean, message: string, path: string): asserts cond
 
 function isJsonObject(value: Json): value is Record<string, Json> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function assertJsonObject(
-  value: unknown,
-  message: string,
-  path: string,
-): asserts value is Record<string, Json> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new BackendValidationError(message, path);
-  }
-}
-
-function missingValidator(path: string): never {
-  throw new BackendValidationError("Validator is required.", path);
 }

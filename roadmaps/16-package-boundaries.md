@@ -1169,6 +1169,43 @@ node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vites
 git diff --check
 ```
 
+## Validator Metadata Result Boundary
+
+Previous completed checkpoint: this commit, `Parse validator metadata without
+throws`.
+
+What changed:
+
+- Added shared `parseValidatorJson(...)` as a non-throwing result helper beside
+  the compatibility `assertValidatorJson(...)` wrapper.
+- `deployment/Validation.ts` now consumes validator metadata parse results
+  directly, so schema, function, and codegen validator metadata failures become
+  `DeploymentValidationError` without catching thrown `BackendValidationError`.
+- Direct shared validation tests cover both the result helper and the preserved
+  throwing wrapper behavior.
+
+Boundary decision:
+
+`ValidatorJson` remains the backend representation for user document/function
+validation. This checkpoint changes the error boundary shape, not the validator
+contract or protocol ownership.
+
+Preserved behavior:
+
+- Existing validator metadata messages are unchanged.
+- Runtime value validation, PartitionDO, generated Deployment HttpApi handlers,
+  DeploymentService/Store, SQL behavior, protocol schemas, executor-http, and
+  public Worker routes are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/validation.test.ts packages/flarex-backend/test/deploymentValidation.test.ts
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Module Typed Error Batch
 
 Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.

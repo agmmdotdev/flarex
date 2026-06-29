@@ -21,7 +21,7 @@ import type {
   SchemaTable,
   ValidatorJson,
 } from "../types";
-import { assertValidatorJson, BackendValidationError } from "../validation";
+import { parseValidatorJson } from "../validation";
 import { DeploymentValidationError } from "./Errors";
 
 export interface DeploymentPushStatusRow extends Record<string, string | number | null> {
@@ -930,14 +930,11 @@ function parseVisibility(value: unknown, path: string): DeploymentValidationResu
 function safeValidator(value: unknown, path: string): DeploymentValidationResult<ValidatorJson | null> {
   const json = jsonValue(value, path);
   if (!json.success) return json;
-  try {
-    return deploymentValidationSuccess(assertValidatorJson(json.value, path));
-  } catch (error) {
-    if (error instanceof BackendValidationError) {
-      return deploymentValidationFailure(`Invalid validator metadata: ${error.message}`);
-    }
-    throw error;
+  const validator = parseValidatorJson(json.value, path);
+  if (!validator.success) {
+    return deploymentValidationFailure(`Invalid validator metadata: ${validator.error.message}`);
   }
+  return deploymentValidationSuccess(validator.value);
 }
 
 function jsonValue(value: unknown, path: string): DeploymentValidationResult<Json | undefined> {

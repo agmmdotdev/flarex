@@ -458,6 +458,47 @@ corepack pnpm --filter flarex-backend typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=60000 --hookTimeout=60000
 ```
 
+## Validator Metadata Result Boundary
+
+Previous completed checkpoint: this commit, `Parse validator metadata without
+throws`.
+
+What changed:
+
+- Added `parseValidatorJson(...)` as a result-returning parser for backend
+  validator metadata.
+- Kept `assertValidatorJson(...)` as the compatibility throwing wrapper, now
+  backed by the same parser.
+- `deployment/Validation.ts` no longer catches `BackendValidationError` to
+  convert validator metadata failures into `DeploymentValidationError`; it
+  receives those failures as parser results and maps them at the deployment
+  validation boundary.
+
+Why it changed:
+
+The deployment validation module had already moved from adapter-shaped
+`HttpError(400)` branches to `DeploymentValidationError`, but validator metadata
+still crossed the boundary through a thrown backend validation exception. This
+finishes that local domain-validation cleanup while preserving validator
+semantics.
+
+Preserved behavior:
+
+- Existing validator metadata error messages and start-analyzed HTTP mappings
+  are unchanged.
+- DeploymentService/Store orchestration, generated handlers, SQL behavior,
+  protocol schemas, public Worker routes, PartitionDO, executor-http, and
+  `ValidatorJson` ownership are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/validation.test.ts packages/flarex-backend/test/deploymentValidation.test.ts
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Module Typed Error Batch
 
 Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.
