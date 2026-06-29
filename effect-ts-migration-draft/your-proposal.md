@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ced24a1` Type remaining deployment validation failures.
-- Active checkpoint: convert generated deployment analyzed-start handler input conversion to Effect-returning validation decoders while preserving the compatibility throwing wrapper and HTTP 400 mapping.
+- Previous completed checkpoint: `bfb948b` Type deployment validation boundary batch.
+- Active checkpoint: convert the public Worker abandon-push route to an explicit Effect boundary using `decodePublicAbandonPushRequest(...)`, while preserving the compatibility throwing wrapper and public HTTP response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 130 slice:
+Current Goal 131 slice:
+
+1. Route the public Worker abandon-push path through an Effect-returning helper that composes `decodePublicAbandonPushRequest(...)` and forwards the normalized body to the generated DeploymentApi route.
+2. Export and reuse the public deployment route error mapper so `RequestJsonError` still becomes the existing `400` JSON-body response while `DeploymentProtocolValidationError` remains available to the Worker adapter response mapping.
+3. Keep `readPublicAbandonPushRequest(...)` as a compatibility wrapper with preserved thrown behavior for existing callers and tests.
+4. Keep start-push, analyzed start-push, finish-push artifact preflight behavior, `DeploymentDO` routing, generated Deployment HttpApi routing, deployment service/store behavior, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused public deployment route-boundary and push tests, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 130 slice:
 
 1. Add `deployment/Validation.ts` Effect-returning decoders for analyzed start-push request normalization and start-push service input validation.
 2. Switch the generated Deployment HttpApi analyzed-start handler to compose those decoders so the route path uses typed `DeploymentValidationError` instead of try/catch control flow.

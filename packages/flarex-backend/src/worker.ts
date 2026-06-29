@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
   DeploymentPushAction,
@@ -24,9 +25,10 @@ import {
 import { readPublicExecutionStartRequest } from "./execution/StartRouteBoundary";
 import {
   deploymentProtocolValidationErrorResponse,
+  decodePublicAbandonPushRequest,
   parsePublicStartPushRequest,
   parsePublicFinishPushRequest,
-  readPublicAbandonPushRequest,
+  publicDeploymentRouteErrorToHttpError,
   readPublicAnalyzedStartPushRequest,
   readPublicFinishPushJson,
   readPublicStartPushJson,
@@ -335,15 +337,31 @@ async function routeDeploymentPush(
     });
   }
   if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
-    const body = await readPublicAbandonPushRequest(request);
-    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    return await Effect.runPromise(
+      routeDeploymentAbandonPush(request, deployment, pushId).pipe(
+        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+      ),
+    );
   }
   return json({ error: "Push route not found." }, { status: 404 });
 }
+
+const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush")(
+  function* (
+    request: Request,
+    deployment: DurableObjectStub,
+    pushId: string,
+  ) {
+    const body = yield* decodePublicAbandonPushRequest(request);
+    return yield* Effect.promise(() =>
+      deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+  },
+);
 
 type DeploymentInternalPath =
   | DeploymentRoutePath

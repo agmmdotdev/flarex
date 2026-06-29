@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Public Abandon Push Worker Effect Boundary
+
+Previous completed checkpoint: `bfb948b` Type deployment validation boundary batch.
+
+What changed:
+
+- The public Worker abandon-push route now uses an explicit Effect boundary that
+  decodes `decodePublicAbandonPushRequest(...)`, maps typed route JSON failures
+  through the public deployment route mapper, and forwards the normalized body to
+  the generated DeploymentApi abandon route.
+- The compatibility `readPublicAbandonPushRequest(...)` wrapper remains in place
+  for existing callers and tests.
+- Public HTTP behavior is preserved: malformed JSON still maps to the existing
+  `400` response envelope and deployment protocol validation failures still map
+  through the Worker adapter response path.
+
+Why it changed:
+
+The public route boundary already exposed typed decoders, but the Worker
+abandon route still crossed through the Promise/throw compatibility wrapper.
+This checkpoint moves that route path closer to the Effect target shape while
+preserving response semantics.
+
+Known limitations and follow-up work:
+
+- Finish-push still keeps a raw JSON read before protocol parsing because its
+  missing-artifact preflight intentionally runs before body protocol validation.
+  A later slice should convert that preflight and body parsing together.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|rejects malformed abandon request bodies|abandons analyzed pushes without activating them|normalizes abandon reasons|does not abandon activated or unknown pushes"
+git diff --check
+```
+
 ## Generated Deployment Handler Input Effect Decoder
 
 Previous completed checkpoint: `ced24a1` Type remaining deployment validation

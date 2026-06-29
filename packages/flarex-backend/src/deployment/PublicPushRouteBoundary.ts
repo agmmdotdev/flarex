@@ -180,7 +180,7 @@ function parsePublicDeploymentProtocolRequestEffect<A>(
   });
 }
 
-function publicDeploymentRouteErrorToHttpError(
+export function publicDeploymentRouteErrorToHttpError(
   error: RequestJsonError | DeploymentProtocolValidationError,
 ): HttpError | DeploymentProtocolValidationError {
   if (error instanceof RequestJsonError) {

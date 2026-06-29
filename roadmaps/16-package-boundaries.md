@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Public Abandon Push Worker Effect Boundary
+
+Previous completed checkpoint: `bfb948b` Type deployment validation boundary batch.
+
+What changed:
+
+- The public Worker abandon-push route now consumes the module-owned typed
+  deployment route decoder instead of the compatibility Promise/throw wrapper.
+- `publicDeploymentRouteErrorToHttpError(...)` is exported from the public
+  deployment route-boundary module so Worker adapter mapping can reuse the same
+  route-boundary policy as compatibility readers.
+- Package ownership remains unchanged: protocol parsing stays in
+  `flarex-protocol`, public route decoding stays in
+  `deployment/PublicPushRouteBoundary.ts`, and Worker forwarding stays in
+  `worker.ts`.
+
+Boundary decision:
+
+The public Worker is an adapter edge. It may map typed request JSON failures to
+`HttpError` for the existing response envelope, but deployment protocol and
+service/domain validation stay typed until their adapter mapping points.
+
+Known limitations and follow-up work:
+
+- Finish-push needs a larger follow-up because artifact availability preflight
+  currently depends on reading raw JSON before protocol parsing.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|rejects malformed abandon request bodies|abandons analyzed pushes without activating them|normalizes abandon reasons|does not abandon activated or unknown pushes"
+git diff --check
+```
+
 ## Deployment Validation Module Typed Error Batch
 
 Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.

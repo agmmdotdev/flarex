@@ -8,6 +8,7 @@ import {
   decodePublicFinishPushRequest,
   decodePublicStartPushRequest,
   deploymentProtocolValidationErrorResponse,
+  publicDeploymentRouteErrorToHttpError,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
   parsePublicAnalyzedStartPushRequest,
@@ -201,6 +202,24 @@ describe("public deployment push route boundary", () => {
     });
 
     expect(deploymentProtocolValidationErrorResponse(new Error("not protocol"))).toBeUndefined();
+  });
+
+  it("maps typed public route JSON errors while preserving protocol errors for the worker adapter", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(publicDeploymentRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+
+    const protocolError = new DeploymentProtocolValidationError({
+      schema: "AbandonPushRequest",
+      message: "Abandon push request must be an object.",
+      cause: null,
+    });
+    expect(publicDeploymentRouteErrorToHttpError(protocolError)).toBe(protocolError);
   });
 });
 
