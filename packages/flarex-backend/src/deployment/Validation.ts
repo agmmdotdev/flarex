@@ -621,42 +621,37 @@ function validateFunctionPartitions(
     if (partition === undefined || partition === null) continue;
     const table = tables.get(partition.table);
     if (table === undefined || table.state === "deleted") {
-      throw new HttpError(400, `${metadata.path}.partition: Unknown partition table ${partition.table}.`);
+      throwDeploymentValidation(`${metadata.path}.partition: Unknown partition table ${partition.table}.`);
     }
     if (table.placement.kind !== "partitionBy") {
-      throw new HttpError(400, `${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
+      throwDeploymentValidation(`${metadata.path}.partition: Table ${partition.table} is not partitioned.`);
     }
     if (partition.type === "partitionCreateRoot") {
       if (table.placement.field !== "_id" || partition.partitionField !== "_id") {
-        throw new HttpError(
-          400,
+        throwDeploymentValidation(
           `${metadata.path}.partition: create-root partition requires ${partition.table} to be partitioned by _id.`,
         );
       }
       if (metadata.route !== null && metadata.route !== undefined) {
-        throw new HttpError(
-          400,
+        throwDeploymentValidation(
           `${metadata.path}.partition: create-root partition cannot declare route metadata.`,
         );
       }
       continue;
     }
     if (table.placement.field !== partition.partitionField) {
-      throw new HttpError(
-        400,
+      throwDeploymentValidation(
         `${metadata.path}.partition: Selector ${partition.selector} targets ${partition.partitionField}, but ${partition.table} is partitioned by ${table.placement.field}.`,
       );
     }
     const expectedSelector = selectorNameForPartitionField(table.placement.field);
     if (partition.selector !== expectedSelector) {
-      throw new HttpError(
-        400,
+      throwDeploymentValidation(
         `${metadata.path}.partition: Expected selector ${expectedSelector} for ${partition.table} partition field ${JSON.stringify(table.placement.field)}.`,
       );
     }
     if (!validatorHasRequiredField(metadata.args ?? null, partition.argField)) {
-      throw new HttpError(
-        400,
+      throwDeploymentValidation(
         `${metadata.path}.partition: args.${partition.argField} is not a required argument.`,
       );
     }
@@ -666,8 +661,7 @@ function validateFunctionPartitions(
       metadata.route.type === "args" &&
       metadata.route.field !== partition.argField
     ) {
-      throw new HttpError(
-        400,
+      throwDeploymentValidation(
         `${metadata.path}.partition: partition argument ${partition.argField} must match route argument ${metadata.route.field}.`,
       );
     }

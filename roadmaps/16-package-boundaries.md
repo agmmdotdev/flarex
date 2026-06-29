@@ -1,5 +1,72 @@
 # Package Boundaries
 
+## Deployment Function Partition Validation Typed Error
+
+Previous completed checkpoint: `641a567` Type codegen metadata match validation failures.
+
+What changed:
+
+- `validateFunctionPartitions(...)` now emits `DeploymentValidationError`
+  instead of raw `HttpError(400)` for deployment function partition/schema
+  semantic mismatches.
+- Generated start-analyzed handler behavior is preserved: unknown partition
+  tables, non-partitioned target tables, create-root mismatches, selector
+  mismatches, missing required partition args, and route/partition argument
+  mismatches still map to start-route `400` responses with the same messages
+  through `deploymentFailureToHttpError(...)`.
+- `DeploymentPushStore.finishPush(...)` continues to preserve already-typed
+  `DeploymentValidationError` from stored deployment analysis validation so
+  corrupt stored partition metadata still follows the existing finish
+  validation failure path.
+- Source-package validation, diagnostics validation, failed start-input
+  validation, deployment analysis object validation, codegen object validation,
+  codegen schema-mismatch validation, codegen functions-array validation,
+  codegen module object validation, codegen moduleName validation, codegen
+  module functions-array validation, duplicate codegen module validation,
+  codegen function object validation, codegen function moduleName validation,
+  codegen function exportName validation, missing codegen function metadata
+  validation, duplicate codegen function validation, codegen function
+  required-args validation, codegen coverage validation, codegen function
+  metadata-match validation, schema, function metadata shape validation,
+  remaining codegen detail validation, abandon/active-deployment behavior,
+  route-boundary JSON/protocol decoders, generated Deployment HttpApi routing,
+  public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas,
+  scheduler routes, execution routes, executor-http routes, and `ValidatorJson`
+  remain unchanged.
+
+Boundary decision:
+
+Function partition/schema compatibility is deployment-domain validation. It now
+uses `DeploymentValidationError`; HTTP status/body conversion remains at the
+generated handler adapter.
+
+Convex source files inspected or used:
+
+- None in this checkpoint. This preserves the existing Flarex function
+  partition contract while removing another adapter error dependency from
+  deployment validation.
+
+Known limitations and follow-up work:
+
+- Schema shape, function metadata shape, source-position, route-policy,
+  partition-policy, placement, kind/visibility, and validator metadata branches
+  still need typed validation conversion.
+- Future route-boundary work should continue moving toward Effect-returning
+  decoders and typed body-read failures under the updated Effect migration
+  quality bar.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpBoundary.test.ts -t "deployment analysis validation|invalid analyzed start-push|typed analyzed start-push|maps service failures|activation validation failures"
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=60000 --hookTimeout=60000
+git diff --check
+```
+
 ## Deployment Codegen Function Metadata Match Validation Typed Error
 
 Previous completed checkpoint: `9138c4e` Type codegen coverage validation failures.

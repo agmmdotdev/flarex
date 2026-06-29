@@ -515,6 +515,44 @@ describe("DeploymentService", () => {
       await typedRuntime.dispose();
     }
 
+    const typedPartitionStatus = analyzedPushStatus("push-typed-partition-validation-failed");
+    const typedPartitionAnalysis = deploymentPartitionValidationAnalysis();
+    const typedPartitionRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedPartitionStatus,
+          analysis: typedPartitionAnalysis,
+          codegenAnalysis: {
+            schema: typedPartitionAnalysis.schema,
+            functions: [],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedPartitionError = await typedPartitionRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedPartitionStatus.pushId,
+            now: 2_415_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedPartitionError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedPartitionError.message).toBe("teams:create.partition: Unknown partition table missing.");
+    } finally {
+      await typedPartitionRuntime.dispose();
+    }
+
     const typedModuleNameStatus = analyzedPushStatus("push-typed-module-name-validation-failed");
     const typedModuleNameRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(
@@ -1577,6 +1615,35 @@ function deploymentAnalysis(): DeploymentAnalysis {
           partition: null,
         },
       ],
+    },
+  };
+}
+
+function deploymentPartitionValidationAnalysis(): DeploymentAnalysis {
+  return {
+    schema: {
+      version: 1,
+      tables: [{
+        tableId: 1,
+        name: "teams",
+        placement: { kind: "partitionBy", field: "slug" },
+      }],
+      indexes: [],
+    },
+    functions: {
+      functions: [{
+        path: "teams:create",
+        kind: "mutation",
+        args: { type: "object", value: { teamSlug: { fieldType: { type: "string" }, optional: false } } },
+        route: { type: "args", field: "teamSlug" },
+        partition: {
+          type: "partition",
+          table: "missing",
+          selector: "byId",
+          partitionField: "_id",
+          argField: "teamSlug",
+        },
+      }],
     },
   };
 }

@@ -335,14 +335,80 @@ describe("deployment validation", () => {
       () => validateAnalysis("not-analysis"),
       "Deployment analysis must be an object.",
     );
-    expect(() =>
-      validateAnalysis({
-        schema: partitionedSchema(),
-        functions: {
-          functions: [{
-            path: "teams:create",
-            kind: "mutation",
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
+            partition: {
+              type: "partition",
+              table: "missing",
+              selector: "byId",
+              partitionField: "_id",
+              argField: "teamSlug",
+            },
+          }),
+        }),
+      "teams:create.partition: Unknown partition table missing.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: simpleSchema(),
+          functions: partitionedFunctions({
+            partition: {
+              type: "partition",
+              table: "messages",
+              selector: "byId",
+              partitionField: "_id",
+              argField: "teamSlug",
+            },
+          }),
+        }),
+      "teams:create.partition: Table messages is not partitioned.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
+            partition: {
+              type: "partitionCreateRoot",
+              table: "teams",
+              partitionField: "_id",
+            },
+          }),
+        }),
+      "teams:create.partition: create-root partition requires teams to be partitioned by _id.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: {
+            ...partitionedSchema(),
+            tables: [{
+              tableId: 1,
+              name: "teams",
+              placement: { kind: "partitionBy", field: "_id" },
+            }],
+          },
+          functions: partitionedFunctions({
             route: { type: "args", field: "teamSlug" },
+            partition: {
+              type: "partitionCreateRoot",
+              table: "teams",
+              partitionField: "_id",
+            },
+          }),
+        }),
+      "teams:create.partition: create-root partition cannot declare route metadata.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
             partition: {
               type: "partition",
               table: "teams",
@@ -350,10 +416,46 @@ describe("deployment validation", () => {
               partitionField: "_id",
               argField: "teamSlug",
             },
-          }],
-        },
-      })
-    ).toThrow(new HttpError(400, "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug."));
+          }),
+        }),
+      "teams:create.partition: Selector byId targets _id, but teams is partitioned by slug.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
+            partition: {
+              type: "partition",
+              table: "teams",
+              selector: "byId",
+              partitionField: "slug",
+              argField: "teamSlug",
+            },
+          }),
+        }),
+      'teams:create.partition: Expected selector bySlug for teams partition field "slug".',
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
+            args: { type: "object", value: {} },
+          }),
+        }),
+      "teams:create.partition: args.teamSlug is not a required argument.",
+    );
+    expectDeploymentValidationFailure(
+      () =>
+        validateAnalysis({
+          schema: partitionedSchema(),
+          functions: partitionedFunctions({
+            route: { type: "args", field: "otherSlug" },
+          }),
+        }),
+      "teams:create.partition: partition argument teamSlug must match route argument otherSlug.",
+    );
   });
 
   it("normalizes codegen analysis metadata", () => {
@@ -746,6 +848,27 @@ function simpleFunctions(): DeploymentFunctions {
     functions: [{
       path: "messages:list",
       kind: "query",
+    }],
+  };
+}
+
+function partitionedFunctions(
+  overrides: Partial<DeploymentFunctions["functions"][number]> = {},
+): DeploymentFunctions {
+  return {
+    functions: [{
+      path: "teams:create",
+      kind: "mutation",
+      args: { type: "object", value: { teamSlug: { fieldType: { type: "string" }, optional: false } } },
+      route: { type: "args", field: "teamSlug" },
+      partition: {
+        type: "partition",
+        table: "teams",
+        selector: "bySlug",
+        partitionField: "slug",
+        argField: "teamSlug",
+      },
+      ...overrides,
     }],
   };
 }

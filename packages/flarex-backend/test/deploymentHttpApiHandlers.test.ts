@@ -364,6 +364,13 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
+        analysis: deploymentPartitionValidationAnalysis(),
+      },
+      "teams:create.partition: Unknown partition table missing.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
         codegenAnalysis: "not-codegen",
       } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
@@ -699,6 +706,18 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(analysisFailure.message).toBe("Deployment analysis must be an object.");
+
+    const partitionValidationFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentPartitionValidationAnalysis(),
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(partitionValidationFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(partitionValidationFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(partitionValidationFailure.message).toBe("teams:create.partition: Unknown partition table missing.");
 
     const codegenAnalysisFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
       sourcePackage: sourcePackage(),
@@ -1200,6 +1219,35 @@ function deploymentAnalysis(): ActiveDeploymentStatus["analysis"] {
     },
     functions: {
       functions: [],
+    },
+  };
+}
+
+function deploymentPartitionValidationAnalysis(): ActiveDeploymentStatus["analysis"] {
+  return {
+    schema: {
+      version: 1,
+      tables: [{
+        tableId: 1,
+        name: "teams",
+        placement: { kind: "partitionBy", field: "slug" },
+      }],
+      indexes: [],
+    },
+    functions: {
+      functions: [{
+        path: "teams:create",
+        kind: "mutation",
+        args: { type: "object", value: { teamSlug: { fieldType: { type: "string" }, optional: false } } },
+        route: { type: "args", field: "teamSlug" },
+        partition: {
+          type: "partition",
+          table: "missing",
+          selector: "byId",
+          partitionField: "_id",
+          argField: "teamSlug",
+        },
+      }],
     },
   };
 }
