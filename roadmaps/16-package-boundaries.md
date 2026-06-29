@@ -9,8 +9,8 @@ What changed:
 - Finished the remaining `deployment/Validation.ts` domain-validation
   `HttpError(400)` branches by routing function metadata shape, schema state,
   schema placement, source position, route policy, partition policy, function
-  kind/visibility, validator metadata, and JSON-value validation failures
-  through `DeploymentValidationError`.
+  kind/visibility, validator metadata, JSON-value validation failures, and
+  failed start-push shape failures through `DeploymentValidationError`.
 - Generated start-analyzed handler behavior is preserved: newly typed
   validation failures still map to start-route `400` responses with the same
   messages through `deploymentFailureToHttpError(...)`.

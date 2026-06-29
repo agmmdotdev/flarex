@@ -214,7 +214,7 @@ export function analyzedStartPushRequest(
   if (request.analysis === undefined) {
     const error = request.error;
     if (error === undefined) {
-      throw new Error("Parsed failed push request is missing error.");
+      throwDeploymentValidation("A push without analysis must include an error message.");
     }
     return {
       sourcePackage,
@@ -229,6 +229,14 @@ export function analyzedStartPushRequest(
     ...(diagnostics === undefined ? {} : { diagnostics }),
   };
 }
+
+export const decodeAnalyzedStartPushRequest = Effect.fn(
+  "DeploymentValidation.decodeAnalyzedStartPushRequest",
+)(function* (
+  request: ProtocolAnalyzedStartPushRequest,
+): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentValidationError> {
+  return yield* deploymentValidationEffect(() => analyzedStartPushRequest(request));
+});
 
 export type StartAnalyzedPushServiceInput = {
   readonly sourcePackage: PushSourcePackage;
@@ -273,6 +281,14 @@ export function startAnalyzedPushInput(
   };
 }
 
+export const decodeStartAnalyzedPushInput = Effect.fn(
+  "DeploymentValidation.decodeStartAnalyzedPushInput",
+)(function* (
+  request: AnalyzedStartPushRequest,
+): Effect.fn.Return<StartAnalyzedPushServiceInput, DeploymentValidationError> {
+  return yield* deploymentValidationEffect(() => startAnalyzedPushInput(request));
+});
+
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
   const storedAnalysis = row.schema_json === null || row.functions_json === null
     ? undefined
@@ -303,6 +319,21 @@ export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function deploymentValidationEffect<A>(
+  evaluate: () => A,
+): Effect.Effect<A, DeploymentValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(evaluate());
+    } catch (error) {
+      if (error instanceof DeploymentValidationError) {
+        return Effect.fail(error);
+      }
+      return Effect.die(error);
+    }
+  });
 }
 
 export function codegenAnalysisFromDeploymentAnalysis(

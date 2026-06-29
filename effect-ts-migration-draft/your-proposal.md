@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.
-- Active checkpoint: finish the remaining `deployment/Validation.ts` domain-validation `HttpError(400)` branches as typed `DeploymentValidationError` in one larger coherent batch.
+- Previous completed checkpoint: `ced24a1` Type remaining deployment validation failures.
+- Active checkpoint: convert generated deployment analyzed-start handler input conversion to Effect-returning validation decoders while preserving the compatibility throwing wrapper and HTTP 400 mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,12 +56,20 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 129 slice:
+Current Goal 130 slice:
 
-1. Finish the remaining `deployment/Validation.ts` domain-validation `HttpError(400)` branches by using `DeploymentValidationError` for function metadata shape, schema state, schema placement, source position, route policy, partition policy, function kind/visibility, validator metadata, and JSON-value validation failures.
+1. Add `deployment/Validation.ts` Effect-returning decoders for analyzed start-push request normalization and start-push service input validation.
+2. Switch the generated Deployment HttpApi analyzed-start handler to compose those decoders so the route path uses typed `DeploymentValidationError` instead of try/catch control flow.
+3. Keep `startAnalyzedPushHandlerInputFromPayload(...)` as a compatibility wrapper with preserved thrown `DeploymentValidationError` behavior and unchanged response messages.
+4. Keep source-package validation, diagnostics validation, deployment analysis/codegen validation behavior, finish/abandon routes, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+5. Validate with focused deployment validation and generated handler tests, broad backend/protocol gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 129 slice:
+
+1. Finish the remaining `deployment/Validation.ts` domain-validation `HttpError(400)` branches by using `DeploymentValidationError` for function metadata shape, schema state, schema placement, source position, route policy, partition policy, function kind/visibility, validator metadata, JSON-value validation, and failed start-push shape failures.
 2. Preserve generated start-analyzed handler mapping: newly typed validation failures still become start-route `400` responses with the same messages through `deploymentFailureToHttpError(...)`.
 3. Preserve finish transaction behavior by propagating typed `DeploymentValidationError` from stored deployment validation instead of wrapping it as `DeploymentSqlError`.
-4. Keep source-package validation, diagnostics validation, failed start-input validation, deployment analysis object validation, schema shape validation, function partition validation, codegen validation, abandon/active-deployment behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
+4. Keep source-package validation, diagnostics validation, deployment analysis object validation, schema shape validation, function partition validation, codegen validation, abandon/active-deployment behavior, route-boundary JSON/protocol decoders, generated Deployment HttpApi routing, public Worker routes, `DeploymentDO` routing, SQL schema, protocol schemas, scheduler routes, execution routes, executor-http routes, and `ValidatorJson` unchanged.
 5. Validate with focused deployment validation/start handler/service/HTTP-boundary tests, full protocol/backend gates, and only the EffectTS quality checker reviewer.
 
 Completed Goal 128 slice:

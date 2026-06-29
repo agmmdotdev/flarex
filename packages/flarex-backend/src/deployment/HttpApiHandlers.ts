@@ -26,6 +26,8 @@ import { deploymentFailureToHttpError } from "./HttpBoundary";
 import { DeploymentService, type StartAnalyzedPushInput } from "./Service";
 import type { DeploymentSqlError } from "./Store";
 import {
+  decodeAnalyzedStartPushRequest,
+  decodeStartAnalyzedPushInput,
   analyzedStartPushRequest,
   startAnalyzedPushInput,
 } from "./Validation";
@@ -179,14 +181,9 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
 )(function* (
   payload: AnalyzedStartPushRequest,
 ): Effect.fn.Return<StartAnalyzedPushInput, DeploymentValidationError> {
-  try {
-    return startAnalyzedPushHandlerInputFromPayload(payload);
-  } catch (cause) {
-    if (cause instanceof DeploymentValidationError) {
-      return yield* Effect.fail(cause);
-    }
-    return yield* Effect.die(cause);
-  }
+  const protocolPayload = yield* decodeStartAnalyzedPushHandlerPayload(payload);
+  const request = yield* decodeAnalyzedStartPushRequest(protocolPayload);
+  return yield* decodeStartAnalyzedPushInput(request);
 });
 
 export function startAnalyzedPushHandlerInputFromPayload(
@@ -203,6 +200,24 @@ export function startAnalyzedPushHandlerInputFromPayload(
     }
     throw cause;
   }
+}
+
+function decodeStartAnalyzedPushHandlerPayload(
+  payload: AnalyzedStartPushRequest,
+): Effect.Effect<AnalyzedStartPushRequest, DeploymentValidationError> {
+  return Effect.suspend(() => {
+    try {
+      return Effect.succeed(parseAnalyzedStartPushRequest(payload));
+    } catch (cause) {
+      if (cause instanceof DeploymentProtocolValidationError) {
+        return Effect.fail(new DeploymentValidationError({ message: cause.message }));
+      }
+      if (cause instanceof HttpError && cause.status === 400) {
+        return Effect.fail(new DeploymentValidationError({ message: cause.message }));
+      }
+      return Effect.die(cause);
+    }
+  });
 }
 
 const parsePushStatusForHttpApi = responseParser(

@@ -1,5 +1,51 @@
 # Deployment Analysis And Push
 
+## Generated Deployment Handler Input Effect Decoder
+
+Previous completed checkpoint: `ced24a1` Type remaining deployment validation
+failures.
+
+What changed:
+
+- Added Effect-returning deployment validation decoders for analyzed start-push
+  request normalization and start-push service input validation.
+- Switched the generated Deployment HttpApi analyzed-start handler to compose
+  those decoders so the migrated route path exposes typed
+  `DeploymentValidationError` failures instead of try/catch control flow.
+- Kept `startAnalyzedPushHandlerInputFromPayload(...)` as a compatibility
+  wrapper for existing callers and tests, preserving thrown
+  `DeploymentValidationError` behavior and unchanged HTTP `400` response
+  messages.
+- This resumes the route/service migration direction after the larger
+  validation batch: domain validation exposes Effect channels, while HTTP
+  response conversion remains at the generated handler adapter edge.
+
+Why it changed:
+
+The generated analyzed-start route was already an Effect handler, but the input
+conversion still crossed a throwing compatibility helper. This checkpoint moves
+the handler path to typed Effect validation without changing public route
+behavior or the old compatibility helper.
+
+Convex source files inspected or used:
+
+- None in this checkpoint. This preserves Flarex's existing deployment push
+  semantics while continuing the typed Effect error migration.
+
+Known limitations and follow-up work:
+
+- The next route/service slices should repeat this pattern for remaining
+  public and internal route boundaries that still expose throwing body/request
+  parsers, then collapse HTTP response conversion to one adapter edge per route
+  group.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=60000 --hookTimeout=60000
+```
+
 ## Deployment Validation Module Typed Error Batch
 
 Previous completed checkpoint: `1a11e50` Type deployment schema validation failures.
@@ -9,8 +55,8 @@ What changed:
 - Finished the remaining `deployment/Validation.ts` domain-validation
   `HttpError(400)` branches by routing function metadata shape, schema state,
   schema placement, source position, route policy, partition policy, function
-  kind/visibility, validator metadata, and JSON-value validation failures
-  through `DeploymentValidationError`.
+  kind/visibility, validator metadata, JSON-value validation failures, and
+  failed start-push shape failures through `DeploymentValidationError`.
 - Generated start-analyzed handler behavior is unchanged: newly typed
   validation failures still return `400` with the same messages.
 - `DeploymentPushStore.finishPush(...)` continues to preserve already-typed

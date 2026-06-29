@@ -4,8 +4,10 @@ import { DeploymentValidationError } from "../src/deployment/Errors";
 import {
   analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
+  decodeAnalyzedStartPushRequest,
   decodeDiagnostics,
   decodeSourcePackage,
+  decodeStartAnalyzedPushInput,
   pushStatusFromRow,
   startAnalyzedPushInput,
   validateAnalysis,
@@ -152,12 +154,37 @@ describe("deployment validation", () => {
     });
   });
 
-  it("preserves analyzed start-push adapter defensive errors", () => {
-    expect(() =>
-      analyzedStartPushRequest({
-        sourcePackage: sourcePackage(),
-      } as ProtocolAnalyzedStartPushRequest)
-    ).toThrow(new Error("Parsed failed push request is missing error."));
+  it("preserves analyzed start-push adapter validation errors", () => {
+    expectDeploymentValidationFailure(
+      () =>
+        analyzedStartPushRequest({
+          sourcePackage: sourcePackage(),
+        } as ProtocolAnalyzedStartPushRequest),
+      "A push without analysis must include an error message.",
+    );
+  });
+
+  it("exposes typed analyzed start-push request validation failures", async () => {
+    await expect(Effect.runPromise(decodeAnalyzedStartPushRequest({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+    } as ProtocolAnalyzedStartPushRequest))).resolves.toEqual({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+    });
+
+    const failure = await Effect.runPromise(decodeAnalyzedStartPushRequest({
+      sourcePackage: sourcePackage(),
+      diagnostics: [{ level: "debug", message: "too chatty" }],
+      error: "analysis failed",
+    } as unknown as ProtocolAnalyzedStartPushRequest).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(failure).toBeInstanceOf(DeploymentValidationError);
+    if (!(failure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(failure.message).toBe("Push diagnostic at index 0 has an invalid level.");
   });
 
   it("prepares analyzed start-push service input with generated codegen fallback", () => {
@@ -239,6 +266,28 @@ describe("deployment validation", () => {
         }),
       "Codegen analysis schema must match deployment analysis schema.",
     );
+  });
+
+  it("exposes typed start-push service input validation failures", async () => {
+    await expect(Effect.runPromise(decodeStartAnalyzedPushInput({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+    }))).resolves.toEqual({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      diagnostics: [],
+    });
+
+    const failure = await Effect.runPromise(decodeStartAnalyzedPushInput({
+      sourcePackage: sourcePackage(),
+    } as unknown as Parameters<typeof startAnalyzedPushInput>[0]).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(failure).toBeInstanceOf(DeploymentValidationError);
+    if (!(failure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(failure.message).toBe("A push without analysis must include an error message.");
   });
 
   it("normalizes deployment schema metadata", () => {
