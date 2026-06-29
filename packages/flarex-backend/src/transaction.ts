@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { readResponseJsonOrNullEffect } from "./http";
 import { partitionObjectName } from "./routing";
 import { encodeFlarexId, isFlarexIdForTable } from "./ids";
 import type {
@@ -293,7 +294,7 @@ export const decodePartitionJsonResponse = Effect.fn("SingleShardTransaction.dec
 );
 
 function readPartitionResponseJson(response: PartitionHttpResponse): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readResponseJsonOrNullEffect(response);
 }
 
 function partitionResponseErrorToRequestError(error: PartitionResponseError): PartitionRequestError {

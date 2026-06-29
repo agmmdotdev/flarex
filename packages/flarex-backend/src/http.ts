@@ -6,6 +6,11 @@ export class RequestJsonError extends Data.TaggedError("RequestJsonError")<{
   readonly cause: unknown;
 }> {}
 
+export class ResponseJsonError extends Data.TaggedError("ResponseJsonError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -47,6 +52,28 @@ export function readJsonEffect(request: Request): Effect.Effect<unknown, Request
       cause,
     }),
   });
+}
+
+type JsonHttpResponse = Pick<Response, "json">;
+
+export function readResponseJsonEffect(
+  response: JsonHttpResponse,
+): Effect.Effect<unknown, ResponseJsonError> {
+  return Effect.tryPromise({
+    try: () => response.json() as Promise<unknown>,
+    catch: cause => new ResponseJsonError({
+      message: "Response body must be JSON.",
+      cause,
+    }),
+  });
+}
+
+export function readResponseJsonOrNullEffect(
+  response: JsonHttpResponse,
+): Effect.Effect<unknown> {
+  return readResponseJsonEffect(response).pipe(
+    Effect.catchTag("ResponseJsonError", () => Effect.succeed(null)),
+  );
 }
 
 export function requestJsonErrorToHttpError(error: RequestJsonError): HttpError {

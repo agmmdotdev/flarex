@@ -6,7 +6,7 @@ import {
   type ExecutionArtifactInvokeRouteError,
 } from "./artifactRuntime/RouteBoundary.ts";
 import { Data, Effect } from "effect";
-import { HttpError, RequestJsonError } from "./http.ts";
+import { HttpError, readResponseJsonOrNullEffect, RequestJsonError } from "./http.ts";
 import type {
   ActiveDeploymentStatus,
   InvokeRequest,
@@ -267,7 +267,7 @@ export const decodeServiceBindingExecutionArtifactRuntimeResponse = Effect.fn(
 function readServiceBindingExecutionArtifactRuntimeResponseJson(
   response: ExecutionArtifactRuntimeHttpResponse,
 ): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readResponseJsonOrNullEffect(response);
 }
 
 function serviceBindingExecutionArtifactRuntimeErrorMessage(

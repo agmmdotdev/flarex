@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Backend Response JSON Effect Boundary
+
+Previous completed checkpoint: `47af99a` Type SchedulerDO route operation
+failures.
+
+What changed:
+
+- Backend HTTP response body reads now share
+  `readResponseJsonEffect(...)` and `readResponseJsonOrNullEffect(...)` from
+  `http.ts`.
+- Malformed backend response JSON now has a typed `ResponseJsonError` source
+  before compatibility fallback.
+- Analyzer, artifact runtime service-binding, live-query delivery, scheduler
+  response, and partition transaction response decoders all use the same
+  boundary.
+
+Why it changed:
+
+Several migrated response decoders still used anonymous
+`Effect.promise(() => response.json().catch(() => null))` helpers. This
+checkpoint keeps the old `null` fallback behavior for malformed error bodies,
+but moves the actual response JSON read into a typed Effect boundary that later
+slices can decide to handle more strictly.
+
+Known limitations:
+
+- Successful response payloads still use existing compatibility casts/parsers.
+- PartitionDO SQL/OCC behavior and transaction correctness logic are not
+  changed.
+- Deployment runtime artifact-ref generation and flarex-dev response readers
+  remain separate follow-up surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/httpResponseJson.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/liveQueryDelivery.test.ts packages/flarex-backend/test/schedulerResponses.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## SchedulerDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `4f2a30d` Type ExecutionDO route operation

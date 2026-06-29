@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import { HttpError } from "../http";
+import { HttpError, readResponseJsonOrNullEffect } from "../http";
 
 type SchedulerHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
@@ -121,7 +121,7 @@ function decodeSchedulerJsonResponse<A>(
 }
 
 function readSchedulerResponseJson(response: SchedulerHttpResponse): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readResponseJsonOrNullEffect(response);
 }
 
 export function schedulerResponseErrorToHttpError(error: SchedulerResponseError): HttpError {

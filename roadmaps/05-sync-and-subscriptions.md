@@ -1,5 +1,40 @@
 # Sync And Subscriptions
 
+## Backend Response JSON Effect Boundary
+
+Previous completed checkpoint: `47af99a` Type SchedulerDO route operation
+failures.
+
+What changed:
+
+- Live-query delivery response decoders and scheduler response decoders now use
+  the shared backend response JSON boundary.
+- Partition transaction response decoding also shares the same JSON read
+  boundary while preserving existing `PartitionResponseError` shape.
+- Malformed response bodies still become `null` for compatibility with current
+  non-OK response handling.
+
+Why it changed:
+
+The sync and subscription paths had multiple response decoders that duplicated
+the same JSON-read fallback. Centralizing the read boundary makes the transport
+failure typed without changing delivery, scheduler, transaction, or OCC
+behavior.
+
+Known limitations:
+
+- Delivery and scheduler successful payload validation remains the existing
+  compatibility parser/cast behavior.
+- PartitionDO SQL/OCC logic is not part of this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/httpResponseJson.test.ts packages/flarex-backend/test/liveQueryDelivery.test.ts packages/flarex-backend/test/schedulerResponses.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## SchedulerDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `4f2a30d` Type ExecutionDO route operation

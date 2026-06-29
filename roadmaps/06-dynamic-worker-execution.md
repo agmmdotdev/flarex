@@ -1,5 +1,41 @@
 # Dynamic Worker Execution
 
+## Backend Response JSON Effect Boundary
+
+Previous completed checkpoint: `47af99a` Type SchedulerDO route operation
+failures.
+
+What changed:
+
+- Artifact runtime service-binding response decoding and backend analyzer
+  response decoding now read JSON through the shared backend response boundary.
+- Malformed response JSON is represented by `ResponseJsonError` at the read
+  source before the compatibility `null` fallback.
+- Existing analyzer diagnostics, artifact runtime status/message mapping, and
+  successful response casts are unchanged.
+
+Why it changed:
+
+Dynamic execution paths depend on several internal service responses. Moving
+their low-level JSON reads to the shared Effect boundary reduces duplicated
+transport logic while keeping the execution/runtime workflows stable for later
+service-level conversion.
+
+Known limitations:
+
+- Generated execution artifact code and deployment runtime artifact-ref
+  generation remain separate migration surfaces.
+- Successful artifact runtime and analyzer response payloads still use the
+  existing compatibility validation path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/httpResponseJson.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## ExecutionDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation

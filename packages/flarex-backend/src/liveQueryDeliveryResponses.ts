@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import { HttpError } from "./http";
+import { HttpError, readResponseJsonOrNullEffect } from "./http";
 
 type LiveQueryDeliveryHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
@@ -75,7 +75,7 @@ function decodeLiveQueryDeliveryResponse<A>(
 function readLiveQueryDeliveryResponseJson(
   response: LiveQueryDeliveryHttpResponse,
 ): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readResponseJsonOrNullEffect(response);
 }
 
 export function liveQueryDeliveryResponseErrorToHttpError(

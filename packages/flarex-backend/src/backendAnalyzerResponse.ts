@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { readResponseJsonOrNullEffect } from "./http";
 import type { PushDiagnostic } from "./types";
 
 export type RawAnalyzerSuccessResponse = {
@@ -32,7 +33,7 @@ export const decodeBackendAnalyzerResponse = Effect.fn("Worker.decodeBackendAnal
 );
 
 function readBackendAnalyzerResponseJson(response: AnalyzerHttpResponse): Effect.Effect<unknown> {
-  return Effect.promise(() => response.json().catch(() => null));
+  return readResponseJsonOrNullEffect(response);
 }
 
 function backendAnalyzerResponseErrorMessage(
