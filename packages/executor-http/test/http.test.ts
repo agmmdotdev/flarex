@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
   DeploymentNotFoundError,
   DeploymentPackageNotActivatedError,
@@ -45,7 +46,134 @@ import {
   createFlarexBackendLiveQueryTriggerNotifier,
   createFlarexBackendLiveQueryWakeNotifier,
   createFlarexHttpApp,
+  decodeBeginInvokeSessionBody,
+  decodeInvokeAbortBody,
+  decodeInvokeAbortStaleBody,
+  decodeInvokeFinishBody,
+  decodeInvokeSessionMaintenanceBody,
+  decodeInvokeSyscallBody,
+  decodePrepareInvokeBody,
+  ExecutorHttpBodyValidationError,
 } from "../src";
+
+describe("executor HTTP invoke body decoders", () => {
+  it("decodes invoke lifecycle bodies through typed Effect boundaries", async () => {
+    await expect(Effect.runPromise(decodePrepareInvokeBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      path: "messages:list",
+      kind: "query",
+      visibility: "public",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      path: "messages:list",
+      kind: "query",
+      visibility: "public",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    });
+
+    await expect(Effect.runPromise(decodeBeginInvokeSessionBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      path: "messages:list",
+      kind: "mutation",
+      args: null,
+      idempotencyKey: "idem_1",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      path: "messages:list",
+      kind: "mutation",
+      args: null,
+      idempotencyKey: "idem_1",
+    });
+
+    await expect(Effect.runPromise(decodeInvokeSyscallBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      op: "replace",
+      id: "1:message",
+      value: { text: "updated" },
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      syscall: {
+        op: "replace",
+        id: "1:message",
+        value: { text: "updated" },
+      },
+    });
+
+    await expect(Effect.runPromise(decodeInvokeFinishBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      value: { ok: true },
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      value: { ok: true },
+    });
+
+    await expect(Effect.runPromise(decodeInvokeAbortBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+    });
+
+    await expect(Effect.runPromise(decodeInvokeAbortStaleBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      olderThan: "2026-06-20T00:00:00.000Z",
+      maxSessions: 10,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      olderThan: new Date("2026-06-20T00:00:00.000Z"),
+      limit: 10,
+    });
+
+    await expect(Effect.runPromise(decodeInvokeSessionMaintenanceBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      staleAfterMs: 60000,
+      maxSessions: 10,
+    }))).resolves.toEqual({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      staleAfterMs: 60000,
+      maxSessions: 10,
+    });
+  });
+
+  it("returns typed invoke body validation failures", async () => {
+    const failure = await Effect.runPromise(
+      decodeInvokeFinishBody({
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        sessionId: "session_active",
+        value: undefined,
+      }).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(ExecutorHttpBodyValidationError);
+    expect(failure.body).toEqual({
+      error: "bad_request",
+      message: "value must be a JSON value.",
+    });
+  });
+});
 
 describe("createFlarexHttpApp", () => {
   it("maps health requests to the executor core", async () => {
@@ -318,6 +446,33 @@ describe("createFlarexHttpApp", () => {
       ),
     );
     expect(authorized.status).toBe(200);
+  });
+
+  it("rejects unauthorized invoke requests before parsing malformed JSON", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      capabilityToken: "executor-secret",
+      executor: fakeExecutor({
+        async beginInvokeSession() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      new Request("https://executor.test/invoke/start", {
+        method: "POST",
+        body: "{",
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "unauthorized",
+      message: "Unauthorized Flarex executor request.",
+    });
   });
 
   it("validates invoke start idempotency keys before calling the executor", async () => {

@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Executor HTTP Invoke Body Effect Decoders
+
+Previous completed checkpoint: `3675397` Name generated worker JSON failures.
+
+What changed:
+
+- Executor HTTP invoke lifecycle POST bodies now have exported
+  Effect-returning body decoders.
+- Invoke prepare, start, syscall, finish, abort, abort-stale, and
+  invoke-session maintenance handlers use the decoder-based Effect adapter.
+- Direct decoder tests now cover typed success and typed validation failure
+  channels before the adapter maps failures back to existing HTTP responses.
+
+Why it changed:
+
+This moves the migration back from generated-worker compatibility cleanup to a
+true route/service Effect boundary. The request JSON read was already typed;
+this checkpoint moves a coherent group of route body validation into typed
+Effect decoder channels while preserving the executor HTTP adapter edge.
+
+Known limitations:
+
+- The remaining executor HTTP live-query and maintenance POST routes still use
+  the parser-backed compatibility adapter.
+- This does not introduce Effect Schema for executor HTTP payloads yet.
+- PartitionDO SQL/OCC behavior and `ValidatorJson` are untouched.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Deployment Artifact Ref Effect Boundary
 
 Previous completed checkpoint: `8990f06` Share dev response JSON reads.

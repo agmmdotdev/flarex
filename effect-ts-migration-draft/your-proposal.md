@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Name generated worker JSON failures`.
-- Active checkpoint: choose the next route/service Effect boundary batch, with executor-http request decoding as the leading candidate unless the hotspot audit shows a better coherent group.
+- Previous completed checkpoint: this commit, `Executor HTTP invoke body decoders`.
+- Active checkpoint: choose the next executor-http decoder batch, with live-query subscription/connection and maintenance POST body decoders as the leading candidates unless the hotspot audit shows a better coherent group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,21 +44,37 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the generated-worker compatibility checkpoint:
+Next recommended checkpoint after the executor-http invoke decoder checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
    at a time.
 2. Prefer the next route/service boundary that can move post-decode work to
    typed failures without changing PartitionDO SQL/OCC behavior; likely next
-   candidates are executor-http request boundaries or remaining generated
-   runtime adapters rather than PartitionDO.
+   candidates are the remaining executor-http live-query subscription,
+   connection, and maintenance request decoders rather than PartitionDO.
 3. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 4. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 170 slice:
+
+1. Add exported Effect-returning decoders for executor-http invoke lifecycle
+   bodies: prepare, begin session, syscall, finish, abort, abort stale, and
+   invoke-session maintenance.
+2. Route those handlers through a decoder-based Effect adapter while keeping
+   the parser-backed adapter path for routes outside this slice.
+3. Preserve malformed JSON `400`, validation `400`, authorization ordering,
+   executor operation error mapping, route paths, Elysia app shape, live-query
+   routes, protocol schemas, and `ValidatorJson` unchanged.
+4. Validate typed decoder success/failure channels directly, then preserve HTTP
+   adapter mapping through the existing executor-http route tests.
+5. Validate with `@flarex/executor-http` typecheck/test/build, backend/protocol
+   compatibility gates as practical, and only the EffectTS quality checker
+   reviewer.
 
 Completed Goal 169 slice:
 

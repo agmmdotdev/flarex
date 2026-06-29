@@ -1,5 +1,49 @@
 # Postgres Executor
 
+## Executor HTTP Invoke Body Effect Decoders
+
+Previous completed checkpoint: `3675397` Name generated worker JSON failures.
+
+What changed:
+
+- `@flarex/executor-http` now exposes Effect-returning decoders for the invoke
+  lifecycle POST bodies: prepare, begin session, syscall, finish, abort, abort
+  stale, and invoke-session maintenance.
+- The invoke lifecycle handlers now use a decoder-based Effect route adapter
+  after the shared JSON read boundary.
+- The parser-backed adapter path remains for routes outside this slice, so the
+  remaining live-query and maintenance routes can migrate in the next coherent
+  batch.
+- Direct tests cover typed decoder success and typed validation failure
+  channels separately from HTTP adapter mapping.
+
+Why it changed:
+
+The previous executor HTTP checkpoint typed the shared JSON read and executor
+operation boundary, but route body validation still flowed through
+`{ value } | { error }` parser results inside the shared route adapter. Moving
+the invoke lifecycle routes to Effect-returning decoders aligns this package
+with the migration quality bar without replacing Elysia or changing executor
+semantics.
+
+Preserved behavior:
+
+- Authorization ordering, malformed JSON `400`, validation `400`, executor
+  error mappings, route paths, Elysia app shape, live-query routes, protocol
+  schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Executor HTTP Effect Body Adapter
 
 Previous completed checkpoint: `1e98c94` Route artifact runtime through Effect.

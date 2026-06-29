@@ -79,6 +79,12 @@ type ExecutorHttpParseResult<A> =
   | { value: A }
   | { error: BadRequestBody };
 
+type ExecutorHttpBodyParser<A> = (body: unknown) => ExecutorHttpParseResult<A>;
+
+export type ExecutorHttpBodyDecoder<A> = (
+  body: unknown,
+) => Effect.Effect<A, ExecutorHttpBodyValidationError>;
+
 type ExecutorErrorResponse = {
   status: number;
   body: object;
@@ -534,27 +540,43 @@ function handleExecutorHttpBody<A, R extends object>(
   request: Request,
   set: ElysiaSet,
   capabilityToken: string | undefined,
-  parse: (body: unknown) => ExecutorHttpParseResult<A>,
+  parse: ExecutorHttpBodyParser<A>,
+  execute: (input: A) => Promise<R>,
+): Promise<object> {
+  return handleExecutorHttpDecodedBody(
+    request,
+    set,
+    capabilityToken,
+    body => decodeExecutorHttpParsedBody(body, parse),
+    execute,
+  );
+}
+
+function handleExecutorHttpDecodedBody<A, R extends object>(
+  request: Request,
+  set: ElysiaSet,
+  capabilityToken: string | undefined,
+  decode: ExecutorHttpBodyDecoder<A>,
   execute: (input: A) => Promise<R>,
 ): Promise<object> {
   const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
   if (unauthorized !== null) return Promise.resolve(unauthorized);
 
   return Effect.runPromise(
-    routeExecutorHttpBody(request, parse, execute).pipe(
+    routeExecutorHttpDecodedBody(request, decode, execute).pipe(
       Effect.catch(error => Effect.succeed(executorHttpRouteErrorBody(error, set))),
     ),
   );
 }
 
-const routeExecutorHttpBody = Effect.fn("ExecutorHttp.routeBody")(
+const routeExecutorHttpDecodedBody = Effect.fn("ExecutorHttp.routeDecodedBody")(
   function* <A, R extends object>(
     request: Request,
-    parse: (body: unknown) => ExecutorHttpParseResult<A>,
+    decode: ExecutorHttpBodyDecoder<A>,
     execute: (input: A) => Promise<R>,
   ) {
     const body = yield* readExecutorHttpJsonBody(request);
-    const input = yield* parseExecutorHttpBody(body, parse);
+    const input = yield* decode(body);
     return yield* Effect.tryPromise({
       try: () => execute(input),
       catch: cause => new ExecutorHttpOperationError({
@@ -577,9 +599,9 @@ function readExecutorHttpJsonBody(
   });
 }
 
-function parseExecutorHttpBody<A>(
+function decodeExecutorHttpParsedBody<A>(
   body: unknown,
-  parse: (body: unknown) => ExecutorHttpParseResult<A>,
+  parse: ExecutorHttpBodyParser<A>,
 ): Effect.Effect<A, ExecutorHttpBodyValidationError> {
   const parsed = parse(body);
   return "error" in parsed
@@ -603,24 +625,64 @@ function executorHttpRouteErrorBody(error: ExecutorHttpRouteError, set: ElysiaSe
   return error.response.body;
 }
 
+export const decodePrepareInvokeBody = Effect.fn("ExecutorHttp.decodePrepareInvokeBody")(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parsePrepareInvokeBody),
+);
+
+export const decodeBeginInvokeSessionBody = Effect.fn(
+  "ExecutorHttp.decodeBeginInvokeSessionBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseBeginInvokeSessionBody),
+);
+
+export const decodeInvokeSyscallBody = Effect.fn("ExecutorHttp.decodeInvokeSyscallBody")(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeSyscallBody),
+);
+
+export const decodeInvokeFinishBody = Effect.fn("ExecutorHttp.decodeInvokeFinishBody")(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeFinishBody),
+);
+
+export const decodeInvokeAbortBody = Effect.fn("ExecutorHttp.decodeInvokeAbortBody")(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeAbortBody),
+);
+
+export const decodeInvokeAbortStaleBody = Effect.fn(
+  "ExecutorHttp.decodeInvokeAbortStaleBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeAbortStaleBody),
+);
+
+export const decodeInvokeSessionMaintenanceBody = Effect.fn(
+  "ExecutorHttp.decodeInvokeSessionMaintenanceBody",
+)(
+  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeSessionMaintenanceBody),
+);
+
 async function handleInvokePrepare(
   executor: FlarexExecutor,
   request: Request,
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(request, set, capabilityToken, parsePrepareInvokeBody, async input => {
-    const prepared = await executor.prepareInvoke(input);
-    return {
-      deploymentId: prepared.deployment.deploymentId,
-      packageId: prepared.package.packageId,
-      path: prepared.function.path,
-      kind: prepared.function.kind,
-      schemaVersion: prepared.schema.version,
-      scope: prepared.scope,
-      executionModule: prepared.executionModule,
-    };
-  });
+  return handleExecutorHttpDecodedBody(
+    request,
+    set,
+    capabilityToken,
+    decodePrepareInvokeBody,
+    async input => {
+      const prepared = await executor.prepareInvoke(input);
+      return {
+        deploymentId: prepared.deployment.deploymentId,
+        packageId: prepared.package.packageId,
+        path: prepared.function.path,
+        kind: prepared.function.kind,
+        schemaVersion: prepared.schema.version,
+        scope: prepared.scope,
+        executionModule: prepared.executionModule,
+      };
+    },
+  );
 }
 
 async function handleInvokeStart(
@@ -629,11 +691,11 @@ async function handleInvokeStart(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseBeginInvokeSessionBody,
+    decodeBeginInvokeSessionBody,
     input => executor.beginInvokeSession(input),
   );
 }
@@ -644,11 +706,11 @@ async function handleInvokeSyscall(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseInvokeSyscallBody,
+    decodeInvokeSyscallBody,
     input => executor.invokeSyscall(input),
   );
 }
@@ -659,11 +721,11 @@ async function handleInvokeFinish(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseInvokeFinishBody,
+    decodeInvokeFinishBody,
     input => executor.finishInvokeSession(input),
   );
 }
@@ -674,11 +736,11 @@ async function handleInvokeAbort(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseInvokeAbortBody,
+    decodeInvokeAbortBody,
     input => executor.abortInvokeSession(input),
   );
 }
@@ -689,11 +751,11 @@ async function handleInvokeAbortStale(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseInvokeAbortStaleBody,
+    decodeInvokeAbortStaleBody,
     input => executor.abortStaleInvokeSessions(input),
   );
 }
@@ -704,11 +766,11 @@ async function handleInvokeSessionMaintenance(
   set: ElysiaSet,
   capabilityToken: string | undefined,
 ): Promise<object> {
-  return handleExecutorHttpBody(
+  return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
-    parseInvokeSessionMaintenanceBody,
+    decodeInvokeSessionMaintenanceBody,
     input => executor.runInvokeSessionMaintenance(input),
   );
 }
