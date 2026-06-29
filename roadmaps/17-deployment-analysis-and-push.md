@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Backend Push Response Effect Boundaries
+
+Previous completed checkpoint: `77c921a` Type materialized artifact responses
+with Effect.
+
+What changed:
+
+- `HttpBackendSourceAnalyzer.analyze(...)` now reads backend analyzer responses
+  through a named Effect decoder before running the existing codegen-analysis
+  parser.
+- `HttpBackendPushCoordinator.start(...)`, `finish(...)`, and `abandon(...)`
+  now read backend push responses through named Effect decoders before running
+  the existing push-status and finish-response parsers.
+- `LocalBackendPushCoordinator.finish(...)` now uses a local finish response
+  Effect decoder while preserving the legacy plain `Error` transport failure
+  message.
+- Added non-JSON transport failure tests for analyzer, push, and finish
+  responses.
+
+Why it changed:
+
+Deployment analysis and push activation already had local typed parsers for
+payload shapes, but the transport response body reads and status checks were
+still duplicated around `response.json().catch(() => null)`. This checkpoint
+keeps the parser contracts stable while moving response transport failures into
+typed Effect boundaries.
+
+Known limitations and follow-up work:
+
+- This does not convert push status or codegen analysis parsing to Effect
+  Schema yet.
+- Backend deployment services, storage, generated HttpApi handlers, public
+  Worker routes, and `ValidatorJson` remain unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/analyze.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/generatedTypecheck.test.ts packages/flarex-dev/test/sourcePackage.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/cli.test.ts packages/flarex-dev/test/dev.test.ts packages/flarex-dev/test/devDispose.test.ts packages/flarex-dev/test/index.test.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/vite.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendSyncRuntime.test.ts packages/flarex-dev/test/executorHttpRuntime.test.ts packages/flarex-dev/test/executionArtifactStore.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Deployment HttpApi Effect Request Builder
 
 Previous completed checkpoint: `425de44` Route flarex dev bodies through

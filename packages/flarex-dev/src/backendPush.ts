@@ -1,5 +1,5 @@
 import type { Miniflare } from "miniflare";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
@@ -120,6 +120,24 @@ export type HttpBackendPushCoordinatorOptions = {
   headers?: HeadersInit;
 };
 
+type BackendPushHttpResponse = Pick<Response, "json" | "ok" | "status">;
+
+type BackendPushResponseContext = "analyzer" | "push" | "finish";
+
+export class BackendPushResponseError extends Data.TaggedError("BackendPushResponseError")<{
+  readonly context: BackendPushResponseContext;
+  readonly status: number;
+  readonly message: string;
+  readonly diagnostics: AnalyzerDiagnostic[];
+  readonly body: unknown;
+}> {}
+
+export class LocalBackendFinishResponseError extends Data.TaggedError("LocalBackendFinishResponseError")<{
+  readonly path: string;
+  readonly status: number;
+  readonly body: unknown;
+}> {}
+
 const NONDETERMINISTIC_ANALYSIS_ERROR =
   "Flarex analysis is nondeterministic across cold isolates.";
 
@@ -179,14 +197,12 @@ export class HttpBackendSourceAnalyzer implements BackendSourceAnalyzer {
         sourcePackage,
       }),
     });
-    const body: unknown = await response.json().catch(() => null);
+    const body = await Effect.runPromise(
+      decodeHttpBackendAnalyzerBody(response).pipe(
+        Effect.mapError(backendPushResponseErrorToAnalysisError),
+      ),
+    );
     const diagnostics = diagnosticsFromBody(body);
-    if (!response.ok) {
-      throw new ExecutionArtifactAnalysisError(
-        errorMessageFromBody(body) ?? `Backend analyzer request failed with status ${response.status}.`,
-        diagnostics,
-      );
-    }
     const codegenAnalysis = parseCodegenAnalysisFromBody(body);
     if (!codegenAnalysis.ok) {
       throw new ExecutionArtifactAnalysisError(
@@ -227,10 +243,11 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     });
-    const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(payload))) {
-      throw new Error(`Backend request ${path} failed with status ${response.status}: ${JSON.stringify(payload)}`);
-    }
+    const payload = await Effect.runPromise(
+      decodeLocalBackendFinishBody(response, path).pipe(
+        Effect.mapError(localBackendFinishResponseErrorToError),
+      ),
+    );
     return parseDevFinishPushResponse(payload);
   }
 
@@ -287,14 +304,11 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       headers: analyzerHeaders(this.headers),
       body: JSON.stringify(body),
     });
-    const payload: unknown = await response.json().catch(() => null);
-    const diagnostics = diagnosticsFromBody(payload);
-    if (!response.ok) {
-      throw new ExecutionArtifactAnalysisError(
-        errorMessageFromBody(payload) ?? `Backend push request failed with status ${response.status}.`,
-        diagnostics,
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeHttpBackendPushBody(response).pipe(
+        Effect.mapError(backendPushResponseErrorToAnalysisError),
+      ),
+    );
     return parseDevPushStatus(payload);
   }
 
@@ -304,15 +318,105 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       headers: analyzerHeaders(this.headers),
       body: JSON.stringify(body),
     });
-    const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(payload))) {
-      throw new ExecutionArtifactAnalysisError(
-        errorMessageFromBody(payload) ?? `Backend push request failed with status ${response.status}.`,
-        diagnosticsFromBody(payload),
-      );
-    }
+    const payload = await Effect.runPromise(
+      decodeHttpBackendFinishBody(response).pipe(
+        Effect.mapError(backendPushResponseErrorToAnalysisError),
+      ),
+    );
     return parseDevFinishPushResponse(payload);
   }
+}
+
+const decodeHttpBackendAnalyzerBody = Effect.fn("FlarexDev.decodeHttpBackendAnalyzerBody")(
+  function* (response: BackendPushHttpResponse) {
+    const body = yield* readBackendPushResponseJson(response);
+    if (!response.ok) {
+      return yield* backendPushResponseFailure(
+        "analyzer",
+        response,
+        body,
+        errorMessageFromBody(body) ?? `Backend analyzer request failed with status ${response.status}.`,
+      );
+    }
+    return body;
+  },
+);
+
+const decodeHttpBackendPushBody = Effect.fn("FlarexDev.decodeHttpBackendPushBody")(
+  function* (response: BackendPushHttpResponse) {
+    const body = yield* readBackendPushResponseJson(response);
+    if (!response.ok) {
+      return yield* backendPushResponseFailure(
+        "push",
+        response,
+        body,
+        errorMessageFromBody(body) ?? `Backend push request failed with status ${response.status}.`,
+      );
+    }
+    return body;
+  },
+);
+
+const decodeHttpBackendFinishBody = Effect.fn("FlarexDev.decodeHttpBackendFinishBody")(
+  function* (response: BackendPushHttpResponse) {
+    const body = yield* readBackendPushResponseJson(response);
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(body))) {
+      return yield* backendPushResponseFailure(
+        "finish",
+        response,
+        body,
+        errorMessageFromBody(body) ?? `Backend push request failed with status ${response.status}.`,
+      );
+    }
+    return body;
+  },
+);
+
+const decodeLocalBackendFinishBody = Effect.fn("FlarexDev.decodeLocalBackendFinishBody")(
+  function* (response: BackendPushHttpResponse, path: string) {
+    const body = yield* readBackendPushResponseJson(response);
+    if (!response.ok && (response.status !== 409 || !isRejectedFinishPushEnvelope(body))) {
+      return yield* Effect.fail(new LocalBackendFinishResponseError({
+        path,
+        status: response.status,
+        body,
+      }));
+    }
+    return body;
+  },
+);
+
+function readBackendPushResponseJson(
+  response: BackendPushHttpResponse,
+): Effect.Effect<unknown> {
+  return Effect.promise(() => response.json().catch(() => null));
+}
+
+function backendPushResponseFailure(
+  context: BackendPushResponseContext,
+  response: BackendPushHttpResponse,
+  body: unknown,
+  message: string,
+): Effect.Effect<never, BackendPushResponseError> {
+  return Effect.fail(new BackendPushResponseError({
+    context,
+    status: response.status,
+    message,
+    diagnostics: diagnosticsFromBody(body),
+    body,
+  }));
+}
+
+function backendPushResponseErrorToAnalysisError(
+  error: BackendPushResponseError,
+): ExecutionArtifactAnalysisError {
+  return new ExecutionArtifactAnalysisError(error.message, error.diagnostics);
+}
+
+function localBackendFinishResponseErrorToError(error: LocalBackendFinishResponseError): Error {
+  return new Error(
+    `Backend request ${error.path} failed with status ${error.status}: ${JSON.stringify(error.body)}`,
+  );
 }
 
 export function createLocalAnalyzerService(

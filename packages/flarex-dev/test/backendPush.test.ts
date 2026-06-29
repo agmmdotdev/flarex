@@ -118,6 +118,20 @@ describe("backend push coordinator", () => {
     expect(status).toEqual({ pushId: "push1", state: "analyzed" });
   });
 
+  it("falls back to status text for non-JSON HTTP backend push failures", async () => {
+    const fetcher: typeof fetch = async () =>
+      new Response("service unavailable", { status: 503 });
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).start(testSourcePackage())).rejects.toMatchObject({
+      message: "Backend push request failed with status 503.",
+      diagnostics: [],
+    });
+  });
+
   it("rejects inherited property names as HTTP backend push states", async () => {
     const fetcher: typeof fetch = async () =>
       Response.json({
@@ -449,6 +463,20 @@ describe("backend push coordinator", () => {
     }).finish("push1")).rejects.toThrow(ExecutionArtifactAnalysisError);
   });
 
+  it("falls back to status text for non-JSON HTTP finish failures", async () => {
+    const fetcher: typeof fetch = async () =>
+      new Response("gateway failed", { status: 502 });
+
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).finish("push1")).rejects.toMatchObject({
+      message: "Backend push request failed with status 502.",
+      diagnostics: [],
+    });
+  });
+
   it("abandons HTTP backend pushes with encoded IDs and configured path prefixes", async () => {
     const requests: Array<{
       url: string;
@@ -593,6 +621,20 @@ describe("backend push coordinator", () => {
     }).analyze(testSourcePackage())).rejects.toMatchObject({
       message: "remote analysis failed",
       diagnostics: [{ level: "error", message: "import failed" }],
+    });
+  });
+
+  it("falls back to status text for non-JSON HTTP analyzer failures", async () => {
+    const fetcher: typeof fetch = async () =>
+      new Response("bad gateway", { status: 502 });
+
+    await expect(new HttpBackendSourceAnalyzer({
+      url: "https://flarex.example/analyze",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).analyze(testSourcePackage())).rejects.toMatchObject({
+      message: "Backend analyzer request failed with status 502.",
+      diagnostics: [],
     });
   });
 

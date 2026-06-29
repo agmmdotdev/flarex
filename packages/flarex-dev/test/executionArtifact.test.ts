@@ -66,6 +66,26 @@ describe("execution artifact analysis", () => {
     ]);
   });
 
+  it("falls back to status text for non-JSON execution artifact invoke failures", async () => {
+    const runtime = new LocalMiniflareExecutionArtifactRuntime({
+      fetch: async () => new Response("failed", { status: 500 }),
+    });
+
+    await expect(runtime.invoke(
+      {
+        runtime: "dynamic-worker",
+        artifactId: "artifact_1234567890abcdef1234567890abcdef",
+        sourcePackageHash: "a".repeat(64),
+        executionModule: "_flarex/execution.js",
+      },
+      {
+        deploymentId: "deployment1",
+        path: "users:get",
+        args: {},
+      },
+    )).rejects.toThrow("Execution artifact invoke failed with status 500");
+  });
+
   it("analyzes a source package inside a Miniflare execution artifact", async () => {
     const root = await createProject();
     const context = await initialCodegen({ root });

@@ -1,3 +1,4 @@
+import { Data, Effect } from "effect";
 import { Miniflare } from "miniflare";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentAnalysis } from "./analyze.ts";
@@ -24,6 +25,18 @@ export class ExecutionArtifactAnalysisError extends Error {
     this.diagnostics = diagnostics;
   }
 }
+
+type ExecutionArtifactHttpResponse = Pick<Response, "json" | "ok" | "status">;
+
+type ExecutionArtifactResponseOperation = "analysis" | "invoke";
+
+export class ExecutionArtifactResponseError extends Data.TaggedError("ExecutionArtifactResponseError")<{
+  readonly operation: ExecutionArtifactResponseOperation;
+  readonly status: number;
+  readonly message: string;
+  readonly diagnostics: AnalyzerDiagnostic[];
+  readonly body: unknown;
+}> {}
 
 export interface ExecutionArtifactAdapter {
   analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
@@ -71,19 +84,11 @@ export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifact
       const response = await artifact.dispatchFetch("http://flarex-artifact/analyze", {
         method: "POST",
       });
-      const body = await response.json().catch(() => null);
-      const diagnostics = normalizeAnalyzerDiagnostics(
-        typeof body === "object" && body !== null && "diagnostics" in body
-          ? (body as { diagnostics: unknown }).diagnostics
-          : undefined,
+      const { body, diagnostics } = await Effect.runPromise(
+        decodeExecutionArtifactAnalysisBody(response).pipe(
+          Effect.mapError(executionArtifactResponseErrorToAnalysisError),
+        ),
       );
-      if (!response.ok) {
-        const error =
-          typeof body === "object" && body !== null && "error" in body
-            ? String((body as { error: unknown }).error)
-            : `Execution artifact analysis failed with status ${response.status}`;
-        throw new ExecutionArtifactAnalysisError(error, diagnostics);
-      }
       if (typeof body !== "object" || body === null || !("analysis" in body)) {
         throw new ExecutionArtifactAnalysisError("Execution artifact analysis returned an invalid response.", diagnostics);
       }
@@ -114,16 +119,77 @@ export class LocalMiniflareExecutionArtifactRuntime implements ExecutionArtifact
       },
       body: JSON.stringify(request),
     }));
-    const body = await response.json().catch(() => null);
+    return Effect.runPromise(
+      decodeExecutionArtifactInvokeBody(response).pipe(
+        Effect.mapError(executionArtifactResponseErrorToError),
+      ),
+    );
+  }
+}
+
+const decodeExecutionArtifactAnalysisBody = Effect.fn("ExecutionArtifact.decodeAnalysisBody")(
+  function* (response: ExecutionArtifactHttpResponse) {
+    const body = yield* readExecutionArtifactResponseJson(response);
+    const diagnostics = diagnosticsFromBody(body);
     if (!response.ok) {
-      const error =
-        typeof body === "object" && body !== null && "error" in body
-          ? String((body as { error: unknown }).error)
-          : `Execution artifact invoke failed with status ${response.status}`;
-      throw new Error(error);
+      return yield* Effect.fail(new ExecutionArtifactResponseError({
+        operation: "analysis",
+        status: response.status,
+        message: errorMessageFromBody(body)
+          ?? `Execution artifact analysis failed with status ${response.status}`,
+        diagnostics,
+        body,
+      }));
+    }
+    return { body, diagnostics };
+  },
+);
+
+const decodeExecutionArtifactInvokeBody = Effect.fn("ExecutionArtifact.decodeInvokeBody")(
+  function* (response: ExecutionArtifactHttpResponse) {
+    const body = yield* readExecutionArtifactResponseJson(response);
+    if (!response.ok) {
+      return yield* Effect.fail(new ExecutionArtifactResponseError({
+        operation: "invoke",
+        status: response.status,
+        message: errorMessageFromBody(body)
+          ?? `Execution artifact invoke failed with status ${response.status}`,
+        diagnostics: [],
+        body,
+      }));
     }
     return body;
-  }
+  },
+);
+
+function readExecutionArtifactResponseJson(
+  response: ExecutionArtifactHttpResponse,
+): Effect.Effect<unknown> {
+  return Effect.promise(() => response.json().catch(() => null));
+}
+
+function diagnosticsFromBody(body: unknown): AnalyzerDiagnostic[] {
+  return normalizeAnalyzerDiagnostics(
+    typeof body === "object" && body !== null && "diagnostics" in body
+      ? (body as { diagnostics: unknown }).diagnostics
+      : undefined,
+  );
+}
+
+function errorMessageFromBody(body: unknown): string | undefined {
+  return typeof body === "object" && body !== null && "error" in body
+    ? String((body as { error: unknown }).error)
+    : undefined;
+}
+
+function executionArtifactResponseErrorToAnalysisError(
+  error: ExecutionArtifactResponseError,
+): ExecutionArtifactAnalysisError {
+  return new ExecutionArtifactAnalysisError(error.message, error.diagnostics);
+}
+
+function executionArtifactResponseErrorToError(error: ExecutionArtifactResponseError): Error {
+  return new Error(error.message);
 }
 
 export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {

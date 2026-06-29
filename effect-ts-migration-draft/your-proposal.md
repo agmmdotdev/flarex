@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `92df423` Route generated HttpApi requests through Effect.
-- Active checkpoint: route `flarex-dev` materialized execution artifact response parsing through a named Effect decoder with typed integration failures, preserving public `Error & { status }` adapter behavior.
+- Previous completed checkpoint: `77c921a` Type materialized artifact responses with Effect.
+- Active checkpoint: route `flarex-dev` backend push/analyzer and execution artifact response parsing through named Effect decoders with typed integration failures, preserving existing adapter error shapes.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current materialized artifact response checkpoint:
+Next recommended checkpoint after the current backend push/artifact response checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,15 @@ Next recommended checkpoint after the current materialized artifact response che
    separate from adapter-edge refactors until each has dedicated parity
    coverage.
 
-Current Goal 149 slice:
+Current Goal 150 slice:
+
+1. Add typed Effect response decoders for `flarex-dev` HTTP backend analyzer, push, finish, local finish, execution artifact analysis, and execution artifact invoke responses.
+2. Preserve public behavior: non-JSON failures still fall back to the existing status messages, backend diagnostics still travel with `ExecutionArtifactAnalysisError`, local finish transport failures still use the legacy plain `Error` message, and successful payload parsers stay unchanged.
+3. Keep Effect at the integration boundary only; deployment analysis shape validation, push state parsing, analyzer diagnostics normalization, generated runtime-worker source, and backend services remain unchanged.
+4. Add regression tests for non-JSON analyzer, push, finish, and artifact invoke failures, alongside existing success and structured-error coverage.
+5. Validate with focused backend push/execution artifact coverage, broad `flarex-dev` gates, backend/protocol gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 149 slice:
 
 1. Add a typed `MaterializedArtifactResponseError` and named Effect decoder for materialized execution artifact HTTP responses in `flarex-dev`.
 2. Route both `LocalMiniflareMaterializedExecutionArtifact.invoke(...)` and `executeQuerySession(...)` through that decoder instead of duplicating `response.json().catch(() => null)` and ad hoc status error construction.

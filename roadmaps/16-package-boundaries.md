@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Flarex Dev Backend Response Boundaries
+
+Previous completed checkpoint: `77c921a` Type materialized artifact responses
+with Effect.
+
+What changed:
+
+- Backend analyzer/push response decoders live in `packages/flarex-dev` because
+  they adapt local development HTTP/backend bindings to the existing dev API.
+- Execution artifact response decoders also live in `packages/flarex-dev`
+  because they are specific to local Miniflare execution artifact adapters.
+- Typed Effect failures are converted back to existing public
+  `ExecutionArtifactAnalysisError` or plain `Error` shapes at the adapter edge.
+
+Boundary decision:
+
+This checkpoint does not move transport contracts into `flarex-protocol`
+because the successful response payloads are still dev-adapter compatibility
+contracts, not reusable public protocol surfaces. Backend push services and
+generated runtime-worker code keep their package ownership.
+
+Convex references inspected:
+
+- None in this checkpoint. This is Flarex dev adapter ownership.
+
+Known limitations:
+
+- Some successful payload parsers are still handwritten compatibility parsers.
+  Future protocol promotion should happen only when the same contract is shared
+  across backend/dev/runtime package boundaries.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/analyze.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/generatedTypecheck.test.ts packages/flarex-dev/test/sourcePackage.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/cli.test.ts packages/flarex-dev/test/dev.test.ts packages/flarex-dev/test/devDispose.test.ts packages/flarex-dev/test/index.test.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/vite.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendSyncRuntime.test.ts packages/flarex-dev/test/executorHttpRuntime.test.ts packages/flarex-dev/test/executionArtifactStore.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Materialized Artifact Response Boundary
 
 Previous completed checkpoint: `92df423` Route generated HttpApi requests
