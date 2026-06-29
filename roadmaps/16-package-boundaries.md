@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## Public Invoke Typed Missing-Deployment Failure
+
+Previous completed checkpoint: `c5133c6` Name generated runtime JSON
+boundaries.
+
+What changed:
+
+- `invoke/PublicInvokeRouteBoundary.ts` now owns the missing-deployment route
+  error alongside JSON and invoke-protocol route failures.
+- `worker.ts` no longer needs a public-invoke-specific `HttpError` branch for
+  the missing deployment-id case.
+
+Boundary decision:
+
+Deployment-id precedence remains Worker-owned because it combines route,
+header, and body sources. The failure type still lives in the public invoke
+route-boundary module because it is part of the public invoke route contract and
+HTTP mapping.
+
+Known limitations:
+
+- Broader invoke runtime errors remain in `invoke.ts` and are not converted to
+  typed service/domain failures in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|decodes public Worker invoke bodies"
+git diff --check
+```
+
 ## Scheduler Response Decoder Ownership
 
 Previous completed checkpoint: `1fb88f8` Type live query delivery responses

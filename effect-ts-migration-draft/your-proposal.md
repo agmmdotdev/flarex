@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
-- Active checkpoint: make generated/dev runtime worker JSON boundaries explicit by routing generated internal request reads and backend response reads through named helpers while preserving generated worker behavior.
+- Previous completed checkpoint: `c5133c6` Name generated runtime JSON boundaries.
+- Active checkpoint: remove the remaining public invoke Worker `HttpError` branch by modeling missing deployment id as a typed route failure and mapping it only at the adapter edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current generated runtime boundary checkpoint:
+Next recommended checkpoint after the current public invoke route-error checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,26 @@ Next recommended checkpoint after the current generated runtime boundary checkpo
    checkpoint: typed request/body decoders, typed domain failures, and one
    adapter HTTP mapping edge.
 
-Current Goal 154 slice:
+Current Goal 155 slice:
+
+1. Add fieldless `MissingInvokeDeploymentError` to the public invoke route
+   boundary and include it in the route error union mapped by
+   `publicInvokeRouteErrorToHttpError(...)`.
+2. Route Worker public invoke missing-deployment failures through that typed
+   error instead of failing the route pipeline with `HttpError`.
+3. Preserve public response semantics: missing top-level deployment id still
+   returns `400 { error: "Missing deployment id." }`, malformed JSON and
+   protocol validation still map to existing `400` responses, unknown functions
+   still return `404`, and route-scoped deployment ids remain authoritative.
+4. Keep `routeInvoke(...)`, artifact runtime dispatch, active deployment
+   loading, invoke argument/return validation, deployment push routes,
+   scheduler routes, execution routes, partition routes, executor-http routes,
+   generated workers, and `ValidatorJson` unchanged.
+5. Validate with focused public invoke route-boundary and Worker invoke tests,
+   backend typecheck/build, broad protocol/backend gates as practical, and only
+   the EffectTS quality checker reviewer.
+
+Completed Goal 154 slice:
 
 1. Route generated runtime worker internal request JSON reads through named
    `readInternalRequestJson(...)` and `readInvokeRequestJson(...)` helpers in

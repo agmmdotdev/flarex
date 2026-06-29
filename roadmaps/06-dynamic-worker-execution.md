@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Public Invoke Typed Missing-Deployment Failure
+
+Previous completed checkpoint: `c5133c6` Name generated runtime JSON
+boundaries.
+
+What changed:
+
+- The public invoke route boundary now owns `MissingInvokeDeploymentError` as a
+  typed route failure.
+- Worker public invoke routing fails with that typed route error when neither
+  the route/header nor request body supplies a deployment id.
+- The existing HTTP response is preserved by mapping the typed failure at the
+  Worker adapter edge.
+
+Why it changed:
+
+The public invoke route already used an Effect request decoder, but the Worker
+pipeline still introduced `HttpError` directly for missing deployment ids. This
+checkpoint keeps the route/service path closer to the Effect quality bar:
+domain-like route failures remain typed until the adapter maps them to the
+public HTTP envelope.
+
+Known limitations:
+
+- `routeInvoke(...)` still owns execution/runtime failures through the existing
+  `invokeErrorResponse(...)` compatibility path.
+- Argument, document, and return validation still use existing invoke runtime
+  logic rather than typed service-layer Effect errors.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts -t "public invoke route boundary|decodes public Worker invoke bodies"
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Generated Runtime Worker JSON Boundaries
 
 Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.

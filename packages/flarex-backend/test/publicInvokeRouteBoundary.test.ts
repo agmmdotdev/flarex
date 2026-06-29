@@ -4,6 +4,7 @@ import { InvokeProtocolValidationError } from "flarex-protocol/invoke";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicInvokeRouteRequest,
+  MissingInvokeDeploymentError,
   parsePublicInvokeRouteRequest,
   parsePublicInvokeRouteRequestEffect,
   publicInvokeRouteErrorToHttpError,
@@ -116,6 +117,11 @@ describe("public invoke route boundary", () => {
       status: 400,
       message:
         "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+    });
+
+    expect(publicInvokeRouteErrorToHttpError(new MissingInvokeDeploymentError())).toMatchObject({
+      status: 400,
+      message: "Missing deployment id.",
     });
   });
 });

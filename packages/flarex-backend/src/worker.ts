@@ -55,6 +55,7 @@ import {
 } from "./invoke";
 import {
   decodePublicInvokeRouteRequest,
+  MissingInvokeDeploymentError,
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
@@ -701,18 +702,15 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
     const body = yield* decodePublicInvokeRouteRequest(request);
     const deploymentId = routeDeploymentId ?? body.deploymentId;
     if (deploymentId === undefined || deploymentId.length === 0) {
-      return yield* Effect.fail(new HttpError(400, "Missing deployment id."));
+      return yield* Effect.fail(new MissingInvokeDeploymentError());
     }
     return yield* Effect.promise(() => routeInvoke(env, deploymentId, body));
   },
 );
 
 function publicWorkerInvokeRouteErrorToHttpError(
-  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0] | HttpError,
+  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0],
 ): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
   return publicInvokeRouteErrorToHttpError(error);
 }
 

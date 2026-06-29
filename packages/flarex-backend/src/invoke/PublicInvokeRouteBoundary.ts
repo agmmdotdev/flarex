@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import {
   InvokeProtocolValidationError,
   parsePublicInvokeRequestBody,
@@ -10,6 +10,14 @@ import {
   RequestJsonError,
   requestJsonErrorToHttpError,
 } from "../http";
+
+export class MissingInvokeDeploymentError
+  extends Data.TaggedError("MissingInvokeDeploymentError")<{}> {}
+
+export type PublicInvokeRouteError =
+  | RequestJsonError
+  | InvokeProtocolValidationError
+  | MissingInvokeDeploymentError;
 
 export async function readPublicInvokeRequest(
   request: Request,
@@ -58,10 +66,13 @@ export function parsePublicInvokeRouteRequestEffect(
 }
 
 export function publicInvokeRouteErrorToHttpError(
-  error: RequestJsonError | InvokeProtocolValidationError,
+  error: PublicInvokeRouteError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof MissingInvokeDeploymentError) {
+    return new HttpError(400, "Missing deployment id.");
   }
   return new HttpError(400, error.message);
 }
