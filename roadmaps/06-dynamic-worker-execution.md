@@ -1,5 +1,48 @@
 # Dynamic Worker Execution
 
+## ExecutionDO Effect Route Adapters
+
+Previous completed checkpoint: `0974955` Route scheduler fetch edges through
+Effect.
+
+What changed:
+
+- `ExecutionDO.fetch()` now routes internal `/start`, `/syscall`, and
+  `/finish` POST routes through named `Effect.fn` helpers.
+- Those helpers consume the existing typed execution route decoders directly
+  instead of the Promise compatibility readers.
+- The syscall and finish route error mappers are exported so the live
+  `ExecutionDO` adapter uses the same JSON/protocol-to-HTTP conversion as the
+  compatibility readers.
+
+Boundary decision:
+
+This checkpoint converts only the `ExecutionDO` fetch adapter edge. Execution
+session lifecycle, active metadata lookup, `SingleShardTransaction` ownership,
+syscall read/write semantics, return validation, commit behavior, and abort
+behavior remain in `ExecutionDO`.
+
+Preserved behavior:
+
+- Malformed JSON and execution protocol validation failures still map through
+  the existing `invokeErrorResponse(...)` response shape.
+- Public Worker execution forwarding, generated execution artifacts,
+  `PartitionDO`, protocol schemas, executor-http routes, and `ValidatorJson`
+  are unchanged.
+- Execution operation failures still flow through the existing fetch-level
+  `invokeErrorResponse(...)` adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Route Effect Boundary
 
 Current Effect migration checkpoint: execution start and public execution

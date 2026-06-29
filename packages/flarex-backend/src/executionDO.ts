@@ -1,8 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
-import { readExecutionFinishRequest } from "./execution/FinishRouteBoundary";
-import { readExecutionStartRequest } from "./execution/StartRouteBoundary";
-import { readExecutionSyscallRequest } from "./execution/SyscallRouteBoundary";
+import {
+  decodeExecutionFinishRouteRequest,
+  executionFinishRouteErrorToHttpError,
+} from "./execution/FinishRouteBoundary";
+import {
+  decodeExecutionStartRouteRequest,
+  executionStartRouteErrorToHttpError,
+} from "./execution/StartRouteBoundary";
+import {
+  decodeExecutionSyscallRouteRequest,
+  executionSyscallRouteErrorToHttpError,
+} from "./execution/SyscallRouteBoundary";
 import { HttpError } from "./http";
+import { Effect } from "effect";
 import {
   idValidatorForSchema,
   invokeErrorResponse,
@@ -49,13 +59,19 @@ export class ExecutionDO extends DurableObject<Env> {
     try {
       const url = new URL(request.url);
       if (url.pathname === "/start" && request.method === "POST") {
-        return Response.json(await this.start(await readExecutionStartRequest(request)));
+        return await Effect.runPromise(
+          routeExecutionStart(request, body => this.start(body)),
+        );
       }
       if (url.pathname === "/syscall" && request.method === "POST") {
-        return Response.json(await this.syscall(await readExecutionSyscallRequest(request)));
+        return await Effect.runPromise(
+          routeExecutionSyscall(request, body => this.syscall(body)),
+        );
       }
       if (url.pathname === "/finish" && request.method === "POST") {
-        return Response.json(await this.finish(await readExecutionFinishRequest(request)));
+        return await Effect.runPromise(
+          routeExecutionFinish(request, body => this.finish(body)),
+        );
       }
       if (url.pathname === "/abort" && request.method === "POST") {
         this.session = null;
@@ -215,4 +231,46 @@ export class ExecutionDO extends DurableObject<Env> {
     if (this.session === null) throw new HttpError(409, "Execution session has not started.");
     return this.session;
   }
+}
+
+const routeExecutionStart = Effect.fn("ExecutionDO.routeStart")(
+  function* (
+    request: Request,
+    start: (body: ExecutionStartRequest) => Promise<ExecutionStartResponse>,
+  ) {
+    const body = yield* decodeExecutionStartRouteRequest(request).pipe(
+      Effect.mapError(executionStartRouteErrorToHttpError),
+    );
+    return yield* routeExecutionJsonResult(() => start(body));
+  },
+);
+
+const routeExecutionSyscall = Effect.fn("ExecutionDO.routeSyscall")(
+  function* (
+    request: Request,
+    syscall: (body: ExecutionSyscallRequest) => Promise<Json>,
+  ) {
+    const body = yield* decodeExecutionSyscallRouteRequest(request).pipe(
+      Effect.mapError(executionSyscallRouteErrorToHttpError),
+    );
+    return yield* routeExecutionJsonResult(() => syscall(body));
+  },
+);
+
+const routeExecutionFinish = Effect.fn("ExecutionDO.routeFinish")(
+  function* (
+    request: Request,
+    finish: (body: ExecutionFinishRequest) => Promise<InvokeResponse>,
+  ) {
+    const body = yield* decodeExecutionFinishRouteRequest(request).pipe(
+      Effect.mapError(executionFinishRouteErrorToHttpError),
+    );
+    return yield* routeExecutionJsonResult(() => finish(body));
+  },
+);
+
+function routeExecutionJsonResult<A extends Json | object>(
+  execute: () => Promise<A>,
+): Effect.Effect<Response> {
+  return Effect.promise(async () => Response.json(await execute()));
 }

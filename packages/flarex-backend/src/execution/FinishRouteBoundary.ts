@@ -59,7 +59,7 @@ export function parseExecutionFinishRouteRequestEffect(
   });
 }
 
-function executionFinishRouteErrorToHttpError(
+export function executionFinishRouteErrorToHttpError(
   error: RequestJsonError | ExecutionProtocolValidationError,
 ): HttpError {
   if (error instanceof RequestJsonError) {

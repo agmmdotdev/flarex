@@ -1,5 +1,37 @@
 # Package Boundaries
 
+## ExecutionDO Effect Route Adapters
+
+Previous completed checkpoint: `0974955` Route scheduler fetch edges through
+Effect.
+
+What changed:
+
+- `ExecutionDO` now uses named `Effect.fn` route helpers for internal start,
+  syscall, and finish POST routes.
+- Body-reading execution routes consume typed route-boundary decoders directly
+  at the fetch edge instead of using Promise compatibility readers.
+- Execution syscall and finish route error mappers are exported for adapter
+  reuse.
+
+Boundary decision:
+
+This is an adapter-edge migration only. The execution route-boundary modules
+own typed request decode and HTTP error mapping. `ExecutionDO` still owns
+session lifecycle, active function metadata lookup, transaction state,
+syscall semantics, return validation, and commit/abort behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## SchedulerDO Effect Route Adapters
 
 Previous completed checkpoint: `678cc30` Route sync DO fetch edges through

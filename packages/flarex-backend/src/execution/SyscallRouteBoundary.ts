@@ -60,7 +60,7 @@ export function parseExecutionSyscallRouteRequestEffect(
   });
 }
 
-function executionSyscallRouteErrorToHttpError(
+export function executionSyscallRouteErrorToHttpError(
   error: RequestJsonError | ExecutionProtocolValidationError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
