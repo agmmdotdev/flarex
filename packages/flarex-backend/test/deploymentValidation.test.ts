@@ -533,6 +533,37 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen function messages:missing has no deployment function metadata.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [
+              {
+                moduleName: "messages",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              },
+              {
+                moduleName: "messages",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              },
+            ],
+          }],
+        }, analysis),
+      "Duplicate codegen function metadata path: messages:list.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

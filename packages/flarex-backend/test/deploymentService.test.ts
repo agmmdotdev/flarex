@@ -817,6 +817,66 @@ describe("DeploymentService", () => {
     } finally {
       await typedFunctionMetadataRuntime.dispose();
     }
+
+    const duplicateFunctionStatus = analyzedPushStatus("push-duplicate-function-validation-failed");
+    const duplicateFunctionRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...duplicateFunctionStatus,
+          codegenAnalysis: {
+            schema: duplicateFunctionStatus.analysis!.schema,
+            functions: [{
+              moduleName: "lessons",
+              functions: [
+                {
+                  moduleName: "lessons",
+                  exportName: "list",
+                  kind: "query",
+                  visibility: "public",
+                  args: { type: "object", value: {} },
+                  returns: null,
+                  partition: null,
+                },
+                {
+                  moduleName: "lessons",
+                  exportName: "list",
+                  kind: "query",
+                  visibility: "public",
+                  args: { type: "object", value: {} },
+                  returns: null,
+                  partition: null,
+                },
+              ],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const duplicateFunctionError = await duplicateFunctionRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: duplicateFunctionStatus.pushId,
+            now: 2_490_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(duplicateFunctionError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(duplicateFunctionError.message).toBe(
+        "Duplicate codegen function metadata path: lessons:list.",
+      );
+    } finally {
+      await duplicateFunctionRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

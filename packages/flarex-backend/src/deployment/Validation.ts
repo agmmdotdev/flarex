@@ -540,7 +540,7 @@ export function validateCodegenAnalysis(
           throwDeploymentValidation(`Codegen function ${path} has no deployment function metadata.`);
         }
         if (seenPaths.has(path)) {
-          throw new HttpError(400, `Duplicate codegen function metadata path: ${path}.`);
+          throwDeploymentValidation(`Duplicate codegen function metadata path: ${path}.`);
         }
         seenPaths.add(path);
         const kind = parseFunctionKind(fn.kind, `$codegen.functions.${path}.kind`);

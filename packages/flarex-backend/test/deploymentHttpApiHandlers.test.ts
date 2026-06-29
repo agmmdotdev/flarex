@@ -405,7 +405,12 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
-        analysis: deploymentAnalysis(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
         codegenAnalysis: {
           schema: deploymentAnalysis().schema,
           functions: [{
@@ -419,7 +424,12 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
-        analysis: deploymentAnalysis(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
         codegenAnalysis: {
           schema: deploymentAnalysis().schema,
           functions: [{
@@ -447,7 +457,12 @@ describe("DeploymentApiHandlers", () => {
     expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
-        analysis: deploymentAnalysis(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
         codegenAnalysis: {
           schema: deploymentAnalysis().schema,
           functions: [{
@@ -523,6 +538,44 @@ describe("DeploymentApiHandlers", () => {
         },
       },
       "Codegen function messages:missing has no deployment function metadata.",
+    );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: {
+          ...deploymentAnalysis(),
+          functions: {
+            functions: [{ path: "messages:list", kind: "query" }],
+          },
+        },
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [
+              {
+                moduleName: "messages",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              },
+              {
+                moduleName: "messages",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              },
+            ],
+          }],
+        },
+      },
+      "Duplicate codegen function metadata path: messages:list.",
     );
   });
 
@@ -799,6 +852,51 @@ describe("DeploymentApiHandlers", () => {
     }
     expect(codegenFunctionMetadataFailure.message).toBe(
       "Codegen function messages:missing has no deployment function metadata.",
+    );
+
+    const duplicateCodegenFunctionFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: {
+        ...deploymentAnalysis(),
+        functions: {
+          functions: [{ path: "messages:list", kind: "query" }],
+        },
+      },
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [
+            {
+              moduleName: "messages",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            },
+            {
+              moduleName: "messages",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            },
+          ],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(duplicateCodegenFunctionFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(duplicateCodegenFunctionFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(duplicateCodegenFunctionFailure.message).toBe(
+      "Duplicate codegen function metadata path: messages:list.",
     );
   });
 });
