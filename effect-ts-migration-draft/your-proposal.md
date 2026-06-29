@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Type invoke validation failures`.
+- Previous completed checkpoint: this commit, `Type invoke document validation`.
 - Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -58,6 +58,23 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 177 slice:
+
+1. Add typed invoke document validation failures for table lookup, document id
+   parsing, document table lookup, document id/table mismatch, document
+   validator failures, document placement failures, query placement failures,
+   and missing patch targets.
+2. Add named Effect helpers for `tableForName`, `tableFromDocumentId`,
+   document id/table validation, document validator checks, document placement
+   checks, and query placement checks.
+3. Keep the existing backend DB Promise API as the compatibility adapter that
+   maps typed failures to the same `HttpError` statuses and messages.
+4. Preserve `ValidatorJson` semantics, SingleShardTransaction, PartitionDO
+   SQL/OCC behavior, query execution, mutation commit behavior, public Worker
+   route decoding, artifact runtime routing, and execution sessions.
+5. Validate typed document/table/placement failure channels directly, then
+   preserve existing invoke runtime behavior with focused invoke tests.
 
 Completed Goal 176 slice:
 

@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Invoke Document Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke document validation`.
+
+What changed:
+
+- Invoke table lookup, document id parsing, document table lookup, document id
+  table validation, document validator failures, document placement failures,
+  query placement failures, and missing patch targets now have typed failure
+  classes.
+- `invoke.ts` exposes named Effect helpers for those validation branches while
+  the existing DB-facing Promise API maps typed failures to the same
+  `HttpError` compatibility shape.
+- Direct invoke tests cover typed document/table/placement failure channels
+  before adapter mapping.
+
+Why it changed:
+
+The previous invoke checkpoint typed function, argument, and return validation,
+but document and placement checks still threw HTTP adapter errors from the
+backend invoke service. This checkpoint keeps those validation decisions typed
+without changing transaction or PartitionDO behavior.
+
+Known limitations:
+
+- Query/index planning, mutation commit, and PartitionDO request failures still
+  use the existing compatibility paths.
+- Public Worker invoke routing and artifact-runtime routing are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke validation failures`.
@@ -23,9 +62,8 @@ while preserving the existing Promise API and HTTP response envelope.
 
 Known limitations:
 
-- Query planning, document validation, placement validation, transaction
-  commit, and PartitionDO request failures still use the existing compatibility
-  paths.
+- Query planning, transaction commit, and PartitionDO request failures still
+  use the existing compatibility paths.
 - Public Worker invoke routing and artifact-runtime routing are unchanged.
 
 Verification:

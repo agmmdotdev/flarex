@@ -72,6 +72,43 @@ export class InvokeReturnValidationError
     readonly message: string;
   }> {}
 
+export class InvokeTableNotFoundError
+  extends Data.TaggedError("InvokeTableNotFoundError")<{
+    readonly table: string;
+  }> {}
+
+export class InvokeDocumentIdParseError
+  extends Data.TaggedError("InvokeDocumentIdParseError")<{
+    readonly id: string;
+  }> {}
+
+export class InvokeDocumentTableNotFoundError
+  extends Data.TaggedError("InvokeDocumentTableNotFoundError")<{
+    readonly id: string;
+    readonly tableId: number;
+  }> {}
+
+export class InvokeDocumentIdTableMismatchError
+  extends Data.TaggedError("InvokeDocumentIdTableMismatchError")<{
+    readonly id: string;
+    readonly expectedTableId: number;
+  }> {}
+
+export class InvokeDocumentValidationError
+  extends Data.TaggedError("InvokeDocumentValidationError")<{
+    readonly message: string;
+  }> {}
+
+export class InvokeDocumentPlacementError
+  extends Data.TaggedError("InvokeDocumentPlacementError")<{
+    readonly message: string;
+  }> {}
+
+export class InvokeDocumentNotFoundError
+  extends Data.TaggedError("InvokeDocumentNotFoundError")<{
+    readonly id: string;
+  }> {}
+
 export type InvokeFunctionValidationError =
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokeArgumentValidationError
@@ -82,8 +119,18 @@ export type InvokeFunctionValidationError =
 
 export type InvokeReturnValidationFailure = InvokeReturnValidationError;
 
+export type InvokeDocumentValidationFailure =
+  | InvokeDocumentIdParseError
+  | InvokeDocumentIdTableMismatchError
+  | InvokeDocumentNotFoundError
+  | InvokeDocumentPlacementError
+  | InvokeDocumentTableNotFoundError
+  | InvokeDocumentValidationError
+  | InvokeTableNotFoundError;
+
 export type InvokeValidationError =
   | InvokeFunctionValidationError
+  | InvokeDocumentValidationFailure
   | InvokeReturnValidationFailure;
 
 export type BackendQueryCtx = {
@@ -579,24 +626,36 @@ function validateQueryPlacement(
   expressions: IndexRangeExpression[],
   partitionKey: string,
 ): void {
+  Effect.runSync(
+    validateQueryPlacementEffect(table, expressions, partitionKey).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const validateQueryPlacementEffect = Effect.fn(
+  "Invoke.validateQueryPlacement",
+)(function* (
+  table: SchemaTable,
+  expressions: IndexRangeExpression[],
+  partitionKey: string,
+): Effect.fn.Return<void, InvokeDocumentPlacementError> {
   const placementField = ownerFieldForPlacement(table);
   if (placementField === null) return;
   const equality = expressions.find(
     expression => expression.field === placementField && expression.op === "eq",
   );
   if (equality === undefined) {
-    throw new HttpError(
-      400,
-      `PlacementValidationError: query on ${table.name} must include q.eq("${placementField}", partitionKey).`,
-    );
+    return yield* Effect.fail(new InvokeDocumentPlacementError({
+      message: `query on ${table.name} must include q.eq("${placementField}", partitionKey).`,
+    }));
   }
   if (equality.value !== partitionKey) {
-    throw new HttpError(
-      400,
-      `PlacementValidationError: query on ${table.name} must constrain ${placementField} to partitionKey ${partitionKey}.`,
-    );
+    return yield* Effect.fail(new InvokeDocumentPlacementError({
+      message: `query on ${table.name} must constrain ${placementField} to partitionKey ${partitionKey}.`,
+    }));
   }
-}
+});
 
 export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {
   return {
@@ -618,7 +677,9 @@ export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
     patch: async (id, value) => {
       const metadata = tableFromDocumentId(id, schema);
       const current = await tx.get(metadata.tableId, id);
-      if (current === null) throw new HttpError(404, `Document not found: ${id}`);
+      if (current === null) {
+        throw invokeValidationErrorToHttpError(new InvokeDocumentNotFoundError({ id }));
+      }
       const next = { ...(current.value as Record<string, Json>), ...value };
       validateDocument(metadata, next, schema);
       validateDocumentPlacement(metadata, next, tx.partitionKey);
@@ -677,34 +738,75 @@ function tableIdForName(schema: DeploymentSchema, table: string): number {
 }
 
 export function tableForName(schema: DeploymentSchema, table: string): SchemaTable {
+  return Effect.runSync(
+    tableForNameEffect(schema, table).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const tableForNameEffect = Effect.fn("Invoke.tableForName")(function* (
+  schema: DeploymentSchema,
+  table: string,
+): Effect.fn.Return<SchemaTable, InvokeTableNotFoundError> {
   const metadata = schema.tables.find(candidate => candidate.name === table);
   if (!metadata || metadata.state === "deleted") {
-    throw new HttpError(400, `Unknown table: ${table}.`);
+    return yield* Effect.fail(new InvokeTableNotFoundError({ table }));
   }
   return metadata;
-}
+});
 
 function tableIdFromDocumentId(id: string, schema: DeploymentSchema): number {
   return tableFromDocumentId(id, schema).tableId;
 }
 
 function tableFromDocumentId(id: string, schema: DeploymentSchema): SchemaTable {
+  return Effect.runSync(
+    tableFromDocumentIdEffect(id, schema).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const tableFromDocumentIdEffect = Effect.fn("Invoke.tableFromDocumentId")(function* (
+  id: string,
+  schema: DeploymentSchema,
+): Effect.fn.Return<
+  SchemaTable,
+  InvokeDocumentIdParseError | InvokeDocumentTableNotFoundError
+> {
   const parsed = parseFlarexId(id);
   if (parsed === null) {
-    throw new HttpError(400, `Document id ${id} does not contain a numeric table id prefix.`);
+    return yield* Effect.fail(new InvokeDocumentIdParseError({ id }));
   }
   const metadata = schema.tables.find(table => table.tableId === parsed.tableId && table.state !== "deleted");
   if (!metadata) {
-    throw new HttpError(400, `Document id ${id} references unknown table id ${parsed.tableId}.`);
+    return yield* Effect.fail(new InvokeDocumentTableNotFoundError({
+      id,
+      tableId: parsed.tableId,
+    }));
   }
   return metadata;
-}
+});
 
 function validateDocumentIdTable(id: string, expectedTableId: number): void {
-  if (!isFlarexIdForTable(id, expectedTableId)) {
-    throw new HttpError(400, `Document id ${id} does not belong to table id ${expectedTableId}.`);
-  }
+  Effect.runSync(
+    validateDocumentIdTableEffect(id, expectedTableId).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
 }
+
+export const validateDocumentIdTableEffect = Effect.fn(
+  "Invoke.validateDocumentIdTable",
+)(function* (
+  id: string,
+  expectedTableId: number,
+): Effect.fn.Return<void, InvokeDocumentIdTableMismatchError> {
+  if (!isFlarexIdForTable(id, expectedTableId)) {
+    return yield* Effect.fail(new InvokeDocumentIdTableMismatchError({ id, expectedTableId }));
+  }
+});
 
 function documentValue(id: string, value: Json): Json {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -714,45 +816,72 @@ function documentValue(id: string, value: Json): Json {
 }
 
 function validateDocument(table: SchemaTable, value: Json, schema?: DeploymentSchema): void {
-  if (table.validator === undefined || table.validator === null) return;
-  try {
-    const options = schema === undefined ? {} : { validateId: idValidatorForSchema(schema) };
-    validateJsonValue(table.validator, value, `$document(${table.name})`, options);
-  } catch (error) {
-    if (error instanceof BackendValidationError) {
-      throw new HttpError(400, `DocumentValidationError: ${error.message}`);
-    }
-    throw error;
-  }
+  Effect.runSync(
+    validateDocumentEffect(table, value, schema).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
 }
+
+export const validateDocumentEffect = Effect.fn("Invoke.validateDocument")(function* (
+  table: SchemaTable,
+  value: Json,
+  schema?: DeploymentSchema,
+): Effect.fn.Return<void, InvokeDocumentValidationError> {
+  if (table.validator === undefined || table.validator === null) return;
+  const validator = table.validator;
+  return yield* Effect.suspend(() => {
+    try {
+      const options = schema === undefined ? {} : { validateId: idValidatorForSchema(schema) };
+      validateJsonValue(validator, value, `$document(${table.name})`, options);
+      return Effect.void;
+    } catch (error) {
+      if (error instanceof BackendValidationError) {
+        return Effect.fail(new InvokeDocumentValidationError({ message: error.message }));
+      }
+      return Effect.die(error);
+    }
+  });
+});
 
 function validateDocumentPlacement(
   table: SchemaTable,
   value: Json,
   partitionKey: string,
 ): void {
+  Effect.runSync(
+    validateDocumentPlacementEffect(table, value, partitionKey).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const validateDocumentPlacementEffect = Effect.fn(
+  "Invoke.validateDocumentPlacement",
+)(function* (
+  table: SchemaTable,
+  value: Json,
+  partitionKey: string,
+): Effect.fn.Return<void, InvokeDocumentPlacementError> {
   const placementField = ownerFieldForPlacement(table);
   if (placementField === null) return;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(
-      400,
-      `PlacementValidationError: $document(${table.name}) must be an object for placement validation.`,
-    );
+    return yield* Effect.fail(new InvokeDocumentPlacementError({
+      message: `$document(${table.name}) must be an object for placement validation.`,
+    }));
   }
   const placementValue = value[placementField];
   if (typeof placementValue !== "string" || placementValue.length === 0) {
-    throw new HttpError(
-      400,
-      `PlacementValidationError: $document(${table.name}).${placementField} must be a non-empty string matching partitionKey.`,
-    );
+    return yield* Effect.fail(new InvokeDocumentPlacementError({
+      message: `$document(${table.name}).${placementField} must be a non-empty string matching partitionKey.`,
+    }));
   }
   if (placementValue !== partitionKey) {
-    throw new HttpError(
-      400,
-      `PlacementValidationError: $document(${table.name}).${placementField} must match partitionKey ${partitionKey}.`,
-    );
+    return yield* Effect.fail(new InvokeDocumentPlacementError({
+      message: `$document(${table.name}).${placementField} must match partitionKey ${partitionKey}.`,
+    }));
   }
-}
+});
 
 function ownerFieldForPlacement(table: SchemaTable): string | null {
   if (table.placement.kind === "colocateWith") return table.placement.field;
@@ -817,6 +946,27 @@ export function invokeValidationErrorToHttpError(error: InvokeValidationError): 
   }
   if (error instanceof InvokeArgumentValidationError) {
     return new HttpError(400, `ArgumentValidationError: ${error.message}`);
+  }
+  if (error instanceof InvokeTableNotFoundError) {
+    return new HttpError(400, `Unknown table: ${error.table}.`);
+  }
+  if (error instanceof InvokeDocumentIdParseError) {
+    return new HttpError(400, `Document id ${error.id} does not contain a numeric table id prefix.`);
+  }
+  if (error instanceof InvokeDocumentTableNotFoundError) {
+    return new HttpError(400, `Document id ${error.id} references unknown table id ${error.tableId}.`);
+  }
+  if (error instanceof InvokeDocumentIdTableMismatchError) {
+    return new HttpError(400, `Document id ${error.id} does not belong to table id ${error.expectedTableId}.`);
+  }
+  if (error instanceof InvokeDocumentValidationError) {
+    return new HttpError(400, `DocumentValidationError: ${error.message}`);
+  }
+  if (error instanceof InvokeDocumentPlacementError) {
+    return new HttpError(400, `PlacementValidationError: ${error.message}`);
+  }
+  if (error instanceof InvokeDocumentNotFoundError) {
+    return new HttpError(404, `Document not found: ${error.id}`);
   }
   return new HttpError(400, `ReturnValidationError: ${error.message}`);
 }

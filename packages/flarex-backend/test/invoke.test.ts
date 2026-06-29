@@ -3,12 +3,21 @@ import { Effect } from "effect";
 import {
   executeInvoke,
   InvokeArgumentValidationError,
+  InvokeDocumentIdParseError,
+  InvokeDocumentPlacementError,
+  InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
   InvokeReturnValidationError,
+  InvokeTableNotFoundError,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
   resolveInvokeFunctionForRequest,
   resolveFunctionExecutionScope,
+  tableFromDocumentIdEffect,
+  tableForNameEffect,
+  validateDocumentEffect,
+  validateDocumentPlacementEffect,
+  validateQueryPlacementEffect,
   validateReturnEffect,
   type BackendFunctionRegistry,
 } from "../src/invoke";
@@ -21,6 +30,7 @@ import type {
   DeploymentSchema,
   Env,
   PushStatus,
+  SchemaTable,
 } from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
@@ -129,6 +139,87 @@ describe("executeInvoke", () => {
     expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
       status: 404,
       message: "Unknown Flarex function: missing:function",
+    });
+  });
+
+  it("keeps invoke table and document-id validation typed until adapter mapping", async () => {
+    const schema = emptyActiveDeployment().analysis.schema;
+
+    const missingTable = await Effect.runPromise(
+      tableForNameEffect(schema, "missing").pipe(
+        Effect.catchTag("InvokeTableNotFoundError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(missingTable).toBeInstanceOf(InvokeTableNotFoundError);
+    if (!(missingTable instanceof InvokeTableNotFoundError)) {
+      throw new Error("Expected InvokeTableNotFoundError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingTable)).toMatchObject({
+      status: 400,
+      message: "Unknown table: missing.",
+    });
+
+    const malformedId = await Effect.runPromise(
+      tableFromDocumentIdEffect("not-an-id", schema).pipe(
+        Effect.catchTag("InvokeDocumentIdParseError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(malformedId).toBeInstanceOf(InvokeDocumentIdParseError);
+    if (!(malformedId instanceof InvokeDocumentIdParseError)) {
+      throw new Error("Expected InvokeDocumentIdParseError.");
+    }
+    expect(invokeValidationErrorToHttpError(malformedId)).toMatchObject({
+      status: 400,
+      message: "Document id not-an-id does not contain a numeric table id prefix.",
+    });
+  });
+
+  it("keeps invoke document validation typed until adapter mapping", async () => {
+    const table = usersTableWithValidator();
+    const failure = await Effect.runPromise(
+      validateDocumentEffect(table, { age: "old" }).pipe(
+        Effect.catchTag("InvokeDocumentValidationError", error => Effect.succeed(error)),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvokeDocumentValidationError);
+    if (!(failure instanceof InvokeDocumentValidationError)) {
+      throw new Error("Expected InvokeDocumentValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "DocumentValidationError: $document(users).age: Expected a finite number.",
+    });
+  });
+
+  it("keeps invoke placement validation typed until adapter mapping", async () => {
+    const table = usersTableWithValidator();
+    const documentFailure = await Effect.runPromise(
+      validateDocumentPlacementEffect(table, { age: 42, userId: "u2" }, "u1").pipe(
+        Effect.catchTag("InvokeDocumentPlacementError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(documentFailure).toBeInstanceOf(InvokeDocumentPlacementError);
+    if (!(documentFailure instanceof InvokeDocumentPlacementError)) {
+      throw new Error("Expected InvokeDocumentPlacementError.");
+    }
+    expect(invokeValidationErrorToHttpError(documentFailure)).toMatchObject({
+      status: 400,
+      message: "PlacementValidationError: $document(users).userId must match partitionKey u1.",
+    });
+
+    const queryFailure = await Effect.runPromise(
+      validateQueryPlacementEffect(table, [], "u1").pipe(
+        Effect.catchTag("InvokeDocumentPlacementError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(queryFailure).toBeInstanceOf(InvokeDocumentPlacementError);
+    if (!(queryFailure instanceof InvokeDocumentPlacementError)) {
+      throw new Error("Expected InvokeDocumentPlacementError.");
+    }
+    expect(invokeValidationErrorToHttpError(queryFailure)).toMatchObject({
+      status: 400,
+      message: 'PlacementValidationError: query on users must include q.eq("userId", partitionKey).',
     });
   });
 
@@ -1813,6 +1904,21 @@ function emptyActiveDeployment(): ActiveDeploymentStatus {
       },
       functions: [],
     },
+  };
+}
+
+function usersTableWithValidator(): SchemaTable {
+  return {
+    tableId: 1,
+    name: "users",
+    validator: {
+      type: "object",
+      value: {
+        age: { fieldType: { type: "number" }, optional: false },
+        userId: { fieldType: { type: "string" }, optional: false },
+      },
+    },
+    placement: { kind: "colocateWith", table: "users", field: "userId" },
   };
 }
 

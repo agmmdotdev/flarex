@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Invoke Document Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke document validation`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke.ts` now owns typed document/table and
+  placement validation errors in addition to the prior function/argument/return
+  validation failures.
+- Effect helpers back table lookup, document-id parsing, document-id table
+  checks, document validator checks, document placement, and query placement.
+- Existing Promise-based DB APIs map those typed failures to the same
+  adapter-shaped `HttpError` responses for Worker, ConnectionDO, and
+  ExecutionDO callers.
+
+Boundary decision:
+
+`ValidatorJson` remains the validation representation for user documents and
+function values. This checkpoint changes the invoke error boundary shape, not
+the validator contract or generated handler API.
+
+Known limitations:
+
+- Query/index planning, transaction commit, execution sessions, artifact
+  runtime routing, and PartitionDO SQL/OCC are separate follow-up surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke validation failures`.
@@ -22,9 +58,6 @@ for existing Worker, ConnectionDO, and ExecutionDO callers.
 
 Known limitations:
 
-- Runtime user document validation still uses `BackendValidationError` and the
-  existing `ValidatorJson` implementation behind the newly typed invoke
-  validation boundary.
 - PartitionDO SQL/OCC, transaction read/write validation, execution sessions,
   and artifact runtime routing are separate follow-up surfaces.
 

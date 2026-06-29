@@ -1,5 +1,44 @@
 # Dynamic Worker Execution
 
+## Invoke Document Validation Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke document validation`.
+
+What changed:
+
+- Backend invoke table/document lookup, document validator checks, document
+  placement checks, query placement checks, and missing patch targets now
+  produce typed invoke validation failures before compatibility mapping.
+- The user-facing DB API returned to generated/user handlers remains Promise
+  based, but its validation helpers are Effect-backed and map to the existing
+  `HttpError`/`invokeErrorResponse(...)` adapter shape.
+- Direct tests cover typed document validator, placement, table lookup, and
+  document-id failures before adapter mapping.
+
+Why it changed:
+
+Generated and dynamic-worker invoke handlers call into the backend DB API.
+Keeping those document and placement failures as raw HTTP errors inside
+`invoke.ts` made the service boundary less typed than the public route boundary
+that feeds it.
+
+Known limitations:
+
+- Query/index planning, transaction commit, session behavior, and PartitionDO
+  SQL/OCC are unchanged.
+- Artifact runtime service-binding invocation and public route decoding are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke validation failures`.
@@ -24,9 +63,8 @@ transaction semantics.
 
 Known limitations:
 
-- Query/index planning, document validation, placement validation, mutation
-  commit, and transaction/session behavior remain in the existing compatibility
-  flow.
+- Query/index planning, mutation commit, and transaction/session behavior remain
+  in the existing compatibility flow.
 - Artifact runtime service-binding invocation and public route decoding are
   unchanged.
 
