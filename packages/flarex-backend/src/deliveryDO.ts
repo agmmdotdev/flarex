@@ -15,6 +15,11 @@ import {
   type LiveQueryDeliveryResult,
   type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
+import {
+  decodeLiveQueryDeliveryAckResponse,
+  decodeLiveQueryDeliveryClaimResponse,
+  liveQueryDeliveryResponseErrorToHttpError,
+} from "./liveQueryDeliveryResponses";
 import type { Env } from "./types";
 
 type PendingDeliveryDrain = {
@@ -360,13 +365,12 @@ export class DeliveryDO extends DurableObject<Env> {
       ...(cursor === undefined ? {} : { cursor }),
     };
     const response = await this.executorFetch("/maintenance/live-queries/claim", body);
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query delivery claim failed with status ${response.status}.`,
-      );
-    }
-    return claimResultFromUnknown(await response.json().catch(() => null));
+    const payload = await Effect.runPromise(
+      decodeLiveQueryDeliveryClaimResponse<unknown>(response).pipe(
+        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+      ),
+    );
+    return claimResultFromUnknown(payload);
   }
 
   private async ack(
@@ -379,13 +383,12 @@ export class DeliveryDO extends DurableObject<Env> {
       deliveryIds,
       claimOwner,
     });
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Live query delivery ack failed with status ${response.status}.`,
-      );
-    }
-    return ackResultFromUnknown(await response.json().catch(() => null));
+    const payload = await Effect.runPromise(
+      decodeLiveQueryDeliveryAckResponse<unknown>(response).pipe(
+        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+      ),
+    );
+    return ackResultFromUnknown(payload);
   }
 
   private async reportDeliveryFailure(

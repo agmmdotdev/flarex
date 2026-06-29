@@ -1,5 +1,44 @@
 # Cloudflare Freshness Cache
 
+## Delivery Response Effect Boundary
+
+Previous completed checkpoint: `fb563e3` Type backend internal responses with
+Effect.
+
+What changed:
+
+- Delivery claim and ack responses now pass through named Effect decoders before
+  DeliveryDO parses the claim page or ack count.
+- Connection fanout responses now pass through the same response boundary
+  family before skip-reason result parsing.
+- Non-OK downstream delivery responses still surface as `HttpError(502, ...)`
+  with the existing message text.
+
+Why it changed:
+
+The freshness cache depends on durable delivery draining and fanout. Typed
+response boundaries make claim, ack, and fanout failures explicit while
+preserving retry and failure-recording behavior around the durable delivery
+rows.
+
+Known limitations:
+
+- This does not change claim cursor derivation, ack semantics, dead-letter
+  behavior, or scheduler continuation state.
+- SchedulerDO executor-maintenance response parsing remains a follow-up.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Real Postgres Delivery Claim Cursor Race Coverage
 
 Previous completed checkpoint: `8677dba` Persist delivery continuation cursors.

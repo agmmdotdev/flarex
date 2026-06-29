@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Live Query Delivery Response Decoder Ownership
+
+Previous completed checkpoint: `fb563e3` Type backend internal responses with
+Effect.
+
+What changed:
+
+- Live-query delivery response decoding now lives in
+  `packages/flarex-backend/src/liveQueryDeliveryResponses.ts`.
+- `DeliveryDO` and `liveQueryDelivery.ts` both consume the shared decoder module
+  so claim, ack, and connection fanout response failures share one typed
+  failure shape.
+- The module maps typed failures to the existing backend `HttpError` adapter
+  shape without importing Durable Object classes.
+
+Boundary decision:
+
+This is backend workflow adapter behavior rather than a public protocol
+contract. The shared module belongs in `flarex-backend` because it coordinates
+DeliveryDO and ConnectionDO fanout response handling without crossing into
+`flarex-protocol`.
+
+Known limitations:
+
+- SchedulerDO maintenance response decoding still needs a separate ownership
+  decision.
+- The successful payload schemas are not promoted to protocol schemas in this
+  checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Backend Internal Response Decoder Ownership
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with

@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Live Query Delivery Response Effect Decoders
+
+Previous completed checkpoint: `fb563e3` Type backend internal responses with
+Effect.
+
+What changed:
+
+- Added named Effect decoders for live-query delivery claim, ack, and
+  connection fanout responses.
+- Added direct runtime tests for typed success and typed failure channels, plus
+  adapter mapping back to `HttpError(502, ...)`.
+- DeliveryDO and connection fanout now read JSON responses through those
+  decoders before running the existing payload validators.
+
+Why it changed:
+
+Live-query delivery response reads are runtime JSON boundaries. Keeping
+non-OK downstream responses typed before adapter mapping makes claim, ack, and
+fanout failures consistent with the backend internal response migration.
+
+Known limitations:
+
+- Successful claim/ack/fanout payload validation still uses the existing
+  handwritten parsers.
+- SchedulerDO executor-maintenance response reads remain for a later slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Backend Internal Response Effect Decoders
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with

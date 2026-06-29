@@ -1,5 +1,47 @@
 # Sync And Subscriptions
 
+## Live Query Delivery Response Effect Boundaries
+
+Previous completed checkpoint: `fb563e3` Type backend internal responses with
+Effect.
+
+What changed:
+
+- `DeliveryDO` claim and ack executor responses now pass through named Effect
+  response decoders before the existing claim/ack payload parsers run.
+- `deliverLiveQueryChangesToConnections(...)` now decodes ConnectionDO fanout
+  responses through the same live-query delivery response boundary family.
+- Non-OK downstream responses become typed `LiveQueryDeliveryResponseError`
+  values before the adapter maps them back to the existing `HttpError(502, ...)`
+  shape.
+- Added focused tests for typed claim/ack success, typed fanout failure, and
+  adapter-edge `HttpError` mapping.
+
+Why it changed:
+
+Live-query delivery has multiple downstream response boundaries in one workflow:
+executor claim/ack and per-connection fanout. The migration now gives that
+workflow one typed response boundary module while leaving delivery retry,
+acknowledgement, skip-reason, and persistence behavior unchanged.
+
+Known limitations:
+
+- SchedulerDO maintenance response reads remain a separate follow-up slice.
+- Claim, ack, and connection result payload parsers remain the existing
+  compatibility parsers after response decoding.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## SchedulerDO Effect Route Adapters
 
 Previous completed checkpoint: `678cc30` Route sync DO fetch edges through

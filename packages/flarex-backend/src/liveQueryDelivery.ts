@@ -1,5 +1,10 @@
 import { HttpError } from "./http";
+import { Effect } from "effect";
 import type { LiveQueryDeliveryChange } from "flarex";
+import {
+  decodeConnectionLiveQueryDeliveryResponse,
+  liveQueryDeliveryResponseErrorToHttpError,
+} from "./liveQueryDeliveryResponses";
 import type { Env, Json } from "./types";
 
 export type { LiveQueryDeliveryChange } from "flarex";
@@ -75,14 +80,13 @@ export async function deliverLiveQueryChangesToConnections(
         body: JSON.stringify({ deliveries: connectionDeliveries }),
       },
     );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `ConnectionDO live query delivery failed for ${connectionId} with status ${response.status}.`,
-      );
-    }
+    const body = await Effect.runPromise(
+      decodeConnectionLiveQueryDeliveryResponse<unknown>(response, connectionId).pipe(
+        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+      ),
+    );
     const result = liveQueryDeliveryResultFromUnknown(
-      await response.json().catch(() => null),
+      body,
       connectionId,
     );
     delivered += result.delivered;
