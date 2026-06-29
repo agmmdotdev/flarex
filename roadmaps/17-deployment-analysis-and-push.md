@@ -1,5 +1,47 @@
 # Deployment Analysis And Push
 
+## Public Deployment Push Dispatch Effect Boundary
+
+Previous completed checkpoint: `2871d1d` Type public scheduler dispatch
+failures.
+
+What changed:
+
+- Public deployment push reads and mutations now route their downstream async
+  edges through typed Worker dispatch failures.
+- Source-only start push now types analyzer invocation, analyzed artifact
+  persistence, and Deployment DO forwarding separately.
+- Finish push now types artifact verification and Deployment DO forwarding
+  separately while keeping the existing missing-artifact rejected finish
+  response.
+- Direct start-analyzed and abandon push forwarding now use typed dispatch
+  failures after their existing request decoders.
+
+Why it changed:
+
+The public push route body boundary had already moved to Effect decoders, but
+the subsequent service-binding and storage operations still defected on
+failure. This checkpoint keeps decoded public deployment push routes in the
+Effect error channel through the Worker adapter edge.
+
+Known limitations and follow-up work:
+
+- DeploymentDO push-state internals, generated HttpApi handlers, and analyzer
+  response parsing remain separate migration surfaces.
+- This does not replace deployment validation or user function validation with
+  Effect Schema.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Generated Worker Backend Response Boundary
 
 Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.

@@ -421,37 +421,53 @@ async function routeDeploymentPush(
   if (parts[0] === "start" && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentStartPush(request, env, deployment, deploymentId).pipe(
-        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
   if (parts[0] === "start-analyzed" && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentAnalyzedStartPush(request, deployment).pipe(
-        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
   const pushId = decodeURIComponent(required(parts[0], "push id"));
   if (parts.length === 1 && request.method === "GET") {
-    return deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
+    return await Effect.runPromise(
+      routeDeploymentReadPush(deployment, pushId).pipe(
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
+      ),
+    );
   }
   if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentFinishPush(request, env, deployment, pushId).pipe(
-        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
   if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentAbandonPush(request, deployment, pushId).pipe(
-        Effect.mapError(publicDeploymentRouteErrorToHttpError),
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
   return json({ error: "Push route not found." }, { status: 404 });
 }
+
+const routeDeploymentReadPush = Effect.fn("Worker.routeDeploymentReadPush")(
+  function* (
+    deployment: DurableObjectStub,
+    pushId: string,
+  ) {
+    return yield* Effect.tryPromise({
+      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
+      catch: error => publicWorkerDispatchError("deployment-read-push", error),
+    });
+  },
+);
 
 const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush")(
   function* (
@@ -460,13 +476,14 @@ const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush"
     pushId: string,
   ) {
     const body = yield* decodePublicAbandonPushRequest(request);
-    return yield* Effect.promise(() =>
-      deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
+    return yield* Effect.tryPromise({
+      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-      })
-    );
+      }),
+      catch: error => publicWorkerDispatchError("deployment-abandon-push", error),
+    });
   },
 );
 
@@ -478,16 +495,20 @@ const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
     pushId: string,
   ) {
     const rawBody = yield* decodePublicFinishPushJson(request);
-    const missingArtifact = yield* Effect.promise(() => verifyStoredPushArtifact(env, deployment, pushId));
+    const missingArtifact = yield* Effect.tryPromise({
+      try: () => verifyStoredPushArtifact(env, deployment, pushId),
+      catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
+    });
     if (missingArtifact !== undefined) return missingArtifact;
     const body = yield* parsePublicFinishPushRequestEffect(rawBody);
-    return yield* Effect.promise(() =>
-      deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
+    return yield* Effect.tryPromise({
+      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-      })
-    );
+      }),
+      catch: error => publicWorkerDispatchError("deployment-finish-push", error),
+    });
   },
 );
 
@@ -510,15 +531,22 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
       );
     }
     const body = yield* parsePublicStartPushRequestEffect(rawBody);
-    const analyzed = yield* Effect.promise(() => analyzeSourcePackage(analyzer, deploymentId, body));
-    yield* Effect.promise(() => persistAnalyzedSourcePackage(env, analyzed));
-    return yield* Effect.promise(() =>
-      deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
+    const analyzed = yield* Effect.tryPromise({
+      try: () => analyzeSourcePackage(analyzer, deploymentId, body),
+      catch: error => publicWorkerDispatchError("deployment-start-push-analyze", error),
+    });
+    yield* Effect.tryPromise({
+      try: () => persistAnalyzedSourcePackage(env, analyzed),
+      catch: error => publicWorkerDispatchError("deployment-start-push-store-artifact", error),
+    });
+    return yield* Effect.tryPromise({
+      try: () => deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(analyzed),
-      })
-    );
+      }),
+      catch: error => publicWorkerDispatchError("deployment-start-push", error),
+    });
   },
 );
 
@@ -528,15 +556,25 @@ const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyz
     deployment: DurableObjectStub,
   ) {
     const body = yield* decodePublicAnalyzedStartPushRequest(request);
-    return yield* Effect.promise(() =>
-      deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
+    return yield* Effect.tryPromise({
+      try: () => deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-      })
-    );
+      }),
+      catch: error => publicWorkerDispatchError("deployment-start-analyzed-push", error),
+    });
   },
 );
+
+function publicDeploymentWorkerRouteErrorToHttpError(
+  error: Parameters<typeof publicDeploymentRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+): ReturnType<typeof publicDeploymentRouteErrorToHttpError> | HttpError {
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
+  }
+  return publicDeploymentRouteErrorToHttpError(error);
+}
 
 type DeploymentInternalPath =
   | DeploymentRoutePath

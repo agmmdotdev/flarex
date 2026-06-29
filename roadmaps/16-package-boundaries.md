@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Deployment Push Dispatch Effect Boundary
+
+Previous completed checkpoint: `2871d1d` Type public scheduler dispatch
+failures.
+
+What changed:
+
+- `worker/PublicRouteDispatchError.ts` now covers public deployment push
+  forwarding, analyzer, and artifact-storage sources.
+- `deployment/PublicPushRouteBoundary.ts` still owns request JSON and protocol
+  validation failures.
+- `worker.ts` composes deployment-push validation failures with shared Worker
+  dispatch failures before final HTTP mapping.
+
+Boundary decision:
+
+Deployment push dispatch failures belong under `worker/` because they happen
+after route bodies have decoded and while the public Worker adapter is
+forwarding to analyzer, artifact storage, or Deployment DO bindings. They are
+not deployment protocol validation errors and not DeploymentDO state-machine
+errors.
+
+Known limitations:
+
+- The artifact check still returns the existing rejected finish response when
+  durable storage is configured but the analyzed source artifact is missing.
+- This checkpoint does not introduce a deployment-push service Layer.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Scheduler Dispatch Effect Boundary
 
 Previous completed checkpoint: `f38ff04` Type live query delivery

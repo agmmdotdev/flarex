@@ -40,4 +40,31 @@ describe("public Worker route dispatch errors", () => {
       message: "Binding failed.",
     });
   });
+
+  it("covers public deployment push dispatch sources", () => {
+    const sources = [
+      "deployment-read-push",
+      "deployment-start-push-analyze",
+      "deployment-start-push-store-artifact",
+      "deployment-start-push",
+      "deployment-start-analyzed-push",
+      "deployment-finish-push-artifact",
+      "deployment-finish-push",
+      "deployment-abandon-push",
+    ] as const;
+
+    for (const source of sources) {
+      const error = publicWorkerDispatchError(source, new Error(`${source} failed.`));
+
+      expect(error).toMatchObject({
+        source,
+        status: 500,
+        message: `${source} failed.`,
+      });
+      expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+        status: 500,
+        message: `${source} failed.`,
+      });
+    }
+  });
 });

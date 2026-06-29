@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f38ff04` Type live query delivery authorization.
-- Active checkpoint: route public scheduler forwarding failures through the shared typed `PublicWorkerDispatchError` instead of leaving scheduler service-binding fetches as `Effect.promise` defects.
+- Previous completed checkpoint: `2871d1d` Type public scheduler dispatch failures.
+- Active checkpoint: route public deployment push forwarding, analyzer, and artifact-storage failures through the shared typed `PublicWorkerDispatchError` instead of leaving those public push async edges as `Effect.promise` defects.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current scheduler dispatch checkpoint:
+Next recommended checkpoint after the current deployment push dispatch checkpoint:
 
 1. Audit remaining compatibility JSON readers and choose the next coherent
    backend route/service group rather than one branch at a time.
@@ -56,7 +56,27 @@ Next recommended checkpoint after the current scheduler dispatch checkpoint:
    checkpoint: typed request/body decoders, typed domain failures, and one
    adapter HTTP mapping edge.
 
-Current Goal 158 slice:
+Current Goal 159 slice:
+
+1. Extend `PublicWorkerDispatchError` sources to cover the public deployment
+   push route family.
+2. Convert public push status reads, source-only start analysis, analyzed
+   artifact persistence, Deployment DO start/start-analyzed/finish/abandon
+   forwarding, and finish artifact verification from `Effect.promise(...)` or
+   direct `fetch(...)` to typed `Effect.tryPromise(...)` dispatch failures.
+3. Map deployment push dispatch failures through the Worker deployment-push
+   adapter edge while preserving request JSON errors, protocol validation
+   errors, missing analyzer `501`, missing artifact `409`, downstream
+   `HttpError` status/message values, and non-HTTP `500` behavior.
+4. Preserve deployment push request decoding, analyzer response decoding,
+   DeploymentDO push state behavior, generated workers, executor-http,
+   scheduler/live-query routes, and `ValidatorJson` unchanged.
+5. Validate with direct dispatch-error tests, focused public deployment push
+   route boundary coverage, push lifecycle coverage, backend typecheck/build,
+   broad protocol/backend gates as practical, and only the EffectTS quality
+   checker reviewer.
+
+Completed Goal 158 slice:
 
 1. Extend `PublicWorkerDispatchError` sources to cover public scheduler
    forwarding routes.
