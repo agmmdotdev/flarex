@@ -63,7 +63,12 @@ export class ExecutionArtifactRuntimeMissingSourcePackageError extends Data.Tagg
 export class ExecutionArtifactRuntimeOperationError extends Data.TaggedError(
   "ExecutionArtifactRuntimeOperationError",
 )<{
-  readonly operation: "normalizeRequest" | "loadSourcePackage" | "materialize" | "invoke";
+  readonly operation:
+    | "normalizeRequest"
+    | "loadSourcePackage"
+    | "materialize"
+    | "invoke"
+    | "runtimeFetch";
   readonly status: number;
   readonly message: string;
   readonly cause: unknown;
@@ -78,6 +83,10 @@ export class ServiceBindingExecutionArtifactRuntimeResponseError extends Data.Ta
   readonly message: string;
   readonly body: unknown;
 }> {}
+
+export type ServiceBindingExecutionArtifactRuntimeError =
+  | ExecutionArtifactRuntimeOperationError
+  | ServiceBindingExecutionArtifactRuntimeResponseError;
 
 type ExecutionArtifactRuntimeError =
   | ExecutionArtifactInvokeRouteError
@@ -220,32 +229,98 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
   ): Promise<InvokeResponse> {
-    const payload: ExecutionArtifactInvokePayload = {
-      deploymentId: this.deploymentId,
+    return await Effect.runPromise(
+      invokeServiceBindingExecutionArtifactRuntime(
+        {
+          runtime: this.runtime,
+          store: this.store,
+          deploymentId: this.deploymentId,
+          capabilityToken: this.capabilityToken,
+          sendSourcePackage: this.sendSourcePackage,
+        },
+        deployment,
+        request,
+      ).pipe(
+        Effect.mapError(serviceBindingExecutionArtifactRuntimeErrorToHttpError),
+      ),
+    );
+  }
+}
+
+export const invokeServiceBindingExecutionArtifactRuntime = Effect.fn(
+  "ServiceBindingExecutionArtifactRuntime.invoke",
+)(
+  function* (
+    options: {
+      readonly runtime: Fetcher;
+      readonly store: BackendExecutionArtifactStore;
+      readonly deploymentId: string;
+      readonly capabilityToken?: string | undefined;
+      readonly sendSourcePackage?: boolean | undefined;
+    },
+    deployment: ActiveDeploymentStatus,
+    request: InvokeRequest,
+  ) {
+    const payload = yield* serviceBindingExecutionArtifactInvokePayloadEffect(
+      options,
+      deployment,
+      request,
+    );
+    const response = yield* fetchServiceBindingExecutionArtifactRuntime(options, deployment, payload);
+    return yield* decodeServiceBindingExecutionArtifactRuntimeResponse<InvokeResponse>(response);
+  },
+);
+
+function serviceBindingExecutionArtifactInvokePayloadEffect(
+  options: {
+    readonly store: BackendExecutionArtifactStore;
+    readonly deploymentId: string;
+    readonly sendSourcePackage?: boolean | undefined;
+  },
+  deployment: ActiveDeploymentStatus,
+  request: InvokeRequest,
+): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactRuntimeOperationError> {
+  if (options.sendSourcePackage === false) {
+    return Effect.succeed({
+      deploymentId: options.deploymentId,
       ref: deployment.executionArtifactRef,
       request,
-      ...(this.sendSourcePackage
-        ? { sourcePackage: await this.store.get(deployment.executionArtifactRef) }
-        : {}),
-    };
-    const response = await this.runtime.fetch("https://flarex-artifact-runtime.internal/invoke", {
+    });
+  }
+  return Effect.tryPromise({
+    try: async () => ({
+      deploymentId: options.deploymentId,
+      ref: deployment.executionArtifactRef,
+      sourcePackage: await options.store.get(deployment.executionArtifactRef),
+      request,
+    }),
+    catch: cause => executionArtifactRuntimeOperationError("loadSourcePackage", cause),
+  });
+}
+
+function fetchServiceBindingExecutionArtifactRuntime(
+  options: {
+    readonly runtime: Fetcher;
+    readonly capabilityToken?: string | undefined;
+  },
+  deployment: ActiveDeploymentStatus,
+  payload: ExecutionArtifactInvokePayload,
+): Effect.Effect<Response, ExecutionArtifactRuntimeOperationError> {
+  return Effect.tryPromise({
+    try: () => options.runtime.fetch("https://flarex-artifact-runtime.internal/invoke", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-flarex-artifact-id": deployment.executionArtifactRef.artifactId,
         "x-flarex-source-package-hash": deployment.executionArtifactRef.sourcePackageHash,
-        ...(this.capabilityToken === undefined
+        ...(options.capabilityToken === undefined
           ? {}
-          : { authorization: `Bearer ${this.capabilityToken}` }),
+          : { authorization: `Bearer ${options.capabilityToken}` }),
       },
       body: JSON.stringify(payload),
-    });
-    return await Effect.runPromise(
-      decodeServiceBindingExecutionArtifactRuntimeResponse<InvokeResponse>(response).pipe(
-        Effect.mapError(serviceBindingExecutionArtifactRuntimeResponseErrorToHttpError),
-      ),
-    );
-  }
+    }),
+    catch: cause => executionArtifactRuntimeOperationError("runtimeFetch", cause),
+  });
 }
 
 export const decodeServiceBindingExecutionArtifactRuntimeResponse = Effect.fn(
@@ -279,8 +354,8 @@ function serviceBindingExecutionArtifactRuntimeErrorMessage(
     : `Execution artifact runtime failed with status ${status}`;
 }
 
-function serviceBindingExecutionArtifactRuntimeResponseErrorToHttpError(
-  error: ServiceBindingExecutionArtifactRuntimeResponseError,
+function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
+  error: ServiceBindingExecutionArtifactRuntimeError,
 ): HttpError {
   return new HttpError(error.status, error.message);
 }

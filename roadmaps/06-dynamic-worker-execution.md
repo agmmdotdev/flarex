@@ -268,6 +268,45 @@ corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120
 git diff --check
 ```
 
+## Service-Binding Runtime Invoke Effect Boundary
+
+Previous completed checkpoint: this commit, `Type service-binding runtime
+invoke failures`.
+
+What changed:
+
+- `ServiceBindingExecutionArtifactRuntime.invoke(...)` now delegates to the
+  exported `ServiceBindingExecutionArtifactRuntime.invoke` `Effect.fn`.
+- Service-binding source-package loading and runtime `fetch(...)` failures now
+  become typed `ExecutionArtifactRuntimeOperationError` values before the
+  Promise API maps them to `HttpError`.
+- Service-binding runtime response failures still use
+  `ServiceBindingExecutionArtifactRuntimeResponseError`.
+
+Why it changed:
+
+The response body decode was already typed, but the service-binding invoke path
+still hid store and runtime binding failures inside an `async` method. This
+keeps the public runtime interface stable while making the integration failure
+channel reviewable and testable.
+
+Preserved behavior:
+
+- The request URL, headers, capability token, source-package embedding toggle,
+  and response status/message mapping stay unchanged.
+- The hosted artifact runtime service route, materializer cache, public invoke
+  routes, PartitionDO behavior, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Backend Artifact Runtime Service Response Boundary
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Decode executor live query bodies with Effect`.
-- Active checkpoint: choose the next backend Worker/DO route-service Effect batch; audit remaining non-PartitionDO route operation hotspots before touching PartitionDO SQL/OCC behavior.
+- Previous completed checkpoint: this commit, `Type service-binding runtime invoke failures`.
+- Active checkpoint: continue the remaining non-Partition route/service Effect operation hotspots before touching PartitionDO SQL/OCC behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,24 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 172 slice:
+
+1. Add exported `ServiceBindingExecutionArtifactRuntime.invoke` Effect helper
+   for backend-to-artifact-runtime invocation.
+2. Route service-binding source-package loading, runtime `fetch(...)`, and
+   response decoding through one typed Effect pipeline before the public
+   Promise method maps failures at the adapter edge.
+3. Model source-package load and runtime fetch failures as
+   `ExecutionArtifactRuntimeOperationError` values while preserving runtime
+   response failures as `ServiceBindingExecutionArtifactRuntimeResponseError`.
+4. Preserve the existing `BackendExecutionArtifactRuntime.invoke(...)`
+   Promise API, request URL, headers, source-package embedding toggle,
+   response status/message mapping, artifact runtime service route behavior,
+   public invoke routes, SchedulerDO, DeliveryDO, ConnectionDO, PartitionDO,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Add direct typed failure-channel coverage for source-package load and
+   runtime fetch failures, plus adapter-edge `HttpError` mapping coverage.
 
 Completed Goal 171 slice:
 

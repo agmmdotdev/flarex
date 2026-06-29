@@ -5,6 +5,7 @@ import {
   CachedExecutionArtifactMaterializer,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
+  invokeServiceBindingExecutionArtifactRuntime,
   ServiceBindingExecutionArtifactRuntime,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
@@ -133,6 +134,74 @@ describe("backend execution artifact runtime", () => {
     ]);
   });
 
+  it("exposes typed service-binding source package load failures before HTTP mapping", async () => {
+    const unavailable = new Error("Artifact store unavailable") as Error & { status?: number };
+    unavailable.status = 503;
+    const store: BackendExecutionArtifactStore = {
+      put: async () => activeDeployment.executionArtifactRef,
+      get: async () => {
+        throw unavailable;
+      },
+    };
+
+    await expect(Effect.runPromise(invokeServiceBindingExecutionArtifactRuntime(
+      {
+        deploymentId: "deployment1",
+        store,
+        runtime: {
+          fetch: async () => {
+            throw new Error("runtime should not run when source package load fails");
+          },
+        } as unknown as Fetcher,
+      },
+      activeDeployment,
+      {
+        path: "users:get",
+        args: {},
+        kind: "query",
+      },
+    ))).rejects.toMatchObject({
+      _tag: "ExecutionArtifactRuntimeOperationError",
+      operation: "loadSourcePackage",
+      status: 503,
+      message: "Artifact store unavailable",
+      cause: unavailable,
+    });
+  });
+
+  it("exposes typed service-binding runtime fetch failures before HTTP mapping", async () => {
+    const fetchFailure = new Error("Runtime binding unavailable") as Error & { status?: number };
+    fetchFailure.status = 504;
+    const store: BackendExecutionArtifactStore = {
+      put: async () => activeDeployment.executionArtifactRef,
+      get: async () => testSourcePackage(),
+    };
+
+    await expect(Effect.runPromise(invokeServiceBindingExecutionArtifactRuntime(
+      {
+        deploymentId: "deployment1",
+        store,
+        runtime: {
+          fetch: async () => {
+            throw fetchFailure;
+          },
+        } as unknown as Fetcher,
+      },
+      activeDeployment,
+      {
+        path: "users:get",
+        args: {},
+        kind: "query",
+      },
+    ))).rejects.toMatchObject({
+      _tag: "ExecutionArtifactRuntimeOperationError",
+      operation: "runtimeFetch",
+      status: 504,
+      message: "Runtime binding unavailable",
+      cause: fetchFailure,
+    });
+  });
+
   it("maps service-binding runtime response failures to HttpError at the adapter edge", async () => {
     const store: BackendExecutionArtifactStore = {
       put: async () => activeDeployment.executionArtifactRef,
@@ -154,6 +223,33 @@ describe("backend execution artifact runtime", () => {
       name: "HttpError",
       status: 503,
       message: "Execution artifact runtime failed with status 503",
+    });
+  });
+
+  it("maps service-binding runtime operation failures to HttpError at the adapter edge", async () => {
+    const fetchFailure = new Error("Runtime binding unavailable") as Error & { status?: number };
+    fetchFailure.status = 504;
+    const runtime = new ServiceBindingExecutionArtifactRuntime({
+      deploymentId: "deployment1",
+      store: {
+        put: async () => activeDeployment.executionArtifactRef,
+        get: async () => testSourcePackage(),
+      },
+      runtime: {
+        fetch: async () => {
+          throw fetchFailure;
+        },
+      } as unknown as Fetcher,
+    });
+
+    await expect(runtime.invoke(activeDeployment, {
+      path: "users:get",
+      args: {},
+      kind: "query",
+    })).rejects.toMatchObject({
+      name: "HttpError",
+      status: 504,
+      message: "Runtime binding unavailable",
     });
   });
 

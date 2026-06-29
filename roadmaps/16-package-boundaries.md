@@ -963,6 +963,35 @@ corepack pnpm --filter flarex-protocol test
 git diff --check
 ```
 
+## Service-Binding Runtime Invoke Effect Boundary
+
+Previous completed checkpoint: this commit, `Type service-binding runtime
+invoke failures`.
+
+What changed:
+
+- `artifactRuntime.ts` now exports a service-binding invoke `Effect.fn` for the
+  backend-to-artifact-runtime integration path.
+- The class-owned Promise API remains the package boundary for
+  `BackendExecutionArtifactRuntime`, but its internal failure channel is now
+  typed for source-package load, runtime binding fetch, and runtime response
+  failures.
+
+Boundary decision:
+
+This remains backend-owned runtime adapter code. `ExecutionArtifactInvokePayload`
+and the service-binding runtime failure types stay in `flarex-backend`; this
+checkpoint does not promote artifact runtime internals into `flarex-protocol`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Service Effect Adapter
 
 Previous completed checkpoint: `c0f92c8` Type partition route bodies with Effect.
