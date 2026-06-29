@@ -670,6 +670,55 @@ describe("DeploymentService", () => {
     } finally {
       await typedFunctionObjectRuntime.dispose();
     }
+
+    const typedFunctionModuleNameStatus = analyzedPushStatus("push-typed-function-module-name-validation-failed");
+    const typedFunctionModuleNameRuntime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushes([{
+          ...typedFunctionModuleNameStatus,
+          codegenAnalysis: {
+            schema: typedFunctionModuleNameStatus.analysis!.schema,
+            functions: [{
+              moduleName: "messages",
+              functions: [{
+                moduleName: "other",
+                exportName: "list",
+                kind: "query",
+                visibility: "public",
+                args: { type: "any" },
+                returns: null,
+                partition: null,
+              }],
+            }],
+          } as unknown as DeploymentCodegenAnalysis,
+        }]),
+      ),
+    );
+
+    try {
+      const typedFunctionModuleNameError = await typedFunctionModuleNameRuntime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: typedFunctionModuleNameStatus.pushId,
+            now: 2_460_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(typedFunctionModuleNameError instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(typedFunctionModuleNameError.message).toBe(
+        "Codegen function messages[0] moduleName must match its module.",
+      );
+    } finally {
+      await typedFunctionModuleNameRuntime.dispose();
+    }
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {

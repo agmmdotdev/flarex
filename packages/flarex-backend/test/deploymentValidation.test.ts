@@ -473,6 +473,26 @@ describe("deployment validation", () => {
         }, analysis),
       "Codegen function messages[0] must be an object.",
     );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateCodegenAnalysis({
+          schema: simpleSchema(),
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "other",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        }, analysis),
+      "Codegen function messages[0] moduleName must match its module.",
+    );
   });
 
   it("generates codegen analysis from deployment analysis", () => {

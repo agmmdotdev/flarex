@@ -524,8 +524,7 @@ export function validateCodegenAnalysis(
           throwDeploymentValidation(`Codegen function ${moduleName}[${functionIndex}] must be an object.`);
         }
         if (fn.moduleName !== moduleName) {
-          throw new HttpError(
-            400,
+          throwDeploymentValidation(
             `Codegen function ${moduleName}[${functionIndex}] moduleName must match its module.`,
           );
         }

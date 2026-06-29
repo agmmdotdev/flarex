@@ -458,6 +458,28 @@ describe("DeploymentApiHandlers", () => {
       } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
       "Codegen function messages[0] must be an object.",
     );
+    expectStartPayloadBadRequest(
+      {
+        sourcePackage: sourcePackage(),
+        analysis: deploymentAnalysis(),
+        codegenAnalysis: {
+          schema: deploymentAnalysis().schema,
+          functions: [{
+            moduleName: "messages",
+            functions: [{
+              moduleName: "other",
+              exportName: "list",
+              kind: "query",
+              visibility: "public",
+              args: { type: "any" },
+              returns: null,
+              partition: null,
+            }],
+          }],
+        },
+      },
+      "Codegen function messages[0] moduleName must match its module.",
+    );
   });
 
   it("exposes typed analyzed start-push handler input validation", async () => {
@@ -647,6 +669,35 @@ describe("DeploymentApiHandlers", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(codegenFunctionObjectFailure.message).toBe("Codegen function messages[0] must be an object.");
+
+    const codegenFunctionModuleNameFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: {
+        schema: deploymentAnalysis().schema,
+        functions: [{
+          moduleName: "messages",
+          functions: [{
+            moduleName: "other",
+            exportName: "list",
+            kind: "query",
+            visibility: "public",
+            args: { type: "any" },
+            returns: null,
+            partition: null,
+          }],
+        }],
+      },
+    }).pipe(
+      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenFunctionModuleNameFailure).toBeInstanceOf(DeploymentValidationError);
+    if (!(codegenFunctionModuleNameFailure instanceof DeploymentValidationError)) {
+      throw new Error("Expected DeploymentValidationError.");
+    }
+    expect(codegenFunctionModuleNameFailure.message).toBe(
+      "Codegen function messages[0] moduleName must match its module.",
+    );
   });
 });
 
