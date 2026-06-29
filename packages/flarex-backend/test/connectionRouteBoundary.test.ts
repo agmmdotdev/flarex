@@ -1,8 +1,15 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  connectionRouteErrorToHttpError,
+  ConnectionRouteValidationError,
+  decodeConnectionInvalidationRequest,
+  decodeConnectionLiveQueryDeliveryRequest,
   parseConnectionInvalidationRequest,
+  parseConnectionInvalidationRequestEffect,
   parseConnectionLiveQueryDeliveryRequest,
+  parseConnectionLiveQueryDeliveryRequestEffect,
   readConnectionInvalidationRequest,
   readConnectionLiveQueryDeliveryRequest,
 } from "../src/connection/RouteBoundary";
@@ -13,6 +20,8 @@ describe("connection route boundary", () => {
       .resolves.toBe(42);
     expect(parseConnectionInvalidationRequest({ queryId: 7, invalidatedTs: 12 }))
       .toBe(7);
+    await expect(Effect.runPromise(decodeConnectionInvalidationRequest(jsonRequest({ queryId: 9 }))))
+      .resolves.toBe(9);
   });
 
   it("maps invalid invalidation bodies to 400", async () => {
@@ -58,6 +67,25 @@ describe("connection route boundary", () => {
         resultHash: "{\"name\":\"Ada\"}",
       },
     ]);
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryRequest(jsonRequest({
+      deliveries: [
+        {
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-a:session-a",
+          queryId: 3,
+          functionPath: "users:get",
+          argsJson: {},
+          resultJson: { ok: true },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    })))).resolves.toMatchObject([
+      {
+        kind: "updated",
+        queryId: 3,
+      },
+    ]);
   });
 
   it("maps invalid live query delivery bodies to 400", () => {
@@ -85,6 +113,50 @@ describe("connection route boundary", () => {
     ))).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("exposes typed connection route failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(parseConnectionInvalidationRequestEffect({
+      queryId: "42",
+    }))).rejects.toMatchObject({
+      _tag: "ConnectionRouteValidationError",
+      message: "Invalidation queryId must be an integer.",
+    });
+
+    await expect(Effect.runPromise(parseConnectionLiveQueryDeliveryRequestEffect({
+      deliveries: [{ queryId: 1 }],
+    }))).rejects.toMatchObject({
+      _tag: "ConnectionRouteValidationError",
+      message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryRequest(new Request(
+      "https://flarex.test/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed connection route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(connectionRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new ConnectionRouteValidationError({
+      message: "Invalidation queryId must be an integer.",
+    });
+    expect(connectionRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "Invalidation queryId must be an integer.",
     });
   });
 });

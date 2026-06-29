@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `98df22e` Route public scheduler through Effect.
-- Active checkpoint: close the grouped deployment validation boundary audit by verifying `packages/flarex-backend/src/deployment/Validation.ts` no longer emits domain `HttpError(400)` branches for function metadata, schema placement/state, source position, route/partition policy, function kind/visibility, validator metadata, JSON values, and generated start-push input validation.
+- Previous completed checkpoint: `b2b6d7a` Record deployment validation audit.
+- Active checkpoint: convert delivery payload route boundaries to typed Effect decoders across `DeliveryDO`, public wake-delivery, public live-query delivery, and `ConnectionDO`, while preserving route deployment-id precedence and live-query delivery HTTP response semantics.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -56,7 +56,16 @@ Next recommended checkpoint after the current route-parser cleanup:
    reviewed against this stronger bar, not only behavior-preserving parser
    extraction.
 
-Current Goal 137 slice:
+Current Goal 138 slice:
+
+1. Add Effect-returning delivery wake decoders with `DeliveryWakeRouteValidationError`, preserving internal `DeliveryDO` wake body validation and compatibility `readDeliveryWakeRequest(...)`.
+2. Add public wake-delivery Effect decoders that override any body deployment id with the route deployment id before forwarding to `DeliveryDO`.
+3. Add Effect-returning public live-query delivery decoders with `LiveQueryDeliveryRouteValidationError`, and route Worker public delivery fanout through `Effect.fn` while preserving downstream `HttpError` fanout validation at the Worker adapter edge.
+4. Add Effect-returning `ConnectionDO` invalidation and live-query delivery decoders with `ConnectionRouteValidationError`, preserving compatibility `readConnection*` readers.
+5. Preserve malformed JSON as shared `RequestJsonError`, invalid delivery/wake bodies as `400`, unauthorized delivery requests before body parsing, scheduler routes, deployment routes, execution routes, partition routes, SQL schema, protocol schemas, executor-http routes, and `ValidatorJson` unchanged.
+6. Validate with focused delivery/public-delivery/connection route-boundary tests, delivery/sync regression coverage as practical, backend typecheck/build, broad protocol/backend gates as practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 137 slice:
 
 1. Treat the deployment validation grouping from `3440a4f` as the larger-slice validation checkpoint to audit rather than splitting the remaining validation branches back into one-branch commits.
 2. Verify `deployment/Validation.ts` uses `DeploymentValidationResult<A>` and `DeploymentValidationError` for the remaining domain validation branches named in the migration goal, leaving `HttpError` conversion at deployment HTTP/Worker adapter edges.

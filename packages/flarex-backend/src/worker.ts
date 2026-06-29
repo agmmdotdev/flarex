@@ -16,7 +16,10 @@ import {
 } from "./artifactRuntime";
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
-import { readPublicDeliveryWakeRequest } from "./delivery/PublicWakeRouteBoundary";
+import {
+  decodePublicDeliveryWakeRequest,
+  publicDeliveryWakeRouteErrorToHttpError,
+} from "./delivery/PublicWakeRouteBoundary";
 import { DeploymentDO } from "./deploymentDO";
 import {
   readPublicExecutionActionRequest,
@@ -49,7 +52,10 @@ import {
 import {
   deliverLiveQueryChangesToConnections,
 } from "./liveQueryDelivery";
-import { readPublicLiveQueryDeliveryRequest } from "./liveQueryDelivery/RouteBoundary";
+import {
+  decodePublicLiveQueryDeliveryRequest,
+  publicLiveQueryDeliveryRouteErrorToHttpError,
+} from "./liveQueryDelivery/RouteBoundary";
 import { readPartitionCommitRequest } from "./partition/RouteBoundary";
 import { readPublicPartitionSchemaCacheRequest } from "./partition/PublicSchemaCacheRouteBoundary";
 import { PartitionDO } from "./partitionDO";
@@ -751,8 +757,32 @@ async function routeLiveQueryDelivery(
   deploymentId: string,
 ): Promise<Response> {
   authorizeLiveQueryDeliveryRequest(request, env);
-  const deliveries = await readPublicLiveQueryDeliveryRequest(request);
-  return json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries));
+  return await Effect.runPromise(
+    routePublicLiveQueryDelivery(request, env, deploymentId).pipe(
+      Effect.mapError(publicWorkerLiveQueryDeliveryRouteErrorToHttpError),
+    ),
+  );
+}
+
+const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDelivery")(
+  function* (request: Request, env: Env, deploymentId: string) {
+    const deliveries = yield* decodePublicLiveQueryDeliveryRequest(request);
+    return yield* Effect.tryPromise({
+      try: async () => json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries)),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
+    });
+  },
+);
+
+function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
+  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return publicLiveQueryDeliveryRouteErrorToHttpError(error);
 }
 
 async function routeWakeDelivery(
@@ -761,14 +791,39 @@ async function routeWakeDelivery(
   deploymentId: string,
 ): Promise<Response> {
   authorizeLiveQueryDeliveryRequest(request, env);
-  const body = await readPublicDeliveryWakeRequest(request, deploymentId);
-  return env.DELIVERIES
-    .getByName(deliveryObjectName(deploymentId))
-    .fetch("https://flarex.internal/wake", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+  return await Effect.runPromise(
+    routePublicDeliveryWake(request, env, deploymentId).pipe(
+      Effect.mapError(publicWorkerDeliveryWakeRouteErrorToHttpError),
+    ),
+  );
+}
+
+const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
+  function* (request: Request, env: Env, deploymentId: string) {
+    const body = yield* decodePublicDeliveryWakeRequest(request, deploymentId);
+    return yield* Effect.tryPromise({
+      try: () =>
+        env.DELIVERIES
+          .getByName(deliveryObjectName(deploymentId))
+          .fetch("https://flarex.internal/wake", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+      catch: error => error instanceof HttpError
+        ? error
+        : new HttpError(500, error instanceof Error ? error.message : String(error)),
     });
+  },
+);
+
+function publicWorkerDeliveryWakeRouteErrorToHttpError(
+  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0] | HttpError,
+): HttpError {
+  if (error instanceof HttpError) {
+    return error;
+  }
+  return publicDeliveryWakeRouteErrorToHttpError(error);
 }
 
 function authorizeLiveQueryDeliveryRequest(request: Request, env: Env): void {

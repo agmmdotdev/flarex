@@ -1,9 +1,14 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodePublicDeliveryWakeRequest,
   parsePublicDeliveryWakeRequest,
+  parsePublicDeliveryWakeRequestEffect,
+  publicDeliveryWakeRouteErrorToHttpError,
   readPublicDeliveryWakeRequest,
 } from "../src/delivery/PublicWakeRouteBoundary";
+import { DeliveryWakeRouteValidationError } from "../src/delivery/RouteBoundary";
 
 describe("public delivery wake route boundary", () => {
   it("decodes wake requests with the route deployment id", async () => {
@@ -18,6 +23,13 @@ describe("public delivery wake route boundary", () => {
       limit: 10,
       maxBatches: 2,
       leaseDurationMs: 30_000,
+    });
+    await expect(Effect.runPromise(decodePublicDeliveryWakeRequest(jsonRequest({
+      deploymentId: "body-deployment",
+      limit: 3,
+    }), "route-deployment"))).resolves.toEqual({
+      deploymentId: "route-deployment",
+      limit: 3,
     });
   });
 
@@ -62,6 +74,49 @@ describe("public delivery wake route boundary", () => {
     ), "deployment-a")).rejects.toMatchObject({
       status: 400,
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("exposes typed public wake decoder failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(parsePublicDeliveryWakeRequestEffect(null, "deployment-a")))
+      .rejects.toMatchObject({
+        _tag: "DeliveryWakeRouteValidationError",
+        message: "Delivery wake request body must be an object.",
+      });
+
+    await expect(Effect.runPromise(parsePublicDeliveryWakeRequestEffect({
+      limit: 0,
+    }, "deployment-a"))).rejects.toMatchObject({
+      _tag: "DeliveryWakeRouteValidationError",
+      message: "limit must be a positive integer.",
+    });
+
+    await expect(Effect.runPromise(decodePublicDeliveryWakeRequest(new Request(
+      "https://flarex.test/deployments/deployment-a/sync/wake-delivery",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    ), "deployment-a"))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed public wake route errors at the adapter boundary", () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(publicDeliveryWakeRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new DeliveryWakeRouteValidationError({
+      message: "limit must be a positive integer.",
+    });
+    expect(publicDeliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "limit must be a positive integer.",
     });
   });
 });

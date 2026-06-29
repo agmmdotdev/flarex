@@ -1,9 +1,58 @@
 # Sync And Subscriptions
 
+## Delivery Payload Effect Boundary
+
+Current Effect migration checkpoint: delivery payload route bodies are moving
+to typed Effect decoders across public Worker delivery routes, `DeliveryDO`,
+and `ConnectionDO`.
+
+What is changing:
+
+- `packages/flarex-backend/src/delivery/RouteBoundary.ts` now exposes
+  Effect-returning wake decoders with `DeliveryWakeRouteValidationError`.
+- `packages/flarex-backend/src/delivery/PublicWakeRouteBoundary.ts` exposes
+  public wake-delivery Effect decoders that keep route `deploymentId`
+  authoritative over the body.
+- `packages/flarex-backend/src/liveQueryDelivery/RouteBoundary.ts` exposes
+  Effect-returning public live-query delivery decoders with
+  `LiveQueryDeliveryRouteValidationError`.
+- `packages/flarex-backend/src/connection/RouteBoundary.ts` exposes typed
+  Effect decoders for invalidation and internal live-query delivery payloads.
+- `packages/flarex-backend/src/worker.ts` routes public delivery fanout and
+  wake-delivery endpoints through `Effect.fn` helpers before delivery work.
+
+Why it is changing:
+
+The delivery path is split across public Worker routes, `DeliveryDO`, and
+`ConnectionDO`. Moving the whole payload edge together avoids another tiny
+parser-only checkpoint and makes request JSON failures, payload validation
+failures, and downstream delivery `HttpError`s explicit at adapter edges.
+
+Preserved behavior:
+
+- Malformed JSON still maps to `400` with the shared JSON-body message.
+- Invalid delivery and wake request bodies still map to `400` with the same
+  validation messages.
+- Public wake-delivery still uses the route deployment id over any body
+  deployment id.
+- Unauthorized delivery requests are still rejected before body parsing.
+- Downstream live-query fanout target validation still returns the existing
+  `HttpError` response semantics.
+
+Verification plan:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm exec vitest run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts --testTimeout=60000 --hookTimeout=60000
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Route Effect Boundary
 
-Current Effect migration checkpoint: public and internal scheduler
-maintenance route bodies are moving to typed Effect decoders.
+Completed checkpoint: `98df22e` Route public scheduler through Effect.
 
 What is changing:
 
