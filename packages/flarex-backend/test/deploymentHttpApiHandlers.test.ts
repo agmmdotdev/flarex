@@ -26,6 +26,7 @@ import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler
 import { deploymentFailureToHttpError } from "../src/deployment/HttpBoundary";
 import {
   DeploymentActiveDeploymentNotFoundError,
+  DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentValidationError,
@@ -307,6 +308,16 @@ describe("DeploymentApiHandlers", () => {
       deploymentFailureToHttpError(new DeploymentPushNotFoundError({ pushId: "push-finish-missing" })),
       DeploymentNotFoundErrorResponse,
       "Unknown push: push-finish-missing",
+    );
+    expectMappedFailure(
+      deploymentHttpErrorToFinishResponse,
+      deploymentFailureToHttpError(new DeploymentArtifactRefError({
+        operation: "executionArtifactRefForSourcePackage",
+        message: "artifact hash failed",
+        cause: new Error("artifact hash failed"),
+      })),
+      DeploymentStorageErrorResponse,
+      "Deployment artifact error: artifact hash failed",
     );
   });
 

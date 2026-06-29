@@ -11,6 +11,7 @@ import type { StartAnalyzedPushServiceInput } from "./Validation";
 import {
   DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
+  DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentValidationError,
@@ -27,7 +28,7 @@ export interface DeploymentServiceApi {
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
-    DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+    DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
   >;
   abandonPush(pushId: string, request: AbandonPushRequest): Effect.Effect<
     PushStatus,
@@ -98,7 +99,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           pushId: string,
         ): Effect.fn.Return<
           FinishPushResponse,
-          DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+          DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
         > {
           const preflight = yield* store.getPush(pushId);
           if (preflight === null) {

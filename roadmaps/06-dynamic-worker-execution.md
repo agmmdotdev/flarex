@@ -1,5 +1,38 @@
 # Dynamic Worker Execution
 
+## Deployment Artifact Ref Effect Boundary
+
+Previous completed checkpoint: `8990f06` Share dev response JSON reads.
+
+What changed:
+
+- Deployment finish now receives typed artifact-ref generation failures from
+  `DeploymentArtifacts`.
+- Artifact-ref generation uses `Effect.tryPromise(...)`, preserving cause data
+  in `DeploymentArtifactRefError`.
+- Deployment HTTP mapping converts the typed runtime failure at the adapter
+  edge without changing artifact runtime invocation or generated workers.
+
+Why it changed:
+
+Dynamic-worker activation depends on creating an execution artifact reference.
+That bridge is part of the deployment-to-runtime handoff, so it should fail as
+a typed deployment runtime error rather than an untyped Effect promise defect.
+
+Known limitations:
+
+- Generated execution artifact workers and local generated response helpers
+  remain plain emitted code.
+- PartitionDO and artifact runtime invocation behavior are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Flarex Dev Response JSON Shared Boundary
 
 Previous completed checkpoint: `8e89a84` Type backend response JSON reads.

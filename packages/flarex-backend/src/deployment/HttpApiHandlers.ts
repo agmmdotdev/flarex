@@ -18,6 +18,7 @@ import { HttpError } from "../http";
 import {
   DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
+  DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentValidationError,
@@ -120,7 +121,10 @@ export function mapDeploymentStartFailure<A>(
 }
 
 export function mapDeploymentFinishFailure<A>(
-  effect: Effect.Effect<A, DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError>,
+  effect: Effect.Effect<
+    A,
+    DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+  >,
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>

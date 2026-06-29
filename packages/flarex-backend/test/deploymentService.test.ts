@@ -4,6 +4,7 @@ import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/depl
 import {
   DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
+  DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentValidationError,
@@ -374,6 +375,41 @@ describe("DeploymentService", () => {
     }
     expect(error.pushId).toBe("missing-push");
     expect(artifactRequests).toEqual([]);
+    expect(finishCalled).toBe(false);
+  });
+
+  it("preserves typed artifact ref failures before finish storage work", async () => {
+    const preflight = analyzedPushStatus("push-artifact-failed");
+    const artifactRequests: PushSourcePackage[] = [];
+    let finishCalled = false;
+    const failure = new DeploymentArtifactRefError({
+      operation: "executionArtifactRefForSourcePackage",
+      message: "artifact hash failed",
+      cause: new Error("artifact hash failed"),
+    });
+
+    const error = await runDeployment(
+      DeploymentService.use(service => service.finishPush("push-artifact-failed")).pipe(
+        Effect.catchTag("DeploymentArtifactRefError", error => Effect.succeed(error)),
+      ),
+      {
+        now: 2_250_000,
+        pushId: "unused-push-id",
+        artifactRequests,
+        artifactError: failure,
+        store: {
+          getPush: () => Effect.succeed(preflight),
+          finishPush: () =>
+            Effect.sync(() => {
+              finishCalled = true;
+              return { result: "activated", push: preflight };
+            }),
+        },
+      },
+    );
+
+    expect(error).toBe(failure);
+    expect(artifactRequests).toEqual([preflight.sourcePackage]);
     expect(finishCalled).toBe(false);
   });
 
@@ -1528,6 +1564,7 @@ interface DeploymentTestLayerOptions {
   readonly now: number;
   readonly pushId: string;
   readonly artifactRef?: ExecutionArtifactRef;
+  readonly artifactError?: DeploymentArtifactRefError;
   readonly artifactRequests?: PushSourcePackage[];
   readonly store: DeploymentTestStore;
 }
@@ -1563,11 +1600,13 @@ function deploymentTestLayer(options: DeploymentTestLayerOptions) {
       Layer.succeed(
         DeploymentArtifacts,
         DeploymentArtifacts.of({
-          executionArtifactRefForSourcePackage: sourcePackage =>
-            Effect.sync(() => {
-              options.artifactRequests?.push(sourcePackage);
-              return options.artifactRef ?? executionArtifactRef();
-            }),
+          executionArtifactRefForSourcePackage: sourcePackage => {
+            options.artifactRequests?.push(sourcePackage);
+            if (options.artifactError !== undefined) {
+              return Effect.fail(options.artifactError);
+            }
+            return Effect.succeed(options.artifactRef ?? executionArtifactRef());
+          },
         }),
       ),
     ),

@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Deployment Artifact Ref Effect Boundary
+
+Previous completed checkpoint: `8990f06` Share dev response JSON reads.
+
+What changed:
+
+- Added typed `DeploymentArtifactRefError` for execution-artifact ref
+  generation failures.
+- `DeploymentArtifacts.executionArtifactRefForSourcePackage(...)` now uses
+  `Effect.tryPromise(...)` instead of untyped `Effect.promise(...)`.
+- `DeploymentService.finishPush(...)` propagates artifact-ref failures through
+  its typed error channel before the deployment HTTP adapter maps them to a
+  storage-class `500` response.
+
+Why it changed:
+
+Finish-push activation depends on creating an execution-artifact reference
+after the preflight push lookup and before storage finalization. That async
+runtime edge was the last non-Partition backend `Effect.promise(...)` hotspot.
+Typing it keeps artifact generation failure source-owned and prevents it from
+escaping as an untyped defect inside deployment service flow.
+
+Known limitations:
+
+- The actual artifact ref hashing implementation remains in `flarex/artifacts`.
+- Generated worker source and local-dev generated response helpers remain
+  separate follow-up surfaces.
+- PartitionDO SQL/OCC behavior is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Deployment Push Dispatch Effect Boundary
 
 Previous completed checkpoint: `2871d1d` Type public scheduler dispatch

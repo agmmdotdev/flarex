@@ -2,6 +2,7 @@ import { HttpError } from "../http";
 import {
   DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
+  DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
   DeploymentValidationError,
@@ -12,6 +13,7 @@ import type { FinishPushResponse } from "../types";
 export type DeploymentServiceFailure =
   | DeploymentActiveDeploymentInvalidError
   | DeploymentActiveDeploymentNotFoundError
+  | DeploymentArtifactRefError
   | DeploymentPushInvalidStateError
   | DeploymentPushNotFoundError
   | DeploymentValidationError
@@ -30,6 +32,9 @@ export function deploymentFailureToHttpError(error: DeploymentServiceFailure): H
   }
   if (error instanceof DeploymentPushInvalidStateError) {
     return new HttpError(409, `Cannot abandon push ${error.pushId} in state ${error.state}.`);
+  }
+  if (error instanceof DeploymentArtifactRefError) {
+    return new HttpError(500, `Deployment artifact error: ${error.message}`);
   }
   if (error instanceof DeploymentValidationError) {
     return new HttpError(400, error.message);

@@ -1,5 +1,16 @@
 import { Schema } from "effect";
 
+const DeploymentArtifactOperation = Schema.Literal("executionArtifactRefForSourcePackage");
+
+export class DeploymentArtifactRefError extends Schema.TaggedErrorClass<DeploymentArtifactRefError>()(
+  "DeploymentArtifactRefError",
+  {
+    operation: DeploymentArtifactOperation,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 export class DeploymentPushNotFoundError extends Schema.TaggedErrorClass<DeploymentPushNotFoundError>()(
   "DeploymentPushNotFoundError",
   {

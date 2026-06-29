@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Deployment Artifact Ref Effect Boundary
+
+Previous completed checkpoint: `8990f06` Share dev response JSON reads.
+
+What changed:
+
+- Execution-artifact ref generation now emits typed
+  `DeploymentArtifactRefError` failures.
+- `DeploymentArtifacts` now uses `Effect.tryPromise(...)` at the async
+  artifact-ref boundary.
+- Deployment finish HTTP mapping preserves the adapter edge by converting this
+  typed service failure to a deployment storage-class response.
+
+Why it changed:
+
+Deployment finish was still running artifact ref generation through an
+untyped promise boundary. This checkpoint keeps finish-push validation and
+storage behavior intact while making the remaining backend runtime async
+failure explicit in the Effect channel.
+
+Known limitations:
+
+- Generated worker source still uses plain JavaScript helpers.
+- PartitionDO SQL/OCC behavior remains untouched.
+- Artifact ref payload validation remains owned by `flarex/artifacts`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Flarex Dev Response JSON Shared Boundary
 
 Previous completed checkpoint: `8e89a84` Type backend response JSON reads.

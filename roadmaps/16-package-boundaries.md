@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Deployment Artifact Ref Effect Boundary
+
+Previous completed checkpoint: `8990f06` Share dev response JSON reads.
+
+What changed:
+
+- `deployment/Errors.ts` now owns `DeploymentArtifactRefError` for
+  artifact-ref generation failures.
+- `deployment/Runtime.ts` maps the `flarex/artifacts` async boundary into that
+  typed error.
+- `deployment/Service.ts` and `deployment/HttpBoundary.ts` keep the failure
+  typed until the deployment HTTP adapter maps it.
+
+Boundary decision:
+
+Artifact-ref generation is a deployment runtime service boundary, not a
+storage failure and not a Worker route failure. The deployment service
+propagates the source-owned error, while HTTP classes still only appear at the
+adapter edge.
+
+Known limitations:
+
+- This does not extract the artifact hashing implementation from
+  `flarex/artifacts`.
+- Generated worker source and PartitionDO remain separate package boundaries.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Flarex Dev Response JSON Shared Boundary
 
 Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
