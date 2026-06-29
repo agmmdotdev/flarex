@@ -44,18 +44,19 @@ git diff --check
 
 ## Generated Runtime Worker JSON Boundaries
 
-Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
+failures.
 
 What changed:
 
 - Generated local materializer and application worker source now read internal
   invoke and query-session request bodies through named request JSON
-  boundaries.
+  boundaries with stable malformed-JSON errors.
 - Generated local materializer and application worker backend response reads now
-  use a named `readBackendResponseJson(...)` boundary instead of anonymous
-  inline `response.json().catch(() => null)` calls.
-- Generated source coverage asserts the emitted worker keeps the backend
-  response boundary helper.
+  use explicit `readBackendResponseJson(...)` try/catch helpers instead of
+  anonymous inline `response.json().catch(() => null)` calls.
+- Generated source/runtime coverage asserts the emitted worker keeps the named
+  helpers and returns the named malformed invoke request error.
 
 Why it changed:
 
@@ -78,6 +79,7 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend build
 corepack pnpm --filter flarex-protocol build

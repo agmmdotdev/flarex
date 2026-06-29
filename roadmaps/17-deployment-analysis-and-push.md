@@ -84,14 +84,19 @@ git diff --check
 
 ## Generated Worker Backend Response Boundary
 
-Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
+failures.
 
 What changed:
 
 - Generated application worker source now uses named request and response JSON
   helpers before invoking backend functions or mapping backend response
   failures.
-- Generation tests assert the emitted worker includes and uses that helper.
+- Generated invoke request JSON failures now surface as a stable
+  `InvokeRequestJsonError` message through the existing `400 { error }`
+  adapter response.
+- Generation tests assert the emitted worker includes and uses the helpers, and
+  runtime coverage checks malformed invoke JSON.
 
 Why it changed:
 
@@ -104,6 +109,8 @@ Known limitations:
 
 - Generated worker response payloads are still trusted after parsing.
 - The public push/deployment route service migration remains separate.
+- The emitted worker remains plain generated Worker code and does not import
+  Effect.
 
 Verification:
 
@@ -111,6 +118,7 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```
 

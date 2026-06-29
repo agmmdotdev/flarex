@@ -272,8 +272,20 @@ function authorizeInternalRequest(request, env) {
   return Response.json({ error: "Unauthorized internal Flarex request." }, { status: 401 });
 }
 
+class InternalRequestJsonError extends Error {
+  constructor(cause) {
+    super("Internal request body must be valid JSON.");
+    this.name = "InternalRequestJsonError";
+    this.cause = cause;
+  }
+}
+
 async function readInternalRequestJson(request) {
-  return await request.json();
+  try {
+    return await request.json();
+  } catch (cause) {
+    throw new InternalRequestJsonError(cause);
+  }
 }
 
 async function invokeWithBackend(body, env, request) {
@@ -735,7 +747,11 @@ async function postBackend(backend, path, body, headers = {}) {
 }
 
 async function readBackendResponseJson(response) {
-  return await response.json().catch(() => null);
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 function backendErrorCode(value) {

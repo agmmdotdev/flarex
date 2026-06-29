@@ -589,7 +589,9 @@ export const helper = "not a function";
     expect(worker).toContain('"/invoke/finish"');
     expect(worker).toContain('"/invoke/abort"');
     expect(worker).toContain("x-flarex-project");
+    expect(worker).toContain("class InvokeRequestJsonError extends Error");
     expect(worker).toContain("async function readInvokeRequestJson(request: Request): Promise<InvokeBody>");
+    expect(worker).toContain("throw new InvokeRequestJsonError(cause);");
     expect(worker).toContain("await readInvokeRequestJson(request)");
     expect(worker).toContain("async function readBackendResponseJson(response: Response): Promise<unknown>");
     expect(worker).toContain("const value = await readBackendResponseJson(response);");
@@ -934,6 +936,48 @@ export const list = query({ args: {}, handler: async () => [] });
       await expect(authorized.json()).resolves.toMatchObject({
         schema: { version: 1 },
         functions: [expect.objectContaining({ path: "messages:list" })],
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
+  it("returns a named error for malformed generated invoke request JSON", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    await generateFlarex({ root });
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      serviceBindings: {
+        FLAREX_BACKEND: async () => Response.json({}),
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const response = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "Invoke request body must be valid JSON.",
       });
     } finally {
       await worker.dispose();

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8990f06` Share dev response JSON reads.
-- Active checkpoint: move deployment execution-artifact ref generation to a typed `DeploymentArtifactRefError` service boundary and map it at the deployment HTTP adapter edge.
+- Previous completed checkpoint: this commit, `Name generated worker JSON failures`.
+- Active checkpoint: choose the next route/service Effect boundary batch, with executor-http request decoding as the leading candidate unless the hotspot audit shows a better coherent group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,15 +44,15 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current deployment artifact-ref boundary checkpoint:
+Next recommended checkpoint after the generated-worker compatibility checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
    at a time.
 2. Prefer the next route/service boundary that can move post-decode work to
    typed failures without changing PartitionDO SQL/OCC behavior; likely next
-   candidates are generated worker response/request boundaries or
-   executor-http request boundaries rather than PartitionDO.
+   candidates are executor-http request boundaries or remaining generated
+   runtime adapters rather than PartitionDO.
 3. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 4. Preserve the existing HTTP response body/status exactly through adapter
@@ -60,7 +60,23 @@ Next recommended checkpoint after the current deployment artifact-ref boundary c
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 168 slice:
+Completed Goal 169 slice:
+
+1. Replace generated application-worker invoke request JSON direct reads with a
+   named `InvokeRequestJsonError` boundary.
+2. Replace generated materializer internal request JSON direct reads with a
+   named `InternalRequestJsonError` boundary.
+3. Replace generated worker backend `response.json().catch(() => null)`
+   fallbacks with explicit `readBackendResponseJson(...)` try/catch helpers
+   while preserving the compatibility `null` fallback.
+4. Preserve generated worker request payload contracts, backend response
+   status/message mapping, artifact runtime invocation, PartitionDO SQL/OCC
+   behavior, executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate with generated worker source/runtime coverage, materializer
+   coverage, `flarex-dev` typecheck/build/tests, backend/protocol compatibility
+   gates, and only the EffectTS quality checker reviewer.
+
+Completed Goal 168 slice:
 
 1. Add typed `DeploymentArtifactRefError` for execution-artifact ref
    generation failures.

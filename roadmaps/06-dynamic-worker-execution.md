@@ -230,15 +230,19 @@ git diff --check
 
 ## Generated Runtime Worker JSON Boundaries
 
-Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
+failures.
 
 What changed:
 
 - Local materialized Dynamic Worker source now names the internal request JSON
-  read boundary before invoking generated user functions or query sessions.
+  read boundary before invoking generated user functions or query sessions, and
+  returns a stable malformed internal request JSON message.
 - Local materialized Dynamic Worker backend calls now name the JSON response
-  read boundary before preserving the existing backend error-code/message
-  mapping.
+  read boundary with explicit try/catch fallback before preserving the existing
+  backend error-code/message mapping.
+- Generated application Worker source now mirrors that shape for public/internal
+  invoke request reads and backend response reads.
 
 Why it changed:
 
@@ -260,6 +264,7 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```
 

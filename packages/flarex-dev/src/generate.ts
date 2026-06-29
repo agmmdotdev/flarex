@@ -1010,7 +1010,11 @@ async function postBackend<T>(
 }
 
 async function readBackendResponseJson(response: Response): Promise<unknown> {
-  return await response.json().catch(() => null);
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 function backendErrorCode(value: unknown): string | undefined {
@@ -1035,6 +1039,16 @@ function invokeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+class InvokeRequestJsonError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("Invoke request body must be valid JSON.");
+    this.name = "InvokeRequestJsonError";
+    this.cause = cause;
+  }
+}
+
 function authorizeInternalRequest(request: Request, env: Env): Response | null {
   if (env.FLAREX_INTERNAL_TOKEN === undefined) return null;
   const expected = \`Bearer \${env.FLAREX_INTERNAL_TOKEN}\`;
@@ -1043,7 +1057,11 @@ function authorizeInternalRequest(request: Request, env: Env): Response | null {
 }
 
 async function readInvokeRequestJson(request: Request): Promise<InvokeBody> {
-  return await request.json<InvokeBody>();
+  try {
+    return await request.json<InvokeBody>();
+  } catch (cause) {
+    throw new InvokeRequestJsonError(cause);
+  }
 }
 
 export default {

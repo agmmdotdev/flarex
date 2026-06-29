@@ -559,14 +559,16 @@ git diff --check
 
 ## Generated Runtime Worker JSON Boundaries
 
-Previous completed checkpoint: `ccd63a0` Type scheduler responses with Effect.
+Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
+failures.
 
 What changed:
 
 - Generated local runtime worker request body reads for invoke and
-  query-session routes now pass through named boundary helpers.
-- Generated backend response JSON reads now pass through a named boundary helper
-  before the existing status/message mapping.
+  query-session routes now pass through named boundary helpers with stable
+  malformed-JSON errors.
+- Generated backend response JSON reads now pass through explicit try/catch
+  boundary helpers before the existing status/message mapping.
 
 Why it changed:
 
@@ -579,8 +581,9 @@ Known limitations:
 
 - This checkpoint does not add Effect Schema validation to generated worker
   request payloads.
-- The emitted worker continues to surface malformed request JSON through the
-  existing route `try/catch` and `400 { error }` response.
+- The emitted workers remain plain generated Worker source and do not import
+  Effect; this is a compatibility cleanup before the next route/service Effect
+  slice.
 
 Verification:
 
@@ -588,6 +591,7 @@ Verification:
 corepack pnpm --filter flarex-dev typecheck
 node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend build
 corepack pnpm --filter flarex-protocol build
