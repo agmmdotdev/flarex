@@ -67,4 +67,27 @@ describe("public Worker route dispatch errors", () => {
       });
     }
   });
+
+  it("covers public invoke and partition dispatch sources", () => {
+    const sources = [
+      "invoke-execute",
+      "partition-begin",
+      "partition-document-read",
+      "partition-index-read",
+    ] as const;
+
+    for (const source of sources) {
+      const error = publicWorkerDispatchError(source, new Error(`${source} failed.`));
+
+      expect(error).toMatchObject({
+        source,
+        status: 500,
+        message: `${source} failed.`,
+      });
+      expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+        status: 500,
+        message: `${source} failed.`,
+      });
+    }
+  });
 });

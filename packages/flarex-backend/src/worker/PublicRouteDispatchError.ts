@@ -19,8 +19,12 @@ export type PublicWorkerDispatchSource =
   | "deployment-finish-push-artifact"
   | "deployment-finish-push"
   | "deployment-abandon-push"
+  | "invoke-execute"
+  | "partition-begin"
   | "partition-commit"
   | "partition-schema-cache"
+  | "partition-document-read"
+  | "partition-index-read"
   | "live-query-delivery"
   | "delivery-wake";
 

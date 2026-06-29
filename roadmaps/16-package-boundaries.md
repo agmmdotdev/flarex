@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Invoke And Partition Dispatch Effect Boundary
+
+Previous completed checkpoint: `0a9faee` Type public deployment push dispatch
+failures.
+
+What changed:
+
+- `worker/PublicRouteDispatchError.ts` now covers public invoke execution and
+  public partition begin/document/index forwarding sources.
+- `invoke/PublicInvokeRouteBoundary.ts`, `partition/RouteBoundary.ts`, and
+  `partition/PublicSchemaCacheRouteBoundary.ts` still own request validation.
+- `worker.ts` composes those route validation failures with shared Worker
+  dispatch failures before final HTTP mapping.
+
+Boundary decision:
+
+These failures belong under `worker/` because they happen after public route
+validation while the Worker adapter forwards to invoke runtime logic or
+PartitionDO bindings. They are not protocol validation failures and not
+PartitionDO SQL/OCC domain errors.
+
+Known limitations:
+
+- This checkpoint does not introduce an invoke service Layer or partition read
+  response decoders.
+- Registry and internal scheduler service-binding pass-through remain separate
+  Worker-level surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Deployment Push Dispatch Effect Boundary
 
 Previous completed checkpoint: `2871d1d` Type public scheduler dispatch

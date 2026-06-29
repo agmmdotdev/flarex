@@ -792,13 +792,19 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
     if (deploymentId === undefined || deploymentId.length === 0) {
       return yield* Effect.fail(new MissingInvokeDeploymentError());
     }
-    return yield* Effect.promise(() => routeInvoke(env, deploymentId, body));
+    return yield* Effect.tryPromise({
+      try: () => routeInvoke(env, deploymentId, body),
+      catch: error => publicWorkerDispatchError("invoke-execute", error),
+    });
   },
 );
 
 function publicWorkerInvokeRouteErrorToHttpError(
-  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0],
+  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
 ): HttpError {
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
+  }
   return publicInvokeRouteErrorToHttpError(error);
 }
 
@@ -831,7 +837,11 @@ async function routePartition(
   const action = parts[0];
 
   if (action === "begin" && request.method === "POST") {
-    return partition.fetch("https://flarex.internal/begin", { method: "POST" });
+    return await Effect.runPromise(
+      routePublicPartitionBegin(partition).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      ),
+    );
   }
   if (action === "commit" && request.method === "POST") {
     return await Effect.runPromise(
@@ -848,14 +858,31 @@ async function routePartition(
     );
   }
   if (action === "document" && request.method === "GET") {
-    return partition.fetch(`https://flarex.internal/document?${originalUrl.searchParams}`);
+    return await Effect.runPromise(
+      routePublicPartitionDocumentRead(partition, originalUrl.searchParams).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      ),
+    );
   }
   if (action === "index" && request.method === "GET") {
-    return partition.fetch(`https://flarex.internal/index?${originalUrl.searchParams}`);
+    return await Effect.runPromise(
+      routePublicPartitionIndexRead(partition, originalUrl.searchParams).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      ),
+    );
   }
 
   return json({ error: "Partition route not found." }, { status: 404 });
 }
+
+const routePublicPartitionBegin = Effect.fn("Worker.routePublicPartitionBegin")(
+  function* (partition: DurableObjectStub) {
+    return yield* Effect.tryPromise({
+      try: () => partition.fetch("https://flarex.internal/begin", { method: "POST" }),
+      catch: error => publicWorkerDispatchError("partition-begin", error),
+    });
+  },
+);
 
 const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit")(
   function* (request: Request, partition: DurableObjectStub) {
@@ -906,6 +933,24 @@ function publicWorkerPartitionSchemaCacheRouteErrorToHttpError(
   }
   return publicPartitionSchemaCacheRouteErrorToHttpError(error);
 }
+
+const routePublicPartitionDocumentRead = Effect.fn("Worker.routePublicPartitionDocumentRead")(
+  function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
+    return yield* Effect.tryPromise({
+      try: () => partition.fetch(`https://flarex.internal/document?${searchParams}`),
+      catch: error => publicWorkerDispatchError("partition-document-read", error),
+    });
+  },
+);
+
+const routePublicPartitionIndexRead = Effect.fn("Worker.routePublicPartitionIndexRead")(
+  function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
+    return yield* Effect.tryPromise({
+      try: () => partition.fetch(`https://flarex.internal/index?${searchParams}`),
+      catch: error => publicWorkerDispatchError("partition-index-read", error),
+    });
+  },
+);
 
 async function routeLiveQueryDelivery(
   request: Request,

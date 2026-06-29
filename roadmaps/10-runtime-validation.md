@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Public Invoke And Partition Dispatch Effect Boundary
+
+Previous completed checkpoint: `0a9faee` Type public deployment push dispatch
+failures.
+
+What changed:
+
+- Public invoke execution dispatch now emits `PublicWorkerDispatchError` for
+  invoke runtime forwarding failures after JSON/protocol decoding and
+  deployment-id resolution.
+- Public partition begin, document read, and index read forwarding now run
+  through named `Effect.fn` helpers instead of returning direct
+  `partition.fetch(...)` promises.
+- The Worker invoke and partition adapter edges map those dispatch failures
+  back to the existing HTTP behavior.
+
+Why it changed:
+
+The public Worker route groups had already moved their body-decoding branches
+to typed Effect boundaries, but invoke execution and partition read/begin
+forwarding were still untyped async handoffs. This checkpoint closes that
+remaining Worker dispatch gap without changing runtime or PartitionDO logic.
+
+Known limitations:
+
+- Invoke runtime errors still map through the existing `invokeErrorResponse`.
+- PartitionDO SQL/OCC behavior and document/index response validation remain
+  separate migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Deployment Push Dispatch Effect Boundary
 
 Previous completed checkpoint: `2871d1d` Type public scheduler dispatch
