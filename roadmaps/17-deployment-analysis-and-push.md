@@ -29,9 +29,9 @@ decoders and compatibility wrappers cannot drift.
 
 Known limitations and follow-up work:
 
-- Public Worker invoke, scheduler, execution, partition, delivery, and
-  live-query public route groups still have compatibility reader paths to
-  migrate.
+- Execution, partition, delivery, and live-query public route groups still have
+  compatibility reader paths to migrate. Public invoke and scheduler Worker
+  route groups have since moved through typed Effect route boundaries.
 
 Verification:
 
