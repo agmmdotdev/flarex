@@ -21,6 +21,11 @@ import {
   SchedulerRouteValidationError,
   schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
+import {
+  SchedulerRouteOperationError,
+  schedulerRouteOperationError,
+  schedulerRouteOperationErrorToHttpError,
+} from "../src/scheduler/RouteOperationError";
 import type { Env } from "../src/types";
 
 describe("scheduler route boundary", () => {
@@ -415,6 +420,37 @@ describe("scheduler route boundary", () => {
     expect(schedulerRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "limit must be a positive integer.",
+    });
+  });
+
+  it("preserves scheduler operation failures before HTTP mapping", () => {
+    const cause = new HttpError(502, "Pending deployments failed.");
+    const httpFailure = schedulerRouteOperationError("delivery-reconcile", cause);
+
+    expect(httpFailure).toBeInstanceOf(SchedulerRouteOperationError);
+    expect(httpFailure).toMatchObject({
+      operation: "delivery-reconcile",
+      status: 502,
+      message: "Pending deployments failed.",
+      cause,
+    });
+    expect(schedulerRouteOperationErrorToHttpError(httpFailure)).toMatchObject({
+      status: 502,
+      message: "Pending deployments failed.",
+    });
+
+    const runtimeFailure = schedulerRouteOperationError(
+      "continue-connection-cleanup",
+      new Error("storage alarm failed"),
+    );
+    expect(runtimeFailure).toMatchObject({
+      operation: "continue-connection-cleanup",
+      status: 500,
+      message: "storage alarm failed",
+    });
+    expect(schedulerRouteOperationErrorToHttpError(runtimeFailure)).toMatchObject({
+      status: 500,
+      message: "storage alarm failed",
     });
   });
 });

@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## SchedulerDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `4f2a30d` Type ExecutionDO route operation
+failures.
+
+What changed:
+
+- Added `scheduler/RouteOperationError.ts` for typed SchedulerDO route
+  operation failures after request decoding succeeds.
+- `scheduler/RouteBoundary.ts` still owns scheduler request JSON and envelope
+  validation.
+- `SchedulerDO.fetch()` now maps route-boundary and route-operation failures
+  through one adapter helper for reconcile, cleanup, rerun, dead-letter, and
+  continuation routes.
+
+Boundary decision:
+
+Scheduler request JSON and envelope errors stay in `scheduler/RouteBoundary.ts`.
+Post-decode scheduler orchestration failures belong to the SchedulerDO route
+operation boundary because they happen while reconciling live-query deliveries,
+cleaning expired connections, rerunning subscriptions, dead-lettering stuck
+deliveries, or resuming stored continuation state.
+
+Known limitations:
+
+- This checkpoint does not extract SchedulerDO reconciliation or continuation
+  workflows into reusable services.
+- Scheduler executor response parsing remains in the existing response boundary
+  modules and compatibility parsers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## ExecutionDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation

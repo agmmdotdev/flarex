@@ -1,5 +1,47 @@
 # Sync And Subscriptions
 
+## SchedulerDO Route Operation Effect Boundary
+
+Previous completed checkpoint: `4f2a30d` Type ExecutionDO route operation
+failures.
+
+What changed:
+
+- `SchedulerDO` delivery reconcile, connection reconcile, dead-letter,
+  cleanup, rerun, and continuation route operations now emit typed
+  `SchedulerRouteOperationError` failures for post-decode defects.
+- Scheduler fetch routes now run one Effect pipeline per route and map typed
+  request and operation failures at the Durable Object adapter edge.
+- Post-decode route work now uses `Effect.tryPromise(...)` instead of untyped
+  `Effect.promise(...)`.
+
+Why it changed:
+
+Scheduler route bodies already decoded through typed Effect boundaries, but the
+route helpers converted validation failures inside the pipeline and ran
+scheduler orchestration work through an untyped promise adapter. This keeps the
+existing scheduler workflows intact while moving route failures into typed
+channels until the single HTTP adapter edge.
+
+Known limitations:
+
+- Scheduler reconciliation, continuation persistence, retry alarm scheduling,
+  executor maintenance calls, DeliveryDO wake fanout, and ConnectionDO
+  reconnect behavior remain the existing SchedulerDO workflow.
+- Scheduler response payload compatibility parsers remain separate migration
+  surfaces after the existing response decode boundary.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## DeliveryDO Route Operation Effect Boundary
 
 Previous completed checkpoint: `ef864c0` Type ConnectionDO route operation

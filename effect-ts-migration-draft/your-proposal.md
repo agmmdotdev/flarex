@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `49cfca6` Type DeliveryDO route operation failures.
-- Active checkpoint: move `ExecutionDO` start, syscall, and finish routes to typed route plus operation failures with one adapter HTTP mapping edge while preserving the existing `invokeErrorResponse(...)` response shape.
+- Previous completed checkpoint: `4f2a30d` Type ExecutionDO route operation failures.
+- Active checkpoint: move `SchedulerDO` reconcile, cleanup, rerun, dead-letter, and continuation routes to typed route plus operation failures with one adapter HTTP mapping edge while preserving existing scheduler response bodies.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,13 +44,15 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the current ExecutionDO route operation checkpoint:
+Next recommended checkpoint after the current SchedulerDO route operation checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper at
    a time.
 2. Prefer the next route/service boundary that can move post-decode work to
-   typed failures without changing PartitionDO SQL/OCC behavior.
+   typed failures without changing PartitionDO SQL/OCC behavior; likely next
+   candidates are response JSON read boundaries or generated runtime adapter
+   boundaries rather than PartitionDO.
 3. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 4. Preserve the existing HTTP response body/status exactly through adapter
@@ -58,7 +60,28 @@ Next recommended checkpoint after the current ExecutionDO route operation checkp
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 164 slice:
+Current Goal 165 slice:
+
+1. Add typed `SchedulerRouteOperationError` failures for `SchedulerDO`
+   delivery reconcile, connection reconcile, dead-letter deliveries, cleanup
+   connections, rerun subscriptions, and the three continuation routes.
+2. Convert `SchedulerDO.fetch()` scheduler route handlers to run one Effect
+   pipeline per route and map typed request and operation failures at the
+   Durable Object adapter edge.
+3. Convert post-decode scheduler route work from `Effect.promise(...)` to
+   `Effect.tryPromise(...)` operation failures while preserving malformed JSON
+   `400`, scheduler route validation `400`, successful reconcile/cleanup/rerun
+   response bodies, continuation `{ skipped: true }` responses, retry alarm
+   behavior, DeliveryDO wake fanout, ConnectionDO force-reconnect behavior, and
+   scheduler response decoder behavior.
+4. Preserve Worker public scheduler forwarding, DeliveryDO, ConnectionDO,
+   ExecutionDO, PartitionDO, executor-http, protocol schemas, and
+   `ValidatorJson` unchanged.
+5. Validate with direct operation-error tests, focused scheduler route-boundary
+   and sync coverage, backend typecheck/build, broad protocol/backend gates as
+   practical, and only the EffectTS quality checker reviewer.
+
+Completed Goal 164 slice:
 
 1. Add typed `ExecutionRouteOperationError` failures for `ExecutionDO` start,
    syscall, and finish route operations.

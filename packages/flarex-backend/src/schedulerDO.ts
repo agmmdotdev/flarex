@@ -23,6 +23,12 @@ import {
   type SchedulerRerunSubscriptionsRequest,
 } from "./scheduler/RouteBoundary";
 import {
+  SchedulerRouteOperationError,
+  schedulerRouteOperationError,
+  schedulerRouteOperationErrorToHttpError,
+  type SchedulerRouteOperation,
+} from "./scheduler/RouteOperationError";
+import {
   decodeSchedulerCleanupConnectionsResponse,
   decodeSchedulerDeadLetterStuckResponse,
   decodeSchedulerExpiredConnectionDeploymentsResponse,
@@ -219,7 +225,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerDeliveryReconcile(request, body =>
             this.reconcileLiveQueryDeliveries(body),
           ),
@@ -229,7 +235,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerConnectionReconcile(request, body =>
             this.reconcileLiveQueryConnections(body),
           ),
@@ -239,7 +245,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerDeadLetterDeliveries(request, body =>
             this.deadLetterLiveQueryDeliveries(body),
           ),
@@ -249,7 +255,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerCleanupConnections(request, this.env, body =>
             this.cleanupLiveQueryConnections(body),
           ),
@@ -259,7 +265,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerRerunSubscriptions(request, body =>
             this.rerunLiveQuerySubscriptions(body),
           ),
@@ -269,7 +275,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueDeliveries &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerContinueDeliveries(() =>
             this.continuePendingLiveQueryDeliveryReconcile(),
           ),
@@ -279,7 +285,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueReruns &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerContinueReruns(() => this.continuePendingLiveQueryRerun()),
         );
       }
@@ -287,7 +293,7 @@ export class SchedulerDO extends DurableObject<Env> {
         url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueConnectionCleanup &&
         request.method === "POST"
       ) {
-        return await Effect.runPromise(
+        return await runSchedulerRoute(
           routeSchedulerContinueConnectionCleanup(() =>
             this.continuePendingLiveQueryConnectionCleanup(),
           ),
@@ -1106,11 +1112,11 @@ const routeSchedulerDeliveryReconcile = Effect.fn("SchedulerDO.routeDeliveryReco
     request: Request,
     reconcile: (body: SchedulerDeliveryReconcileRequest) => Promise<ReconcileResult>,
   ) {
-    const body = yield* routeSchedulerDecode(
-      decodeSchedulerDeliveryReconcileRequest(request),
+    const body = yield* decodeSchedulerDeliveryReconcileRequest(request);
+    return yield* routeSchedulerJsonResult(
+      "delivery-reconcile",
+      () => reconcile(body),
     );
-    if (body instanceof Response) return body;
-    return yield* routeSchedulerJsonResult(() => reconcile(body));
   },
 );
 
@@ -1121,11 +1127,11 @@ const routeSchedulerConnectionReconcile = Effect.fn("SchedulerDO.routeConnection
       body: SchedulerConnectionReconcileRequest,
     ) => Promise<ReconcileConnectionCleanupResult>,
   ) {
-    const body = yield* routeSchedulerDecode(
-      decodeSchedulerConnectionReconcileRequest(request),
+    const body = yield* decodeSchedulerConnectionReconcileRequest(request);
+    return yield* routeSchedulerJsonResult(
+      "connection-reconcile",
+      () => reconcile(body),
     );
-    if (body instanceof Response) return body;
-    return yield* routeSchedulerJsonResult(() => reconcile(body));
   },
 );
 
@@ -1134,11 +1140,11 @@ const routeSchedulerDeadLetterDeliveries = Effect.fn("SchedulerDO.routeDeadLette
     request: Request,
     deadLetter: (body: SchedulerDeadLetterDeliveriesRequest) => Promise<DeadLetterResult>,
   ) {
-    const body = yield* routeSchedulerDecode(
-      decodeSchedulerDeadLetterDeliveriesRequest(request),
+    const body = yield* decodeSchedulerDeadLetterDeliveriesRequest(request);
+    return yield* routeSchedulerJsonResult(
+      "dead-letter-deliveries",
+      () => deadLetter(body),
     );
-    if (body instanceof Response) return body;
-    return yield* routeSchedulerJsonResult(() => deadLetter(body));
   },
 );
 
@@ -1150,11 +1156,11 @@ const routeSchedulerCleanupConnections = Effect.fn("SchedulerDO.routeCleanupConn
       body: SchedulerCleanupConnectionsRequest,
     ) => Promise<CleanupLiveQueryConnectionsResult>,
   ) {
-    const body = yield* routeSchedulerDecode(
-      decodeSchedulerCleanupConnectionsRequest(request, env),
+    const body = yield* decodeSchedulerCleanupConnectionsRequest(request, env);
+    return yield* routeSchedulerJsonResult(
+      "cleanup-connections",
+      () => cleanup(body),
     );
-    if (body instanceof Response) return body;
-    return yield* routeSchedulerJsonResult(() => cleanup(body));
   },
 );
 
@@ -1163,11 +1169,11 @@ const routeSchedulerRerunSubscriptions = Effect.fn("SchedulerDO.routeRerunSubscr
     request: Request,
     rerun: (body: SchedulerRerunSubscriptionsRequest) => Promise<RerunResult>,
   ) {
-    const body = yield* routeSchedulerDecode(
-      decodeSchedulerRerunSubscriptionsRequest(request),
+    const body = yield* decodeSchedulerRerunSubscriptionsRequest(request);
+    return yield* routeSchedulerJsonResult(
+      "rerun-subscriptions",
+      () => rerun(body),
     );
-    if (body instanceof Response) return body;
-    return yield* routeSchedulerJsonResult(() => rerun(body));
   },
 );
 
@@ -1175,7 +1181,10 @@ const routeSchedulerContinueDeliveries = Effect.fn("SchedulerDO.routeContinueDel
   function* (
     continueDeliveries: () => Promise<ReconcileResult | { skipped: true }>,
   ) {
-    return yield* routeSchedulerJsonResult(continueDeliveries);
+    return yield* routeSchedulerJsonResult(
+      "continue-deliveries",
+      continueDeliveries,
+    );
   },
 );
 
@@ -1183,7 +1192,7 @@ const routeSchedulerContinueReruns = Effect.fn("SchedulerDO.routeContinueReruns"
   function* (
     continueReruns: () => Promise<RerunResult | { skipped: true }>,
   ) {
-    return yield* routeSchedulerJsonResult(continueReruns);
+    return yield* routeSchedulerJsonResult("continue-reruns", continueReruns);
   },
 );
 
@@ -1195,24 +1204,48 @@ const routeSchedulerContinueConnectionCleanup = Effect.fn(
       ReconcileConnectionCleanupResult | { skipped: true }
     >,
   ) {
-    return yield* routeSchedulerJsonResult(continueConnectionCleanup);
+    return yield* routeSchedulerJsonResult(
+      "continue-connection-cleanup",
+      continueConnectionCleanup,
+    );
   },
 );
 
-function routeSchedulerDecode<A>(
-  effect: Effect.Effect<A, SchedulerRouteError>,
-): Effect.Effect<A | Response> {
-  return effect.pipe(
-    Effect.catch(error =>
-      Effect.succeed(errorResponse(schedulerRouteErrorToHttpError(error)))
+function routeSchedulerJsonResult<A extends object>(
+  operation: SchedulerRouteOperation,
+  execute: () => Promise<A>,
+): Effect.Effect<Response, SchedulerRouteOperationError> {
+  return Effect.tryPromise({
+    try: execute,
+    catch: error => schedulerRouteOperationError(operation, error),
+  }).pipe(
+    Effect.map(result => json(result)),
+  );
+}
+
+type SchedulerInternalRouteError =
+  | SchedulerRouteError
+  | SchedulerRouteOperationError;
+
+function runSchedulerRoute(
+  effect: Effect.Effect<Response, SchedulerInternalRouteError>,
+): Promise<Response> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error =>
+        Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)))
+      ),
     ),
   );
 }
 
-function routeSchedulerJsonResult<A extends object>(
-  execute: () => Promise<A>,
-): Effect.Effect<Response> {
-  return Effect.promise(async () => json(await execute()));
+function schedulerInternalRouteErrorToHttpError(
+  error: SchedulerInternalRouteError,
+): HttpError {
+  if (error instanceof SchedulerRouteOperationError) {
+    return schedulerRouteOperationErrorToHttpError(error);
+  }
+  return schedulerRouteErrorToHttpError(error);
 }
 
 function executorUrl(env: Env, path: string): string {
