@@ -7,13 +7,9 @@ import {
   requestJsonErrorToHttpError,
 } from "../http";
 import {
-  parseExecutionFinishRouteRequest,
-  parseExecutionFinishRouteRequestEffect,
-} from "./FinishRouteBoundary";
-import {
-  parseExecutionSyscallRouteRequest,
-  parseExecutionSyscallRouteRequestEffect,
-} from "./SyscallRouteBoundary";
+  decodePublicExecutionActionPayload,
+  parsePublicExecutionActionPayload as parsePublicExecutionActionPayloadSource,
+} from "./Requests";
 
 export type PublicExecutionAction = "syscall" | "finish" | "abort";
 
@@ -57,7 +53,7 @@ export function decodePublicExecutionActionRequest(
   action: PublicExecutionAction,
 ): Effect.Effect<unknown, PublicExecutionActionRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => parsePublicExecutionActionRequestEffect(value, action)),
+    Effect.flatMap(value => decodePublicExecutionActionPayload(value, action)),
   );
 }
 
@@ -65,18 +61,21 @@ export function parsePublicExecutionActionRequest(
   value: unknown,
   action: PublicExecutionAction,
 ): unknown {
-  if (action === "syscall") return parseExecutionSyscallRouteRequest(value);
-  if (action === "finish") return parseExecutionFinishRouteRequest(value);
-  return value;
+  try {
+    return parsePublicExecutionActionPayloadSource(value, action);
+  } catch (error) {
+    if (error instanceof ExecutionProtocolValidationError) {
+      throw new HttpError(400, error.message);
+    }
+    throw error;
+  }
 }
 
 export function parsePublicExecutionActionRequestEffect(
   value: unknown,
   action: PublicExecutionAction,
 ): Effect.Effect<unknown, ExecutionProtocolValidationError> {
-  if (action === "syscall") return parseExecutionSyscallRouteRequestEffect(value);
-  if (action === "finish") return parseExecutionFinishRouteRequestEffect(value);
-  return Effect.succeed(value);
+  return decodePublicExecutionActionPayload(value, action);
 }
 
 export const publicExecutionRoutePathFromPartsEffect = Effect.fn(

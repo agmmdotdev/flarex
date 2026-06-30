@@ -1,9 +1,5 @@
 import { Effect } from "effect";
-import {
-  ExecutionProtocolValidationError,
-  parseExecutionFinishRequest,
-  type ExecutionFinishRequest as ProtocolExecutionFinishRequest,
-} from "flarex-protocol/execution";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import {
   HttpError,
   readJsonEffect,
@@ -11,7 +7,10 @@ import {
   requestJsonErrorToHttpError,
 } from "../http";
 import type { ExecutionFinishRequest } from "../types";
-import { backendJson } from "./JsonRouteBoundary";
+import {
+  decodeExecutionFinishPayload,
+  parseExecutionFinishPayload,
+} from "./Requests";
 
 export type ExecutionFinishRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
@@ -37,7 +36,7 @@ export function parseExecutionFinishRouteRequest(
   value: unknown,
 ): ExecutionFinishRequest {
   try {
-    return backendExecutionFinishRequest(parseExecutionFinishRequest(value));
+    return parseExecutionFinishPayload(value);
   } catch (error) {
     if (error instanceof ExecutionProtocolValidationError) {
       throw new HttpError(400, error.message);
@@ -49,16 +48,7 @@ export function parseExecutionFinishRouteRequest(
 export function parseExecutionFinishRouteRequestEffect(
   value: unknown,
 ): Effect.Effect<ExecutionFinishRequest, ExecutionProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(backendExecutionFinishRequest(parseExecutionFinishRequest(value)));
-    } catch (error) {
-      if (error instanceof ExecutionProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
+  return decodeExecutionFinishPayload(value);
 }
 
 export function executionFinishRouteErrorToHttpError(
@@ -68,12 +58,4 @@ export function executionFinishRouteErrorToHttpError(
     return requestJsonErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
-}
-
-function backendExecutionFinishRequest(
-  request: ProtocolExecutionFinishRequest,
-): ExecutionFinishRequest {
-  return {
-    value: backendJson(request.value),
-  };
 }

@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## Execution Request Payload Source Boundary
+
+Previous completed checkpoint: `be9974b` Share partition route payload validation.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/Requests.ts` now owns shared
+  payload-source decoding for execution start, public start, syscall, finish,
+  and public action forwarding.
+- Start, syscall, finish, and public action route-boundary modules now delegate
+  protocol-to-backend request normalization to the shared source boundary while
+  keeping their existing compatibility read/parse exports.
+- Public action forwarding still validates `syscall` and `finish` payloads
+  before dispatch and keeps `abort` as well-formed JSON forwarding only.
+- Tests cover the source decoders directly, including typed
+  `ExecutionProtocolValidationError` failures before HTTP mapping.
+
+Boundary decision:
+
+Execution payload shape validation is now source-owned by
+`execution/Requests.ts`. Route boundary modules own only JSON body reading,
+compatibility throwing wrappers, and adapter-level HTTP mapping. ExecutionDO
+still owns session lifecycle, transaction setup, syscall semantics, finish
+commit/return behavior, and abort control flow.
+
+Known limitations:
+
+- The backend JSON normalizers still live in `JsonRouteBoundary.ts`; this
+  checkpoint reuses them to avoid mixing a JSON module move into execution
+  request ownership.
+- ExecutionDO route operation failures, public Worker dispatch failures,
+  PartitionDO SQL/OCC behavior, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionRequests.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start boundary|execution syscall bodies|execution finish bodies|keeps execution abort as a bodyless control message" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Worker Top-Level Effect Boundary
 
 Previous completed checkpoint: `e9dfb06` Type public deployment dispatcher
