@@ -1,5 +1,64 @@
 # Deployment Analysis And Push
 
+## Deployment Activation Metadata Write Boundary
+
+Previous completed checkpoint: `43efc4e Preserve deployment HttpApi protocol validation errors`.
+
+What changed:
+
+- `DeploymentPushStore.finishPush(...)` activation writes no longer call
+  `validateSchema(...)` or `validateFunctions(...)` before writing schema,
+  index, and function rows.
+- Activation writes now use the already decoded `PushStatus.analysis` metadata
+  from the stored-push row boundary.
+- Stored push row corruption still fails through the existing typed
+  `DeploymentValidationError` path before activation rows are written.
+- The SQL row shapes for tables, indexes, functions, active push metadata, and
+  finish responses are unchanged.
+
+Why it changed:
+
+Deployment activation already re-reads the push row and normalizes it through
+the stored-push validation boundary before writing active schema and function
+metadata. Re-running the schema and function compatibility validators inside
+the write helpers was a duplicate throw path. This checkpoint keeps validation
+at the row boundary and leaves activation write helpers responsible only for
+persisting typed metadata.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Durable Object deployment
+  activation write boundary.
+
+How Flarex differs from Convex:
+
+- Flarex activation writes deployment schema/function metadata into Durable
+  Object SQLite tables and active metadata records. Convex deployment metadata
+  activation is not represented as this Cloudflare-specific SQL write path.
+
+Known limitations:
+
+- Transaction-local stored-row rechecks still use the compatibility
+  `pushStatusFromRow(...)` wrapper so the transaction aborts on missing or
+  corrupt rows.
+- Start, finish, and abandon transaction callbacks still use the current
+  Cloudflare Durable Object transaction callback shape.
+- Deployment service behavior, SQL schema, analyzer behavior, artifact
+  persistence, public Worker forwarding, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts packages/flarex-backend/test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts -t "preserves analyzer codegen analysis through source-only push activation|requires durable artifact storage before public finish|does not activate failed or unknown pushes" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Analyzed Start Push Protocol Validation Boundary
 
 Previous completed checkpoint: `bd51608 Type public deployment push dispatch boundary`.

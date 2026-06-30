@@ -4,8 +4,6 @@ import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import {
   decodePushStatusFromRow,
   pushStatusFromRow,
-  validateFunctions,
-  validateSchema,
   type DeploymentPushStatusRow,
 } from "./Validation";
 import type {
@@ -151,10 +149,9 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         };
 
         const applySchema = (schema: DeploymentSchema): void => {
-          const normalized = validateSchema(schema);
           sql.exec("DELETE FROM indexes");
           sql.exec("DELETE FROM tables");
-          for (const table of normalized.tables) {
+          for (const table of schema.tables) {
             sql.exec(
               `
               INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
@@ -167,7 +164,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               JSON.stringify(table.placement),
             );
           }
-          for (const index of normalized.indexes) {
+          for (const index of schema.indexes) {
             sql.exec(
               `
               INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
@@ -180,13 +177,12 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               index.state ?? "enabled",
             );
           }
-          setMeta("schema_version", String(normalized.version));
+          setMeta("schema_version", String(schema.version));
         };
 
         const applyFunctions = (functions: DeploymentFunctions): void => {
-          const normalized = validateFunctions(functions);
           sql.exec("DELETE FROM functions");
-          for (const metadata of normalized.functions) {
+          for (const metadata of functions.functions) {
             sql.exec(
               `
               INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json)
