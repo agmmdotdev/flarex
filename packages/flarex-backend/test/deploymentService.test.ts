@@ -538,7 +538,7 @@ describe("DeploymentService", () => {
         stage: "prevalidated",
       });
       expect(transaction.committed).toBe(false);
-      expect(transaction.rejected).toBe(true);
+      expect(transaction.rejected).toBe(false);
     } finally {
       await runtime.dispose();
     }
@@ -582,7 +582,7 @@ describe("DeploymentService", () => {
     }
   });
 
-  it("maps activation validation failures from the finish transaction", async () => {
+  it("maps activation validation failures before finish transaction writes", async () => {
     const typedStatus = analyzedPushStatus("push-typed-validation-failed");
     const typedRuntime = ManagedRuntime.make(
       DeploymentPushStore.layer(
@@ -1611,7 +1611,7 @@ describe("DeploymentService", () => {
         stage: "abandoned",
       });
       expect(transaction.committed).toBe(false);
-      expect(transaction.rejected).toBe(true);
+      expect(transaction.rejected).toBe(false);
     } finally {
       await runtime.dispose();
     }

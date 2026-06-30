@@ -13,6 +13,7 @@ import {
   decodeSchema,
   decodeSourcePackage,
   decodeStartAnalyzedPushInput,
+  parsePushStatusFromRow,
   pushStatusFromRow,
   startAnalyzedPushInput,
   validateAnalysis,
@@ -1259,6 +1260,28 @@ describe("deployment validation", () => {
       () => pushStatusFromRow(pushRow({ state: "unknown" })),
       "Unknown stored push state unknown.",
     );
+  });
+
+  it("parses stored push rows without throwing for transaction preflight boundaries", () => {
+    const success = parsePushStatusFromRow(pushRow({
+      schema_json: JSON.stringify(simpleSchema()),
+      functions_json: JSON.stringify(simpleFunctions()),
+    }));
+    expect(success).toMatchObject({
+      success: true,
+      value: {
+        pushId: "push-row",
+        state: "analyzed",
+      },
+    });
+
+    const failure = parsePushStatusFromRow(pushRow({ source_package_json: "null" }));
+    expect(failure.success).toBe(false);
+    if (failure.success) {
+      throw new Error("Expected parsePushStatusFromRow to fail.");
+    }
+    expect(failure.error).toBeInstanceOf(DeploymentValidationError);
+    expect(failure.error.message).toBe("Source package must be an object.");
   });
 
   it("exposes typed stored push row validation failures", async () => {

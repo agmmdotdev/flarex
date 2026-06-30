@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Deployment Store Validation Preflight Boundary
+
+Previous completed checkpoint: `93250ea` Type public finish artifact lookup.
+
+What changed:
+
+- `deployment/Validation.ts` now exposes `parsePushStatusFromRow(...)` as a
+  non-throwing `DeploymentValidationResult<PushStatus>` boundary while keeping
+  `pushStatusFromRow(...)` as the compatibility throwing wrapper.
+- DeploymentPushStore start, finish, and abandon writes now decode the push
+  metadata before opening the write transaction, so malformed deployment
+  metadata fails as `DeploymentValidationError` outside the SQL mutation path.
+- Start-push and activated-finish write invariants still abort their
+  transaction when the just-written or just-activated row is missing, preserving
+  rollback behavior for storage consistency failures.
+
+Why it changed:
+
+Deployment-domain validation should not be thrown through `Effect.tryPromise`
+and then reclassified by the SQL catch boundary. This checkpoint keeps
+validation failures typed at the deployment validation/store boundary while
+leaving true transaction rollback conditions as transaction aborts.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's DeploymentDO push-store
+  validation and Cloudflare Durable Object SQL transaction boundary.
+
+How Flarex differs from Convex:
+
+- Flarex persists deployment push lifecycle rows in a Durable Object SQL store
+  and validates deployment metadata when rows are loaded. Convex's deployment
+  pipeline does not use this Cloudflare Durable Object push-store shape.
+
+Known limitations:
+
+- Compatibility throwing validation helpers remain for older call sites and
+  tests.
+- DeploymentDO service behavior, public deployment push routing, artifact
+  persistence, protocol schemas, executor-http, PartitionDO SQL/OCC, and
+  `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Finish Artifact Lookup Effect Boundary
 
 Previous completed checkpoint: `0c596a7` Own partition route decoders.

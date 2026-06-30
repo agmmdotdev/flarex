@@ -48,7 +48,7 @@ export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSou
   return unwrapDeploymentValidation(normalizeSourcePackage(sourcePackage));
 }
 
-type DeploymentValidationResult<A> =
+export type DeploymentValidationResult<A> =
   | {
       readonly success: true;
       readonly value: A;
@@ -293,9 +293,13 @@ export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
   return unwrapDeploymentValidation(normalizePushStatusRow(row));
 }
 
+export function parsePushStatusFromRow(row: DeploymentPushStatusRow): DeploymentValidationResult<PushStatus> {
+  return normalizePushStatusRow(row);
+}
+
 export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePushStatusFromRow")(
   function* (row: DeploymentPushStatusRow): Effect.fn.Return<PushStatus, DeploymentValidationError> {
-    return yield* deploymentValidationResultToEffect(normalizePushStatusRow(row));
+    return yield* deploymentValidationResultToEffect(parsePushStatusFromRow(row));
   },
 );
 

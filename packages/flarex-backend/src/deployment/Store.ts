@@ -3,7 +3,6 @@ import { validateExecutionArtifactRef } from "flarex/artifacts";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import {
   decodePushStatusFromRow,
-  pushStatusFromRow,
   type DeploymentPushStatusRow,
 } from "./Validation";
 import type {
@@ -143,11 +142,6 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
-        const readPushForTransaction = (pushId: string): PushStatus | null => {
-          const row = readPushRow(pushId);
-          return row === undefined ? null : pushStatusFromRow(row);
-        };
-
         const applySchema = (schema: DeploymentSchema): void => {
           sql.exec("DELETE FROM indexes");
           sql.exec("DELETE FROM tables");
@@ -269,6 +263,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           function* (
             input: StartAnalyzedPushStoreInput,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
+            const status = yield* decodePushStatusFromRow(pushStatusRowFromStartAnalyzedPushStoreInput(input));
             const result = yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
@@ -304,14 +299,13 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                     input.now,
                     input.now,
                   );
-                  const status = readPushForTransaction(input.pushId);
-                  if (status === null) {
+                  if (readPushRow(input.pushId) === undefined) {
                     throw storedPushMissing("startPush", input.pushId, "stored");
                   }
                   return status;
                 }),
               catch: cause =>
-                cause instanceof DeploymentValidationError || cause instanceof DeploymentStoredPushMissingError
+                cause instanceof DeploymentStoredPushMissingError
                   ? cause
                   : new DeploymentSqlError({ operation: "startPush", cause }),
             });
@@ -324,29 +318,30 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             FinishPushResponse,
             DeploymentStoreWriteError
           > {
+            const status = yield* readPush(input.pushId);
+            if (status === null) {
+              return yield* Effect.fail(storedPushMissing("finishPush", input.pushId, "prevalidated"));
+            }
+            if (status.state !== "analyzed") {
+              return rejectedFinishPushResponse(
+                status,
+                "invalid_state",
+                `Cannot finish push ${input.pushId} in state ${status.state}.`,
+              );
+            }
+            if (status.analysis === undefined) {
+              return rejectedFinishPushResponse(
+                status,
+                "missing_analysis",
+                `Push ${input.pushId} has no analysis to activate.`,
+              );
+            }
+            const analysis = status.analysis;
             const result = yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
-                  const status = readPushForTransaction(input.pushId);
-                  if (status === null) {
-                    throw storedPushMissing("finishPush", input.pushId, "prevalidated");
-                  }
-                  if (status.state !== "analyzed") {
-                    return rejectedFinishPushResponse(
-                      status,
-                      "invalid_state",
-                      `Cannot finish push ${input.pushId} in state ${status.state}.`,
-                    );
-                  }
-                  if (status.analysis === undefined) {
-                    return rejectedFinishPushResponse(
-                      status,
-                      "missing_analysis",
-                      `Push ${input.pushId} has no analysis to activate.`,
-                    );
-                  }
-                  applySchema(status.analysis.schema);
-                  applyFunctions(status.analysis.functions);
+                  applySchema(analysis.schema);
+                  applyFunctions(analysis.functions);
                   sql.exec(
                     "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
                     input.now,
@@ -355,15 +350,17 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                   setMeta("active_push_id", input.pushId);
                   setMeta("active_activated_at", String(input.now));
                   setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
-                  const activated = readPushForTransaction(input.pushId);
-                  if (activated === null) {
+                  if (readPushRow(input.pushId) === undefined) {
                     throw storedPushMissing("finishPush", input.pushId, "activated");
                   }
-                  const response: FinishPushResponse = { result: "activated", push: activated };
+                  const response: FinishPushResponse = {
+                    result: "activated",
+                    push: { ...status, state: "activated", updatedAt: input.now },
+                  };
                   return response;
                 }),
               catch: cause =>
-                cause instanceof DeploymentValidationError || cause instanceof DeploymentStoredPushMissingError
+                cause instanceof DeploymentStoredPushMissingError
                   ? cause
                   : new DeploymentSqlError({ operation: "finishPush", cause }),
             });
@@ -375,6 +372,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           function* (
             input: AbandonPushStoreInput,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
+            const status = yield* readPush(input.pushId);
+            if (status === null) {
+              return yield* Effect.fail(storedPushMissing("abandonPush", input.pushId, "abandoned"));
+            }
             const result = yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
@@ -384,14 +385,18 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                     input.now,
                     input.pushId,
                   );
-                  const abandoned = readPushForTransaction(input.pushId);
-                  if (abandoned === null) {
+                  if (readPushRow(input.pushId) === undefined) {
                     throw storedPushMissing("abandonPush", input.pushId, "abandoned");
                   }
-                  return abandoned;
+                  return {
+                    ...status,
+                    state: "abandoned" as const,
+                    error: input.reason,
+                    updatedAt: input.now,
+                  };
                 }),
               catch: cause =>
-                cause instanceof DeploymentValidationError || cause instanceof DeploymentStoredPushMissingError
+                cause instanceof DeploymentStoredPushMissingError
                   ? cause
                   : new DeploymentSqlError({ operation: "abandonPush", cause }),
             });
@@ -417,6 +422,35 @@ function storedPushMissing(
   stage: string,
 ): DeploymentStoredPushMissingError {
   return new DeploymentStoredPushMissingError({ operation, pushId, stage });
+}
+
+function pushStatusRowFromStartAnalyzedPushStoreInput(input: StartAnalyzedPushStoreInput): DeploymentPushStatusRow {
+  if ("analysis" in input) {
+    return {
+      push_id: input.pushId,
+      state: "analyzed",
+      source_package_json: JSON.stringify(input.sourcePackage),
+      schema_json: JSON.stringify(input.analysis.schema),
+      functions_json: JSON.stringify(input.analysis.functions),
+      codegen_analysis_json: JSON.stringify(input.codegenAnalysis),
+      error: null,
+      diagnostics_json: input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
+      created_at: input.now,
+      updated_at: input.now,
+    };
+  }
+  return {
+    push_id: input.pushId,
+    state: "failed",
+    source_package_json: JSON.stringify(input.sourcePackage),
+    schema_json: null,
+    functions_json: null,
+    codegen_analysis_json: null,
+    error: input.error,
+    diagnostics_json: input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
+    created_at: input.now,
+    updated_at: input.now,
+  };
 }
 
 const parseExecutionArtifactRefEffect = Effect.fn("DeploymentPushStore.parseExecutionArtifactRef")(

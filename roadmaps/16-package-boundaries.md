@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Deployment Store Validation Preflight Boundary
+
+Previous completed checkpoint: `93250ea` Type public finish artifact lookup.
+
+What changed:
+
+- Deployment push-row normalization now has a non-throwing
+  `parsePushStatusFromRow(...)` result boundary in `deployment/Validation.ts`.
+- DeploymentPushStore start, finish, and abandon operations decode push rows
+  before write transactions, keeping deployment validation failures typed as
+  `DeploymentValidationError` instead of routing them through the SQL
+  `tryPromise` catch path.
+- Transaction aborts remain reserved for storage consistency cases that need
+  rollback, such as missing just-written or just-activated rows.
+
+Boundary decision:
+
+`deployment/Validation.ts` owns deployment metadata validation and typed
+validation results. `deployment/Store.ts` owns SQL transaction consistency and
+maps SQL failures separately, without treating deployment-domain validation as
+a SQL defect.
+
+Known limitations:
+
+- Compatibility throwing validation helpers remain available.
+- This checkpoint does not change protocol schemas, executor-http,
+  public Worker routing, DeploymentDO service behavior, PartitionDO SQL/OCC,
+  or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Shared ValidatorJson Effect Boundary
 
 Previous completed checkpoint: `e1c52d8` Use typed partition route recovery.

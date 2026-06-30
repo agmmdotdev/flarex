@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public finish artifact lookup Effect boundary.
+- Previous completed checkpoint: Deployment store validation preflight boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public finish artifact lookup Effect boundary checkpoint:
+Next recommended checkpoint after the deployment store validation preflight checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,25 @@ Next recommended checkpoint after the public finish artifact lookup Effect bound
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 252 slice:
+
+1. Expose `parsePushStatusFromRow(...)` from `deployment/Validation.ts` as a
+   non-throwing `DeploymentValidationResult<PushStatus>` boundary while keeping
+   `pushStatusFromRow(...)` as the compatibility throwing wrapper.
+2. Move DeploymentPushStore start, finish, and abandon validation preflights
+   through typed push-row decoding before transaction writes, so malformed
+   push metadata fails as `DeploymentValidationError` without being thrown
+   through the `Effect.tryPromise(...)` SQL boundary.
+3. Keep transaction aborts for write invariants that still require rollback,
+   including missing stored start rows and missing activated finish rows, while
+   avoiding deployment-domain validation parsing after mutation.
+4. Preserve DeploymentDO service semantics, public deployment push routing,
+   artifact persistence, protocol schemas, executor-http, PartitionDO SQL/OCC,
+   and `ValidatorJson` behavior unchanged.
+5. Extend focused deployment validation/store tests so the new non-throwing row
+   parser is covered directly and missing prevalidated finish/abandon failures
+   are asserted before transaction writes.
 
 Completed Goal 251 slice:
 

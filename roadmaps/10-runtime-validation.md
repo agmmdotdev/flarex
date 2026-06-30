@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Deployment Store Validation Preflight Boundary
+
+Previous completed checkpoint: `93250ea` Type public finish artifact lookup.
+
+What changed:
+
+- Stored deployment push-row normalization now has a result-style
+  `parsePushStatusFromRow(...)` boundary.
+- DeploymentPushStore start, finish, and abandon paths decode push metadata
+  through typed Effect boundaries before opening write transactions.
+- Deployment validation failures now stay in the `DeploymentValidationError`
+  channel instead of being thrown through the SQL `tryPromise` boundary, while
+  storage consistency failures that require rollback still abort transactions.
+
+Why it changed:
+
+Runtime validation should separate deployment metadata failures from SQL
+adapter failures. This checkpoint moves validation ahead of transaction writes
+where possible and keeps rollback-only storage invariants at the transaction
+edge.
+
+Known limitations:
+
+- Compatibility throwing validation helpers remain.
+- Public Worker routing, protocol schemas, executor-http, PartitionDO SQL/OCC,
+  DeploymentDO service behavior, artifact persistence, and `ValidatorJson`
+  behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment HttpApi Protocol Validation Boundary
 
 Previous completed checkpoint: `bd51608 Type public deployment push dispatch boundary`.
