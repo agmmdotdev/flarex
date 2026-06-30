@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Scheduler and Delivery internal route tagged recovery.
+- Previous completed checkpoint: Artifact runtime adapter tagged recovery.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Scheduler and Delivery internal route tagged recovery checkpoint:
+Next recommended checkpoint after the Artifact runtime adapter tagged recovery checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,22 @@ Next recommended checkpoint after the Scheduler and Delivery internal route tagg
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 241 slice:
+
+1. Route the in-process execution artifact runtime fetch adapter through
+   `Effect.catchTags(...)` instead of broad catch-all recovery.
+2. Route the service-binding artifact runtime `invoke(...)` adapter through
+   explicit tag-specific recovery to `HttpError` compatibility failures.
+3. Keep request JSON, artifact invoke payload, runtime route, authorization,
+   header, missing source-package, runtime operation, and service-binding
+   response failures typed until the relevant artifact runtime adapter edge.
+4. Preserve existing artifact runtime HTTP response status/body behavior,
+   service-binding `HttpError` rejection behavior, materializer cache behavior,
+   artifact source-package loading, public Worker invoke routing, protocol
+   schemas, PartitionDO SQL/OCC, executor-http, and `ValidatorJson`.
+5. Validate focused artifact runtime route/service coverage and broad backend
+   plus protocol gates.
 
 Completed Goal 240 slice:
 

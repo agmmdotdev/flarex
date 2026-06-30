@@ -142,7 +142,15 @@ export function createExecutionArtifactRuntimeService(options: {
   const fetch: Fetcher["fetch"] = (input, init) =>
     Effect.runPromise(
       routeExecutionArtifactRuntimeInvoke(input, init, options, cache).pipe(
-        Effect.catch(error => Effect.succeed(executionArtifactRuntimeErrorResponse(error))),
+        Effect.catchTags({
+          RequestJsonError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactInvokePayloadError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactRuntimeMissingSourcePackageError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactRuntimeOperationError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactRuntimeRouteNotFoundError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactRuntimeAuthorizationError: recoverExecutionArtifactRuntimeRouteError,
+          ExecutionArtifactRuntimeHeaderError: recoverExecutionArtifactRuntimeRouteError,
+        }),
       ),
     );
   return Object.assign(fetch, {
@@ -192,7 +200,11 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
         deployment,
         request,
       ).pipe(
-        Effect.mapError(serviceBindingExecutionArtifactRuntimeErrorToHttpError),
+        Effect.catchTags({
+          ExecutionArtifactRuntimeOperationError: failServiceBindingExecutionArtifactRuntimeHttpError,
+          ServiceBindingExecutionArtifactRuntimeResponseError:
+            failServiceBindingExecutionArtifactRuntimeHttpError,
+        }),
       ),
     );
   }
@@ -311,6 +323,12 @@ function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
   return new HttpError(error.status, error.message);
 }
 
+function failServiceBindingExecutionArtifactRuntimeHttpError(
+  error: ServiceBindingExecutionArtifactRuntimeError,
+): Effect.Effect<never, HttpError> {
+  return Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error));
+}
+
 function executionArtifactRuntimeOperationError(
   operation: ExecutionArtifactRuntimeOperationError["operation"],
   cause: unknown,
@@ -339,6 +357,12 @@ function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRo
     return Response.json({ error: error.message }, { status: error.status });
   }
   return Response.json({ error: error.message }, { status: error.status });
+}
+
+function recoverExecutionArtifactRuntimeRouteError(
+  error: ExecutionArtifactRuntimeRouteError,
+): Effect.Effect<Response> {
+  return Effect.succeed(executionArtifactRuntimeErrorResponse(error));
 }
 
 function errorStatus(error: unknown): number | undefined {

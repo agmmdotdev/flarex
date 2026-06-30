@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Artifact Runtime Adapter Tagged Recovery
+
+Previous completed checkpoint: `fd1e5b8` Use tagged scheduler delivery recovery.
+
+What changed:
+
+- The in-process execution artifact runtime fetch adapter now uses
+  `Effect.catchTags(...)` instead of broad catch-all recovery.
+- The service-binding artifact runtime `invoke(...)` adapter now maps typed
+  runtime failures to compatibility `HttpError` failures through explicit
+  tag-specific recovery.
+- Request JSON, artifact invoke payload, runtime route, authorization, header,
+  missing source-package, runtime operation, and service-binding response
+  failures remain typed until the relevant artifact runtime adapter edge.
+
+Boundary decision:
+
+The artifact runtime fetch adapter owns HTTP response conversion for the
+in-process runtime service. `ServiceBindingExecutionArtifactRuntime.invoke(...)`
+owns compatibility `HttpError` conversion for callers that still expect promise
+rejections. Runtime route, request boundary, source-package loading,
+materializer cache, and artifact invocation continue to emit typed failures.
+
+Known limitations:
+
+- This checkpoint does not change materializer cache behavior, artifact
+  source-package loading, runtime route authorization/header validation,
+  public Worker invoke routing, protocol schemas, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Scheduler And Delivery Internal Route Tagged Recovery
 
 Previous completed checkpoint: `ed635ad` Use tagged execution connection recovery.
