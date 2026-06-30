@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Public Worker Deployment Push Route Boundary
+
+Previous completed checkpoint: `8b3c939 Type generated HttpApi DO adapters`.
+
+What changed:
+
+- The public Worker deployment push router now runs as a named
+  `Effect.fn("Worker.routeDeploymentPush")` route boundary.
+- Start, analyzed-start, read, finish, and abandon push branches delegate to
+  the existing Effect-returning subroute helpers without nested
+  `Effect.runPromise(...)` calls inside the push router.
+- Missing push id, malformed JSON, deployment protocol validation, and dispatch
+  failures are mapped once at the push-route adapter edge.
+
+Why it changed:
+
+The public deployment push subroutes had already been migrated to typed
+Effect-returning helpers, but the wrapper router still ran each branch through
+its own `Effect.runPromise(...)`. This checkpoint moves that orchestration into
+one route Effect while preserving existing response behavior.
+
+Known limitations:
+
+- The Worker top-level dispatcher still has separate runtime edges for other
+  route families.
+- Source-package analysis, artifact persistence/preflight, generated
+  DeploymentDO forwarding, deployment storage semantics, executor-http,
+  PartitionDO SQL/OCC behavior, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts -t "keeps public start source-only|rejects malformed analyzed push request bodies|rejects malformed finish push request bodies|rejects malformed abandon push request bodies|abandons public push routes with encoded push IDs|reads active deployment and push status through public routes"
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Generated HttpApi Durable Object Adapter Boundary
 
 Previous completed checkpoint: `7764fe2 Type scheduler dead-letter reconnect boundary`.

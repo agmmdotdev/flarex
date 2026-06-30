@@ -44,6 +44,7 @@ import {
 } from "./worker/PublicRouteDispatchError";
 import {
   deploymentPushActionFromPath,
+  MissingDeploymentPushIdError,
   publicDeploymentIdFromPartsEffect,
   publicDeploymentPushPathFromPartsEffect,
   publicPartitionKeyFromPartsEffect,
@@ -502,54 +503,50 @@ async function routeDeploymentPush(
   deploymentId: string,
   parts: string[],
 ): Promise<Response> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  const path = await Effect.runPromise(
-    publicDeploymentPushPathFromPartsEffect(parts, request.method).pipe(
-      Effect.mapError(publicRoutePathErrorToHttpError),
+  return await Effect.runPromise(
+    routeDeploymentPushEffect(request, env, deploymentId, parts).pipe(
+      Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
     ),
   );
-  if (path.kind === "start" && request.method === "POST") {
-    return await Effect.runPromise(
-      routeDeploymentStartPush(request, env, deployment, deploymentId).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (path.kind === "startAnalyzed" && request.method === "POST") {
-    return await Effect.runPromise(
-      routeDeploymentAnalyzedStartPush(request, deployment).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (path.kind !== "push") {
-    return json({ error: "Push route not found." }, { status: 404 });
-  }
-  const pushId = decodeURIComponent(path.encodedPushId);
-  const action = deploymentPushActionFromPath(path.action);
-  if (path.action === undefined && request.method === "GET") {
-    return await Effect.runPromise(
-      routeDeploymentReadPush(deployment, pushId).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (action === DeploymentPushAction.finish && request.method === "POST") {
-    return await Effect.runPromise(
-      routeDeploymentFinishPush(request, env, deployment, pushId).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (action === DeploymentPushAction.abandon && request.method === "POST") {
-    return await Effect.runPromise(
-      routeDeploymentAbandonPush(request, deployment, pushId).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      ),
-    );
-  }
-  return json({ error: "Push route not found." }, { status: 404 });
 }
+
+const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
+  function* (
+    request: Request,
+    env: Env,
+    deploymentId: string,
+    parts: string[],
+  ): Effect.fn.Return<
+    Response,
+    Parameters<typeof publicDeploymentRouteErrorToHttpError>[0]
+      | PublicWorkerDispatchError
+      | MissingDeploymentPushIdError
+  > {
+    const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
+    const path = yield* publicDeploymentPushPathFromPartsEffect(parts, request.method);
+    if (path.kind === "start" && request.method === "POST") {
+      return yield* routeDeploymentStartPush(request, env, deployment, deploymentId);
+    }
+    if (path.kind === "startAnalyzed" && request.method === "POST") {
+      return yield* routeDeploymentAnalyzedStartPush(request, deployment);
+    }
+    if (path.kind !== "push") {
+      return json({ error: "Push route not found." }, { status: 404 });
+    }
+    const pushId = decodeURIComponent(path.encodedPushId);
+    const action = deploymentPushActionFromPath(path.action);
+    if (path.action === undefined && request.method === "GET") {
+      return yield* routeDeploymentReadPush(deployment, pushId);
+    }
+    if (action === DeploymentPushAction.finish && request.method === "POST") {
+      return yield* routeDeploymentFinishPush(request, env, deployment, pushId);
+    }
+    if (action === DeploymentPushAction.abandon && request.method === "POST") {
+      return yield* routeDeploymentAbandonPush(request, deployment, pushId);
+    }
+    return json({ error: "Push route not found." }, { status: 404 });
+  },
+);
 
 const routeDeploymentReadPush = Effect.fn("Worker.routeDeploymentReadPush")(
   function* (
@@ -662,10 +659,16 @@ const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyz
 );
 
 function publicDeploymentWorkerRouteErrorToHttpError(
-  error: Parameters<typeof publicDeploymentRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+  error:
+    | Parameters<typeof publicDeploymentRouteErrorToHttpError>[0]
+    | PublicWorkerDispatchError
+    | MissingDeploymentPushIdError,
 ): ReturnType<typeof publicDeploymentRouteErrorToHttpError> | HttpError {
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
+  }
+  if (error instanceof MissingDeploymentPushIdError) {
+    return publicRoutePathErrorToHttpError(error);
   }
   return publicDeploymentRouteErrorToHttpError(error);
 }

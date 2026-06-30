@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: RegistryDO/DeploymentDO generated HttpApi adapter boundary.
+- Previous completed checkpoint: public Worker deployment push route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the RegistryDO/DeploymentDO generated HttpApi adapter boundary checkpoint:
+Next recommended checkpoint after the public Worker deployment push route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,25 @@ Next recommended checkpoint after the RegistryDO/DeploymentDO generated HttpApi 
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 201 slice:
+
+1. Convert the public Worker deployment push router to a named
+   `Effect.fn("Worker.routeDeploymentPush")` orchestration boundary.
+2. Route start, analyzed-start, read, finish, and abandon push branches through
+   the existing Effect-returning subroute helpers without nested
+   `Effect.runPromise(...)` calls inside the push router.
+3. Preserve missing push id, unknown push action, malformed JSON, deployment
+   protocol validation, missing-artifact preflight, analyzer-unconfigured,
+   analyzer failure, generated DeploymentDO forwarding, public response
+   bodies/statuses, executor-http routes, protocol schemas, and
+   `ValidatorJson` unchanged.
+4. Keep the public Worker top-level dispatch and other route families
+   unchanged; this slice only removes the nested runtime boundaries from the
+   deployment push route group.
+5. Validate public route path parsing, public deployment push route boundaries,
+   representative push lifecycle/error paths, backend typecheck/build,
+   protocol build, and only the EffectTS quality checker reviewer.
 
 Completed Goal 200 slice:
 
