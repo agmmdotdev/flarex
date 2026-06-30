@@ -1,6 +1,14 @@
 import { Data, Effect } from "effect";
 import { readResponseJsonOrNullEffect } from "./http";
-import type { PushDiagnostic } from "./types";
+import {
+  publicWorkerDispatchError,
+  type PublicWorkerDispatchError,
+} from "./worker/PublicRouteDispatchError";
+import type {
+  AnalyzedStartPushRequest,
+  PushDiagnostic,
+  StartPushRequest,
+} from "./types";
 
 export type RawAnalyzerSuccessResponse = {
   analysis: unknown;
@@ -29,6 +37,43 @@ export const decodeBackendAnalyzerResponse = Effect.fn("Worker.decodeBackendAnal
       diagnostics: analyzerDiagnostics(body),
       body,
     }));
+  },
+);
+
+export const analyzeSourcePackageEffect = Effect.fn("Worker.analyzeSourcePackage")(
+  function* (
+    analyzer: Fetcher,
+    deploymentId: string,
+    request: StartPushRequest,
+  ): Effect.fn.Return<AnalyzedStartPushRequest, PublicWorkerDispatchError> {
+    const response = yield* Effect.tryPromise({
+      try: () => analyzer.fetch("https://flarex-analyzer.internal/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deploymentId, sourcePackage: request.sourcePackage }),
+      }),
+      catch: error => publicWorkerDispatchError("deployment-start-push-analyze", error),
+    });
+    const decoded = yield* decodeBackendAnalyzerResponse(response).pipe(
+      Effect.match({
+        onFailure: error => ({ ok: false, error } as const),
+        onSuccess: body => ({ ok: true, body } as const),
+      }),
+    );
+    if (decoded.ok) {
+      const diagnostics = analyzerDiagnostics(decoded.body);
+      return {
+        sourcePackage: request.sourcePackage,
+        analysis: decoded.body.analysis,
+        codegenAnalysis: decoded.body.codegenAnalysis,
+        ...(diagnostics === undefined ? {} : { diagnostics }),
+      };
+    }
+    return {
+      sourcePackage: request.sourcePackage,
+      error: decoded.error.message,
+      ...(decoded.error.diagnostics === undefined ? {} : { diagnostics: decoded.error.diagnostics }),
+    };
   },
 );
 

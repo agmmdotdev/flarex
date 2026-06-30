@@ -1,5 +1,64 @@
 # Runtime Validation
 
+## Public Deployment Analyzer Effect Boundary
+
+Previous completed checkpoint: `5903883 Type deployment stored push write boundary`.
+
+What changed:
+
+- Public source-only deployment push analyzer forwarding now runs through
+  `analyzeSourcePackageEffect(...)` in `backendAnalyzerResponse.ts`.
+- The Worker route no longer calls an internal `Effect.runPromise(...)` bridge
+  while decoding analyzer responses.
+- Analyzer fetch failures remain typed `PublicWorkerDispatchError` values from
+  `deployment-start-push-analyze`.
+- Analyzer response failures still become failed analyzed-push payloads with
+  normalized diagnostics, preserving the public push lifecycle response
+  contract.
+- Direct tests cover analyzer helper success, response-failure payloads, and
+  fetch dispatch failures.
+
+Why it changed:
+
+The public deployment push route already had typed request decoding and typed
+dispatch failures, but source-only analyzer response decoding still crossed a
+nested runtime boundary inside an async helper. This checkpoint keeps analyzer
+forwarding and analyzer response interpretation in the route Effect pipeline
+without changing analyzer semantics.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare service-binding
+  analyzer boundary.
+
+How Flarex differs from Convex:
+
+- Flarex can ask a backend analyzer service binding to turn source packages
+  into deployment analysis before storing a push. Analyzer HTTP failures are
+  represented as failed push payloads when the analyzer responds, while service
+  binding/fetch failures remain Worker dispatch failures.
+
+Known limitations:
+
+- Artifact persistence after analyzer success still uses the existing
+  `Effect.tryPromise(...)` dispatch wrapper.
+- Finish-push artifact verification still reads stored push status through the
+  existing async helper.
+- DeploymentDO, deployment service/store behavior, SQL statements, protocol
+  schemas, executor-http, PartitionDO SQL/OCC, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts -t "analyzes source-only|keeps analyzer response failures|keeps analyzer fetch failures|preserves analyzer codegen|fails source-only push when analyzer success omits codegen|fails source-only push when analyzer success returns null codegen analysis|rejects malformed analyzer analysis" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Stored Push Write Boundary
 
 Previous completed checkpoint: `1dbc98c Type executor HTTP authorization boundary`.

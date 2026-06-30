@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment stored push write boundary.
+- Previous completed checkpoint: Public deployment analyzer Effect boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Deployment stored push write boundary checkpoint:
+Next recommended checkpoint after the Public deployment analyzer Effect boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,28 @@ Next recommended checkpoint after the Deployment stored push write boundary chec
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 216 slice:
+
+1. Move public source-only deployment push analyzer forwarding into
+   `analyzeSourcePackageEffect(...)`, a named Effect boundary in
+   `backendAnalyzerResponse.ts`.
+2. Remove the internal `Effect.runPromise(...)` bridge from the Worker analyzer
+   path so analyzer request forwarding, analyzer response decoding, and
+   failed analyzed-push payload construction stay inside the Worker route
+   Effect pipeline.
+3. Preserve analyzer fetch failures as `PublicWorkerDispatchError` from
+   `deployment-start-push-analyze`, while preserving analyzer response failures
+   as failed analyzed-push payloads with normalized diagnostics.
+4. Keep malformed source-only request JSON ordering, analyzer-not-configured
+   `501`, analyzer request shape, analyzed artifact persistence, generated
+   DeploymentDO forwarding, deployment service/store behavior, SQL statements,
+   protocol schemas, public response bodies, and `ValidatorJson` unchanged.
+5. Add direct analyzer Effect helper coverage for success, analyzer response
+   failure-as-payload, and analyzer fetch dispatch failure, plus keep public
+   push parity coverage.
+6. Validate focused analyzer/push coverage, backend typecheck/build, protocol
+   build, and only the EffectTS quality checker reviewer.
 
 Completed Goal 215 slice:
 

@@ -12,8 +12,7 @@ import {
   type BackendExecutionArtifactStore,
 } from "./artifactStore";
 import {
-  analyzerDiagnostics,
-  decodeBackendAnalyzerResponse,
+  analyzeSourcePackageEffect,
 } from "./backendAnalyzerResponse";
 import {
   ServiceBindingExecutionArtifactRuntime,
@@ -618,10 +617,7 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
       );
     }
     const body = yield* parsePublicStartPushRequestEffect(rawBody);
-    const analyzed = yield* Effect.tryPromise({
-      try: () => analyzeSourcePackage(analyzer, deploymentId, body),
-      catch: error => publicWorkerDispatchError("deployment-start-push-analyze", error),
-    });
+    const analyzed = yield* analyzeSourcePackageEffect(analyzer, deploymentId, body);
     yield* Effect.tryPromise({
       try: () => persistAnalyzedSourcePackage(env, analyzed),
       catch: error => publicWorkerDispatchError("deployment-start-push-store-artifact", error),
@@ -720,38 +716,6 @@ function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefin
   return env.ARTIFACTS === undefined
     ? undefined
     : new R2BackendExecutionArtifactStore(env.ARTIFACTS);
-}
-
-async function analyzeSourcePackage(
-  analyzer: Fetcher,
-  deploymentId: string,
-  request: StartPushRequest,
-): Promise<AnalyzedStartPushRequest> {
-  const response = await analyzer.fetch("https://flarex-analyzer.internal/analyze", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deploymentId, sourcePackage: request.sourcePackage }),
-  });
-  const decoded = await Effect.runPromise(
-    decodeBackendAnalyzerResponse(response).pipe(
-      Effect.map(body => ({ ok: true, body }) as const),
-      Effect.catch(error => Effect.succeed({ ok: false, error } as const)),
-    ),
-  );
-  if (decoded.ok) {
-    const diagnostics = analyzerDiagnostics(decoded.body);
-    return {
-      sourcePackage: request.sourcePackage,
-      analysis: decoded.body.analysis,
-      codegenAnalysis: decoded.body.codegenAnalysis,
-      ...(diagnostics === undefined ? {} : { diagnostics }),
-    };
-  }
-  return {
-    sourcePackage: request.sourcePackage,
-    error: decoded.error.message,
-    ...(decoded.error.diagnostics === undefined ? {} : { diagnostics: decoded.error.diagnostics }),
-  };
 }
 
 type PublicWorkerExecutionRouteError =

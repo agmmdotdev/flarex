@@ -7,7 +7,10 @@ import {
   parsePushStatus,
 } from "flarex-protocol/deployment";
 import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
-import { decodeBackendAnalyzerResponse } from "../src/backendAnalyzerResponse";
+import {
+  analyzeSourcePackageEffect,
+  decodeBackendAnalyzerResponse,
+} from "../src/backendAnalyzerResponse";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
   ActiveDeploymentStatus,
@@ -58,6 +61,75 @@ describe("deployment push lifecycle", () => {
       message: "Analyzer request failed with status 502",
       diagnostics: undefined,
       body: null,
+    });
+  });
+
+  it("analyzes source-only push bodies through an Effect helper", async () => {
+    const package_ = sourcePackage();
+    let analyzerRequest: unknown;
+    const analyzer = {
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        analyzerRequest = JSON.parse(String(init?.body));
+        return Response.json({
+          analysis: { schema: dualFunctionSchema(), functions: dualFunctions() },
+          codegenAnalysis: reversedDualFunctionCodegenAnalysis(),
+          diagnostics: [{ level: "log", message: "analyzed source package" }],
+        });
+      },
+    } as unknown as Fetcher;
+
+    await expect(Effect.runPromise(analyzeSourcePackageEffect(
+      analyzer,
+      "push-source-analyzed-helper",
+      { sourcePackage: package_ },
+    ))).resolves.toEqual({
+      sourcePackage: package_,
+      analysis: { schema: dualFunctionSchema(), functions: dualFunctions() },
+      codegenAnalysis: reversedDualFunctionCodegenAnalysis(),
+      diagnostics: [{ level: "log", message: "analyzed source package" }],
+    });
+    expect(analyzerRequest).toEqual({
+      deploymentId: "push-source-analyzed-helper",
+      sourcePackage: package_,
+    });
+  });
+
+  it("keeps analyzer response failures as failed analyzed-push payloads", async () => {
+    const package_ = sourcePackage();
+    const analyzer = {
+      fetch: async () => Response.json({
+        error: "analyzer rejected source package",
+        diagnostics: [{ level: "error", message: "syntax error" }],
+      }, { status: 422 }),
+    } as unknown as Fetcher;
+
+    await expect(Effect.runPromise(analyzeSourcePackageEffect(
+      analyzer,
+      "push-source-failed-helper",
+      { sourcePackage: package_ },
+    ))).resolves.toEqual({
+      sourcePackage: package_,
+      error: "analyzer rejected source package",
+      diagnostics: [{ level: "error", message: "syntax error" }],
+    });
+  });
+
+  it("keeps analyzer fetch failures in the public Worker dispatch channel", async () => {
+    const analyzer = {
+      fetch: async () => {
+        throw new Error("analyzer unavailable");
+      },
+    } as unknown as Fetcher;
+
+    await expect(Effect.runPromise(analyzeSourcePackageEffect(
+      analyzer,
+      "push-source-fetch-failed",
+      { sourcePackage: sourcePackage() },
+    ))).rejects.toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-start-push-analyze",
+      status: 500,
+      message: "analyzer unavailable",
     });
   });
 
