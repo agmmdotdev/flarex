@@ -2115,6 +2115,44 @@ describe("executeInvoke", () => {
     await expect(missingDeployment.json()).resolves.toEqual({
       error: "Missing deployment id.",
     });
+
+    const missingPath = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-deployment": "route-boundary-deployment",
+        },
+        body: JSON.stringify({
+          kind: "query",
+        }),
+      },
+    );
+    expect(missingPath.status).toBe(400);
+    await expect(missingPath.json()).resolves.toEqual({
+      error: "Missing function path.",
+    });
+
+    const missingPartitionKey = await harness.mf.dispatchFetch(
+      "http://flarex.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-deployment": "route-boundary-deployment",
+        },
+        body: JSON.stringify({
+          path: "missing:function",
+          kind: "query",
+          partitionKey: "",
+        }),
+      },
+    );
+    expect(missingPartitionKey.status).toBe(400);
+    await expect(missingPartitionKey.json()).resolves.toEqual({
+      error: "Missing partition key.",
+    });
   });
 });
 

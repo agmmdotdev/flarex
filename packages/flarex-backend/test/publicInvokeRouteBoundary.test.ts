@@ -4,7 +4,10 @@ import { InvokeProtocolValidationError } from "flarex-protocol/invoke";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicInvokeRouteRequest,
+  invokeRequestFromPublicInvokeBodyEffect,
   MissingInvokeDeploymentError,
+  MissingInvokePartitionKeyError,
+  MissingInvokePathError,
   parsePublicInvokeRouteRequest,
   parsePublicInvokeRouteRequestEffect,
   publicInvokeRouteErrorToHttpError,
@@ -56,6 +59,26 @@ describe("public invoke route boundary", () => {
       path: "users:list",
       kind: "query",
     });
+  });
+
+  it("builds typed invoke requests before Worker execution", async () => {
+    await expect(Effect.runPromise(invokeRequestFromPublicInvokeBodyEffect({
+      path: "users:list",
+      kind: "query",
+    }))).resolves.toEqual({
+      path: "users:list",
+      args: null,
+      kind: "query",
+    });
+
+    await expect(Effect.runPromise(invokeRequestFromPublicInvokeBodyEffect({
+      args: null,
+    }))).rejects.toBeInstanceOf(MissingInvokePathError);
+
+    await expect(Effect.runPromise(invokeRequestFromPublicInvokeBodyEffect({
+      path: "users:list",
+      partitionKey: "",
+    }))).rejects.toBeInstanceOf(MissingInvokePartitionKeyError);
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {
@@ -122,6 +145,16 @@ describe("public invoke route boundary", () => {
     expect(publicInvokeRouteErrorToHttpError(new MissingInvokeDeploymentError())).toMatchObject({
       status: 400,
       message: "Missing deployment id.",
+    });
+
+    expect(publicInvokeRouteErrorToHttpError(new MissingInvokePathError())).toMatchObject({
+      status: 400,
+      message: "Missing function path.",
+    });
+
+    expect(publicInvokeRouteErrorToHttpError(new MissingInvokePartitionKeyError())).toMatchObject({
+      status: 400,
+      message: "Missing partition key.",
     });
   });
 });

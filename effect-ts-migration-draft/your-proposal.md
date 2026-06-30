@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Type invoke query planning`.
-- Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `095ff56 Type invoke query planning`.
+- Active checkpoint: public Worker invoke route typed request-shaping and execution mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 180 slice:
+
+1. Add typed public invoke request-shaping failures for missing function path
+   and empty partition key after the protocol body decoder has accepted the
+   transport shape.
+2. Add a named `invokeRequestFromPublicInvokeBodyEffect(...)` helper so the
+   Worker route builds backend `InvokeRequest` values through a typed Effect
+   boundary instead of `required(...)` throws.
+3. Convert the public Worker invoke execution helper to a typed Effect pipeline
+   that routes active-deployment loading, artifact-runtime invocation, and
+   direct `executeInvoke(...)` failures through `PublicWorkerDispatchError`.
+4. Preserve top-level `/invoke`, scoped `/deployments/:id/invoke`, deployment
+   header precedence, malformed JSON/protocol validation responses, unknown
+   function responses, artifact runtime routing, direct invoke behavior,
+   PartitionDO SQL/OCC behavior, executor-http, protocol schemas, and
+   `ValidatorJson` semantics.
+5. Validate typed request-shaping channels directly, then preserve HTTP adapter
+   mapping with focused public Worker invoke tests.
 
 Completed Goal 179 slice:
 

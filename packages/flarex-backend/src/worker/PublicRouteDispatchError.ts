@@ -1,5 +1,6 @@
 import { Data } from "effect";
 import { HttpError } from "../http";
+import { PartitionRequestError } from "../transaction";
 
 export type PublicWorkerDispatchSource =
   | "execution-start"
@@ -64,4 +65,13 @@ export function publicWorkerDispatchErrorToHttpError(
   error: PublicWorkerDispatchError,
 ): HttpError {
   return new HttpError(error.status, error.message);
+}
+
+export function publicWorkerDispatchErrorToAdapterError(
+  error: PublicWorkerDispatchError,
+): HttpError | PartitionRequestError {
+  if (error.cause instanceof PartitionRequestError) {
+    return error.cause;
+  }
+  return publicWorkerDispatchErrorToHttpError(error);
 }

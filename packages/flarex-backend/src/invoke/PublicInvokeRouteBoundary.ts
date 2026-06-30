@@ -10,14 +10,23 @@ import {
   RequestJsonError,
   requestJsonErrorToHttpError,
 } from "../http";
+import type { InvokeRequest, Json } from "../types";
 
 export class MissingInvokeDeploymentError
   extends Data.TaggedError("MissingInvokeDeploymentError")<{}> {}
 
+export class MissingInvokePathError
+  extends Data.TaggedError("MissingInvokePathError")<{}> {}
+
+export class MissingInvokePartitionKeyError
+  extends Data.TaggedError("MissingInvokePartitionKeyError")<{}> {}
+
 export type PublicInvokeRouteError =
   | RequestJsonError
   | InvokeProtocolValidationError
-  | MissingInvokeDeploymentError;
+  | MissingInvokeDeploymentError
+  | MissingInvokePathError
+  | MissingInvokePartitionKeyError;
 
 export async function readPublicInvokeRequest(
   request: Request,
@@ -65,6 +74,27 @@ export function parsePublicInvokeRouteRequestEffect(
   });
 }
 
+export const invokeRequestFromPublicInvokeBodyEffect = Effect.fn(
+  "PublicInvokeRouteBoundary.invokeRequestFromPublicInvokeBody",
+)(function* (
+  body: PublicInvokeRequestBody,
+): Effect.fn.Return<InvokeRequest, MissingInvokePathError | MissingInvokePartitionKeyError> {
+  if (body.path === undefined || body.path.length === 0) {
+    return yield* Effect.fail(new MissingInvokePathError());
+  }
+  if (body.partitionKey !== undefined && body.partitionKey.length === 0) {
+    return yield* Effect.fail(new MissingInvokePartitionKeyError());
+  }
+
+  return {
+    path: body.path,
+    args: (body.args ?? null) as Json,
+    ...(body.kind === undefined ? {} : { kind: body.kind }),
+    ...(body.partitionKey === undefined ? {} : { partitionKey: body.partitionKey }),
+    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+  };
+});
+
 export function publicInvokeRouteErrorToHttpError(
   error: PublicInvokeRouteError,
 ): HttpError {
@@ -73,6 +103,12 @@ export function publicInvokeRouteErrorToHttpError(
   }
   if (error instanceof MissingInvokeDeploymentError) {
     return new HttpError(400, "Missing deployment id.");
+  }
+  if (error instanceof MissingInvokePathError) {
+    return new HttpError(400, "Missing function path.");
+  }
+  if (error instanceof MissingInvokePartitionKeyError) {
+    return new HttpError(400, "Missing partition key.");
   }
   return new HttpError(400, error.message);
 }

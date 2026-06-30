@@ -1,5 +1,49 @@
 # Runtime Validation
 
+## Public Invoke Route Typed Execution Boundary
+
+Previous completed checkpoint: `095ff56 Type invoke query planning`.
+
+What changed:
+
+- Public invoke request shaping now has typed failures for missing function
+  path and empty partition key after the protocol body decoder accepts the
+  transport envelope.
+- `invokeRequestFromPublicInvokeBodyEffect(...)` converts protocol body data
+  into backend `InvokeRequest` values without throwing adapter-shaped
+  `HttpError` values from the route path.
+- Focused tests cover typed request-shaping failures directly and preserve the
+  public Worker HTTP responses for malformed JSON, invalid protocol shape,
+  missing deployment id, missing function path, empty partition key, and
+  unknown function execution.
+
+Why it changed:
+
+The public Worker invoke route was still mixing protocol decoding, request
+defaulting, execution dispatch, and HTTP response conversion in an inner
+`try/catch`. This checkpoint keeps the validation boundary typed so public
+route behavior aligns with the backend invoke validation Effect helpers.
+
+Known limitations:
+
+- Backend active-deployment loading and `executeInvoke(...)` still return
+  Promise/compatibility errors, now wrapped at the public Worker route
+  operation edge.
+- `parseInvokeKind(...)` remains for legacy callers but the public invoke route
+  now relies on the protocol schema's query/mutation kind.
+- PartitionDO SQL/OCC, mutation commit validation, executor-http, artifact
+  runtime internals, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Query Planning Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke query planning`.

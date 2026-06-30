@@ -36,6 +36,7 @@ import {
 } from "./execution/StartRouteBoundary";
 import {
   publicWorkerDispatchError,
+  publicWorkerDispatchErrorToAdapterError,
   publicWorkerDispatchErrorToHttpError,
   PublicWorkerDispatchError,
 } from "./worker/PublicRouteDispatchError";
@@ -60,11 +61,11 @@ import {
   executeInvoke,
   invokeErrorResponse,
   loadActiveDeployment,
-  parseInvokeKind,
   type BackendFunctionRegistry,
 } from "./invoke";
 import {
   decodePublicInvokeRouteRequest,
+  invokeRequestFromPublicInvokeBodyEffect,
   MissingInvokeDeploymentError,
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
@@ -112,8 +113,6 @@ import {
 import type {
   AnalyzedStartPushRequest,
   Env,
-  InvokeRequest,
-  Json,
   PushStatus,
   StartPushRequest,
 } from "./types";
@@ -170,7 +169,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/invoke" && request.method === "POST") {
     return await Effect.runPromise(
       routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined).pipe(
-        Effect.mapError(publicWorkerInvokeRouteErrorToHttpError),
+        Effect.matchEffect({
+          onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
+          onSuccess: response => Effect.succeed(response),
+        }),
       ),
     );
   }
@@ -264,7 +266,10 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (parts[2] === "invoke" && request.method === "POST") {
       return await Effect.runPromise(
         routePublicInvoke(request, env, deploymentId).pipe(
-          Effect.mapError(publicWorkerInvokeRouteErrorToHttpError),
+          Effect.matchEffect({
+            onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
+            onSuccess: response => Effect.succeed(response),
+          }),
         ),
       );
     }
@@ -813,32 +818,31 @@ function isPublicExecutionAction(action: string): action is PublicExecutionActio
   return action === "syscall" || action === "finish" || action === "abort";
 }
 
-async function routeInvoke(
+const routeInvoke = Effect.fn("Worker.routeInvoke")(
+  function* (
   env: Env,
   deploymentId: string,
   body: PublicInvokeRequestBody,
-): Promise<Response> {
-  try {
-    const kind = parseInvokeKind(body.kind);
-    const invokeRequest: InvokeRequest = {
-      path: required(body.path, "function path"),
-      args: (body.args ?? null) as Json,
-      ...(kind === undefined ? {} : { kind }),
-      ...(body.partitionKey === undefined
-        ? {}
-        : { partitionKey: required(body.partitionKey, "partition key") }),
-      ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-    };
+  ) {
+    const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
-      const activeDeployment = await loadActiveDeployment(env, deploymentId);
-      return json(await artifactRuntime.invoke(activeDeployment, invokeRequest));
+      const result = yield* Effect.tryPromise({
+        try: async () => {
+          const activeDeployment = await loadActiveDeployment(env, deploymentId);
+          return await artifactRuntime.invoke(activeDeployment, invokeRequest);
+        },
+        catch: error => publicWorkerDispatchError("invoke-execute", error),
+      });
+      return json(result);
     }
-    return json(await executeInvoke(env, deploymentId, invokeRequest, functions));
-  } catch (error) {
-    return invokeErrorResponse(error);
-  }
-}
+    const result = yield* Effect.tryPromise({
+      try: () => executeInvoke(env, deploymentId, invokeRequest, functions),
+      catch: error => publicWorkerDispatchError("invoke-execute", error),
+    });
+    return json(result);
+  },
+);
 
 const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
   function* (
@@ -851,20 +855,17 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
     if (deploymentId === undefined || deploymentId.length === 0) {
       return yield* Effect.fail(new MissingInvokeDeploymentError());
     }
-    return yield* Effect.tryPromise({
-      try: () => routeInvoke(env, deploymentId, body),
-      catch: error => publicWorkerDispatchError("invoke-execute", error),
-    });
+    return yield* routeInvoke(env, deploymentId, body);
   },
 );
 
-function publicWorkerInvokeRouteErrorToHttpError(
+function publicWorkerInvokeRouteErrorToResponse(
   error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
-): HttpError {
+): Response {
   if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
+    return invokeErrorResponse(publicWorkerDispatchErrorToAdapterError(error));
   }
-  return publicInvokeRouteErrorToHttpError(error);
+  return invokeErrorResponse(publicInvokeRouteErrorToHttpError(error));
 }
 
 function artifactRuntimeFromEnv(

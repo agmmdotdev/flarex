@@ -1,5 +1,43 @@
 # Dynamic Worker Execution
 
+## Public Invoke Route Typed Execution Boundary
+
+Previous completed checkpoint: `095ff56 Type invoke query planning`.
+
+What changed:
+
+- The public Worker invoke route now builds backend `InvokeRequest` values
+  through a named Effect helper instead of `required(...)` throws.
+- Missing function path and empty partition key failures now stay typed until
+  the public invoke route adapter maps them to the preserved HTTP responses.
+- Public invoke execution now runs as a typed Effect pipeline for direct
+  `executeInvoke(...)`, active-deployment loading, and artifact-runtime
+  invocation failures.
+
+Why it changed:
+
+The previous invoke checkpoints typed the backend validation and query-planning
+domain boundaries. This checkpoint moves the public Worker route closer to the
+same target shape: typed request/body decoding, typed request shaping, and one
+adapter mapping edge before HTTP JSON responses.
+
+Known limitations:
+
+- `loadActiveDeployment(...)` and direct invoke execution remain existing
+  Promise APIs behind the Worker route operation wrapper.
+- PartitionDO SQL/OCC, execution sessions, artifact runtime service-binding
+  internals, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Query Planning Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke query planning`.

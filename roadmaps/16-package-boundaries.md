@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Public Invoke Route Typed Execution Boundary
+
+Previous completed checkpoint: `095ff56 Type invoke query planning`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke/PublicInvokeRouteBoundary.ts` now owns
+  public invoke request shaping into backend `InvokeRequest` values through a
+  typed Effect helper.
+- `packages/flarex-backend/src/worker.ts` now treats public invoke dispatch as
+  a typed Worker route operation instead of using an inner catch-all
+  `invokeErrorResponse(...)` wrapper.
+- Existing public invoke protocol schemas stay in `flarex-protocol/invoke`,
+  while backend-only request shaping and dispatch mapping stay in
+  `flarex-backend`.
+
+Boundary decision:
+
+Protocol packages validate the transport envelope. Backend route-boundary code
+translates that envelope into backend runtime requests, and Worker code owns
+dispatch to direct invoke or artifact runtime execution. Partition storage,
+artifact runtime implementation details, and user `ValidatorJson` semantics
+remain separate.
+
+Known limitations:
+
+- Active-deployment loading and direct invoke execution are still Promise
+  compatibility APIs behind the public Worker route operation.
+- A future service slice should decide whether public invoke dispatch deserves
+  a dedicated service module instead of remaining in `worker.ts`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Query Planning Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke query planning`.

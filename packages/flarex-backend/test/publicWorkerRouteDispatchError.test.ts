@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
+import { PartitionRequestError } from "../src/transaction";
 import {
   publicWorkerDispatchError,
+  publicWorkerDispatchErrorToAdapterError,
   publicWorkerDispatchErrorToHttpError,
   PublicWorkerDispatchError,
 } from "../src/worker/PublicRouteDispatchError";
@@ -22,6 +24,26 @@ describe("public Worker route dispatch errors", () => {
       status: 503,
       message: "Execution DO unavailable.",
     });
+    expect(publicWorkerDispatchErrorToAdapterError(error)).toMatchObject({
+      status: 503,
+      message: "Execution DO unavailable.",
+    });
+  });
+
+  it("preserves partition request failures for public invoke response mapping", () => {
+    const cause = new PartitionRequestError(409, {
+      code: "OCC_CONFLICT",
+      error: "Read set changed.",
+    });
+    const error = publicWorkerDispatchError("invoke-execute", cause);
+
+    expect(error).toMatchObject({
+      source: "invoke-execute",
+      status: 500,
+      message: "Partition request failed with status 409.",
+      cause,
+    });
+    expect(publicWorkerDispatchErrorToAdapterError(error)).toBe(cause);
   });
 
   it("maps non-HTTP dispatch failures to the existing 500 adapter shape", () => {
