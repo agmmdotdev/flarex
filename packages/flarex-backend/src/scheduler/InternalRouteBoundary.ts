@@ -77,11 +77,27 @@ export function runSchedulerRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)))
-      ),
+      Effect.catchTags({
+        RequestJsonError: recoverSchedulerInternalRouteError,
+        SchedulerRoutePayloadError: recoverSchedulerInternalRouteError,
+        SchedulerPendingStateError: recoverSchedulerInternalRouteError,
+        SchedulerResponseError: recoverSchedulerInternalRouteError,
+        SchedulerResponsePayloadError: recoverSchedulerInternalRouteError,
+        SchedulerContinuationCursorError: recoverSchedulerInternalRouteError,
+        SchedulerConnectionTargetError: recoverSchedulerInternalRouteError,
+        SchedulerMaintenanceRequestError: recoverSchedulerInternalRouteError,
+        SchedulerDeliveryWakeRequestError: recoverSchedulerInternalRouteError,
+        SchedulerForceReconnectRequestError: recoverSchedulerInternalRouteError,
+        SchedulerRouteOperationError: recoverSchedulerInternalRouteError,
+      }),
     ),
   );
+}
+
+function recoverSchedulerInternalRouteError(
+  error: SchedulerInternalRouteError,
+): Effect.Effect<Response> {
+  return Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)));
 }
 
 function schedulerInternalRouteErrorToHttpError(

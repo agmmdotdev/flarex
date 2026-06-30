@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Scheduler And Delivery Internal Route Tagged Recovery
+
+Previous completed checkpoint: `ed635ad` Use tagged execution connection recovery.
+
+What changed:
+
+- SchedulerDO and DeliveryDO internal route adapters now use
+  `Effect.catchTags(...)` instead of broad catch-all recovery.
+- Scheduler request JSON, scheduler payload, pending-state, response, runtime,
+  maintenance, delivery-wake, force-reconnect, and route-operation failures
+  remain typed until the Durable Object adapter maps them to the existing HTTP
+  response behavior.
+- DeliveryDO drain failures are now emitted as tagged
+  `DeliveryDrainFailureError` values while preserving the existing failure
+  result payload and HTTP `500` response shape.
+
+Boundary decision:
+
+SchedulerDO and DeliveryDO own the runtime recovery edge for their internal
+JSON routes. Scheduler maintenance/delivery/reconnect helpers, delivery
+claim/fanout/ack logic, and pending-state decoders continue to emit typed
+failures and do not introduce new domain dependencies on `HttpError`.
+
+Known limitations:
+
+- This checkpoint does not change DeliveryDO alarm retry behavior, SchedulerDO
+  alarm continuation behavior, delivery claim/fanout/ack logic, scheduler
+  maintenance logic, PartitionDO SQL/OCC, protocol schemas, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryDO.test.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/schedulerMaintenanceBoundary.test.ts packages/flarex-backend/test/schedulerDeliveryWakeBoundary.test.ts packages/flarex-backend/test/schedulerForceReconnectBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution And Connection Internal Route Tagged Recovery
 
 Previous completed checkpoint: `2c8803a` Use tagged generated route recovery.

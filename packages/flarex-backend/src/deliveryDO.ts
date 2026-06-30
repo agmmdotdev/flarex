@@ -24,7 +24,7 @@ import {
   type PendingDeliveryDrain,
 } from "./delivery/PendingDrainState";
 import { HttpError, errorResponse, json } from "./http";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
   deliverLiveQueryChangesToConnectionsEffect,
@@ -568,11 +568,21 @@ function runDeliveryRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(deliveryInternalRouteErrorToResponse(error))
-      ),
+      Effect.catchTags({
+        RequestJsonError: recoverDeliveryInternalRouteError,
+        DeliveryWakePayloadError: recoverDeliveryInternalRouteError,
+        DeliveryRouteOperationError: recoverDeliveryInternalRouteError,
+        DeliveryPendingDrainStateError: recoverDeliveryInternalRouteError,
+        DeliveryDrainFailureError: recoverDeliveryInternalRouteError,
+      }),
     ),
   );
+}
+
+function recoverDeliveryInternalRouteError(
+  error: DeliveryInternalRouteError,
+): Effect.Effect<Response> {
+  return Effect.succeed(deliveryInternalRouteErrorToResponse(error));
 }
 
 function deliveryInternalRouteErrorToResponse(
@@ -595,12 +605,10 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-class DeliveryDrainFailureError extends Error {
-  constructor(readonly result: DeliveryDrainFailureResult) {
-    super(result.error);
-    this.name = "DeliveryDrainFailureError";
-  }
-}
+class DeliveryDrainFailureError extends Data.TaggedError("DeliveryDrainFailureError")<{
+  readonly result: DeliveryDrainFailureResult;
+  readonly message: string;
+}> {}
 
 function newDeliveryDrainFailureError(input: {
   deploymentId: string;
@@ -614,7 +622,11 @@ function newDeliveryDrainFailureError(input: {
   skipReasons: LiveQueryDeliverySkipReasons;
   hasMore: boolean;
 }): DeliveryDrainFailureError {
-  return new DeliveryDrainFailureError(deliveryDrainFailureResult(input));
+  const result = deliveryDrainFailureResult(input);
+  return new DeliveryDrainFailureError({
+    result,
+    message: result.error,
+  });
 }
 
 function deliveryDrainFailureResult(input: {
