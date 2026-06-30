@@ -1,5 +1,43 @@
 # OCC And Transactions
 
+## PartitionDO Route Dispatch Effect Boundary
+
+Previous completed checkpoint: `d198dd0` Type scheduler maintenance route
+boundary.
+
+What changed:
+
+- PartitionDO now routes its Durable Object entrypoint through
+  `Effect.fn("PartitionDO.route")`.
+- Health, schema-cache, begin, commit, subscription register, subscription
+  unregister, connection unregister, document read, index read, and not-found
+  responses share one route dispatcher and one partition route adapter runner.
+- Schema-cache, commit, and subscription body branches continue to use the
+  existing typed request decoders and preserved `HttpError` mapping.
+
+What did not change:
+
+- PartitionDO SQL table layout, OCC validation, idempotency replay,
+  document/index history, current document/index state, owner-field validation,
+  subscription invalidation scanning, and transaction response shapes are
+  unchanged.
+- This checkpoint is not the service-extraction step for PartitionDO
+  transaction logic.
+- Public Worker partition routing, scheduler/sync/execution routes,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/transaction.test.ts -t "rejects malformed partition schema-cache JSON at the route boundary|rejects non-object partition schema-cache JSON at the route boundary|rejects malformed partition subscription registration JSON at the route boundary|rejects invalid partition subscription unregister-connection envelopes at the route boundary|rejects invalid partition subscription unregister targets at the route boundary|rejects malformed partition commit JSON at the route boundary|commits through the public partition route boundary|generates ids, exposes read-your-writes, and coalesces document writes|surfaces OCC conflicts from the partition commit path|rejects colocated writes at the partition commit boundary|rejects partitionBy field writes at the partition commit boundary|enforces partitionBy field owner uniqueness at the partition commit boundary" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionFlow.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Partition Route Effect Boundary
 
 Previous completed checkpoint: `b351f13` Type public execution route

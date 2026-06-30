@@ -179,75 +179,25 @@ export class PartitionDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (url.pathname === "/health") {
-        return json({
+      return await runPartitionRoute(routePartitionDurableObject(request, url, {
+        health: () => ({
           service: "flarex-partition",
           status: "ok",
           currentTs: this.currentTs(),
           schemaVersion: this.schemaVersion(),
           partitionKey: this.partitionKey(),
-        });
-      }
-      if (url.pathname === "/schema-cache" && request.method === "PUT") {
-        return await Effect.runPromise(
-          routePartitionSchemaCache(request, body => this.putSchemaCache(body)),
-        );
-      }
-      if (url.pathname === "/begin" && request.method === "POST") {
-        return json(this.begin());
-      }
-      if (url.pathname === "/commit" && request.method === "POST") {
-        return await Effect.runPromise(
-          routePartitionCommit(request, body => this.commit(body)),
-        );
-      }
-      if (url.pathname === "/subscriptions/register" && request.method === "POST") {
-        return await Effect.runPromise(
-          routePartitionSubscriptionRegistration(request, body => this.registerSubscription(body)),
-        );
-      }
-      if (url.pathname === "/subscriptions/unregister" && request.method === "POST") {
-        return await Effect.runPromise(
-          routePartitionSubscriptionUnregister(request, body => this.unregisterSubscription(body)),
-        );
-      }
-      if (url.pathname === "/subscriptions/unregister-connection" && request.method === "POST") {
-        return await Effect.runPromise(
-          routePartitionConnectionUnregister(request, body => this.unregisterConnection(body)),
-        );
-      }
-      if (url.pathname === "/document" && request.method === "GET") {
-        const tableId = Number(url.searchParams.get("tableId"));
-        const id = url.searchParams.get("id");
-        const at = Number(url.searchParams.get("at") ?? this.currentTs());
-        if (!Number.isInteger(tableId) || !id) {
-          return json({ error: "tableId and id are required." }, { status: 400 });
-        }
-        return json(this.readDocument(tableId, id, at));
-      }
-      if (url.pathname === "/index" && request.method === "GET") {
-        const indexId = Number(url.searchParams.get("indexId"));
-        if (!Number.isInteger(indexId)) {
-          return json({ error: "indexId is required." }, { status: 400 });
-        }
-        const at = Number(url.searchParams.get("at") ?? this.currentTs());
-        const lower = url.searchParams.get("lower") ?? undefined;
-        const upper = url.searchParams.get("upper") ?? undefined;
-        const cursor = url.searchParams.get("cursor") ?? undefined;
-        const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
-        return json(
-          this.readIndex(
-            indexId,
-            at,
-            lower,
-            upper,
-            Number(url.searchParams.get("limit") ?? 100),
-            cursor,
-            order,
-          ),
-        );
-      }
-      return json({ error: "Not found." }, { status: 404 });
+        }),
+        currentTs: () => this.currentTs(),
+        putSchemaCache: body => this.putSchemaCache(body),
+        begin: () => this.begin(),
+        commit: body => this.commit(body),
+        registerSubscription: body => this.registerSubscription(body),
+        unregisterSubscription: body => this.unregisterSubscription(body),
+        unregisterConnection: body => this.unregisterConnection(body),
+        readDocument: (tableId, id, at) => this.readDocument(tableId, id, at),
+        readIndex: (indexId, at, lower, upper, limit, cursor, order) =>
+          this.readIndex(indexId, at, lower, upper, limit, cursor, order),
+      }));
     } catch (error) {
       if (isOccConflict(error)) return json(error, { status: 409 });
       return errorResponse(error);
@@ -1013,6 +963,120 @@ export class PartitionDO extends DurableObject<Env> {
   }
 }
 
+interface PartitionRouteHandlers {
+  health(): {
+    service: "flarex-partition";
+    status: "ok";
+    currentTs: number;
+    schemaVersion: number;
+    partitionKey: string | null;
+  };
+  currentTs(): number;
+  putSchemaCache(body: PartitionSchemaCacheRequest): Promise<{ schemaVersion: number }>;
+  begin(): BeginResponse;
+  commit(body: CommitRequest): Promise<CommitResponse>;
+  registerSubscription(body: PartitionSubscriptionRegistrationRequest): { registered: true };
+  unregisterSubscription(body: PartitionSubscriptionTargetRequest): { unregistered: true };
+  unregisterConnection(body: PartitionConnectionUnregisterRequest): { unregistered: true };
+  readDocument(tableId: number, id: string, at: number): DocumentReadResponse;
+  readIndex(
+    indexId: number,
+    at: number,
+    lower: string | undefined,
+    upper: string | undefined,
+    limit: number,
+    cursor: string | undefined,
+    order: "asc" | "desc",
+  ): IndexReadResponse;
+}
+
+const routePartitionDurableObject = Effect.fn("PartitionDO.route")(
+  function* (
+    request: Request,
+    url: URL,
+    handlers: PartitionRouteHandlers,
+  ): Effect.fn.Return<Response, HttpError> {
+    if (url.pathname === "/health") {
+      return json(handlers.health());
+    }
+    if (url.pathname === "/schema-cache" && request.method === "PUT") {
+      return yield* routePartitionSchemaCache(request, handlers.putSchemaCache);
+    }
+    if (url.pathname === "/begin" && request.method === "POST") {
+      return json(handlers.begin());
+    }
+    if (url.pathname === "/commit" && request.method === "POST") {
+      return yield* routePartitionCommit(request, handlers.commit);
+    }
+    if (url.pathname === "/subscriptions/register" && request.method === "POST") {
+      return yield* routePartitionSubscriptionRegistration(
+        request,
+        handlers.registerSubscription,
+      );
+    }
+    if (url.pathname === "/subscriptions/unregister" && request.method === "POST") {
+      return yield* routePartitionSubscriptionUnregister(
+        request,
+        handlers.unregisterSubscription,
+      );
+    }
+    if (url.pathname === "/subscriptions/unregister-connection" && request.method === "POST") {
+      return yield* routePartitionConnectionUnregister(
+        request,
+        handlers.unregisterConnection,
+      );
+    }
+    if (url.pathname === "/document" && request.method === "GET") {
+      return routePartitionDocumentRead(url, handlers.currentTs, handlers.readDocument);
+    }
+    if (url.pathname === "/index" && request.method === "GET") {
+      return routePartitionIndexRead(url, handlers.currentTs, handlers.readIndex);
+    }
+    return json({ error: "Not found." }, { status: 404 });
+  },
+);
+
+function routePartitionDocumentRead(
+  url: URL,
+  currentTs: PartitionRouteHandlers["currentTs"],
+  readDocument: PartitionRouteHandlers["readDocument"],
+): Response {
+  const tableId = Number(url.searchParams.get("tableId"));
+  const id = url.searchParams.get("id");
+  const at = Number(url.searchParams.get("at") ?? currentTs());
+  if (!Number.isInteger(tableId) || !id) {
+    return json({ error: "tableId and id are required." }, { status: 400 });
+  }
+  return json(readDocument(tableId, id, at));
+}
+
+function routePartitionIndexRead(
+  url: URL,
+  currentTs: PartitionRouteHandlers["currentTs"],
+  readIndex: PartitionRouteHandlers["readIndex"],
+): Response {
+  const indexId = Number(url.searchParams.get("indexId"));
+  if (!Number.isInteger(indexId)) {
+    return json({ error: "indexId is required." }, { status: 400 });
+  }
+  const at = Number(url.searchParams.get("at") ?? currentTs());
+  const lower = url.searchParams.get("lower") ?? undefined;
+  const upper = url.searchParams.get("upper") ?? undefined;
+  const cursor = url.searchParams.get("cursor") ?? undefined;
+  const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
+  return json(
+    readIndex(
+      indexId,
+      at,
+      lower,
+      upper,
+      Number(url.searchParams.get("limit") ?? 100),
+      cursor,
+      order,
+    ),
+  );
+}
+
 const routePartitionSchemaCache = Effect.fn("PartitionDO.routeSchemaCache")(
   function* (
     request: Request,
@@ -1090,6 +1154,14 @@ function routePartitionJsonResult<A extends Json | object>(
     const value = await execute();
     return json(value, init?.(value));
   });
+}
+
+function runPartitionRoute(effect: Effect.Effect<Response, HttpError>): Promise<Response> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error => Effect.succeed(errorResponse(error))),
+    ),
+  );
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {
