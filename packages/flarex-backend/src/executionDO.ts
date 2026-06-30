@@ -384,9 +384,16 @@ function runExecutionRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(executionInternalRouteErrorToResponse(error))
-      ),
+      Effect.catchTags({
+        RequestJsonError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        ExecutionProtocolValidationError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        ExecutionSessionError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        ExecutionRouteOperationError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+      }),
     ),
   );
 }

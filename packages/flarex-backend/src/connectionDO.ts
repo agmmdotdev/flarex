@@ -727,9 +727,16 @@ function runConnectionRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error)))
-      ),
+      Effect.catchTags({
+        RequestJsonError: error =>
+          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
+        ConnectionRouteValidationError: error =>
+          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
+        LiveQueryDeliveryChangePayloadError: error =>
+          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
+        ConnectionRouteOperationError: error =>
+          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
+      }),
     ),
   );
 }

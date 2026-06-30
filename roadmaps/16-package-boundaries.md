@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Execution And Connection Internal Route Tagged Recovery
+
+Previous completed checkpoint: `2c8803a` Use tagged generated route recovery.
+
+What changed:
+
+- ExecutionDO and ConnectionDO internal route adapters now use
+  `Effect.catchTags(...)` instead of broad catch-all recovery.
+- Request JSON, execution protocol, execution session, route operation,
+  connection validation, and live-query delivery payload failures remain typed
+  until the Durable Object adapter maps them to the existing HTTP response
+  behavior.
+
+Boundary decision:
+
+ExecutionDO and ConnectionDO now own a tag-specific runtime recovery edge for
+their internal JSON routes. Execution/session helpers, connection dispatch, and
+shared request/payload decoders continue to emit typed failures and do not take
+new dependencies on `HttpError` beyond the existing adapter mapping layer.
+
+Known limitations:
+
+- This checkpoint does not change ExecutionDO session lifecycle/syscalls,
+  ConnectionDO WebSocket/session behavior, PartitionDO SQL/OCC,
+  Scheduler/Delivery, protocol schemas, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Generated HttpApi Durable Object Tagged Route Recovery
 
 Previous completed checkpoint: `419cef3` Use tagged deployment handler recovery.

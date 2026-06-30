@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Registry and Deployment internal route tagged recovery.
+- Previous completed checkpoint: Execution and Connection internal route tagged recovery.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Registry and Deployment internal route tagged recovery checkpoint:
+Next recommended checkpoint after the Execution and Connection internal route tagged recovery checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,22 @@ Next recommended checkpoint after the Registry and Deployment internal route tag
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 239 slice:
+
+1. Route ExecutionDO and ConnectionDO internal route adapter recovery through
+   `Effect.catchTags(...)` instead of broad catch-all recovery.
+2. Keep request JSON, execution protocol, execution session,
+   execution/connection operation, connection validation, and live-query
+   delivery payload failures typed until the Durable Object adapter response
+   edge.
+3. Preserve existing invoke error response mapping for ExecutionDO and existing
+   `errorResponse(...)` mapping for ConnectionDO.
+4. Keep ExecutionDO session lifecycle/syscalls, ConnectionDO WebSocket/session
+   behavior, PartitionDO SQL/OCC, Scheduler/Delivery, protocol schemas,
+   executor-http, and `ValidatorJson` unchanged.
+5. Validate focused execution/connection route coverage and broad backend plus
+   protocol gates.
 
 Completed Goal 238 slice:
 
