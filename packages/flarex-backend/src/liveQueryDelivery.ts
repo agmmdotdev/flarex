@@ -1,5 +1,5 @@
 import { HttpError } from "./http";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import type { LiveQueryDeliveryChange } from "flarex";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
@@ -35,6 +35,14 @@ export type LiveQueryDeliveryResult = {
 export type ConnectionLiveQueryDeliveryResult = LiveQueryDeliveryResult & {
   connections: number;
 };
+
+export class LiveQueryDeliveryResultPayloadError extends Data.TaggedError(
+  "LiveQueryDeliveryResultPayloadError",
+)<{
+  readonly connectionId: string;
+  readonly status: number;
+  readonly message: string;
+}> {}
 
 export function liveQueryDeliveryChangesFromBody(
   body: unknown,
@@ -80,14 +88,21 @@ export async function deliverLiveQueryChangesToConnections(
         body: JSON.stringify({ deliveries: connectionDeliveries }),
       },
     );
-    const body = await Effect.runPromise(
-      decodeConnectionLiveQueryDeliveryResponse<unknown>(response, connectionId).pipe(
-        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-      ),
-    );
-    const result = liveQueryDeliveryResultFromUnknown(
-      body,
-      connectionId,
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const body = yield* decodeConnectionLiveQueryDeliveryResponse<unknown>(
+          response,
+          connectionId,
+        ).pipe(
+          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+        );
+        return yield* decodeConnectionLiveQueryDeliveryResultPayload(
+          body,
+          connectionId,
+        ).pipe(
+          Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+        );
+      }),
     );
     delivered += result.delivered;
     skipped += result.skipped;
@@ -201,36 +216,11 @@ export function liveQueryDeliveryResultFromUnknown(
   value: unknown,
   connectionId: string,
 ): LiveQueryDeliveryResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(
-      502,
-      `ConnectionDO live query delivery for ${connectionId} did not return a JSON object.`,
-    );
-  }
-  const record = value as Record<string, unknown>;
-  const skipReasons = optionalLiveQueryDeliverySkipReasons(
-    record.skipReasons,
-    `${connectionId}.skipReasons`,
+  return Effect.runSync(
+    decodeConnectionLiveQueryDeliveryResultPayload(value, connectionId).pipe(
+      Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+    ),
   );
-  const staleSkipped = optionalResultInteger(record.staleSkipped, `${connectionId}.staleSkipped`);
-  if (
-    staleSkipped !== undefined &&
-    skipReasons?.stale !== undefined &&
-    staleSkipped !== skipReasons.stale
-  ) {
-    throw new HttpError(
-      502,
-      `${connectionId}.staleSkipped must match ${connectionId}.skipReasons.stale when both are present.`,
-    );
-  }
-  const parsedStaleSkipped = staleSkipped ?? skipReasons?.stale;
-  const parsedSkipReasons = normalizeParsedSkipReasons(skipReasons, staleSkipped);
-  return {
-    delivered: requiredResultInteger(record.delivered, `${connectionId}.delivered`),
-    skipped: requiredResultInteger(record.skipped, `${connectionId}.skipped`),
-    ...(parsedStaleSkipped === undefined ? {} : { staleSkipped: parsedStaleSkipped }),
-    ...(parsedSkipReasons === undefined ? {} : { skipReasons: parsedSkipReasons }),
-  };
 }
 
 function requiredDeliveryString(value: unknown, field: string): string {
@@ -243,19 +233,96 @@ function requiredDeliveryInteger(value: unknown, field: string): number {
   throw new Error(`${field} must be an integer.`);
 }
 
-function requiredResultInteger(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return value;
-  }
-  throw new HttpError(502, `${field} must be a non-negative integer.`);
+export const decodeConnectionLiveQueryDeliveryResultPayload = Effect.fn(
+  "LiveQueryDelivery.decodeConnectionResultPayload",
+)(
+  function* (
+    value: unknown,
+    connectionId: string,
+  ): Effect.fn.Return<LiveQueryDeliveryResult, LiveQueryDeliveryResultPayloadError> {
+    const record = yield* resultRecord(value, connectionId);
+    const skipReasons = yield* optionalLiveQueryDeliverySkipReasons(
+      record.skipReasons,
+      `${connectionId}.skipReasons`,
+      connectionId,
+    );
+    const staleSkipped = yield* optionalResultInteger(
+      record.staleSkipped,
+      `${connectionId}.staleSkipped`,
+      connectionId,
+    );
+    if (
+      staleSkipped !== undefined &&
+      skipReasons?.stale !== undefined &&
+      staleSkipped !== skipReasons.stale
+    ) {
+      return yield* failResultPayload(
+        connectionId,
+        `${connectionId}.staleSkipped must match ${connectionId}.skipReasons.stale when both are present.`,
+      );
+    }
+    const parsedStaleSkipped = staleSkipped ?? skipReasons?.stale;
+    const parsedSkipReasons = normalizeParsedSkipReasons(skipReasons, staleSkipped);
+    return {
+      delivered: yield* requiredResultInteger(
+        record.delivered,
+        `${connectionId}.delivered`,
+        connectionId,
+      ),
+      skipped: yield* requiredResultInteger(
+        record.skipped,
+        `${connectionId}.skipped`,
+        connectionId,
+      ),
+      ...(parsedStaleSkipped === undefined ? {} : { staleSkipped: parsedStaleSkipped }),
+      ...(parsedSkipReasons === undefined ? {} : { skipReasons: parsedSkipReasons }),
+    };
+  },
+);
+
+export function liveQueryDeliveryResultPayloadErrorToHttpError(
+  error: LiveQueryDeliveryResultPayloadError,
+): HttpError {
+  return new HttpError(error.status, error.message);
 }
 
-function optionalResultInteger(value: unknown, field: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return value;
+function resultRecord(
+  value: unknown,
+  connectionId: string,
+): Effect.Effect<Record<string, unknown>, LiveQueryDeliveryResultPayloadError> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return Effect.succeed(value as Record<string, unknown>);
   }
-  throw new HttpError(502, `${field} must be a non-negative integer when present.`);
+  return failResultPayload(
+    connectionId,
+    `ConnectionDO live query delivery for ${connectionId} did not return a JSON object.`,
+  );
+}
+
+function requiredResultInteger(
+  value: unknown,
+  field: string,
+  connectionId: string,
+): Effect.Effect<number, LiveQueryDeliveryResultPayloadError> {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return Effect.succeed(value);
+  }
+  return failResultPayload(connectionId, `${field} must be a non-negative integer.`);
+}
+
+function optionalResultInteger(
+  value: unknown,
+  field: string,
+  connectionId: string,
+): Effect.Effect<number | undefined, LiveQueryDeliveryResultPayloadError> {
+  if (value === undefined) return Effect.succeed(undefined);
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return Effect.succeed(value);
+  }
+  return failResultPayload(
+    connectionId,
+    `${field} must be a non-negative integer when present.`,
+  );
 }
 
 function nonZeroLiveQueryDeliverySkipReasons(
@@ -273,19 +340,26 @@ function nonZeroLiveQueryDeliverySkipReasons(
 function optionalLiveQueryDeliverySkipReasons(
   value: unknown,
   field: string,
-): LiveQueryDeliverySkipReasons | undefined {
-  if (value === undefined) return undefined;
+  connectionId: string,
+): Effect.Effect<LiveQueryDeliverySkipReasons | undefined, LiveQueryDeliveryResultPayloadError> {
+  if (value === undefined) return Effect.succeed(undefined);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, `${field} must be an object when present.`);
+    return failResultPayload(connectionId, `${field} must be an object when present.`);
   }
-  const record = value as Record<string, unknown>;
-  const result: LiveQueryDeliverySkipReasons = {};
-  for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
-    const count = optionalResultInteger(record[reason], `${field}.${reason}`);
-    if (count === undefined) continue;
-    result[reason] = count;
-  }
-  return nonZeroLiveQueryDeliverySkipReasons(result);
+  return Effect.gen(function* () {
+    const record = value as Record<string, unknown>;
+    const result: LiveQueryDeliverySkipReasons = {};
+    for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
+      const count = yield* optionalResultInteger(
+        record[reason],
+        `${field}.${reason}`,
+        connectionId,
+      );
+      if (count === undefined) continue;
+      result[reason] = count;
+    }
+    return nonZeroLiveQueryDeliverySkipReasons(result);
+  });
 }
 
 function normalizeParsedSkipReasons(
@@ -305,6 +379,17 @@ function normalizeParsedSkipReasons(
 function deliveryJson(value: unknown, field: string): Json {
   if (isDeliveryJson(value)) return value;
   throw new Error(`${field} must be a JSON value.`);
+}
+
+function failResultPayload<A = never>(
+  connectionId: string,
+  message: string,
+): Effect.Effect<A, LiveQueryDeliveryResultPayloadError> {
+  return Effect.fail(new LiveQueryDeliveryResultPayloadError({
+    connectionId,
+    status: 502,
+    message,
+  }));
 }
 
 function isDeliveryJson(value: unknown): value is Json {

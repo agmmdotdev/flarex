@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { liveQueryDeliveryResultFromUnknown } from "../src/liveQueryDelivery";
+import {
+  decodeConnectionLiveQueryDeliveryResultPayload,
+  liveQueryDeliveryResultFromUnknown,
+  liveQueryDeliveryResultPayloadErrorToHttpError,
+} from "../src/liveQueryDelivery";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
   decodeLiveQueryDeliveryAckResponse,
@@ -55,6 +59,61 @@ describe("live query delivery result parsing", () => {
       name: "HttpError",
       status: 502,
       message: "Live query delivery claim failed with status 503.",
+    });
+  });
+
+  it("exposes typed connection delivery payload successes before HTTP mapping", async () => {
+    await expect(
+      Effect.runPromise(decodeConnectionLiveQueryDeliveryResultPayload(
+        {
+          delivered: 0,
+          skipped: 2,
+          staleSkipped: 1,
+          skipReasons: { missingQuery: 1 },
+        },
+        "connection:test:typed",
+      )),
+    ).resolves.toEqual({
+      delivered: 0,
+      skipped: 2,
+      staleSkipped: 1,
+      skipReasons: { missingQuery: 1, stale: 1 },
+    });
+  });
+
+  it("exposes typed connection delivery payload failures before HTTP mapping", async () => {
+    await expect(
+      Effect.runPromise(decodeConnectionLiveQueryDeliveryResultPayload(
+        {
+          delivered: 0,
+          skipped: 2,
+          staleSkipped: 1,
+          skipReasons: { stale: 2 },
+        },
+        "connection:test:mismatch",
+      )),
+    ).rejects.toMatchObject({
+      _tag: "LiveQueryDeliveryResultPayloadError",
+      connectionId: "connection:test:mismatch",
+      status: 502,
+      message: "connection:test:mismatch.staleSkipped must match connection:test:mismatch.skipReasons.stale when both are present.",
+    });
+  });
+
+  it("maps connection delivery payload failures to the existing 502 adapter shape", async () => {
+    await expect(
+      Effect.runPromise(
+        decodeConnectionLiveQueryDeliveryResultPayload(
+          { delivered: 1, skipped: -1 },
+          "connection:test:bad",
+        ).pipe(
+          Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "HttpError",
+      status: 502,
+      message: "connection:test:bad.skipped must be a non-negative integer.",
     });
   });
 

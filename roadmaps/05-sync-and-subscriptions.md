@@ -1,5 +1,46 @@
 # Sync And Subscriptions
 
+## ConnectionDO Fanout Payload Effect Boundary
+
+Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.
+
+What changed:
+
+- ConnectionDO live-query fanout result payload validation now emits typed
+  `LiveQueryDeliveryResultPayloadError` failures.
+- `deliverLiveQueryChangesToConnections(...)` now decodes the downstream
+  response status and successful result payload inside one Effect bridge per
+  ConnectionDO fanout call.
+- The existing `liveQueryDeliveryResultFromUnknown(...)` parser remains as a
+  compatibility wrapper that maps the typed payload failure back to
+  `HttpError(502, ...)`.
+
+Why it changed:
+
+The previous payload checkpoint typed DeliveryDO claim/ack and SchedulerDO
+maintenance result payloads, but ConnectionDO fanout still threw from
+`liveQueryDelivery.ts` after the response-status boundary succeeded. This
+closes the remaining successful payload parser on the live-query delivery
+fanout path without changing skip accounting or stale-result compatibility.
+
+Known limitations:
+
+- Delivery request body validation still uses the existing compatibility parser
+  for `LiveQueryDeliveryChange` values.
+- Delivery target validation still maps invalid route/deployment scope to the
+  existing adapter-shaped `HttpError(400, ...)`.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Delivery And Scheduler Response Payload Effect Boundaries
 
 Previous completed checkpoint: `6e0450a` Type public worker paths.

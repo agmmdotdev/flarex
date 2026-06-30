@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `6e0450a Type public worker paths`.
-- Active checkpoint: DeliveryDO and SchedulerDO typed response payload boundaries.
+- Previous completed checkpoint: `401a08d Type delivery scheduler payloads`.
+- Active checkpoint: ConnectionDO fanout typed response payload boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -78,6 +78,23 @@ Completed Goal 183 slice:
 5. Validate typed payload success/failure channels directly and preserve
    existing adapter mapping with focused live-query delivery and scheduler
    response tests.
+
+Completed Goal 184 slice:
+
+1. Add typed ConnectionDO live-query fanout result payload failures through
+   `LiveQueryDeliveryResultPayloadError`.
+2. Route `deliverLiveQueryChangesToConnections(...)` through the typed payload
+   decoder after the existing response-status decoder, preserving one
+   `Effect.runPromise` edge per ConnectionDO fanout call.
+3. Keep `liveQueryDeliveryResultFromUnknown(...)` as a compatibility wrapper
+   that maps typed payload failures back to the existing `HttpError(502, ...)`
+   shape for direct parser callers.
+4. Preserve delivery target validation, skip-reason normalization,
+   staleSkipped compatibility, DeliveryDO claim/ack behavior, SchedulerDO
+   workflows, PartitionDO SQL/OCC behavior, executor-http, protocol schemas,
+   and `ValidatorJson`.
+5. Validate typed fanout payload success/failure channels directly and preserve
+   existing adapter mapping with focused live-query delivery tests.
 
 Completed Goal 182 slice:
 

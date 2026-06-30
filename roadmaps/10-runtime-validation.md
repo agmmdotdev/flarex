@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Connection Fanout Payload Effect Decoder
+
+Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.
+
+What changed:
+
+- Added an Effect decoder for successful ConnectionDO live-query fanout result
+  payloads.
+- Invalid `delivered`, `skipped`, `staleSkipped`, and `skipReasons` fields now
+  produce `LiveQueryDeliveryResultPayloadError` before HTTP compatibility
+  mapping.
+- Direct tests cover typed payload success, typed payload failure, preserved
+  `HttpError(502, ...)` mapping, and the existing staleSkipped compatibility
+  wrapper.
+
+Why it changed:
+
+Response status failures for ConnectionDO fanout were already typed, but the
+successful payload parser still threw directly from the runtime delivery path.
+This moves that remaining parser failure into Effect while preserving the
+current live-query delivery result shape.
+
+Known limitations:
+
+- This checkpoint does not change delivery request body validation.
+- It does not change protocol schemas, executor-http routes, or
+  `ValidatorJson` document/function validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Deployment Path Boundary
 
 Previous completed checkpoint: `735fbff Type public execution routing`.

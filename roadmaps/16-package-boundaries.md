@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Connection Fanout Result Boundary
+
+Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.
+
+What changed:
+
+- ConnectionDO fanout result payload validation now belongs to the
+  `liveQueryDelivery.ts` delivery service boundary as an Effect decoder.
+- `deliverLiveQueryChangesToConnections(...)` consumes that decoder instead of
+  calling the compatibility parser directly after response-status decoding.
+- The compatibility parser stays exported for direct parser tests and callers,
+  but it delegates to the typed decoder before mapping to `HttpError`.
+
+Boundary decision:
+
+ConnectionDO fanout result shape is a delivery service contract. Keeping it in
+`liveQueryDelivery.ts` preserves the existing skip-reason model while removing
+throwing payload validation from the hot delivery workflow.
+
+Known limitations:
+
+- The lower-level response-status decoder remains in
+  `liveQueryDeliveryResponses.ts`.
+- Delivery request body parsing and target validation remain separate
+  migration surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Response Payload Boundary Modules
 
 Previous completed checkpoint: `6e0450a` Type public worker paths.
