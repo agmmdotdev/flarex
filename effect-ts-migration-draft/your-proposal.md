@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: public Worker partition route boundary.
+- Previous completed checkpoint: public Worker scheduler route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker partition route boundary checkpoint:
+Next recommended checkpoint after the public Worker scheduler route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,27 @@ Next recommended checkpoint after the public Worker partition route boundary che
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 204 slice:
+
+1. Convert the public Worker scheduler router to a named
+   `Effect.fn("Worker.routePublicScheduler")` orchestration boundary.
+2. Route delivery reconcile, connection reconcile, dead-letter deliveries,
+   connection cleanup, subscription rerun, and subscription trigger branches
+   through the existing Effect-returning scheduler helpers without nested
+   `Effect.runPromise(...)` calls in the top-level Worker router.
+3. Preserve the exact public scheduler path/method matching, authorization,
+   typed request body decoders, malformed JSON, route validation failures,
+   downstream scheduler dispatch failures, response bodies/statuses, protocol
+   schemas, and `ValidatorJson` unchanged.
+4. Keep SchedulerDO maintenance internals, pending continuation state,
+   DeliveryDO/ConnectionDO behavior, PartitionDO SQL/OCC, public deployment
+   push, public invoke, execution routes, public partition routes,
+   executor-http, and generated HttpApi routes unchanged.
+5. Validate public scheduler route-boundary tests, scheduler authorization,
+   scheduler dispatch source coverage, representative sync public scheduler
+   behavior, backend typecheck/build, protocol build, and only the EffectTS
+   quality checker reviewer.
 
 Completed Goal 203 slice:
 

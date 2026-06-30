@@ -1,5 +1,52 @@
 # Sync And Subscriptions
 
+## Public Worker Scheduler Route Effect Boundary
+
+Previous completed checkpoint: `3744729` Type public partition route boundary.
+
+What changed:
+
+- Public Worker scheduler routing now runs through
+  `Effect.fn("Worker.routePublicScheduler")` with one
+  `Effect.runPromise(...)` adapter edge for all top-level public scheduler
+  endpoints.
+- Delivery reconcile, connection reconcile, dead-letter deliveries, connection
+  cleanup, subscription rerun, and subscription trigger branches reuse the
+  existing typed scheduler helpers instead of running branch-local runtime
+  boundaries.
+- Public dispatch-source coverage now includes every scheduler forwarding
+  source in one grouped test.
+
+Why it changed:
+
+The scheduler request boundaries and maintenance internals were already typed,
+but the public Worker router still had six separate runtime edges for the
+public scheduler endpoints. This checkpoint keeps authorization, route-body
+decoding, validation, and forwarding failures typed until one Worker adapter
+mapper.
+
+Known limitations:
+
+- SchedulerDO maintenance internals, pending continuation state, DeliveryDO
+  and ConnectionDO behavior, and executor maintenance contracts are unchanged.
+- Public path matching remains method/exact-path based in the top-level Worker
+  route; unknown scheduler paths and wrong methods still use the generic
+  Worker 404.
+- PartitionDO SQL/OCC, public deployment push, invoke, execution, partition
+  routes, executor-http, generated HttpApi routes, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryAuthorization.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "routes expired live query connection cleanup through SchedulerDO|rejects malformed live query delivery reconcile JSON at the scheduler route boundary|rejects unauthorized live query delivery reconcile before parsing JSON|rejects invalid live query delivery reconcile envelopes at the public scheduler boundary|triggers stale live query reruns and fans out changed results|rejects malformed live query subscription rerun JSON|rejects malformed live query subscription trigger JSON|dead-letters stuck live query deliveries and reconnects affected connections|rejects malformed live query dead-letter JSON" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Dead-Letter Reconnect Effect Boundary
 
 Previous completed checkpoint: `bdacecb Type scheduler rerun boundary`.

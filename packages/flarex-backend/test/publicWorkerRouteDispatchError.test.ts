@@ -63,6 +63,31 @@ describe("public Worker route dispatch errors", () => {
     });
   });
 
+  it("covers public scheduler dispatch sources", () => {
+    const sources = [
+      "scheduler-delivery-reconcile",
+      "scheduler-connection-reconcile",
+      "scheduler-dead-letter-deliveries",
+      "scheduler-cleanup-connections",
+      "scheduler-rerun-subscriptions",
+      "scheduler-trigger-subscriptions",
+    ] as const;
+
+    for (const source of sources) {
+      const error = publicWorkerDispatchError(source, new Error(`${source} failed.`));
+
+      expect(error).toMatchObject({
+        source,
+        status: 500,
+        message: `${source} failed.`,
+      });
+      expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+        status: 500,
+        message: `${source} failed.`,
+      });
+    }
+  });
+
   it("maps public execution start response JSON failures as typed dispatch failures", () => {
     const cause = new ResponseJsonError({
       message: "Response body must be JSON.",
