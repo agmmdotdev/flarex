@@ -7,11 +7,14 @@ import {
   decodeSchedulerExpiredConnectionDeploymentsResponse,
   decodeSchedulerPendingDeploymentsPayload,
   decodeSchedulerPendingDeploymentsResponse,
+  decodeSchedulerRerunPayload,
+  decodeSchedulerRerunResponse,
   SchedulerResponseError,
   schedulerResponseErrorToHttpError,
   SchedulerResponsePayloadError,
   schedulerResponsePayloadErrorToHttpError,
   type ExecutorCleanupLiveQueryConnectionsResult,
+  type ExecutorLiveQueryRerunResult,
   type ExpiredConnectionDeploymentsResult,
   type PendingDeploymentsResult,
 } from "./Responses";
@@ -19,7 +22,8 @@ import {
 export type SchedulerMaintenanceOperation =
   | "cleanupConnections"
   | "expiredConnectionDeployments"
-  | "pendingDeployments";
+  | "pendingDeployments"
+  | "rerun";
 
 export type SchedulerMaintenanceFetch = (
   path: string,
@@ -110,6 +114,27 @@ export const pendingDeploymentsEffect = Effect.fn(
       response,
     );
     return yield* decodeSchedulerPendingDeploymentsPayload(payload);
+  },
+);
+
+export const rerunStaleLiveQuerySubscriptionsEffect = Effect.fn(
+  "SchedulerMaintenance.rerunStaleLiveQuerySubscriptions",
+)(
+  function* (
+    schedulerFetch: SchedulerMaintenanceFetch,
+    body: Record<string, unknown>,
+  ): Effect.fn.Return<
+    ExecutorLiveQueryRerunResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    const response = yield* requestSchedulerMaintenance(
+      schedulerFetch,
+      "rerun",
+      "/maintenance/live-queries/rerun",
+      body,
+    );
+    const payload = yield* decodeSchedulerRerunResponse<unknown>(response);
+    return yield* decodeSchedulerRerunPayload(payload);
   },
 );
 

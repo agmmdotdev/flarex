@@ -1,5 +1,56 @@
 # Sync And Subscriptions
 
+## SchedulerDO Rerun Subscriptions Effect Boundary
+
+Previous completed checkpoint: `7fc9d53 Type scheduler delivery reconcile boundary`.
+
+What changed:
+
+- SchedulerDO rerun-subscriptions and continue-reruns routes now execute through
+  Effect-returning service paths instead of Promise route callbacks.
+- Stale live-query subscription rerun executor calls share the typed scheduler
+  maintenance boundary.
+- Pending rerun continuation state, executor rerun failures, invalid rerun
+  payloads, DeliveryDO wake failures, storage operation failures, retry
+  scheduling, alarm refresh, and global rerun in-flight coalescing stay typed
+  until the SchedulerDO adapter edge.
+
+Why it changed:
+
+The delivery reconcile checkpoint removed the largest SchedulerDO dependency on
+Promise callbacks, but rerun subscriptions still mixed executor rerun decoding,
+DeliveryDO wake calls, continuation persistence, and retry scheduling in async
+methods. This checkpoint applies the same typed boundary shape while preserving
+the route response contract and no-change rerun behavior.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific SchedulerDO,
+  executor maintenance, and DeliveryDO orchestration.
+
+How Flarex differs from Convex:
+
+- Flarex computes stale live-query reruns through executor maintenance and then
+  asks DeliveryDO to fan out changed results. A no-change rerun is a successful
+  scheduler result that intentionally skips DeliveryDO wake.
+
+Known limitations:
+
+- Dead-letter reconnect handling remains async-method based and is the next
+  SchedulerDO maintenance route group to migrate.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "subscription rerun|stale live query reruns|continue-live-query-reruns|rerun continuation|rerun fanout"
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Delivery Reconcile/Wake Effect Boundary
 
 Previous completed checkpoint: `028439d Type scheduler connection cleanup boundary`.

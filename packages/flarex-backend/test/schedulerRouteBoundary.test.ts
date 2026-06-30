@@ -557,6 +557,21 @@ describe("scheduler route boundary", () => {
     });
   });
 
+  it("maps malformed rerun continuation state through the scheduler route adapter", async () => {
+    const response = await runSchedulerRoute(
+      routeSchedulerEffectJsonResult(() =>
+        Effect.fail(new SchedulerPendingStateError({
+          message: "pending rerun deploymentId must be a non-empty string.",
+        }))
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "pending rerun deploymentId must be a non-empty string.",
+    });
+  });
+
   it("maps scheduler runtime consistency errors at the adapter boundary", () => {
     expect(schedulerRuntimeErrorToHttpError(
       new SchedulerContinuationCursorError({

@@ -35,7 +35,7 @@ import {
   continuationNextRunAtFromStorage,
   decodePendingDeliveryReconcileFromStorage,
   decodePendingConnectionCleanupFromStorage,
-  pendingRerunFromStorage,
+  decodePendingRerunFromStorage,
   SchedulerPendingStateError,
   type PendingLiveQueryConnectionCleanup,
   type PendingLiveQueryDeliveryReconcile,
@@ -46,6 +46,7 @@ import {
   expiredConnectionDeploymentsEffect,
   isSchedulerMaintenanceBoundaryError,
   pendingDeploymentsEffect,
+  rerunStaleLiveQuerySubscriptionsEffect,
   schedulerMaintenanceBoundaryErrorToHttpError,
   type SchedulerMaintenanceBoundaryError,
 } from "./scheduler/MaintenanceBoundary";
@@ -68,8 +69,6 @@ import {
   decodeSchedulerDeadLetterPayload,
   decodeSchedulerForceReconnectJsonResponse,
   decodeSchedulerForceReconnectPayload,
-  decodeSchedulerRerunResponse,
-  decodeSchedulerRerunPayload,
   SchedulerResponseError,
   SchedulerResponsePayloadError,
   type ExecutorCleanupLiveQueryConnectionsResult,
@@ -126,6 +125,12 @@ type SchedulerConnectionCleanupError =
   | SchedulerPendingStateError
   | SchedulerMaintenanceBoundaryError
   | SchedulerRuntimeError
+  | SchedulerRouteOperationError;
+
+type SchedulerRerunError =
+  | SchedulerPendingStateError
+  | SchedulerMaintenanceBoundaryError
+  | SchedulerDeliveryWakeBoundaryError
   | SchedulerRouteOperationError;
 
 type ReconcileConnectionCleanupResult = {
@@ -188,7 +193,7 @@ export class SchedulerDO extends DurableObject<Env> {
     string,
     Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError>
   >();
-  private rerunInFlight: Promise<RerunResult> | undefined;
+  private rerunInFlight: Effect.Effect<RerunResult, SchedulerRerunError> | undefined;
   private readonly connectionCleanupInFlight = new Map<
     string,
     Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError>
@@ -246,7 +251,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerRerunSubscriptions(request, body =>
-            this.rerunLiveQuerySubscriptions(body),
+            this.rerunLiveQuerySubscriptionsEffect(body),
           ),
         );
       }
@@ -265,7 +270,9 @@ export class SchedulerDO extends DurableObject<Env> {
         request.method === "POST"
       ) {
         return await runSchedulerRoute(
-          routeSchedulerContinueReruns(() => this.continuePendingLiveQueryRerun()),
+          routeSchedulerContinueReruns(() =>
+            this.continuePendingLiveQueryRerunEffect()
+          ),
         );
       }
       if (
@@ -291,7 +298,10 @@ export class SchedulerDO extends DurableObject<Env> {
         respectNextRunAt: true,
         now,
       })),
-      this.continuePendingLiveQueryRerun({ respectNextRunAt: true, now }),
+      Effect.runPromise(this.continuePendingLiveQueryRerunEffect({
+        respectNextRunAt: true,
+        now,
+      })),
       Effect.runPromise(this.continuePendingLiveQueryConnectionCleanupEffect({
         respectNextRunAt: true,
         now,
@@ -819,98 +829,129 @@ export class SchedulerDO extends DurableObject<Env> {
     });
   }
 
-  private async rerunLiveQuerySubscriptions(
+  private rerunLiveQuerySubscriptionsEffect(
     request: SchedulerRerunSubscriptionsRequest,
-  ): Promise<RerunResult> {
-    return this.runAndPersistLiveQueryRerun(pendingRerunFromRequest(request));
+  ): Effect.Effect<RerunResult, SchedulerRerunError> {
+    return this.runAndPersistLiveQueryRerunEffect(
+      pendingRerunFromRequest(request),
+      "rerun-subscriptions",
+    );
   }
 
-  private async continuePendingLiveQueryRerun(): Promise<RerunResult | { skipped: true }>;
-  private async continuePendingLiveQueryRerun(options: {
-    respectNextRunAt: true;
-    now: number;
-  }): Promise<RerunResult | { skipped: true }>;
-  private async continuePendingLiveQueryRerun(options?: {
+  private continuePendingLiveQueryRerunEffect(options?: {
     respectNextRunAt?: boolean;
     now?: number;
-  }): Promise<RerunResult | { skipped: true }> {
-    const pending = await this.readPendingLiveQueryRerun();
-    if (pending === undefined) return { skipped: true };
-    if (
-      options?.respectNextRunAt === true &&
-      !continuationIsDue(pending, options.now ?? Date.now())
-    ) {
-      await this.refreshContinuationAlarm();
-      return { skipped: true };
-    }
-    return this.runAndPersistLiveQueryRerun(pending);
-  }
-
-  private async readPendingLiveQueryRerun(): Promise<
-    PendingLiveQueryRerun | undefined
-  > {
-    const value = await this.ctx.storage.get<unknown>(PENDING_RERUN_KEY);
-    if (value === undefined) return undefined;
-    return pendingRerunFromStorage(value);
-  }
-
-  private async runAndPersistLiveQueryRerun(
-    pending: PendingLiveQueryRerun,
-  ): Promise<RerunResult> {
-    if (this.rerunInFlight !== undefined) return this.rerunInFlight;
-    const rerun = this.runLiveQueryRerun(pending)
-      .then(async result => {
-        await this.persistRerunContinuation(pending, result);
-        return result;
-      })
-      .catch(async error => {
-        await this.scheduleRerunRetry(pending);
-        throw error;
-      })
-      .finally(() => {
-        this.rerunInFlight = undefined;
-      });
-    this.rerunInFlight = rerun;
-    return rerun;
-  }
-
-  private async runLiveQueryRerun(pending: PendingLiveQueryRerun): Promise<RerunResult> {
-    const rerun = await this.rerunStaleLiveQuerySubscriptions({
-      deploymentId: pending.deploymentId,
-      ...(pending.projectId === undefined ? {} : { projectId: pending.projectId }),
-      limit: pending.limit,
+  }): Effect.Effect<RerunResult | { skipped: true }, SchedulerRerunError> {
+    const self = this;
+    return Effect.gen(function* () {
+      const pending = yield* self.readPendingLiveQueryRerunEffect(
+        "continue-reruns",
+      );
+      if (pending === undefined) return { skipped: true };
+      if (
+        options?.respectNextRunAt === true &&
+        !continuationIsDue(pending, options.now ?? Date.now())
+      ) {
+        yield* self.refreshContinuationAlarmEffect("continue-reruns");
+        return { skipped: true };
+      }
+      return yield* self.runAndPersistLiveQueryRerunEffect(
+        pending,
+        "continue-reruns",
+      );
     });
+  }
 
-    if (rerun.changed.length === 0) {
+  private readPendingLiveQueryRerunEffect(
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<
+    PendingLiveQueryRerun | undefined,
+    SchedulerPendingStateError | SchedulerRouteOperationError
+  > {
+    const storage = this.ctx.storage;
+    return Effect.gen(function* () {
+      const value = yield* Effect.tryPromise({
+        try: () => storage.get<unknown>(PENDING_RERUN_KEY),
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
+      if (value === undefined) return undefined;
+      return yield* decodePendingRerunFromStorage(value);
+    });
+  }
+
+  private runAndPersistLiveQueryRerunEffect(
+    pending: PendingLiveQueryRerun,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<RerunResult, SchedulerRerunError> {
+    if (this.rerunInFlight !== undefined) return this.rerunInFlight;
+    const self = this;
+    const rerun = this.runLiveQueryRerunEffect(pending).pipe(
+      Effect.tap(result =>
+        this.persistRerunContinuationEffect(pending, result, operation)
+      ),
+      Effect.catch(error =>
+        this.scheduleRerunRetryEffect(pending, operation).pipe(
+          Effect.flatMap(() => Effect.fail(error)),
+        )
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          self.rerunInFlight = undefined;
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const inFlight = yield* Effect.cached(rerun);
+      self.rerunInFlight = inFlight;
+      return yield* inFlight;
+    });
+  }
+
+  private runLiveQueryRerunEffect(
+    pending: PendingLiveQueryRerun,
+  ): Effect.Effect<
+    RerunResult,
+    SchedulerMaintenanceBoundaryError | SchedulerDeliveryWakeBoundaryError
+  > {
+    const self = this;
+    return Effect.gen(function* () {
+      const rerun = yield* self.rerunStaleLiveQuerySubscriptionsEffect({
+        deploymentId: pending.deploymentId,
+        ...(pending.projectId === undefined ? {} : { projectId: pending.projectId }),
+        limit: pending.limit,
+      });
+
+      if (rerun.changed.length === 0) {
+        return {
+          deploymentId: pending.deploymentId,
+          changed: 0,
+          unchanged: rerun.unchanged.length,
+          unsupported: rerun.unsupported.length,
+          hasMoreStale: rerun.hasMoreStale,
+          delivery: {
+            woken: false,
+            status: null,
+            result: null,
+            error: null,
+          },
+        };
+      }
+
+      const wake = yield* self.wakeDeliveryEffect({
+        deploymentId: pending.deploymentId,
+        limit: pending.deliveryLimit,
+        maxBatches: pending.maxBatches,
+      });
+
       return {
         deploymentId: pending.deploymentId,
-        changed: 0,
+        changed: rerun.changed.length,
         unchanged: rerun.unchanged.length,
         unsupported: rerun.unsupported.length,
         hasMoreStale: rerun.hasMoreStale,
-        delivery: {
-          woken: false,
-          status: null,
-          result: null,
-          error: null,
-        },
+        delivery: wake,
       };
-    }
-
-    const wake = await this.wakeDelivery({
-      deploymentId: pending.deploymentId,
-      limit: pending.deliveryLimit,
-      maxBatches: pending.maxBatches,
     });
-
-    return {
-      deploymentId: pending.deploymentId,
-      changed: rerun.changed.length,
-      unchanged: rerun.unchanged.length,
-      unsupported: rerun.unsupported.length,
-      hasMoreStale: rerun.hasMoreStale,
-      delivery: wake,
-    };
   }
 
   private async persistRerunContinuation(
@@ -931,6 +972,17 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.refreshContinuationAlarm();
   }
 
+  private persistRerunContinuationEffect(
+    pending: PendingLiveQueryRerun,
+    result: RerunResult,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.persistRerunContinuation(pending, result),
+      catch: error => schedulerRouteOperationError(operation, error),
+    });
+  }
+
   private async scheduleRerunRetry(pending: PendingLiveQueryRerun): Promise<void> {
     const retryAttempt = pending.retryAttempt + 1;
     const nextRunAt = new Date(
@@ -942,6 +994,16 @@ export class SchedulerDO extends DurableObject<Env> {
       nextRunAt,
     });
     await this.refreshContinuationAlarm();
+  }
+
+  private scheduleRerunRetryEffect(
+    pending: PendingLiveQueryRerun,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.scheduleRerunRetry(pending),
+      catch: error => schedulerRouteOperationError(operation, error),
+    });
   }
 
   private async refreshContinuationAlarm(): Promise<void> {
@@ -967,27 +1029,16 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.ctx.storage.deleteAlarm();
   }
 
-  private async rerunStaleLiveQuerySubscriptions(
+  private rerunStaleLiveQuerySubscriptionsEffect(
     body: Record<string, unknown>,
-  ): Promise<ExecutorLiveQueryRerunResult> {
-    const response = await this.executorFetch(
-      "/maintenance/live-queries/rerun",
+  ): Effect.Effect<
+    ExecutorLiveQueryRerunResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    return rerunStaleLiveQuerySubscriptionsEffect(
+      (path, body) => this.executorFetch(path, body),
       body,
     );
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerRerunResponse<unknown>(response);
-        return yield* decodeSchedulerRerunPayload(payload);
-      }),
-    );
-  }
-
-  private async wakeDelivery(input: {
-    deploymentId: string;
-    limit: number;
-    maxBatches?: number;
-  }): Promise<RerunResult["delivery"]> {
-    return await Effect.runPromise(this.wakeDeliveryEffect(input));
   }
 
   private wakeDeliveryEffect(input: {
@@ -1262,11 +1313,12 @@ const routeSchedulerCleanupConnections = Effect.fn("SchedulerDO.routeCleanupConn
 const routeSchedulerRerunSubscriptions = Effect.fn("SchedulerDO.routeRerunSubscriptions")(
   function* (
     request: Request,
-    rerun: (body: SchedulerRerunSubscriptionsRequest) => Promise<RerunResult>,
+    rerun: (
+      body: SchedulerRerunSubscriptionsRequest,
+    ) => Effect.Effect<RerunResult, SchedulerRerunError>,
   ) {
     const body = yield* decodeSchedulerRerunSubscriptionsRequest(request);
-    return yield* routeSchedulerJsonResult(
-      "rerun-subscriptions",
+    return yield* routeSchedulerEffectJsonResult(
       () => rerun(body),
     );
   },
@@ -1287,9 +1339,12 @@ const routeSchedulerContinueDeliveries = Effect.fn("SchedulerDO.routeContinueDel
 
 const routeSchedulerContinueReruns = Effect.fn("SchedulerDO.routeContinueReruns")(
   function* (
-    continueReruns: () => Promise<RerunResult | { skipped: true }>,
+    continueReruns: () => Effect.Effect<
+      RerunResult | { skipped: true },
+      SchedulerRerunError
+    >,
   ) {
-    return yield* routeSchedulerJsonResult("continue-reruns", continueReruns);
+    return yield* routeSchedulerEffectJsonResult(continueReruns);
   },
 );
 

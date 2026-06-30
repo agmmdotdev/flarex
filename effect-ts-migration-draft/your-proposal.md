@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: SchedulerDO delivery reconcile/wake boundary.
+- Previous completed checkpoint: SchedulerDO rerun subscriptions boundary.
 - Active checkpoint: choose the next remaining SchedulerDO maintenance route group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,10 +48,10 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the SchedulerDO delivery reconcile/wake boundary checkpoint:
+Next recommended checkpoint after the SchedulerDO rerun subscriptions boundary checkpoint:
 
 1. Continue through the remaining SchedulerDO maintenance paths as coherent
-   groups: rerun subscriptions and dead-letter reconnect handling.
+   groups: dead-letter reconnect handling.
 2. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
    adapter mapping edge, without changing PartitionDO SQL/OCC behavior.
@@ -61,6 +61,24 @@ Next recommended checkpoint after the SchedulerDO delivery reconcile/wake bounda
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 198 slice:
+
+1. Extend the typed Scheduler maintenance boundary to cover stale live-query
+   subscription rerun executor calls.
+2. Route SchedulerDO rerun-subscriptions and continue-reruns through
+   Effect-returning services instead of Promise route callbacks.
+3. Decode pending rerun continuation state in the typed Effect channel and keep
+   executor rerun failures, invalid rerun payloads, DeliveryDO wake failures,
+   storage operation failures, retry scheduling, alarm refresh, and global
+   rerun in-flight coalescing typed until the SchedulerDO adapter edge.
+4. Preserve existing rerun response bodies/statuses, no-change rerun behavior,
+   DeliveryDO wake result envelopes, continuation persistence, retry behavior,
+   delivery reconcile, connection cleanup, dead-letter, PartitionDO SQL/OCC
+   behavior, executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate typed rerun maintenance boundary successes/failures directly, then
+   preserve focused SchedulerDO route and sync rerun coverage plus backend
+   typecheck/build as practical.
 
 Completed Goal 197 slice:
 

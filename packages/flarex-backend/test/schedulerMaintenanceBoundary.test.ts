@@ -4,6 +4,7 @@ import {
   cleanupExpiredLiveQueryConnectionsEffect,
   expiredConnectionDeploymentsEffect,
   pendingDeploymentsEffect,
+  rerunStaleLiveQuerySubscriptionsEffect,
   schedulerMaintenanceBoundaryErrorToHttpError,
   SchedulerMaintenanceRequestError,
   type SchedulerMaintenanceFetch,
@@ -23,6 +24,14 @@ describe("scheduler maintenance boundary", () => {
           }],
           nextCursor: null,
           hasMore: false,
+        });
+      }
+      if (path === "/maintenance/live-queries/rerun") {
+        return Response.json({
+          changed: [{ queryId: 1 }],
+          unchanged: [],
+          unsupported: [],
+          hasMoreStale: true,
         });
       }
       if (path === "/maintenance/live-queries/expired-connection-deployments") {
@@ -66,6 +75,17 @@ describe("scheduler maintenance boundary", () => {
       hasMore: false,
     });
 
+    await expect(Effect.runPromise(rerunStaleLiveQuerySubscriptionsEffect(schedulerFetch, {
+      deploymentId: "deployment-rerun",
+      projectId: "project-rerun",
+      limit: 5,
+    }))).resolves.toEqual({
+      changed: [{ queryId: 1 }],
+      unchanged: [],
+      unsupported: [],
+      hasMoreStale: true,
+    });
+
     await expect(Effect.runPromise(cleanupExpiredLiveQueryConnectionsEffect(schedulerFetch, {
       deploymentId: "deployment-a",
       projectId: "project-a",
@@ -86,6 +106,14 @@ describe("scheduler maintenance boundary", () => {
         path: "/maintenance/live-queries/expired-connection-deployments",
         body: {
           expiredAt: "2026-01-01T00:01:00.000Z",
+          limit: 5,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/rerun",
+        body: {
+          deploymentId: "deployment-rerun",
+          projectId: "project-rerun",
           limit: 5,
         },
       },
