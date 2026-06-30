@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionSyscallRouteRequest,
+  decodeExecutionSyscallRoutePayload,
   parseExecutionSyscallRouteRequest,
   parseExecutionSyscallRouteRequestEffect,
   readExecutionSyscallRequest,
@@ -66,6 +67,13 @@ describe("execution syscall route boundary", () => {
       id: "1:progress",
       value: { completed: false },
     });
+    await expect(Effect.runPromise(decodeExecutionSyscallRoutePayload({
+      op: "get",
+      id: "1:progress",
+    }))).resolves.toEqual({
+      op: "get",
+      id: "1:progress",
+    });
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {
@@ -95,6 +103,8 @@ describe("execution syscall route boundary", () => {
         order: "sideways",
       },
     })))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionSyscallRoutePayload(null)))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
     await expect(Effect.runPromise(parseExecutionSyscallRouteRequestEffect(null)))
       .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });

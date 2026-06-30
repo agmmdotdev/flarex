@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionStartRouteRequest,
+  decodeExecutionStartRoutePayload,
   decodePublicExecutionStartRouteRequest,
+  decodePublicExecutionStartRoutePayload,
   executionStartRouteErrorToHttpError,
   parseExecutionStartRouteRequest,
   parseExecutionStartRouteRequestEffect,
@@ -77,6 +79,17 @@ describe("execution start route boundary", () => {
       args: null,
       kind: "query",
     });
+    await expect(Effect.runPromise(decodePublicExecutionStartRoutePayload({
+      deploymentId: "body-deployment",
+      path: "users:get",
+      args: null,
+      kind: "query",
+    }, "route-deployment"))).resolves.toEqual({
+      deploymentId: "route-deployment",
+      path: "users:get",
+      args: null,
+      kind: "query",
+    });
   });
 
   it("maps non-object public execution start bodies through the protocol boundary", () => {
@@ -125,11 +138,22 @@ describe("execution start route boundary", () => {
   });
 
   it("exposes typed execution start failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeExecutionStartRoutePayload({
+      deploymentId: "deployment-a",
+      path: "users:get",
+      kind: "query",
+    }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
     await expect(Effect.runPromise(parseExecutionStartRouteRequestEffect({
       deploymentId: "deployment-a",
       path: "users:get",
       kind: "query",
     }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodePublicExecutionStartRoutePayload(
+      "not an object",
+      "route-deployment",
+    ))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
 
     await expect(Effect.runPromise(parsePublicExecutionStartRouteRequestEffect(
       "not an object",

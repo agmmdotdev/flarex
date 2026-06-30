@@ -28,7 +28,7 @@ export function decodeExecutionSyscallRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionSyscallRequest, ExecutionSyscallRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseExecutionSyscallRouteRequestEffect),
+    Effect.flatMap(decodeExecutionSyscallRoutePayload),
   );
 }
 
@@ -46,6 +46,12 @@ export function parseExecutionSyscallRouteRequest(
 }
 
 export function parseExecutionSyscallRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
+  return decodeExecutionSyscallRoutePayload(value);
+}
+
+export function decodeExecutionSyscallRoutePayload(
   value: unknown,
 ): Effect.Effect<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
   return decodeExecutionSyscallPayload(value);

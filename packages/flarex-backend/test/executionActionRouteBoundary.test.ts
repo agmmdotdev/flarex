@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicExecutionActionRequest,
+  decodePublicExecutionActionRoutePayload,
   MissingExecutionActionError,
   MissingExecutionSessionIdError,
   parsePublicExecutionActionRequest,
@@ -52,6 +53,13 @@ describe("public execution action route boundary", () => {
       op: "delete",
       id: "1:progress",
     });
+    await expect(Effect.runPromise(decodePublicExecutionActionRoutePayload({
+      op: "get",
+      id: "1:progress",
+    }, "syscall"))).resolves.toEqual({
+      op: "get",
+      id: "1:progress",
+    });
   });
 
   it("decodes public finish bodies before forwarding", async () => {
@@ -75,6 +83,11 @@ describe("public execution action route boundary", () => {
     await expect(Effect.runPromise(decodePublicExecutionActionRequest(jsonRequest({
       value: "done",
     }), "finish"))).resolves.toEqual({
+      value: "done",
+    });
+    await expect(Effect.runPromise(decodePublicExecutionActionRoutePayload({
+      value: "done",
+    }, "finish"))).resolves.toEqual({
       value: "done",
     });
   });
@@ -108,6 +121,14 @@ describe("public execution action route boundary", () => {
   });
 
   it("exposes typed public action failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodePublicExecutionActionRoutePayload({
+      op: "query",
+      request: {
+        table: "lessonProgress",
+        order: "sideways",
+      },
+    }, "syscall"))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
     await expect(Effect.runPromise(parsePublicExecutionActionRequestEffect({
       op: "query",
       request: {

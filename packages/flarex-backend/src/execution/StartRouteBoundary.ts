@@ -30,7 +30,7 @@ export function decodeExecutionStartRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionStartRequest, ExecutionStartRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseExecutionStartRouteRequestEffect),
+    Effect.flatMap(decodeExecutionStartRoutePayload),
   );
 }
 
@@ -50,7 +50,7 @@ export function decodePublicExecutionStartRouteRequest(
   deploymentId: string,
 ): Effect.Effect<ExecutionStartRequest, ExecutionStartRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => parsePublicExecutionStartRouteRequestEffect(value, deploymentId)),
+    Effect.flatMap(value => decodePublicExecutionStartRoutePayload(value, deploymentId)),
   );
 }
 
@@ -72,6 +72,13 @@ export function parsePublicExecutionStartRouteRequestEffect(
   value: unknown,
   deploymentId: string,
 ): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
+  return decodePublicExecutionStartRoutePayload(value, deploymentId);
+}
+
+export function decodePublicExecutionStartRoutePayload(
+  value: unknown,
+  deploymentId: string,
+): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
   return decodePublicExecutionStartPayload(value, deploymentId);
 }
 
@@ -89,6 +96,12 @@ export function parseExecutionStartRouteRequest(
 }
 
 export function parseExecutionStartRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
+  return decodeExecutionStartRoutePayload(value);
+}
+
+export function decodeExecutionStartRoutePayload(
   value: unknown,
 ): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
   return decodeExecutionStartPayload(value);

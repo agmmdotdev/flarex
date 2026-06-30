@@ -4,6 +4,7 @@ import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionFinishRouteRequest,
+  decodeExecutionFinishRoutePayload,
   parseExecutionFinishRouteRequest,
   parseExecutionFinishRouteRequestEffect,
   readExecutionFinishRequest,
@@ -26,6 +27,8 @@ describe("execution finish route boundary", () => {
       .toEqual({ value: null });
     await expect(Effect.runPromise(parseExecutionFinishRouteRequestEffect({ value: null })))
       .resolves.toEqual({ value: null });
+    await expect(Effect.runPromise(decodeExecutionFinishRoutePayload({ value: "done" })))
+      .resolves.toEqual({ value: "done" });
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {
@@ -44,6 +47,8 @@ describe("execution finish route boundary", () => {
 
   it("exposes typed protocol failures before HTTP mapping", async () => {
     await expect(Effect.runPromise(decodeExecutionFinishRouteRequest(jsonRequest({}))))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionFinishRoutePayload({ value: Number.NaN })))
       .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
     await expect(Effect.runPromise(parseExecutionFinishRouteRequestEffect({
       value: Number.NaN,

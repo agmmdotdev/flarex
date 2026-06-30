@@ -28,7 +28,7 @@ export function decodeExecutionFinishRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionFinishRequest, ExecutionFinishRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseExecutionFinishRouteRequestEffect),
+    Effect.flatMap(decodeExecutionFinishRoutePayload),
   );
 }
 
@@ -46,6 +46,12 @@ export function parseExecutionFinishRouteRequest(
 }
 
 export function parseExecutionFinishRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<ExecutionFinishRequest, ExecutionProtocolValidationError> {
+  return decodeExecutionFinishRoutePayload(value);
+}
+
+export function decodeExecutionFinishRoutePayload(
   value: unknown,
 ): Effect.Effect<ExecutionFinishRequest, ExecutionProtocolValidationError> {
   return decodeExecutionFinishPayload(value);

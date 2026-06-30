@@ -53,7 +53,7 @@ export function decodePublicExecutionActionRequest(
   action: PublicExecutionAction,
 ): Effect.Effect<unknown, PublicExecutionActionRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => decodePublicExecutionActionPayload(value, action)),
+    Effect.flatMap(value => decodePublicExecutionActionRoutePayload(value, action)),
   );
 }
 
@@ -72,6 +72,13 @@ export function parsePublicExecutionActionRequest(
 }
 
 export function parsePublicExecutionActionRequestEffect(
+  value: unknown,
+  action: PublicExecutionAction,
+): Effect.Effect<unknown, ExecutionProtocolValidationError> {
+  return decodePublicExecutionActionRoutePayload(value, action);
+}
+
+export function decodePublicExecutionActionRoutePayload(
   value: unknown,
   action: PublicExecutionAction,
 ): Effect.Effect<unknown, ExecutionProtocolValidationError> {
