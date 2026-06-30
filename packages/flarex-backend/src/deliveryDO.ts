@@ -12,9 +12,15 @@ import {
   type DeliveryRouteOperation,
 } from "./delivery/RouteOperationError";
 import {
+  ackLiveQueryDeliveryBatchEffect,
+  claimLiveQueryDeliveryBatchEffect,
+  deliveryExecutorBoundaryErrorToHttpError,
+  isDeliveryExecutorBoundaryError,
+} from "./delivery/ExecutorBoundary";
+import {
+  decodePendingDeliveryDrainFromStorage,
   DeliveryPendingDrainStateError,
   deliveryPendingDrainStateErrorToHttpError,
-  pendingDeliveryDrainFromStorage,
   type PendingDeliveryDrain,
 } from "./delivery/PendingDrainState";
 import { HttpError, errorResponse, json } from "./http";
@@ -31,12 +37,6 @@ import {
   type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
 import {
-  decodeLiveQueryDeliveryAckResponse,
-  decodeLiveQueryDeliveryAckPayload,
-  decodeLiveQueryDeliveryClaimPayload,
-  decodeLiveQueryDeliveryClaimResponse,
-  liveQueryDeliveryResponseErrorToHttpError,
-  liveQueryDeliveryResponsePayloadErrorToHttpError,
   type ClaimLiveQueryDeliveryBatchResult,
   type LiveQueryDeliveryCursor,
   type LiveQueryDeliveryRecord,
@@ -101,12 +101,12 @@ export class DeliveryDO extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/wake" && request.method === "POST") {
       return runDeliveryRoute(
-        routeDeliveryWake(request, body => this.wake(body)),
+        routeDeliveryWake(request, body => this.wakeEffect(body)),
       );
     }
     if (url.pathname === "/continue" && request.method === "POST") {
       return runDeliveryRoute(
-        routeDeliveryContinue(() => this.continuePendingDrain()),
+        routeDeliveryContinue(() => this.continuePendingDrainEffect()),
       );
     }
     return json({ service: "flarex-delivery", status: "ok" });
@@ -114,198 +114,213 @@ export class DeliveryDO extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     try {
-      await this.continuePendingDrain();
+      await Effect.runPromise(this.continuePendingDrainEffect());
     } catch {
-      // Retry state is persisted by continuePendingDrain().
+      // Retry state is persisted by continuePendingDrainEffect().
     }
   }
 
-  private async continuePendingDrain(): Promise<DeliveryDrainResult | { skipped: true }> {
-    const storedPending = await this.ctx.storage.get(PENDING_DRAIN_KEY);
-    if (storedPending === undefined) return { skipped: true };
-    const pending = pendingDeliveryDrainFromStorage(storedPending);
-
-    try {
-      const result = await this.drain(pending);
-      await this.persistDrainContinuation(pending, result);
+  private continuePendingDrainEffect(): Effect.Effect<
+    DeliveryDrainResult | { skipped: true },
+    DeliveryPendingDrainStateError | DeliveryDrainFailureError | DeliveryRouteOperationError
+  > {
+    const storage = this.ctx.storage;
+    const self = this;
+    return Effect.gen(function* () {
+      const storedPending = yield* Effect.tryPromise({
+        try: () => storage.get(PENDING_DRAIN_KEY),
+        catch: error => deliveryRouteOperationError("continue", error),
+      });
+      if (storedPending === undefined) return { skipped: true };
+      const pending = yield* decodePendingDeliveryDrainFromStorage(storedPending);
+      const result = yield* self.drainEffect(pending).pipe(
+        Effect.catch(error =>
+          self.scheduleDrainRetryEffect(pending).pipe(
+            Effect.flatMap(() => Effect.fail(error)),
+          )
+        ),
+      );
+      yield* self.persistDrainContinuationEffect("continue", pending, result);
       return publicDrainResult(result);
-    } catch (error) {
-      await this.scheduleDrainRetry(pending);
-      throw error;
-    }
+    });
   }
 
-  private async wake(body: DeliveryWakeRequest): Promise<DeliveryDrainResult> {
+  private wakeEffect(
+    body: DeliveryWakeRequest,
+  ): Effect.Effect<DeliveryDrainResult, DeliveryDrainFailureError | DeliveryRouteOperationError> {
     if (this.drainInFlight !== undefined) {
-      return this.drainInFlight;
+      return this.awaitDrainInFlight("wake", this.drainInFlight);
     }
     const pending = pendingDrainFromWake(body);
-    const drain = this.drain(pending).then(async result => {
-      await this.persistDrainContinuation(pending, result);
-      return publicDrainResult(result);
-    }).finally(() => {
+    const drain = Effect.runPromise(
+      this.drainEffect(pending).pipe(
+        Effect.tap(result => this.persistDrainContinuationEffect("wake", pending, result)),
+        Effect.map(publicDrainResult),
+      ),
+    ).finally(() => {
       this.drainInFlight = undefined;
     });
     this.drainInFlight = drain;
-    return drain;
+    return this.awaitDrainInFlight("wake", drain);
   }
 
-  private async drain(body: PendingDeliveryDrain): Promise<DeliveryDrainRunResult> {
+  private drainEffect(
+    body: PendingDeliveryDrain,
+  ): Effect.Effect<DeliveryDrainRunResult, DeliveryDrainFailureError> {
     const deploymentId = body.deploymentId;
     const limit = body.limit;
     const maxBatches = body.maxBatches;
 
-    let batches = 0;
-    let claimed = 0;
-    let acked = 0;
-    let delivered = 0;
-    let skipped = 0;
-    const skipReasons: LiveQueryDeliverySkipReasons = {};
-    let hasMore = false;
-    let cursor = body.cursor;
     const leaseDurationMs = body.leaseDurationMs;
     const claimOwner = body.claimOwner;
 
-    while (batches < maxBatches) {
-      let page: ClaimLiveQueryDeliveryBatchResult;
-      try {
-        page = await this.claim(
+    const self = this;
+    return Effect.gen(function* () {
+      let batches = 0;
+      let claimed = 0;
+      let acked = 0;
+      let delivered = 0;
+      let skipped = 0;
+      const skipReasons: LiveQueryDeliverySkipReasons = {};
+      let hasMore = false;
+      let cursor = body.cursor;
+
+      while (batches < maxBatches) {
+        const page = yield* self.claimEffect(
           deploymentId,
           limit,
           leaseDurationMs,
           claimOwner,
           cursor,
-        );
-      } catch (error) {
-        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
-          deploymentId,
-          stage: "claim",
-          error,
-          batches,
-          claimed,
-          acked,
-          delivered,
-          skipped,
-          skipReasons,
-          hasMore,
-        }));
-      }
-      batches += 1;
-      if (page.hasMore) {
-        cursor = page.nextCursor ?? undefined;
-      }
-      if (page.deliveries.length === 0) {
-        hasMore = page.hasMore;
-        break;
-      }
-
-      claimed += page.deliveries.length;
-      const changes = deliveryChangesFromRecords(page.deliveries);
-      let fanout;
-      try {
-        fanout = await Effect.runPromise(
-          deliverLiveQueryChangesToConnectionsEffect(
-            this.env,
-            deploymentId,
-            changes,
+        ).pipe(
+          Effect.mapError(error =>
+            newDeliveryDrainFailureError({
+              deploymentId,
+              stage: "claim",
+              error,
+              batches,
+              claimed,
+              acked,
+              delivered,
+              skipped,
+              skipReasons,
+              hasMore,
+            })
           ),
         );
-      } catch (error) {
-        await this.reportDeliveryFailure(
-          deploymentId,
-          page.deliveries,
-          claimOwner,
-          "fanout",
-          error,
-        );
-        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
-          deploymentId,
-          stage: "fanout",
-          error,
-          batches,
-          claimed,
-          acked,
-          delivered,
-          skipped,
-          skipReasons,
-          hasMore: page.hasMore,
-        }));
-      }
-      delivered += fanout.delivered;
-      skipped += fanout.skipped;
-      addLiveQueryDeliverySkipReasons(skipReasons, fanout.skipReasons);
+        batches += 1;
+        if (page.hasMore) {
+          cursor = page.nextCursor ?? undefined;
+        }
+        if (page.deliveries.length === 0) {
+          hasMore = page.hasMore;
+          break;
+        }
 
-      let ack;
-      try {
-        ack = await this.ack(
+        claimed += page.deliveries.length;
+        const changes = deliveryChangesFromRecords(page.deliveries);
+        const fanout = yield* deliverLiveQueryChangesToConnectionsEffect(
+            self.env,
+            deploymentId,
+            changes,
+        ).pipe(
+          Effect.tapError(error =>
+            self.reportDeliveryFailureEffect(
+              deploymentId,
+              page.deliveries,
+              claimOwner,
+              "fanout",
+              error,
+            )
+          ),
+          Effect.mapError(error => newDeliveryDrainFailureError({
+            deploymentId,
+            stage: "fanout",
+            error,
+            batches,
+            claimed,
+            acked,
+            delivered,
+            skipped,
+            skipReasons,
+            hasMore: page.hasMore,
+          })),
+        );
+        delivered += fanout.delivered;
+        skipped += fanout.skipped;
+        addLiveQueryDeliverySkipReasons(skipReasons, fanout.skipReasons);
+
+        const ack = yield* self.ackEffect(
           deploymentId,
           page.deliveries.map(delivery => delivery.deliveryId),
           claimOwner,
+        ).pipe(
+          Effect.tapError(error =>
+            self.reportDeliveryFailureEffect(
+              deploymentId,
+              page.deliveries,
+              claimOwner,
+              "ack",
+              error,
+            )
+          ),
+          Effect.mapError(error => newDeliveryDrainFailureError({
+            deploymentId,
+            stage: "ack",
+            error,
+            batches,
+            claimed,
+            acked,
+            delivered,
+            skipped,
+            skipReasons,
+            hasMore: page.hasMore,
+          })),
         );
-      } catch (error) {
-        await this.reportDeliveryFailure(
-          deploymentId,
-          page.deliveries,
-          claimOwner,
-          "ack",
-          error,
-        );
-        throw new DeliveryDrainFailureError(deliveryDrainFailureResult({
-          deploymentId,
-          stage: "ack",
-          error,
-          batches,
-          claimed,
-          acked,
-          delivered,
-          skipped,
-          skipReasons,
-          hasMore: page.hasMore,
-        }));
+        acked += ack.delivered;
+        hasMore = page.hasMore;
+        if (!page.hasMore) break;
       }
-      acked += ack.delivered;
-      hasMore = page.hasMore;
-      if (!page.hasMore) break;
-    }
 
-    const resultBase = {
-      deploymentId,
-      batches,
-      claimed,
-      acked,
-      delivered,
-      skipped,
-      ...liveQueryDeliverySkipMetadata(skipReasons),
-      summary: {
+      const resultBase = {
+        deploymentId,
         batches,
         claimed,
         acked,
         delivered,
         skipped,
         ...liveQueryDeliverySkipMetadata(skipReasons),
-        pendingAck: Math.max(0, claimed - acked),
-        hasMore,
-      },
-    };
-    if (hasMore && cursor !== undefined) {
-      return {
-        ...resultBase,
-        hasMore: true,
-        continuationCursor: cursor,
         summary: {
-          ...resultBase.summary,
-          hasMore: true,
+          batches,
+          claimed,
+          acked,
+          delivered,
+          skipped,
+          ...liveQueryDeliverySkipMetadata(skipReasons),
+          pendingAck: Math.max(0, claimed - acked),
+          hasMore,
         },
       };
-    }
-    return {
-      ...resultBase,
-      hasMore: false,
-      summary: {
-        ...resultBase.summary,
+      if (hasMore && cursor !== undefined) {
+        return {
+          ...resultBase,
+          hasMore: true,
+          continuationCursor: cursor,
+          summary: {
+            ...resultBase.summary,
+            hasMore: true,
+          },
+        };
+      }
+      return {
+        ...resultBase,
         hasMore: false,
-      },
-    };
+        summary: {
+          ...resultBase.summary,
+          hasMore: false,
+        },
+      };
+    });
   }
 
   private async persistDrainContinuation(
@@ -343,52 +358,70 @@ export class DeliveryDO extends DurableObject<Env> {
     );
   }
 
-  private async claim(
+  private persistDrainContinuationEffect(
+    operation: DeliveryRouteOperation,
+    pending: PendingDeliveryDrain,
+    result: DeliveryDrainRunResult,
+  ): Effect.Effect<void, DeliveryRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.persistDrainContinuation(pending, result),
+      catch: error => deliveryRouteOperationError(operation, error),
+    });
+  }
+
+  private scheduleDrainRetryEffect(
+    pending: PendingDeliveryDrain,
+  ): Effect.Effect<void, DeliveryRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.scheduleDrainRetry(pending),
+      catch: error => deliveryRouteOperationError("continue", error),
+    });
+  }
+
+  private awaitDrainInFlight(
+    operation: DeliveryRouteOperation,
+    drain: Promise<DeliveryDrainResult>,
+  ): Effect.Effect<DeliveryDrainResult, DeliveryDrainFailureError | DeliveryRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => drain,
+      catch: error =>
+        error instanceof DeliveryDrainFailureError
+          ? error
+          : deliveryRouteOperationError(operation, error),
+    });
+  }
+
+  private claimEffect(
     deploymentId: string,
     limit: number,
     leaseDurationMs: number,
     claimOwner: string,
     cursor: LiveQueryDeliveryCursor | undefined,
-  ): Promise<ClaimLiveQueryDeliveryBatchResult> {
-    const body = {
-      deploymentId,
-      limit,
-      leaseDurationMs,
-      claimOwner,
-      ...(cursor === undefined ? {} : { cursor }),
-    };
-    const response = await this.executorFetch("/maintenance/live-queries/claim", body);
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeLiveQueryDeliveryClaimResponse<unknown>(response).pipe(
-          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-        );
-        return yield* decodeLiveQueryDeliveryClaimPayload(payload).pipe(
-          Effect.mapError(liveQueryDeliveryResponsePayloadErrorToHttpError),
-        );
-      }),
+  ) {
+    return claimLiveQueryDeliveryBatchEffect(
+      (path, body) => this.executorFetch(path, body),
+      {
+        deploymentId,
+        limit,
+        leaseDurationMs,
+        claimOwner,
+        cursor,
+      },
     );
   }
 
-  private async ack(
+  private ackEffect(
     deploymentId: string,
     deliveryIds: string[],
     claimOwner: string,
-  ): Promise<{ delivered: number }> {
-    const response = await this.executorFetch("/maintenance/live-queries/ack", {
-      deploymentId,
-      deliveryIds,
-      claimOwner,
-    });
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeLiveQueryDeliveryAckResponse<unknown>(response).pipe(
-          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-        );
-        return yield* decodeLiveQueryDeliveryAckPayload(payload).pipe(
-          Effect.mapError(liveQueryDeliveryResponsePayloadErrorToHttpError),
-        );
-      }),
+  ) {
+    return ackLiveQueryDeliveryBatchEffect(
+      (path, body) => this.executorFetch(path, body),
+      {
+        deploymentId,
+        deliveryIds,
+        claimOwner,
+      },
     );
   }
 
@@ -421,6 +454,21 @@ export class DeliveryDO extends DurableObject<Env> {
     }
   }
 
+  private reportDeliveryFailureEffect(
+    deploymentId: string,
+    deliveries: LiveQueryDeliveryRecord[],
+    claimOwner: string,
+    stage: DeliveryFailureStage,
+    error: unknown,
+  ): Effect.Effect<void> {
+    return Effect.tryPromise({
+      try: () => this.reportDeliveryFailure(deploymentId, deliveries, claimOwner, stage, error),
+      catch: reportError => reportError,
+    }).pipe(
+      Effect.catch(() => Effect.void),
+    );
+  }
+
   private async executorFetch(path: string, body: unknown): Promise<Response> {
     const url = executorUrl(this.env, path);
     const headers = new Headers({ "content-type": "application/json" });
@@ -442,35 +490,36 @@ export class DeliveryDO extends DurableObject<Env> {
 const routeDeliveryWake = Effect.fn("DeliveryDO.routeWake")(
   function* (
     request: Request,
-    wake: (body: DeliveryWakeRequest) => Promise<DeliveryDrainResult>,
+    wake: (
+      body: DeliveryWakeRequest,
+    ) => Effect.Effect<DeliveryDrainResult, DeliveryDrainFailureError | DeliveryRouteOperationError>,
   ) {
     const decoded = yield* decodeDeliveryWakeRequest(request);
-    return yield* routeDeliveryDrainResult("wake", () => wake(decoded));
+    return yield* routeDeliveryDrainResult(() => wake(decoded));
   },
 );
 
 const routeDeliveryContinue = Effect.fn("DeliveryDO.routeContinue")(
   function* (
-    continuePendingDrain: () => Promise<DeliveryDrainResult | { skipped: true }>,
+    continuePendingDrain: () => Effect.Effect<
+      DeliveryDrainResult | { skipped: true },
+      DeliveryPendingDrainStateError | DeliveryDrainFailureError | DeliveryRouteOperationError
+    >,
   ) {
-    return yield* routeDeliveryDrainResult("continue", continuePendingDrain);
+    return yield* routeDeliveryDrainResult(continuePendingDrain);
   },
 );
 
 function routeDeliveryDrainResult<A extends object>(
-  operation: DeliveryRouteOperation,
-  execute: () => Promise<A>,
+  execute: () => Effect.Effect<
+    A,
+    DeliveryRouteOperationError | DeliveryPendingDrainStateError | DeliveryDrainFailureError
+  >,
 ): Effect.Effect<
   Response,
   DeliveryRouteOperationError | DeliveryPendingDrainStateError | DeliveryDrainFailureError
 > {
-  return Effect.tryPromise({
-    try: execute,
-    catch: error =>
-      error instanceof DeliveryDrainFailureError || error instanceof DeliveryPendingDrainStateError
-        ? error
-        : deliveryRouteOperationError(operation, error),
-  }).pipe(
+  return execute().pipe(
     Effect.map(result => json(result)),
   );
 }
@@ -520,6 +569,21 @@ class DeliveryDrainFailureError extends Error {
   }
 }
 
+function newDeliveryDrainFailureError(input: {
+  deploymentId: string;
+  stage: DeliveryDrainFailureStage;
+  error: unknown;
+  batches: number;
+  claimed: number;
+  acked: number;
+  delivered: number;
+  skipped: number;
+  skipReasons: LiveQueryDeliverySkipReasons;
+  hasMore: boolean;
+}): DeliveryDrainFailureError {
+  return new DeliveryDrainFailureError(deliveryDrainFailureResult(input));
+}
+
 function deliveryDrainFailureResult(input: {
   deploymentId: string;
   stage: DeliveryDrainFailureStage;
@@ -557,6 +621,9 @@ function deliveryDrainFailureResult(input: {
 
 function deliveryFailureStatus(error: unknown): number {
   if (error instanceof HttpError) return error.status;
+  if (isDeliveryExecutorBoundaryError(error)) {
+    return deliveryExecutorBoundaryErrorToHttpError(error).status;
+  }
   if (error instanceof LiveQueryDeliveryTargetError) {
     return liveQueryDeliveryTargetErrorToHttpError(error).status;
   }

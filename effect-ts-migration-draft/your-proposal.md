@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.
-- Active checkpoint: Executor HTTP backend live-query integration boundary.
+- Previous completed checkpoint: `5788893 Type executor backend live query callbacks`.
+- Active checkpoint: DeliveryDO executor claim/ack integration boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -43,13 +43,17 @@ Required direction for the next phase:
 9. Tests for newly migrated Effect boundaries should cover the typed success
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
+10. Test runner exception: until the workspace catalogs `@effect/vitest`,
+    Effect boundary tests may use the repo's existing plain Vitest style with
+    `Effect.runPromise(...)`. Do not add the dependency as incidental churn
+    inside a backend migration slice.
 
-Next recommended checkpoint after the executor HTTP backend live-query integration boundary checkpoint:
+Next recommended checkpoint after the DeliveryDO executor claim/ack integration boundary checkpoint:
 
-1. Audit the remaining `Effect.promise(...)` route, response, and runtime
+1. Audit the remaining DeliveryDO drain/fanout and SchedulerDO maintenance
    service hotspots and choose the next coherent group instead of one helper
    at a time.
-2. Prefer the next backend Worker/DO route or service boundary that can move
+2. Prefer the next backend Worker/DO service boundary that can move
    post-decode work to typed failures without changing PartitionDO SQL/OCC
    behavior.
 3. Keep each public Worker or Durable Object entrypoint at one
@@ -59,7 +63,25 @@ Next recommended checkpoint after the executor HTTP backend live-query integrati
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 194 slice:
+Current Goal 195 slice:
+
+1. Add a typed `delivery/ExecutorBoundary.ts` for DeliveryDO claim and ack
+   calls into executor maintenance routes.
+2. Route DeliveryDO claim/ack through named Effect helpers that preserve
+   executor request failures, non-OK claim/ack responses, and invalid payloads
+   as typed failures until adapter mapping.
+3. Convert the DeliveryDO claim/fanout/ack drain loop to keep those failures
+   in the Effect channel until the route adapter maps the final drain failure
+   envelope.
+4. Preserve the existing DeliveryDO drain failure envelope, failure status
+   mapping, retry/continuation behavior, claim owner generation, fanout
+   behavior, ack accounting, SchedulerDO, ConnectionDO, PartitionDO SQL/OCC
+   behavior, executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate typed executor boundary successes and failures directly, then
+   preserve focused DeliveryDO route and live-query response coverage plus
+   backend typecheck/build as practical.
+
+Completed Goal 194 slice:
 
 1. Add typed backend live-query integration failures for executor-http delivery,
    wake, and trigger helper calls into the backend Worker/Scheduler routes.
