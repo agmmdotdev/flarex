@@ -24,8 +24,14 @@ import {
 } from "./liveQueryDelivery";
 import {
   decodeLiveQueryDeliveryAckResponse,
+  decodeLiveQueryDeliveryAckPayload,
+  decodeLiveQueryDeliveryClaimPayload,
   decodeLiveQueryDeliveryClaimResponse,
   liveQueryDeliveryResponseErrorToHttpError,
+  liveQueryDeliveryResponsePayloadErrorToHttpError,
+  type ClaimLiveQueryDeliveryBatchResult,
+  type LiveQueryDeliveryCursor,
+  type LiveQueryDeliveryRecord,
 } from "./liveQueryDeliveryResponses";
 import type { Env } from "./types";
 
@@ -38,26 +44,6 @@ type PendingDeliveryDrain = {
   retryAttempt: number;
   cursor?: LiveQueryDeliveryCursor;
 };
-
-type LiveQueryDeliveryRecord = {
-  deploymentId: string;
-  deliveryId: string;
-  connectionId: string;
-  queryId: number;
-  payloadJson: unknown;
-};
-
-type LiveQueryDeliveryCursor = {
-  createdAt: string;
-  deliveryId: string;
-};
-
-type ClaimLiveQueryDeliveryBatchResult = {
-  deliveries: LiveQueryDeliveryRecord[];
-} & (
-  | { hasMore: true; nextCursor: LiveQueryDeliveryCursor }
-  | { hasMore: false; nextCursor: LiveQueryDeliveryCursor | null }
-);
 
 type DeliveryDrainResult = LiveQueryDeliveryResult & {
   deploymentId: string;
@@ -372,12 +358,16 @@ export class DeliveryDO extends DurableObject<Env> {
       ...(cursor === undefined ? {} : { cursor }),
     };
     const response = await this.executorFetch("/maintenance/live-queries/claim", body);
-    const payload = await Effect.runPromise(
-      decodeLiveQueryDeliveryClaimResponse<unknown>(response).pipe(
-        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-      ),
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeLiveQueryDeliveryClaimResponse<unknown>(response).pipe(
+          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+        );
+        return yield* decodeLiveQueryDeliveryClaimPayload(payload).pipe(
+          Effect.mapError(liveQueryDeliveryResponsePayloadErrorToHttpError),
+        );
+      }),
     );
-    return claimResultFromUnknown(payload);
   }
 
   private async ack(
@@ -390,12 +380,16 @@ export class DeliveryDO extends DurableObject<Env> {
       deliveryIds,
       claimOwner,
     });
-    const payload = await Effect.runPromise(
-      decodeLiveQueryDeliveryAckResponse<unknown>(response).pipe(
-        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-      ),
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeLiveQueryDeliveryAckResponse<unknown>(response).pipe(
+          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+        );
+        return yield* decodeLiveQueryDeliveryAckPayload(payload).pipe(
+          Effect.mapError(liveQueryDeliveryResponsePayloadErrorToHttpError),
+        );
+      }),
     );
-    return ackResultFromUnknown(payload);
   }
 
   private async reportDeliveryFailure(
@@ -624,68 +618,6 @@ function executorUrl(env: Env, path: string): string {
   return url.href;
 }
 
-function claimResultFromUnknown(value: unknown): ClaimLiveQueryDeliveryBatchResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Live query delivery claim response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.deliveries)) {
-    throw new HttpError(502, "Live query delivery claim response.deliveries must be an array.");
-  }
-  const nextCursor = cursorFromUnknown(record.nextCursor);
-  const hasMore = booleanFromUnknown(record.hasMore, "hasMore");
-  if (hasMore && nextCursor === null) {
-    throw new HttpError(
-      502,
-      "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
-    );
-  }
-  const deliveries = record.deliveries.map((delivery, index) =>
-    deliveryRecordFromUnknown(delivery, `deliveries[${index}]`),
-  );
-  if (hasMore && nextCursor !== null) {
-    return {
-      deliveries,
-      nextCursor,
-      hasMore: true,
-    };
-  }
-  return {
-    deliveries,
-    nextCursor,
-    hasMore: false,
-  };
-}
-
-function deliveryRecordFromUnknown(
-  value: unknown,
-  path: string,
-): LiveQueryDeliveryRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, `${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
-    deliveryId: stringFromUnknown(record.deliveryId, `${path}.deliveryId`),
-    connectionId: stringFromUnknown(record.connectionId, `${path}.connectionId`),
-    queryId: integerFromUnknown(record.queryId, `${path}.queryId`),
-    payloadJson: record.payloadJson,
-  };
-}
-
-function cursorFromUnknown(value: unknown): LiveQueryDeliveryCursor | null {
-  if (value === null) return null;
-  if (typeof value !== "object" || Array.isArray(value)) {
-    throw new HttpError(502, "Live query delivery claim response.nextCursor must be null or an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    createdAt: dateStringFromUnknown(record.createdAt, "nextCursor.createdAt"),
-    deliveryId: stringFromUnknown(record.deliveryId, "nextCursor.deliveryId"),
-  };
-}
-
 function storageCursor(value: unknown, field: string): LiveQueryDeliveryCursor {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new HttpError(500, `${field} must be an object.`);
@@ -712,42 +644,9 @@ function storageNonNegativeInteger(value: unknown, field: string): number {
   throw new HttpError(500, `${field} must be a non-negative integer.`);
 }
 
-function stringFromUnknown(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(502, `${field} must be a non-empty string.`);
-}
-
-function dateStringFromUnknown(value: unknown, field: string): string {
-  const text = stringFromUnknown(value, field);
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  throw new HttpError(502, `${field} must be an ISO date string.`);
-}
-
 function dateStringFromStorage(value: unknown, field: string): string {
   const text = storageString(value, field);
   const date = new Date(text);
   if (!Number.isNaN(date.getTime())) return date.toISOString();
   throw new HttpError(500, `${field} must be an ISO date string.`);
-}
-
-function integerFromUnknown(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  throw new HttpError(502, `${field} must be an integer.`);
-}
-
-function booleanFromUnknown(value: unknown, field: string): boolean {
-  if (typeof value === "boolean") return value;
-  throw new HttpError(502, `${field} must be a boolean.`);
-}
-
-function ackResultFromUnknown(value: unknown): { delivered: number } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Live query delivery ack response must be an object.");
-  }
-  const delivered = (value as { delivered?: unknown }).delivered;
-  if (typeof delivered === "number" && Number.isInteger(delivered) && delivered >= 0) {
-    return { delivered };
-  }
-  throw new HttpError(502, "Live query delivery ack response.delivered must be a non-negative integer.");
 }

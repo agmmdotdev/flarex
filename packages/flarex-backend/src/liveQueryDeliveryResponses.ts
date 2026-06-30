@@ -17,6 +17,34 @@ export class LiveQueryDeliveryResponseError extends Data.TaggedError(
   readonly body: unknown;
 }> {}
 
+export class LiveQueryDeliveryResponsePayloadError extends Data.TaggedError(
+  "LiveQueryDeliveryResponsePayloadError",
+)<{
+  readonly operation: LiveQueryDeliveryResponseOperation;
+  readonly status: number;
+  readonly message: string;
+}> {}
+
+export type LiveQueryDeliveryCursor = {
+  createdAt: string;
+  deliveryId: string;
+};
+
+export type LiveQueryDeliveryRecord = {
+  deploymentId: string;
+  deliveryId: string;
+  connectionId: string;
+  queryId: number;
+  payloadJson: unknown;
+};
+
+export type ClaimLiveQueryDeliveryBatchResult = {
+  deliveries: LiveQueryDeliveryRecord[];
+} & (
+  | { hasMore: true; nextCursor: LiveQueryDeliveryCursor }
+  | { hasMore: false; nextCursor: LiveQueryDeliveryCursor | null }
+);
+
 export const decodeLiveQueryDeliveryClaimResponse = Effect.fn(
   "LiveQueryDelivery.decodeClaimResponse",
 )(
@@ -53,6 +81,76 @@ export const decodeConnectionLiveQueryDeliveryResponse = Effect.fn(
   },
 );
 
+export const decodeLiveQueryDeliveryClaimPayload = Effect.fn(
+  "LiveQueryDelivery.decodeClaimPayload",
+)(
+  function* (
+    value: unknown,
+  ): Effect.fn.Return<
+    ClaimLiveQueryDeliveryBatchResult,
+    LiveQueryDeliveryResponsePayloadError
+  > {
+    const record = yield* responseRecord(
+      value,
+      "claim",
+      "Live query delivery claim response must be an object.",
+    );
+    const deliveries = yield* arrayField(
+      record.deliveries,
+      "claim",
+      "Live query delivery claim response.deliveries must be an array.",
+    );
+    const nextCursor = yield* cursorFromUnknown(record.nextCursor);
+    const hasMore = yield* booleanFromUnknown(record.hasMore, "hasMore");
+    if (hasMore && nextCursor === null) {
+      return yield* failPayload(
+        "claim",
+        "Live query delivery claim response.nextCursor must be an object when hasMore is true.",
+      );
+    }
+    const decodedDeliveries: LiveQueryDeliveryRecord[] = [];
+    for (const [index, delivery] of deliveries.entries()) {
+      decodedDeliveries.push(
+        yield* deliveryRecordFromUnknown(delivery, `deliveries[${index}]`),
+      );
+    }
+    if (hasMore && nextCursor !== null) {
+      return {
+        deliveries: decodedDeliveries,
+        nextCursor,
+        hasMore: true,
+      };
+    }
+    return {
+      deliveries: decodedDeliveries,
+      nextCursor,
+      hasMore: false,
+    };
+  },
+);
+
+export const decodeLiveQueryDeliveryAckPayload = Effect.fn(
+  "LiveQueryDelivery.decodeAckPayload",
+)(
+  function* (
+    value: unknown,
+  ): Effect.fn.Return<{ delivered: number }, LiveQueryDeliveryResponsePayloadError> {
+    const record = yield* responseRecord(
+      value,
+      "ack",
+      "Live query delivery ack response must be an object.",
+    );
+    const delivered = record.delivered;
+    if (typeof delivered === "number" && Number.isInteger(delivered) && delivered >= 0) {
+      return { delivered };
+    }
+    return yield* failPayload(
+      "ack",
+      "Live query delivery ack response.delivered must be a non-negative integer.",
+    );
+  },
+);
+
 function decodeLiveQueryDeliveryResponse<A>(
   response: LiveQueryDeliveryHttpResponse,
   operation: LiveQueryDeliveryResponseOperation,
@@ -82,4 +180,109 @@ export function liveQueryDeliveryResponseErrorToHttpError(
   error: LiveQueryDeliveryResponseError,
 ): HttpError {
   return new HttpError(502, error.message);
+}
+
+export function liveQueryDeliveryResponsePayloadErrorToHttpError(
+  error: LiveQueryDeliveryResponsePayloadError,
+): HttpError {
+  return new HttpError(error.status, error.message);
+}
+
+function responseRecord(
+  value: unknown,
+  operation: LiveQueryDeliveryResponseOperation,
+  message: string,
+): Effect.Effect<Record<string, unknown>, LiveQueryDeliveryResponsePayloadError> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return Effect.succeed(value as Record<string, unknown>);
+  }
+  return failPayload(operation, message);
+}
+
+function arrayField(
+  value: unknown,
+  operation: LiveQueryDeliveryResponseOperation,
+  message: string,
+): Effect.Effect<unknown[], LiveQueryDeliveryResponsePayloadError> {
+  return Array.isArray(value) ? Effect.succeed(value) : failPayload(operation, message);
+}
+
+function deliveryRecordFromUnknown(
+  value: unknown,
+  path: string,
+): Effect.Effect<LiveQueryDeliveryRecord, LiveQueryDeliveryResponsePayloadError> {
+  return Effect.gen(function* () {
+    const record = yield* responseRecord(value, "claim", `${path} must be an object.`);
+    return {
+      deploymentId: yield* stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
+      deliveryId: yield* stringFromUnknown(record.deliveryId, `${path}.deliveryId`),
+      connectionId: yield* stringFromUnknown(record.connectionId, `${path}.connectionId`),
+      queryId: yield* integerFromUnknown(record.queryId, `${path}.queryId`),
+      payloadJson: record.payloadJson,
+    };
+  });
+}
+
+function cursorFromUnknown(
+  value: unknown,
+): Effect.Effect<LiveQueryDeliveryCursor | null, LiveQueryDeliveryResponsePayloadError> {
+  if (value === null) return Effect.succeed(null);
+  return Effect.gen(function* () {
+    const record = yield* responseRecord(
+      value,
+      "claim",
+      "Live query delivery claim response.nextCursor must be null or an object.",
+    );
+    return {
+      createdAt: yield* dateStringFromUnknown(record.createdAt, "nextCursor.createdAt"),
+      deliveryId: yield* stringFromUnknown(record.deliveryId, "nextCursor.deliveryId"),
+    };
+  });
+}
+
+function stringFromUnknown(
+  value: unknown,
+  field: string,
+): Effect.Effect<string, LiveQueryDeliveryResponsePayloadError> {
+  if (typeof value === "string" && value.length > 0) return Effect.succeed(value);
+  return failPayload("claim", `${field} must be a non-empty string.`);
+}
+
+function dateStringFromUnknown(
+  value: unknown,
+  field: string,
+): Effect.Effect<string, LiveQueryDeliveryResponsePayloadError> {
+  return Effect.gen(function* () {
+    const text = yield* stringFromUnknown(value, field);
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+    return yield* failPayload("claim", `${field} must be an ISO date string.`);
+  });
+}
+
+function integerFromUnknown(
+  value: unknown,
+  field: string,
+): Effect.Effect<number, LiveQueryDeliveryResponsePayloadError> {
+  if (typeof value === "number" && Number.isInteger(value)) return Effect.succeed(value);
+  return failPayload("claim", `${field} must be an integer.`);
+}
+
+function booleanFromUnknown(
+  value: unknown,
+  field: string,
+): Effect.Effect<boolean, LiveQueryDeliveryResponsePayloadError> {
+  if (typeof value === "boolean") return Effect.succeed(value);
+  return failPayload("claim", `${field} must be a boolean.`);
+}
+
+function failPayload<A = never>(
+  operation: LiveQueryDeliveryResponseOperation,
+  message: string,
+): Effect.Effect<A, LiveQueryDeliveryResponsePayloadError> {
+  return Effect.fail(new LiveQueryDeliveryResponsePayloadError({
+    operation,
+    status: 502,
+    message,
+  }));
 }

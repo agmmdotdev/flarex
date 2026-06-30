@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Response Payload Boundary Modules
+
+Previous completed checkpoint: `6e0450a` Type public worker paths.
+
+What changed:
+
+- Live-query delivery response payload types and decoders now live beside the
+  existing live-query response-status decoder in
+  `packages/flarex-backend/src/liveQueryDeliveryResponses.ts`.
+- Scheduler response payload types and decoders now live beside the existing
+  scheduler response-status decoder in
+  `packages/flarex-backend/src/scheduler/Responses.ts`.
+- `DeliveryDO` and `SchedulerDO` consume those modules instead of owning
+  successful foreign-response payload parsing inline.
+
+Boundary decision:
+
+Foreign response payload contracts belong at the response-boundary module, not
+inside Durable Object workflow code. The DOs still own orchestration, retry,
+alarm, and route adapter behavior.
+
+Known limitations:
+
+- Stored continuation-state parsing remains in the Durable Objects because it
+  validates DO-owned persisted state, not a foreign response contract.
+- PartitionDO, executor-http, protocol packages, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDeliveryResponses.test.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Deployment Path Boundary
 
 Previous completed checkpoint: `735fbff Type public execution routing`.

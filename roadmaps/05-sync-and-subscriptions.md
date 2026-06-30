@@ -1,5 +1,47 @@
 # Sync And Subscriptions
 
+## Delivery And Scheduler Response Payload Effect Boundaries
+
+Previous completed checkpoint: `6e0450a` Type public worker paths.
+
+What changed:
+
+- Live-query delivery claim and ack successful payload validation now runs
+  through typed Effect decoders in `liveQueryDeliveryResponses.ts`.
+- Scheduler executor and ConnectionDO successful payload validation now runs
+  through typed Effect decoders in `scheduler/Responses.ts` for pending scans,
+  rerun results, expired-connection scans, dead-letter scans, force reconnect,
+  and connection cleanup.
+- `DeliveryDO` and `SchedulerDO` map those typed payload failures back to the
+  same `HttpError(502, ...)` adapter shape before their route-level handling.
+
+Why it changed:
+
+The previous response-boundary checkpoints typed non-OK status and JSON-read
+failures but left successful delivery and scheduler payload validation as
+throwing compatibility parsers. This checkpoint makes the response contract
+failure source typed while preserving delivery retry, ack, fanout, scheduler
+continuation, alarm, and reconnect behavior.
+
+Known limitations:
+
+- DO continuation storage parsers still throw `HttpError(500, ...)` for corrupt
+  stored state and remain a separate migration surface.
+- `validateConnectionId(...)` still guards dead-letter reconnect targets with
+  an adapter-shaped `HttpError(502, ...)`; it is not a successful response
+  payload parser.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDeliveryResponses.test.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Backend Response JSON Effect Boundary
 
 Previous completed checkpoint: `47af99a` Type SchedulerDO route operation

@@ -30,35 +30,32 @@ import {
 } from "./scheduler/RouteOperationError";
 import {
   decodeSchedulerCleanupConnectionsResponse,
+  decodeSchedulerCleanupConnectionsPayload,
   decodeSchedulerDeadLetterStuckResponse,
+  decodeSchedulerDeadLetterPayload,
   decodeSchedulerExpiredConnectionDeploymentsResponse,
+  decodeSchedulerExpiredConnectionDeploymentsPayload,
   decodeSchedulerForceReconnectJsonResponse,
+  decodeSchedulerForceReconnectPayload,
   decodeSchedulerPendingDeploymentsResponse,
+  decodeSchedulerPendingDeploymentsPayload,
   decodeSchedulerRerunResponse,
+  decodeSchedulerRerunPayload,
   decodeSchedulerWakeDeliveryJsonResponse,
   schedulerResponseErrorToHttpError,
+  schedulerResponsePayloadErrorToHttpError,
+  type ExecutorCleanupLiveQueryConnectionsResult,
+  type ExecutorDeadLetterStuckResult,
+  type ExecutorLiveQueryRerunResult,
+  type ExpiredConnectionDeploymentCursor,
+  type ExpiredConnectionDeploymentsResult,
+  type PendingDeploymentCursor,
+  type PendingDeploymentsResult,
 } from "./scheduler/Responses";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
 import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
 import type { DeliveryDrainFailureResult } from "./deliveryDO";
 import type { Env } from "./types";
-
-type PendingDeploymentCursor = {
-  oldestCreatedAt: string;
-  deploymentId: string;
-};
-
-type PendingDeployment = {
-  deploymentId: string;
-  oldestCreatedAt: string;
-  pending: number;
-};
-
-type PendingDeploymentsResult = {
-  deployments: PendingDeployment[];
-  nextCursor: PendingDeploymentCursor | null;
-  hasMore: boolean;
-};
 
 type ReconcileResult = {
   deployments: number;
@@ -93,24 +90,6 @@ type PendingDeliveryReconcileRun = {
   cursor?: PendingDeploymentCursor;
 };
 
-type ExpiredConnectionDeploymentCursor = {
-  oldestExpiredAt: string;
-  deploymentId: string;
-};
-
-type ExpiredConnectionDeployment = {
-  deploymentId: string;
-  projectId: string;
-  oldestExpiredAt: string;
-  expiredConnections: number;
-};
-
-type ExpiredConnectionDeploymentsResult = {
-  deployments: ExpiredConnectionDeployment[];
-  nextCursor: ExpiredConnectionDeploymentCursor | null;
-  hasMore: boolean;
-};
-
 type ReconcileConnectionCleanupResult = {
   deployments: number;
   cleaned: number;
@@ -139,13 +118,6 @@ type PendingLiveQueryRerun = {
   nextRunAt?: string;
 };
 
-type ExecutorLiveQueryRerunResult = {
-  changed: unknown[];
-  unchanged: unknown[];
-  unsupported: unknown[];
-  hasMoreStale: boolean;
-};
-
 type RerunResult = {
   deploymentId: string;
   changed: number;
@@ -161,14 +133,6 @@ type RerunResult = {
   };
 };
 
-type ExecutorDeadLetterStuckResult = {
-  scanned: unknown[];
-  deadLettered: unknown[];
-  reconnectConnectionIds: string[];
-  nextCursor: unknown;
-  hasMore: boolean;
-};
-
 type DeadLetterResult = {
   batches: number;
   scanned: number;
@@ -182,11 +146,6 @@ type DeadLetterResult = {
 
 type CleanupLiveQueryConnectionsResult = {
   deploymentId: string;
-  deleted: number;
-  deletedConnections: number;
-};
-
-type ExecutorCleanupLiveQueryConnectionsResult = {
   deleted: number;
   deletedConnections: number;
 };
@@ -853,13 +812,15 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/rerun",
       body,
     );
-    const payload = await Effect.runPromise(
-      decodeSchedulerRerunResponse<unknown>(response).pipe(
-        Effect.mapError(schedulerResponseErrorToHttpError),
-      ),
-    );
-    return executorLiveQueryRerunResultFromUnknown(
-      payload,
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerRerunResponse<unknown>(response).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerRerunPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
   }
 
@@ -992,13 +953,17 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/connections/cleanup",
       body,
     );
-    const payload = await Effect.runPromise(
-      decodeSchedulerCleanupConnectionsResponse<unknown>(response).pipe(
-        Effect.mapError(schedulerResponseErrorToHttpError),
-      ),
-    );
-    return cleanupConnectionsResultFromUnknown(
-      payload,
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerCleanupConnectionsResponse<unknown>(
+          response,
+        ).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerCleanupConnectionsPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
   }
 
@@ -1009,13 +974,17 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/expired-connection-deployments",
       body,
     );
-    const payload = await Effect.runPromise(
-      decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(response).pipe(
-        Effect.mapError(schedulerResponseErrorToHttpError),
-      ),
-    );
-    return expiredConnectionDeploymentsResultFromUnknown(
-      payload,
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(
+          response,
+        ).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerExpiredConnectionDeploymentsPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
   }
 
@@ -1026,13 +995,17 @@ export class SchedulerDO extends DurableObject<Env> {
       "/maintenance/live-queries/dead-letter-stuck",
       body,
     );
-    const payload = await Effect.runPromise(
-      decodeSchedulerDeadLetterStuckResponse<unknown>(response).pipe(
-        Effect.mapError(schedulerResponseErrorToHttpError),
-      ),
-    );
-    return executorDeadLetterResultFromUnknown(
-      payload,
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerDeadLetterStuckResponse<unknown>(
+          response,
+        ).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerDeadLetterPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
   }
 
@@ -1056,10 +1029,18 @@ export class SchedulerDO extends DurableObject<Env> {
         closed: 0,
       };
     }
-    const payload = await Effect.runPromise(
-      decodeSchedulerForceReconnectJsonResponse<unknown>(response),
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerForceReconnectJsonResponse<unknown>(
+          response,
+        ).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerForceReconnectPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
-    const result = forceReconnectResultFromUnknown(payload);
     return {
       ok: true,
       status: response.status,
@@ -1079,13 +1060,17 @@ export class SchedulerDO extends DurableObject<Env> {
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       },
     );
-    const payload = await Effect.runPromise(
-      decodeSchedulerPendingDeploymentsResponse<unknown>(response).pipe(
-        Effect.mapError(schedulerResponseErrorToHttpError),
-      ),
-    );
-    return pendingDeploymentsResultFromUnknown(
-      payload,
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const payload = yield* decodeSchedulerPendingDeploymentsResponse<unknown>(
+          response,
+        ).pipe(
+          Effect.mapError(schedulerResponseErrorToHttpError),
+        );
+        return yield* decodeSchedulerPendingDeploymentsPayload(payload).pipe(
+          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+        );
+      }),
     );
   }
 
@@ -1255,25 +1240,6 @@ function executorUrl(env: Env, path: string): string {
   url.search = "";
   url.hash = "";
   return url.href;
-}
-
-function pendingDeploymentsResultFromUnknown(
-  value: unknown,
-): PendingDeploymentsResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Pending deployments response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.deployments)) {
-    throw new HttpError(502, "Pending deployments response.deployments must be an array.");
-  }
-  return {
-    deployments: record.deployments.map((deployment, index) =>
-      pendingDeploymentFromUnknown(deployment, `deployments[${index}]`),
-    ),
-    nextCursor: pendingCursorFromUnknown(record.nextCursor),
-    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
-  };
 }
 
 function pendingRerunFromRequest(request: {
@@ -1522,182 +1488,6 @@ function nonNegativeIntegerFromStorage(value: unknown, field: string): number {
   throw new HttpError(500, `${field} must be a non-negative integer.`);
 }
 
-function executorLiveQueryRerunResultFromUnknown(
-  value: unknown,
-): ExecutorLiveQueryRerunResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Live query rerun response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.changed)) {
-    throw new HttpError(502, "Live query rerun response.changed must be an array.");
-  }
-  if (!Array.isArray(record.unchanged)) {
-    throw new HttpError(502, "Live query rerun response.unchanged must be an array.");
-  }
-  if (!Array.isArray(record.unsupported)) {
-    throw new HttpError(502, "Live query rerun response.unsupported must be an array.");
-  }
-  return {
-    changed: record.changed,
-    unchanged: record.unchanged,
-    unsupported: record.unsupported,
-    hasMoreStale: booleanFromUnknown(record.hasMoreStale, "hasMoreStale"),
-  };
-}
-
-function pendingDeploymentFromUnknown(
-  value: unknown,
-  path: string,
-): PendingDeployment {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, `${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
-    oldestCreatedAt: dateStringFromUnknown(record.oldestCreatedAt, `${path}.oldestCreatedAt`),
-    pending: nonNegativeIntegerFromUnknown(record.pending, `${path}.pending`),
-  };
-}
-
-function pendingCursorFromUnknown(value: unknown): PendingDeploymentCursor | null {
-  if (value === null) return null;
-  if (typeof value !== "object" || value === undefined || Array.isArray(value)) {
-    throw new HttpError(502, "Pending deployments response.nextCursor must be null or an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    oldestCreatedAt: dateStringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt"),
-    deploymentId: stringFromUnknown(record.deploymentId, "nextCursor.deploymentId"),
-  };
-}
-
-function expiredConnectionDeploymentsResultFromUnknown(
-  value: unknown,
-): ExpiredConnectionDeploymentsResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Expired connection deployments response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.deployments)) {
-    throw new HttpError(502, "Expired connection deployments response.deployments must be an array.");
-  }
-  return {
-    deployments: record.deployments.map((deployment, index) =>
-      expiredConnectionDeploymentFromUnknown(deployment, `deployments[${index}]`),
-    ),
-    nextCursor: expiredConnectionCursorOrNullFromUnknown(record.nextCursor),
-    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
-  };
-}
-
-function expiredConnectionDeploymentFromUnknown(
-  value: unknown,
-  path: string,
-): ExpiredConnectionDeployment {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, `${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
-    projectId: stringFromUnknown(record.projectId, `${path}.projectId`),
-    oldestExpiredAt: dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`),
-    expiredConnections: nonNegativeIntegerFromUnknown(
-      record.expiredConnections,
-      `${path}.expiredConnections`,
-    ),
-  };
-}
-
-function expiredConnectionCursorOrNullFromUnknown(
-  value: unknown,
-): ExpiredConnectionDeploymentCursor | null {
-  if (value === null) return null;
-  return expiredConnectionCursorFromUnknown(value, "nextCursor");
-}
-
-function expiredConnectionCursorFromUnknown(
-  value: unknown,
-  path: string,
-): ExpiredConnectionDeploymentCursor {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, `${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    oldestExpiredAt: dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`),
-    deploymentId: stringFromUnknown(record.deploymentId, `${path}.deploymentId`),
-  };
-}
-
-function dateStringFromUnknown(value: unknown, field: string): string {
-  const text = stringFromUnknown(value, field);
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  throw new HttpError(502, `${field} must be an ISO date string.`);
-}
-
-function stringFromUnknown(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(502, `${field} must be a non-empty string.`);
-}
-
-function nonNegativeIntegerFromUnknown(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return value;
-  }
-  throw new HttpError(502, `${field} must be a non-negative integer.`);
-}
-
-function booleanFromUnknown(value: unknown, field: string): boolean {
-  if (typeof value === "boolean") return value;
-  throw new HttpError(502, `${field} must be a boolean.`);
-}
-
-function executorDeadLetterResultFromUnknown(
-  value: unknown,
-): ExecutorDeadLetterStuckResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Dead-letter response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.scanned)) {
-    throw new HttpError(502, "Dead-letter response.scanned must be an array.");
-  }
-  if (!Array.isArray(record.deadLettered)) {
-    throw new HttpError(502, "Dead-letter response.deadLettered must be an array.");
-  }
-  if (!Array.isArray(record.reconnectConnectionIds)) {
-    throw new HttpError(
-      502,
-      "Dead-letter response.reconnectConnectionIds must be an array.",
-    );
-  }
-  return {
-    scanned: record.scanned,
-    deadLettered: record.deadLettered,
-    reconnectConnectionIds: record.reconnectConnectionIds.map((connectionId, index) =>
-      stringFromUnknown(connectionId, `reconnectConnectionIds[${index}]`),
-    ),
-    nextCursor: record.nextCursor ?? null,
-    hasMore: booleanFromUnknown(record.hasMore, "hasMore"),
-  };
-}
-
-function forceReconnectResultFromUnknown(value: unknown): { closed: number } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "ConnectionDO force-reconnect response must be an object.");
-  }
-  return {
-    closed: nonNegativeIntegerFromUnknown(
-      (value as Record<string, unknown>).closed,
-      "forceReconnect.closed",
-    ),
-  };
-}
-
 function responseBodyFromText(text: string): unknown {
   if (text.length === 0) return null;
   try {
@@ -1836,22 +1626,6 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isHttpStatus(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599;
-}
-
-function cleanupConnectionsResultFromUnknown(
-  value: unknown,
-): ExecutorCleanupLiveQueryConnectionsResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(502, "Connection cleanup response must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deleted: nonNegativeIntegerFromUnknown(record.deleted, "cleanup.deleted"),
-    deletedConnections: nonNegativeIntegerFromUnknown(
-      record.deletedConnections,
-      "cleanup.deletedConnections",
-    ),
-  };
 }
 
 function validateConnectionId(connectionId: string): void {

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `735fbff Type public execution routing`.
-- Active checkpoint: public Worker deployment/push/partition typed path boundary.
+- Previous completed checkpoint: `6e0450a Type public worker paths`.
+- Active checkpoint: DeliveryDO and SchedulerDO typed response payload boundaries.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,26 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 183 slice:
+
+1. Extend the live-query delivery response boundary with typed claim and ack
+   payload decoders backed by `LiveQueryDeliveryResponsePayloadError`.
+2. Extend the scheduler response boundary with typed payload decoders for
+   pending deployment scans, rerun responses, expired connection scans,
+   dead-letter scans, force reconnect responses, and connection cleanup
+   summaries.
+3. Route `DeliveryDO` and `SchedulerDO` response handling through one
+   `Effect.runPromise` edge per service call, mapping payload failures back to
+   the existing `HttpError(502, ...)` adapter shape.
+4. Remove the old throw-based successful payload parsers for these foreign
+   response contracts while preserving DeliveryDO retry/ack/fanout state,
+   SchedulerDO continuation/alarm workflows, ConnectionDO force reconnect
+   behavior, PartitionDO SQL/OCC behavior, executor-http, protocol schemas, and
+   `ValidatorJson`.
+5. Validate typed payload success/failure channels directly and preserve
+   existing adapter mapping with focused live-query delivery and scheduler
+   response tests.
 
 Completed Goal 182 slice:
 

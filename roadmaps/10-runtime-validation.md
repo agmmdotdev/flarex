@@ -910,6 +910,43 @@ corepack pnpm --filter flarex-protocol test
 git diff --check
 ```
 
+## Response Payload Effect Decoders
+
+Previous completed checkpoint: `6e0450a` Type public worker paths.
+
+What changed:
+
+- Added typed successful payload decoders for live-query delivery claim/ack
+  responses and SchedulerDO maintenance responses.
+- `LiveQueryDeliveryResponsePayloadError` and
+  `SchedulerResponsePayloadError` carry the operation, status, and preserved
+  message before adapter mapping.
+- Focused tests now cover typed payload success/failure channels and the
+  existing `HttpError(502, ...)` compatibility mapping.
+
+Why it changed:
+
+The runtime-validation migration previously typed response status and JSON
+read failures, but successful response payloads still threw directly from
+manual parser helpers. This checkpoint moves that parser failure source into
+Effect while keeping the same DO workflow and HTTP compatibility behavior.
+
+Known limitations:
+
+- This checkpoint does not migrate DO continuation storage validation.
+- It does not change protocol schemas, executor-http routes, or
+  `ValidatorJson` document/function validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDeliveryResponses.test.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Generated Runtime Worker JSON Boundaries
 
 Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
