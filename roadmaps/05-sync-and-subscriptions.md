@@ -1,5 +1,55 @@
 # Sync And Subscriptions
 
+## Live Query Delivery Target Service Boundary
+
+Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.
+
+What changed:
+
+- Live-query delivery deployment and connection target checks now emit typed
+  `LiveQueryDeliveryTargetError` failures.
+- Shared delivery fanout groups deliveries by connection through a named
+  Effect boundary before sending to ConnectionDO instances.
+- Public Worker delivery callbacks still return the same 400 target-validation
+  response, while DeliveryDO wake/continue keeps its existing drain-failure
+  envelope with a 400 fanout detail.
+
+Why it changed:
+
+The live-query delivery body and response payload boundaries were already
+typed, but target validation in shared fanout still threw adapter-shaped
+`HttpError` values. This checkpoint moves that post-decode service validation
+into a typed failure channel while preserving the two existing adapter
+contracts that consume it.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex-specific Cloudflare delivery
+  fanout validation.
+
+How Flarex differs from Convex:
+
+- Flarex fans live-query changes across named Cloudflare ConnectionDO
+  instances. The backend must validate that executor-provided delivery rows are
+  scoped to the route deployment before fanout.
+
+Known limitations:
+
+- DeliveryDO orchestration remains async-method based; this checkpoint only
+  types the shared target-validation/fanout grouping boundary.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "target does not match|fanout target validation" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Runtime Consistency Error Boundary
 
 Previous completed checkpoint: `9f8e11a Type scheduler response failures`.

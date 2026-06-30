@@ -21,7 +21,9 @@ import { HttpError, errorResponse, json } from "./http";
 import { Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
-  deliverLiveQueryChangesToConnections,
+  deliverLiveQueryChangesToConnectionsEffect,
+  liveQueryDeliveryTargetErrorToHttpError,
+  LiveQueryDeliveryTargetError,
   liveQueryDeliveryChangesFromBody,
   liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
@@ -201,10 +203,12 @@ export class DeliveryDO extends DurableObject<Env> {
       const changes = deliveryChangesFromRecords(page.deliveries);
       let fanout;
       try {
-        fanout = await deliverLiveQueryChangesToConnections(
-          this.env,
-          deploymentId,
-          changes,
+        fanout = await Effect.runPromise(
+          deliverLiveQueryChangesToConnectionsEffect(
+            this.env,
+            deploymentId,
+            changes,
+          ),
         );
       } catch (error) {
         await this.reportDeliveryFailure(
@@ -530,7 +534,7 @@ function deliveryDrainFailureResult(input: {
 }): DeliveryDrainFailureResult {
   const detail = {
     stage: input.stage,
-    status: input.error instanceof HttpError ? input.error.status : 500,
+    status: deliveryFailureStatus(input.error),
     error: errorMessage(input.error),
   };
   return {
@@ -549,6 +553,14 @@ function deliveryDrainFailureResult(input: {
       failure: detail,
     },
   };
+}
+
+function deliveryFailureStatus(error: unknown): number {
+  if (error instanceof HttpError) return error.status;
+  if (error instanceof LiveQueryDeliveryTargetError) {
+    return liveQueryDeliveryTargetErrorToHttpError(error).status;
+  }
+  return 500;
 }
 
 function publicDrainResult(result: DeliveryDrainRunResult): DeliveryDrainResult {

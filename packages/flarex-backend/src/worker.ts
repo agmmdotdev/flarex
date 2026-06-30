@@ -79,7 +79,9 @@ import {
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
-  deliverLiveQueryChangesToConnections,
+  deliverLiveQueryChangesToConnectionsEffect,
+  liveQueryDeliveryTargetErrorToHttpError,
+  LiveQueryDeliveryTargetError,
 } from "./liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
@@ -1054,20 +1056,32 @@ const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDeliv
   function* (request: Request, env: Env, deploymentId: string) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const deliveries = yield* decodePublicLiveQueryDeliveryRequest(request);
-    return yield* Effect.tryPromise({
-      try: async () => json(await deliverLiveQueryChangesToConnections(env, deploymentId, deliveries)),
-      catch: error => publicWorkerDispatchError("live-query-delivery", error),
-    });
+    const result = yield* deliverLiveQueryChangesToConnectionsEffect(
+      env,
+      deploymentId,
+      deliveries,
+    ).pipe(
+      Effect.mapError(error =>
+        error instanceof LiveQueryDeliveryTargetError
+          ? error
+          : publicWorkerDispatchError("live-query-delivery", error)
+      ),
+    );
+    return json(result);
   },
 );
 
 function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
   error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0]
     | PublicWorkerDispatchError
+    | LiveQueryDeliveryTargetError
     | PublicLiveQueryDeliveryAuthorizationError,
 ): HttpError {
   if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
     return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
+  }
+  if (error instanceof LiveQueryDeliveryTargetError) {
+    return liveQueryDeliveryTargetErrorToHttpError(error);
   }
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);

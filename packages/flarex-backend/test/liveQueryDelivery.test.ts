@@ -2,8 +2,10 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decodeConnectionLiveQueryDeliveryResultPayload,
+  liveQueryDeliveriesByConnection,
   liveQueryDeliveryResultFromUnknown,
   liveQueryDeliveryResultPayloadErrorToHttpError,
+  liveQueryDeliveryTargetErrorToHttpError,
 } from "../src/liveQueryDelivery";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
@@ -114,6 +116,55 @@ describe("live query delivery result parsing", () => {
       name: "HttpError",
       status: 502,
       message: "connection:test:bad.skipped must be a non-negative integer.",
+    });
+  });
+
+  it("exposes typed delivery target failures before HTTP mapping", async () => {
+    await expect(Effect.runPromise(liveQueryDeliveriesByConnection(
+      "deployment-a",
+      [
+        {
+          kind: "updated",
+          deploymentId: "deployment-b",
+          connectionId: "connection:deployment-b:session-a",
+          queryId: 1,
+          functionPath: "users:get",
+          argsJson: {},
+          resultJson: { ok: true },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    ))).rejects.toMatchObject({
+      _tag: "LiveQueryDeliveryTargetError",
+      deploymentId: "deployment-a",
+      deliveryDeploymentId: "deployment-b",
+      connectionId: "connection:deployment-b:session-a",
+      message: "Live query delivery deploymentId deployment-b does not match route deploymentId deployment-a.",
+    });
+  });
+
+  it("maps delivery target failures to the existing 400 adapter shape", async () => {
+    const failure = await Effect.runPromise(Effect.flip(liveQueryDeliveriesByConnection(
+      "deployment-a",
+      [
+        {
+          kind: "updated",
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-b:session-a",
+          queryId: 1,
+          functionPath: "users:get",
+          argsJson: {},
+          resultJson: { ok: true },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    )));
+
+    expect(liveQueryDeliveryTargetErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "Live query delivery connectionId connection:deployment-b:session-a is not scoped to deployment deployment-a.",
     });
   });
 

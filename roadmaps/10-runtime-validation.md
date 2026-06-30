@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Live Query Delivery Target Validation Boundary
+
+Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.
+
+What changed:
+
+- Delivery target deployment and connection-scope checks now use typed
+  `LiveQueryDeliveryTargetError` failures.
+- Shared fanout validates and groups deliveries by connection with a named
+  Effect boundary before making ConnectionDO calls.
+- Worker and DeliveryDO adapters map the typed target failure back to their
+  preserved HTTP response shapes.
+
+Why it changed:
+
+Delivery target checks are post-decode runtime validation, not request JSON
+shape validation. Keeping them typed removes adapter-shaped errors from shared
+fanout logic while keeping HTTP conversion at the adapter edges.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare live-query delivery fanout
+  validation.
+
+How Flarex differs from Convex:
+
+- Flarex uses Cloudflare Durable Object names for connection fanout, so target
+  validation must protect the boundary between executor delivery rows and
+  per-connection delivery calls.
+
+Known limitations:
+
+- ConnectionDO delivery processing and DeliveryDO drain orchestration are not
+  converted to fully Effect-native services in this checkpoint.
+- PartitionDO SQL/OCC behavior, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "target does not match|fanout target validation" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Runtime Consistency Validation Boundary
 
 Previous completed checkpoint: `9f8e11a Type scheduler response failures`.

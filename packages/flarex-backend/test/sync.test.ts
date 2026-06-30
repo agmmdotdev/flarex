@@ -2170,6 +2170,43 @@ describe("sync protocol", () => {
     });
   });
 
+  it("rejects public live query deliveries whose target does not match the route deployment", async () => {
+    const harness = await createSyncHarness([], undefined, undefined, {
+      bindings: { FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret" },
+    });
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/sync-public-delivery-target-deployment/sync/deliver-live-query",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              deploymentId: "sync-public-delivery-other-deployment",
+              connectionId: "connection:sync-public-delivery-other-deployment:session-a",
+              queryId: 16,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              resultJson: { user: "Katherine" },
+              previousResultHash: "{\"user\":\"Ada\"}",
+              resultHash: "{\"user\":\"Katherine\"}",
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Live query delivery deploymentId sync-public-delivery-other-deployment does not match route deploymentId sync-public-delivery-target-deployment.",
+    });
+  });
+
   it("wakes DeliveryDO to claim, fanout, and ack live query deliveries", async () => {
     const runtimeCalls: unknown[] = [];
     const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
@@ -2328,6 +2365,121 @@ describe("sync protocol", () => {
       },
     ]);
     ws.close();
+  });
+
+  it("reports DeliveryDO fanout target validation failures with a 400 detail", async () => {
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId: "sync-delivery-target-deployment",
+                    deliveryId: "delivery_target_1",
+                    connectionId: "connection:sync-delivery-target-deployment:session-a",
+                    queryId: 17,
+                    payloadJson: {
+                      deploymentId: "sync-delivery-other-deployment",
+                      connectionId: "connection:sync-delivery-other-deployment:session-a",
+                      queryId: 17,
+                      functionPath: "users:get",
+                      argsJson: { id: "1:ada" },
+                      resultJson: { user: "Grace" },
+                      previousResultHash: "{\"user\":\"Ada\"}",
+                      resultHash: "{\"user\":\"Grace\"}",
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/failure") {
+              return Response.json({ recorded: true });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const delivery = env.DELIVERIES.getByName("delivery:sync-delivery-target-deployment");
+
+    const response = await delivery.fetch("https://flarex.internal/wake", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deploymentId: "sync-delivery-target-deployment",
+        limit: 10,
+        maxBatches: 1,
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      deploymentId: "sync-delivery-target-deployment",
+      error: "Live query delivery deploymentId sync-delivery-other-deployment does not match route deploymentId sync-delivery-target-deployment.",
+      failure: {
+        stage: "fanout",
+        status: 400,
+        error: "Live query delivery deploymentId sync-delivery-other-deployment does not match route deploymentId sync-delivery-target-deployment.",
+      },
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 0,
+        pendingAck: 1,
+        hasMore: false,
+        failure: {
+          stage: "fanout",
+          status: 400,
+          error: "Live query delivery deploymentId sync-delivery-other-deployment does not match route deploymentId sync-delivery-target-deployment.",
+        },
+      },
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-delivery-target-deployment",
+          limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-target-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/failure",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "sync-delivery-target-deployment",
+          deliveryIds: ["delivery_target_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-target-deployment:/),
+          stage: "fanout",
+          error: "Live query delivery deploymentId sync-delivery-other-deployment does not match route deploymentId sync-delivery-target-deployment.",
+          failedAt: expect.any(String),
+        },
+      },
+    ]);
   });
 
   it("rejects malformed DeliveryDO wake JSON at the delivery route boundary", async () => {

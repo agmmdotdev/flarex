@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9f8e11a Type scheduler response failures`.
-- Active checkpoint: SchedulerDO runtime consistency error boundary.
+- Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.
+- Active checkpoint: Live query delivery target service boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the scheduler runtime consistency checkpoint:
+Next recommended checkpoint after the live query delivery target checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
@@ -59,7 +59,25 @@ Next recommended checkpoint after the scheduler runtime consistency checkpoint:
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 190 slice:
+Current Goal 191 slice:
+
+1. Add typed `LiveQueryDeliveryTargetError` failures for post-decode live-query
+   delivery deployment/connection target validation.
+2. Route shared delivery fanout target grouping through a named
+   Effect-returning boundary instead of throwing `HttpError` from
+   `liveQueryDelivery.ts`.
+3. Preserve public Worker delivery callback behavior by mapping target
+   validation failures to the same `400` response at the Worker adapter edge.
+4. Preserve DeliveryDO wake/continue fanout failure behavior by keeping the
+   route-level drain failure envelope and carrying the target validation status
+   as the existing fanout failure detail.
+5. Keep delivery request body decoders, ConnectionDO fanout handling,
+   delivery response payload decoders, SchedulerDO, PartitionDO SQL/OCC
+   behavior, executor-http, protocol schemas, and `ValidatorJson` untouched.
+6. Validate typed target failures directly and prove both public Worker and
+   DeliveryDO adapter behavior remain compatible.
+
+Completed Goal 190 slice:
 
 1. Add `scheduler/RuntimeError.ts` with typed
    `SchedulerContinuationCursorError` and

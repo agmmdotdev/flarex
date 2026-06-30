@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Live Query Delivery Target Boundary
+
+Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.
+
+What changed:
+
+- `packages/flarex-backend/src/liveQueryDelivery.ts` now owns typed target
+  validation for deployment and connection scope mismatches.
+- Public Worker routing maps `LiveQueryDeliveryTargetError` at the Worker edge
+  instead of treating it as a generic dispatch failure.
+- DeliveryDO keeps its existing drain failure envelope while using the typed
+  target error to preserve the fanout failure status detail.
+
+Boundary decision:
+
+Delivery target validation belongs with shared live-query delivery fanout. It
+is not a public request schema and not a ConnectionDO response schema; it
+guards the runtime handoff from executor delivery rows to Cloudflare
+connection Durable Objects.
+
+Convex source files inspected:
+
+- None for this checkpoint. This boundary is specific to Flarex's
+  Durable-Object-based live-query delivery fanout.
+
+How Flarex differs from Convex:
+
+- Flarex routes delivery rows through backend Worker and DeliveryDO adapters
+  before ConnectionDO fanout. Keeping target validation in the backend
+  live-query delivery module avoids leaking Cloudflare connection naming rules
+  into public protocol packages.
+
+Known limitations:
+
+- DeliveryDO service extraction is still future work.
+- PartitionDO SQL/OCC behavior, executor-http, protocol packages, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "target does not match|fanout target validation" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Scheduler Runtime Error Boundary
 
 Previous completed checkpoint: `9f8e11a Type scheduler response failures`.

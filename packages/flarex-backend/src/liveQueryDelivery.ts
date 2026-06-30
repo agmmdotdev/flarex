@@ -44,6 +44,19 @@ export class LiveQueryDeliveryResultPayloadError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
+export class LiveQueryDeliveryTargetError extends Data.TaggedError(
+  "LiveQueryDeliveryTargetError",
+)<{
+  readonly deploymentId: string;
+  readonly deliveryDeploymentId: string;
+  readonly connectionId: string;
+  readonly message: string;
+}> {}
+
+export type LiveQueryDeliveryFanoutError =
+  | LiveQueryDeliveryTargetError
+  | HttpError;
+
 export function liveQueryDeliveryChangesFromBody(
   body: unknown,
 ): LiveQueryDeliveryChange[] {
@@ -65,57 +78,90 @@ export async function deliverLiveQueryChangesToConnections(
   deploymentId: string,
   deliveries: LiveQueryDeliveryChange[],
 ): Promise<ConnectionLiveQueryDeliveryResult> {
-  const byConnection = new Map<string, LiveQueryDeliveryChange[]>();
-  for (const delivery of deliveries) {
-    validateDeliveryTarget(deploymentId, delivery);
-    const existing = byConnection.get(delivery.connectionId);
-    if (existing === undefined) {
-      byConnection.set(delivery.connectionId, [delivery]);
-    } else {
-      existing.push(delivery);
-    }
-  }
-
-  let delivered = 0;
-  let skipped = 0;
-  const skipReasons: LiveQueryDeliverySkipReasons = {};
-  for (const [connectionId, connectionDeliveries] of byConnection) {
-    const response = await env.CONNECTIONS.getByName(connectionId).fetch(
-      "https://flarex.internal/deliver/live-query",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deliveries: connectionDeliveries }),
-      },
-    );
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const body = yield* decodeConnectionLiveQueryDeliveryResponse<unknown>(
-          response,
-          connectionId,
-        ).pipe(
-          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
-        );
-        return yield* decodeConnectionLiveQueryDeliveryResultPayload(
-          body,
-          connectionId,
-        ).pipe(
-          Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
-        );
-      }),
-    );
-    delivered += result.delivered;
-    skipped += result.skipped;
-    addLiveQueryDeliverySkipReasons(skipReasons, result.skipReasons);
-  }
-
-  return {
-    delivered,
-    skipped,
-    ...liveQueryDeliverySkipMetadata(skipReasons),
-    connections: byConnection.size,
-  };
+  return await Effect.runPromise(
+    deliverLiveQueryChangesToConnectionsEffect(env, deploymentId, deliveries).pipe(
+      Effect.mapError(liveQueryDeliveryFanoutErrorToHttpError),
+    ),
+  );
 }
+
+export const deliverLiveQueryChangesToConnectionsEffect = Effect.fn(
+  "LiveQueryDelivery.deliverToConnections",
+)(
+  function* (
+    env: Env,
+    deploymentId: string,
+    deliveries: LiveQueryDeliveryChange[],
+  ): Effect.fn.Return<
+    ConnectionLiveQueryDeliveryResult,
+    LiveQueryDeliveryFanoutError
+  > {
+    const byConnection = yield* liveQueryDeliveriesByConnection(deploymentId, deliveries);
+    let delivered = 0;
+    let skipped = 0;
+    const skipReasons: LiveQueryDeliverySkipReasons = {};
+    for (const [connectionId, connectionDeliveries] of byConnection) {
+      const response = yield* Effect.tryPromise({
+        try: () =>
+          env.CONNECTIONS.getByName(connectionId).fetch(
+            "https://flarex.internal/deliver/live-query",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ deliveries: connectionDeliveries }),
+            },
+          ),
+        catch: error => new HttpError(500, errorMessage(error)),
+      });
+      const body = yield* decodeConnectionLiveQueryDeliveryResponse<unknown>(
+        response,
+        connectionId,
+      ).pipe(
+        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+      );
+      const result = yield* decodeConnectionLiveQueryDeliveryResultPayload(
+        body,
+        connectionId,
+      ).pipe(
+        Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+      );
+      delivered += result.delivered;
+      skipped += result.skipped;
+      addLiveQueryDeliverySkipReasons(skipReasons, result.skipReasons);
+    }
+
+    return {
+      delivered,
+      skipped,
+      ...liveQueryDeliverySkipMetadata(skipReasons),
+      connections: byConnection.size,
+    };
+  },
+);
+
+export const liveQueryDeliveriesByConnection = Effect.fn(
+  "LiveQueryDelivery.groupByConnection",
+)(
+  function* (
+    deploymentId: string,
+    deliveries: LiveQueryDeliveryChange[],
+  ): Effect.fn.Return<
+    Map<string, LiveQueryDeliveryChange[]>,
+    LiveQueryDeliveryTargetError
+  > {
+    const byConnection = new Map<string, LiveQueryDeliveryChange[]>();
+    for (const delivery of deliveries) {
+      yield* validateLiveQueryDeliveryTarget(deploymentId, delivery);
+      const existing = byConnection.get(delivery.connectionId);
+      if (existing === undefined) {
+        byConnection.set(delivery.connectionId, [delivery]);
+      } else {
+        existing.push(delivery);
+      }
+    }
+    return byConnection;
+  },
+);
 
 export function addLiveQueryDeliverySkipReason(
   reasons: LiveQueryDeliverySkipReasons,
@@ -147,22 +193,27 @@ export function liveQueryDeliverySkipMetadata(
   };
 }
 
-function validateDeliveryTarget(
+function validateLiveQueryDeliveryTarget(
   deploymentId: string,
   delivery: LiveQueryDeliveryChange,
-): void {
+): Effect.Effect<void, LiveQueryDeliveryTargetError> {
   if (delivery.deploymentId !== deploymentId) {
-    throw new HttpError(
-      400,
-      `Live query delivery deploymentId ${delivery.deploymentId} does not match route deploymentId ${deploymentId}.`,
-    );
+    return Effect.fail(new LiveQueryDeliveryTargetError({
+      deploymentId,
+      deliveryDeploymentId: delivery.deploymentId,
+      connectionId: delivery.connectionId,
+      message: `Live query delivery deploymentId ${delivery.deploymentId} does not match route deploymentId ${deploymentId}.`,
+    }));
   }
   if (!delivery.connectionId.startsWith(`connection:${deploymentId}:`)) {
-    throw new HttpError(
-      400,
-      `Live query delivery connectionId ${delivery.connectionId} is not scoped to deployment ${deploymentId}.`,
-    );
+    return Effect.fail(new LiveQueryDeliveryTargetError({
+      deploymentId,
+      deliveryDeploymentId: delivery.deploymentId,
+      connectionId: delivery.connectionId,
+      message: `Live query delivery connectionId ${delivery.connectionId} is not scoped to deployment ${deploymentId}.`,
+    }));
   }
+  return Effect.void;
 }
 
 function liveQueryDeliveryChangeFromUnknown(
@@ -286,6 +337,21 @@ export function liveQueryDeliveryResultPayloadErrorToHttpError(
   return new HttpError(error.status, error.message);
 }
 
+export function liveQueryDeliveryTargetErrorToHttpError(
+  error: LiveQueryDeliveryTargetError,
+): HttpError {
+  return new HttpError(400, error.message);
+}
+
+export function liveQueryDeliveryFanoutErrorToHttpError(
+  error: LiveQueryDeliveryFanoutError,
+): HttpError {
+  if (error instanceof LiveQueryDeliveryTargetError) {
+    return liveQueryDeliveryTargetErrorToHttpError(error);
+  }
+  return error;
+}
+
 function resultRecord(
   value: unknown,
   connectionId: string,
@@ -390,6 +456,10 @@ function failResultPayload<A = never>(
     status: 502,
     message,
   }));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isDeliveryJson(value: unknown): value is Json {
