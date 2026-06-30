@@ -73,6 +73,7 @@ import {
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
+import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
 import { errorResponse, HttpError, json, readResponseJsonEffect } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
@@ -133,7 +134,6 @@ import {
   type LiveQuerySchedulerInternalPath,
 } from "./schedulerRoutes";
 import type {
-  AnalyzedStartPushRequest,
   Env,
   PushStatus,
   StartPushRequest,
@@ -617,10 +617,7 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
     }
     const body = yield* parsePublicStartPushRequestEffect(rawBody);
     const analyzed = yield* analyzeSourcePackageEffect(analyzer, deploymentId, body);
-    yield* Effect.tryPromise({
-      try: () => persistAnalyzedSourcePackage(env, analyzed),
-      catch: error => publicWorkerDispatchError("deployment-start-push-store-artifact", error),
-    });
+    yield* persistAnalyzedSourcePackageEffect(artifactStoreFromEnv(env), analyzed);
     return yield* Effect.tryPromise({
       try: () => deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
         method: "POST",
@@ -678,15 +675,6 @@ function deploymentPushPath(pushId: string, action?: DeploymentPushAction): Depl
   if (action === undefined) return pushPath;
   const actionPath: `${typeof DeploymentRoute.push}/${string}/${DeploymentPushAction}` = `${pushPath}/${action}`;
   return actionPath;
-}
-
-async function persistAnalyzedSourcePackage(
-  env: Env,
-  analyzed: AnalyzedStartPushRequest,
-): Promise<void> {
-  const artifactStore = artifactStoreFromEnv(env);
-  if (artifactStore === undefined || analyzed.analysis === undefined) return;
-  await artifactStore.put(analyzed.sourcePackage);
 }
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {

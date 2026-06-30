@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Public Start Artifact Persistence Boundary
+
+Previous completed checkpoint: `99ff688 Type public finish artifact preflight boundary`.
+
+What changed:
+
+- Public source-only start-push artifact persistence now runs through
+  `persistAnalyzedSourcePackageEffect(...)` in
+  `deployment/PublicStartArtifactBoundary.ts`.
+- No configured durable artifact store and failed analyzer results are explicit
+  no-op branches in the Effect boundary.
+- Successful analyzer results still persist the source package before the
+  Worker forwards the analyzed start-push payload to DeploymentDO.
+- Artifact store write failures stay typed as `PublicWorkerDispatchError`
+  values from `deployment-start-push-store-artifact`.
+- Direct tests cover no-store skip, failed analyzer result skip, successful
+  persistence, and typed dispatch failure mapping.
+
+Why it changed:
+
+The public source-only start-push route already decoded its request and
+forwarded analyzer responses through named Effect boundaries, but durable
+artifact persistence still lived in an async Worker helper wrapped by
+`Effect.tryPromise(...)`. This checkpoint keeps the artifact write in the route
+Effect pipeline and makes the skip/error cases testable without Worker runtime
+imports.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare R2-backed execution
+  artifact persistence path.
+
+How Flarex differs from Convex:
+
+- Flarex can store execution source packages as durable artifacts after backend
+  analyzer success so later activation can verify the executable package exists
+  outside DeploymentDO state.
+
+Known limitations:
+
+- Artifact persistence still uses the current artifact store interface rather
+  than an Effect service/layer.
+- DeploymentDO, deployment service/store behavior, SQL statements, protocol
+  schemas, executor-http, PartitionDO SQL/OCC, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicStartArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage before public finish|rejects malformed analyzer analysis|preserves analyzer codegen" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Finish Artifact Preflight Boundary
 
 Previous completed checkpoint: `0a9fd6e Type public deployment analyzer boundary`.
@@ -42,8 +100,6 @@ Known limitations:
 
 - Artifact store `get(...)` failures intentionally remain compatibility
   signals for a missing-artifact rejection, not typed dispatch failures.
-- Artifact persistence after source-only analysis still uses the existing
-  `Effect.tryPromise(...)` dispatch wrapper.
 - DeploymentDO, deployment service/store behavior, SQL statements, protocol
   schemas, executor-http, PartitionDO SQL/OCC, and `ValidatorJson` are
   unchanged.
