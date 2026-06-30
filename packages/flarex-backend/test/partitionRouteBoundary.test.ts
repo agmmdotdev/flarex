@@ -2,7 +2,12 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
+  decodePartitionCommitRoutePayload,
   decodePartitionCommitRequest,
+  decodePartitionConnectionUnregisterRoutePayload,
+  decodePartitionSchemaCacheRoutePayload,
+  decodePartitionSubscriptionRegistrationRoutePayload,
+  decodePartitionSubscriptionTargetRoutePayload,
   partitionRouteErrorToHttpError,
   parsePartitionCommitRequest,
   parsePartitionCommitRequestEffect,
@@ -45,6 +50,65 @@ describe("partition route boundary", () => {
     }))).resolves.toEqual({
       beginTs: 3,
       writes: [{ tableId: 1, value: { name: "Ada" } }],
+    });
+  });
+
+  it("decodes partition route payloads through named Effect boundaries", async () => {
+    await expect(Effect.runPromise(decodePartitionSchemaCacheRoutePayload({
+      partitionKey: "user:ada",
+      version: 1,
+      tables: [],
+      indexes: [],
+    }))).resolves.toEqual({
+      partitionKey: "user:ada",
+      version: 1,
+      tables: [],
+      indexes: [],
+    });
+
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    }))).resolves.toEqual({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    });
+
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
+      beginTs: 1,
+      writes: [{ tableId: "1", value: null }],
+    }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "writes[0].tableId must be an integer.",
+    });
+
+    await expect(Effect.runPromise(decodePartitionSubscriptionRegistrationRoutePayload({
+      connectionName: "connection-a",
+      queryId: 7,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:ada" }],
+      },
+    }))).resolves.toEqual({
+      connectionName: "connection-a",
+      queryId: 7,
+      readSet: {
+        documents: [{ tableId: 1, id: "1:ada" }],
+      },
+    });
+
+    await expect(Effect.runPromise(decodePartitionSubscriptionTargetRoutePayload({
+      connectionName: "connection-a",
+      queryId: 7.5,
+    }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "queryId must be an integer.",
+    });
+
+    await expect(Effect.runPromise(decodePartitionConnectionUnregisterRoutePayload({
+      connectionName: "connection-a",
+      ignored: true,
+    }))).resolves.toEqual({
+      connectionName: "connection-a",
     });
   });
 

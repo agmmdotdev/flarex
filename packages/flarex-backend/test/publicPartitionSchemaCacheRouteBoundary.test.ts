@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
 import {
   decodePublicPartitionSchemaCacheRequest,
+  decodePublicPartitionSchemaCacheRoutePayload,
   parsePublicPartitionSchemaCacheRequest,
   parsePublicPartitionSchemaCacheRequestEffect,
   publicPartitionSchemaCacheRouteErrorToHttpError,
@@ -28,6 +29,30 @@ describe("public partition schema-cache route boundary", () => {
     ))).resolves.toEqual({
       partitionKey: "user:ada",
       schema,
+    });
+  });
+
+  it("wraps public schema-cache route payloads through a named Effect boundary", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [],
+      indexes: [],
+    };
+
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCacheRoutePayload(
+      schema,
+      "user:ada",
+    ))).resolves.toEqual({
+      partitionKey: "user:ada",
+      schema,
+    });
+
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCacheRoutePayload(
+      "schema",
+      "user:ada",
+    ))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "schema-cache request body must be an object.",
     });
   });
 

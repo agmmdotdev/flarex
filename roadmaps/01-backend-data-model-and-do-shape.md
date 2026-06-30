@@ -1,5 +1,62 @@
 # Backend Data Model And Durable Object Shape
 
+## Partition Route Decoder Ownership
+
+Previous completed checkpoint: `36dce15` Own scheduler route decoders.
+
+What changed:
+
+- Internal PartitionDO schema-cache, commit, subscription registration,
+  subscription target, and connection unregister routes now expose decode-named
+  route payload boundaries.
+- The public Worker partition schema-cache route now also exposes a
+  decode-named route payload wrapper that injects the route partition key.
+- Partition request decoders call `decode*RoutePayload(...)` functions directly
+  after the shared JSON body Effect boundary succeeds.
+- Parse-named Effect helpers remain as compatibility wrappers, but newly
+  migrated partition request paths prefer the decode-named route payload
+  functions.
+
+Why it changed:
+
+Partition route payload validation already lived in `partition/Requests.ts`,
+but the request decoders still flowed through parse-named compatibility
+helpers. This checkpoint makes route payload ownership explicit across the
+PartitionDO route family and the public schema-cache adapter while keeping
+PartitionDO's correctness-sensitive transaction logic untouched.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific route adapter wiring
+  around Flarex shard-local PartitionDO requests.
+
+How Flarex differs from Convex:
+
+- Flarex sends shard-local schema-cache, commit, and subscription maintenance
+  payloads through Cloudflare Worker/Durable Object fetch routes before they
+  enter the authoritative PartitionDO. This checkpoint tightens that HTTP/JSON
+  boundary without changing the shard ownership model.
+
+Known limitations:
+
+- PartitionDO SQL/OCC, idempotency replay, schema-cache persistence,
+  subscription invalidation, public Worker partition routing, executor-http,
+  protocol schemas, and `ValidatorJson` are unchanged.
+- These route payload functions still delegate to the existing manual payload
+  decoders; the payload shapes are not moved into the protocol package yet.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/partitionDO.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Partition Route Payload Validation Boundary
 
 Previous completed checkpoint: `f77949c` Share scheduler maintenance payload

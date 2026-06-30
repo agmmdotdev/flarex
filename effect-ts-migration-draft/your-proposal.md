@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Scheduler route decoder ownership.
+- Previous completed checkpoint: Partition route decoder ownership.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the scheduler route decoder ownership checkpoint:
+Next recommended checkpoint after the partition route decoder ownership checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the scheduler route decoder ownership checkpoi
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 250 slice:
+
+1. Add decode-named Effect route payload boundaries for internal PartitionDO
+   schema-cache, commit, subscription registration, subscription target, and
+   connection unregister payloads, plus the public partition schema-cache
+   payload wrapper.
+2. Move migrated partition request decoders to call those
+   `decode*RoutePayload(...)` functions directly after the shared JSON body
+   Effect boundary while retaining parse-named Effect wrappers only as
+   compatibility APIs.
+3. Preserve PartitionDO SQL/OCC, idempotency replay, schema-cache persistence,
+   subscription registration/unregistration behavior, public Worker partition
+   routing, protocol schemas, executor-http, and `ValidatorJson` behavior
+   unchanged.
+4. Extend focused partition route-boundary tests so typed success and typed
+   failure assertions exercise the decode-named Effect boundaries while
+   compatibility wrappers remain covered.
 
 Completed Goal 249 slice:
 

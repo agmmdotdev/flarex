@@ -3,6 +3,7 @@ import {
   partitionRouteErrorToHttpError,
   type PartitionRouteError,
   type PartitionSchemaCacheRequest,
+  type PartitionRoutePayloadError,
 } from "./RouteBoundary";
 import {
   HttpError,
@@ -24,7 +25,7 @@ export function decodePublicPartitionSchemaCacheRequest(
   partitionKey: string,
 ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => parsePublicPartitionSchemaCacheRequestEffect(value, partitionKey)),
+    Effect.flatMap(value => decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey)),
   );
 }
 
@@ -40,7 +41,14 @@ export function parsePublicPartitionSchemaCacheRequest(
 export function parsePublicPartitionSchemaCacheRequestEffect(
   value: unknown,
   partitionKey: string,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
+): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
+  return decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey);
+}
+
+export function decodePublicPartitionSchemaCacheRoutePayload(
+  value: unknown,
+  partitionKey: string,
+): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
   return decodePublicPartitionSchemaCachePayload(value, partitionKey);
 }
 
