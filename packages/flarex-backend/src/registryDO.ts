@@ -1,14 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { Effect } from "effect";
 import {
-  ProtocolValidationError,
-  RegistryRoute,
-} from "flarex-protocol/registry";
-import { errorResponse, json } from "./http";
-import {
-  decodeRegistryApiRequestForRoute,
-  registryRouteErrorToHttpError,
-} from "./registry/HttpApiRouteBoundary";
+  routeRegistryDurableObject,
+  runRegistryDurableObjectRoute,
+} from "./registry/InternalRouteBoundary";
 import { makeRegistryApiWebHandler } from "./registry/HttpApiWebHandler";
 import { makeRegistryLayer } from "./registry/Layer";
 import { initializeRegistryStorage } from "./registry/StorageSchema";
@@ -25,25 +19,11 @@ export class RegistryDO extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      const apiRequest = await Effect.runPromise(
-        decodeRegistryApiRequestForRoute(request).pipe(
-          Effect.mapError(registryRouteErrorToHttpError),
-        ),
-      );
-      if (apiRequest !== null) {
-        return this.registryApi.handler(apiRequest);
-      }
-      if (url.pathname === RegistryRoute.health) {
-        return json({ service: "flarex-registry", status: "ok" });
-      }
-      return json({ error: "Not found." }, { status: 404 });
-    } catch (error) {
-      if (error instanceof ProtocolValidationError) {
-        return json({ error: error.message }, { status: 400 });
-      }
-      return errorResponse(error);
-    }
+    return await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        request,
+        apiRequest => this.registryApi.handler(apiRequest),
+      ),
+    );
   }
 }

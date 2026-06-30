@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Generated HttpApi Durable Object Adapter Boundary
+
+Previous completed checkpoint: `7764fe2 Type scheduler dead-letter reconnect boundary`.
+
+What changed:
+
+- RegistryDO and DeploymentDO now route their generated HttpApi entrypoints
+  through named Effect route services and one adapter runner per Durable
+  Object.
+- Malformed JSON and protocol validation failures stay in the typed route
+  boundary channel until the adapter maps them to the existing `400` JSON
+  responses.
+- Generated HttpApi handler failures are wrapped as typed route operation
+  failures and mapped once at the adapter edge.
+
+Why it changed:
+
+Goal 148 added typed request builders for the generated RegistryDO and
+DeploymentDO HttpApi routes, but the Durable Object `fetch()` methods still
+used local `Effect.runPromise(...).catch` control flow. This checkpoint
+completes that adapter shape without changing generated handlers or service
+layers.
+
+Known limitations:
+
+- Registry and deployment generated HttpApi handlers still own their declared
+  response envelopes.
+- Deployment push/storage semantics, public Worker forwarding, executor-http,
+  PartitionDO SQL/OCC behavior, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiRouteBoundary.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/deploymentHttpApiHandlers.test.ts
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Stored Push Row Validation Boundary
 
 Previous completed checkpoint: `af87f30 Type execution session errors`.

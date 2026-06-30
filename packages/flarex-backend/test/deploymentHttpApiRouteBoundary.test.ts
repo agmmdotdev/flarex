@@ -23,6 +23,10 @@ import {
   readDeploymentAbandonPushRouteRequest,
   readDeploymentFinishPushRouteRequest,
 } from "../src/deployment/HttpApiRouteBoundary";
+import {
+  routeDeploymentDurableObject,
+  runDeploymentDurableObjectRoute,
+} from "../src/deployment/InternalRouteBoundary";
 
 describe("deploymentApiRequestForRoute", () => {
   it("forwards all read routes to the generated DeploymentApi handler", async () => {
@@ -329,6 +333,97 @@ describe("deploymentApiRequestForRoute", () => {
     await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest("/not-found", {
       method: "GET",
     })))).resolves.toBeNull();
+  });
+
+  it("maps DeploymentDO adapter route failures at one Effect edge", async () => {
+    const malformed = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest(DeploymentRoute.startAnalyzedPush, {
+          method: "POST",
+          body: "{",
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
+    const invalid = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest(DeploymentRoute.startAnalyzedPush, {
+          method: "POST",
+          body: { sourcePackage: 123 },
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error: "A push without analysis must include an error message.",
+    });
+
+    const handlerFailure = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest(`${DeploymentRoute.push}/push-handler-failure`, {
+          method: "GET",
+        }),
+        async () => {
+          throw new Error("deployment handler failed");
+        },
+      ),
+    );
+    expect(handlerFailure.status).toBe(500);
+    await expect(handlerFailure.json()).resolves.toEqual({
+      error: "deployment handler failed",
+    });
+
+    const handlerProtocolFailure = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest(`${DeploymentRoute.push}/push-handler-protocol-failure`, {
+          method: "GET",
+        }),
+        async () => {
+          throw new DeploymentProtocolValidationError({
+            schema: "DeploymentGeneratedResponse",
+            message: "Generated deployment response failed validation.",
+            cause: new Error("invalid generated deployment response"),
+          });
+        },
+      ),
+    );
+    expect(handlerProtocolFailure.status).toBe(400);
+    await expect(handlerProtocolFailure.json()).resolves.toEqual({
+      error: "Generated deployment response failed validation.",
+    });
+
+    const health = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest(DeploymentRoute.health, {
+          method: "POST",
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+
+    const notFound = await runDeploymentDurableObjectRoute(
+      routeDeploymentDurableObject(
+        jsonRequest("/not-found", {
+          method: "GET",
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(notFound.status).toBe(404);
+    await expect(notFound.json()).resolves.toEqual({
+      error: "Not found.",
+    });
   });
 });
 

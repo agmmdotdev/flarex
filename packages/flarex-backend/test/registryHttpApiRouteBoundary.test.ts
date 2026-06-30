@@ -10,6 +10,10 @@ import {
   readRegistryCreateDeploymentRouteRequest,
   registryApiRequestForRoute,
 } from "../src/registry/HttpApiRouteBoundary";
+import {
+  routeRegistryDurableObject,
+  runRegistryDurableObjectRoute,
+} from "../src/registry/InternalRouteBoundary";
 
 describe("registry HttpApi route boundary", () => {
   it("forwards registry read routes to the generated handler", async () => {
@@ -129,6 +133,93 @@ describe("registry HttpApi route boundary", () => {
     await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
       "https://registry.test/not-found",
     )))).resolves.toBeNull();
+  });
+
+  it("maps RegistryDO adapter route failures at one Effect edge", async () => {
+    const malformed = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        new Request(`https://registry.test${RegistryRoute.deployments}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
+    });
+
+    const invalid = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        jsonRequest({ deploymentId: 123 }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error: "Create deployment request must include optional string deploymentId and slug fields.",
+    });
+
+    const handlerFailure = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        new Request(`https://registry.test${RegistryRoute.deployments}`, {
+          method: "GET",
+        }),
+        async () => {
+          throw new Error("registry handler failed");
+        },
+      ),
+    );
+    expect(handlerFailure.status).toBe(500);
+    await expect(handlerFailure.json()).resolves.toEqual({
+      error: "registry handler failed",
+    });
+
+    const handlerProtocolFailure = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        new Request(`https://registry.test${RegistryRoute.deployments}`, {
+          method: "GET",
+        }),
+        async () => {
+          throw new ProtocolValidationError({
+            schema: "RegistryGeneratedResponse",
+            message: "Generated registry response failed validation.",
+            cause: new Error("invalid generated registry response"),
+          });
+        },
+      ),
+    );
+    expect(handlerProtocolFailure.status).toBe(400);
+    await expect(handlerProtocolFailure.json()).resolves.toEqual({
+      error: "Generated registry response failed validation.",
+    });
+
+    const health = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        new Request(`https://registry.test${RegistryRoute.health}`, {
+          method: "POST",
+        }),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({
+      service: "flarex-registry",
+      status: "ok",
+    });
+
+    const notFound = await runRegistryDurableObjectRoute(
+      routeRegistryDurableObject(
+        new Request("https://registry.test/not-found"),
+        async () => Response.json({ ok: true }),
+      ),
+    );
+    expect(notFound.status).toBe(404);
+    await expect(notFound.json()).resolves.toEqual({
+      error: "Not found.",
+    });
   });
 });
 

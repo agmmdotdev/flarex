@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: SchedulerDO dead-letter reconnect boundary.
+- Previous completed checkpoint: RegistryDO/DeploymentDO generated HttpApi adapter boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,21 +48,35 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the SchedulerDO dead-letter reconnect boundary checkpoint:
+Next recommended checkpoint after the RegistryDO/DeploymentDO generated HttpApi adapter boundary checkpoint:
 
-1. Continue through the remaining SchedulerDO maintenance paths as coherent
-   groups only if new maintenance routes are added; the current SchedulerDO
-   delivery reconcile, connection cleanup, rerun, and dead-letter maintenance
-   routes now run through Effect-returning service boundaries.
-2. Prefer the next backend Worker/DO service boundary that can keep route,
+1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
    adapter mapping edge, without changing PartitionDO SQL/OCC behavior.
-3. Keep each public Worker or Durable Object entrypoint at one
+2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
-4. Preserve the existing HTTP response body/status exactly through adapter
+3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
+4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 200 slice:
+
+1. Add typed internal route adapters for the generated RegistryDO and
+   DeploymentDO HttpApi entrypoints.
+2. Route both Durable Object `fetch()` methods through named `Effect.fn`
+   route services and a single `run*DurableObjectRoute(...)` adapter instead
+   of mapping route decode failures through `Effect.runPromise(...).catch`.
+3. Keep existing generated HttpApi handlers, registry/deployment service
+   layers, storage behavior, route-boundary request builders, malformed JSON
+   mapping, protocol validation mapping, fallback health/not-found responses,
+   public Worker routes, executor-http routes, protocol schemas, and
+   `ValidatorJson` unchanged.
+4. Preserve generated handler failures as adapter-level 500 JSON responses
+   with the same message text.
+5. Validate direct RegistryDO/DeploymentDO adapter mappings plus focused
+   generated HttpApi handler coverage, backend typecheck/build, protocol build,
+   and only the EffectTS quality checker reviewer.
 
 Completed Goal 199 slice:
 
