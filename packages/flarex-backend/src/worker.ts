@@ -42,6 +42,10 @@ import {
   executionStartRouteErrorToHttpError,
 } from "./execution/StartRouteBoundary";
 import {
+  dispatchPublicExecutionActionEffect,
+  startPublicExecutionEffect,
+} from "./execution/PublicDispatchBoundary";
+import {
   publicWorkerDispatchError,
   publicWorkerDispatchErrorToAdapterError,
   publicWorkerDispatchErrorToHttpError,
@@ -74,7 +78,7 @@ import {
 } from "./deployment/PublicPushRouteBoundary";
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
-import { errorResponse, HttpError, json, readResponseJsonEffect } from "./http";
+import { errorResponse, HttpError, json } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
@@ -736,35 +740,14 @@ const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
     sessionId: string,
   ) {
     const body = yield* decodePublicExecutionStartRouteRequest(request, deploymentId);
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        execution.fetch("https://flarex.internal/start", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      catch: error => publicWorkerDispatchError("execution-start", error),
-    });
-    if (!response.ok) return response;
-    const responseBody = yield* readResponseJsonEffect(response).pipe(
-      Effect.mapError(error => publicWorkerDispatchError("execution-start-response", error)),
-    );
-    return json({ sessionId, ...(responseBody as Record<string, unknown>) });
+    return yield* startPublicExecutionEffect(execution, body, sessionId);
   },
 );
 
 const routePublicExecutionAction = Effect.fn("Worker.routePublicExecutionAction")(
   function* (request: Request, execution: DurableObjectStub, action: PublicExecutionAction) {
     const body = yield* decodePublicExecutionActionRequest(request, action);
-    return yield* Effect.tryPromise({
-      try: () =>
-        execution.fetch(`https://flarex.internal/${action}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      catch: error => publicWorkerDispatchError("execution-action", error),
-    });
+    return yield* dispatchPublicExecutionActionEffect(execution, action, body);
   },
 );
 

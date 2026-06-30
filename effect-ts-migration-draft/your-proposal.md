@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public start artifact persistence boundary.
+- Previous completed checkpoint: Public execution dispatch boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public start artifact persistence boundary checkpoint:
+Next recommended checkpoint after the Public execution dispatch boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,32 @@ Next recommended checkpoint after the Public start artifact persistence boundary
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 219 slice:
+
+1. Extract public execution Worker dispatch into
+   `startPublicExecutionEffect(...)` and
+   `dispatchPublicExecutionActionEffect(...)`, named Effect boundaries under
+   `execution/PublicDispatchBoundary.ts`.
+2. Keep public execution start/action request decoding in the existing typed
+   route boundaries, while moving DO fetch dispatch and successful start
+   response JSON wrapping out of `worker.ts`.
+3. Preserve execution start dispatch failures as `PublicWorkerDispatchError`
+   from `execution-start`, successful-start response JSON failures from
+   `execution-start-response`, and public action dispatch failures from
+   `execution-action`.
+4. Preserve compatibility behavior where non-ok execution start responses are
+   returned unchanged and successful start responses receive the public
+   `sessionId` wrapper.
+5. Keep ExecutionDO behavior, session SQL/OCC logic, invoke execution, public
+   execution route path parsing, protocol schemas, response bodies, and
+   `ValidatorJson` unchanged.
+6. Add direct Effect boundary coverage for public start dispatch, non-ok start
+   pass-through, start dispatch/response JSON failures, and action dispatch
+   failures.
+7. Validate focused execution-dispatch/execution-route coverage, backend
+   typecheck/build, protocol build/test, and only the EffectTS quality checker
+   reviewer.
 
 Completed Goal 218 slice:
 

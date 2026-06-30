@@ -1,5 +1,67 @@
 # Runtime Validation
 
+## Public Execution Dispatch Boundary
+
+Previous completed checkpoint: `2c3b3cd Type public start artifact persistence boundary`.
+
+What changed:
+
+- Public execution start/action Durable Object dispatch now runs through
+  `startPublicExecutionEffect(...)` and
+  `dispatchPublicExecutionActionEffect(...)` in
+  `execution/PublicDispatchBoundary.ts`.
+- Public execution request decoding and route-path parsing remain in the
+  existing typed execution route boundaries.
+- Execution start dispatch failures stay typed as `PublicWorkerDispatchError`
+  values from `execution-start`.
+- Successful execution start response JSON failures stay typed as
+  `PublicWorkerDispatchError` values from `execution-start-response`.
+- Public execution action dispatch failures stay typed as
+  `PublicWorkerDispatchError` values from `execution-action`.
+- Direct tests cover successful start dispatch, non-ok start pass-through,
+  start dispatch/response JSON failures, successful action dispatch, and action
+  dispatch failures.
+
+Why it changed:
+
+The public execution route had typed request decoding, but the Worker still
+owned the execution Durable Object fetch calls and the successful start response
+JSON wrapping inline. This checkpoint moves the integration boundary into named
+Effect functions so execution dispatch failures are emitted at the source and
+the Worker route remains orchestration around typed decoders and one HTTP
+mapping edge.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Worker-to-ExecutionDO public
+  dispatch boundary.
+
+How Flarex differs from Convex:
+
+- Flarex exposes execution sessions through public Worker routes and forwards
+  start/action requests to an ExecutionDO instance. The public start route adds
+  the generated session id to successful internal start responses.
+
+Known limitations:
+
+- The dispatch target is still passed as an explicit interface instead of an
+  Effect service/layer.
+- ExecutionDO session behavior, session SQL/OCC logic, invoke execution,
+  protocol schemas, executor-http, PartitionDO SQL/OCC, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicExecutionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "decodes public execution start bodies|decodes execution syscall bodies|decodes execution finish bodies|keeps execution abort" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Start Artifact Persistence Boundary
 
 Previous completed checkpoint: `99ff688 Type public finish artifact preflight boundary`.
