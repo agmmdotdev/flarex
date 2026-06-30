@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
+import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   connectionRouteErrorToHttpError,
   ConnectionRouteValidationError,
@@ -132,7 +133,7 @@ describe("connection route boundary", () => {
     await expect(Effect.runPromise(parseConnectionLiveQueryDeliveryRequestEffect({
       deliveries: [{ queryId: 1 }],
     }))).rejects.toMatchObject({
-      _tag: "ConnectionRouteValidationError",
+      _tag: "LiveQueryDeliveryChangePayloadError",
       message: "deliveries[0].deploymentId must be a non-empty string.",
     });
 
@@ -162,6 +163,14 @@ describe("connection route boundary", () => {
     expect(connectionRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "Invalidation queryId must be an integer.",
+    });
+
+    const deliveryPayloadError = new LiveQueryDeliveryChangePayloadError({
+      message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+    expect(connectionRouteErrorToHttpError(deliveryPayloadError)).toMatchObject({
+      status: 400,
+      message: "deliveries[0].deploymentId must be a non-empty string.",
     });
   });
 

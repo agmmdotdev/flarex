@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import {
   HttpError,
   readJsonEffect,
@@ -6,15 +6,13 @@ import {
   requestJsonErrorToHttpError,
 } from "../http";
 import {
-  liveQueryDeliveryChangesFromBody,
+  decodeLiveQueryDeliveryChangesFromBody,
+  liveQueryDeliveryChangePayloadErrorToHttpError,
+  type LiveQueryDeliveryChangePayloadError,
   type LiveQueryDeliveryChange,
 } from "../liveQueryDelivery";
 
-export class LiveQueryDeliveryRouteValidationError extends Data.TaggedError("LiveQueryDeliveryRouteValidationError")<{
-  readonly message: string;
-}> {}
-
-export type LiveQueryDeliveryRouteError = RequestJsonError | LiveQueryDeliveryRouteValidationError;
+export type LiveQueryDeliveryRouteError = RequestJsonError | LiveQueryDeliveryChangePayloadError;
 
 export async function readPublicLiveQueryDeliveryRequest(
   request: Request,
@@ -35,23 +33,15 @@ export function decodePublicLiveQueryDeliveryRequest(
 export function parsePublicLiveQueryDeliveryRequest(
   value: unknown,
 ): LiveQueryDeliveryChange[] {
-  try {
-    return liveQueryDeliveryChangesFromBody(value);
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
-  }
+  return Effect.runSync(parsePublicLiveQueryDeliveryRequestEffect(value).pipe(
+    Effect.mapError(publicLiveQueryDeliveryRouteErrorToHttpError),
+  ));
 }
 
 export function parsePublicLiveQueryDeliveryRequestEffect(
   value: unknown,
-): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryRouteValidationError> {
-  return Effect.try({
-    try: () => liveQueryDeliveryChangesFromBody(value),
-    catch: error => new LiveQueryDeliveryRouteValidationError({
-      message: error instanceof Error ? error.message : String(error),
-    }),
-  });
+): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+  return decodeLiveQueryDeliveryChangesFromBody(value);
 }
 
 export function publicLiveQueryDeliveryRouteErrorToHttpError(
@@ -60,5 +50,5 @@ export function publicLiveQueryDeliveryRouteErrorToHttpError(
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
-  return new HttpError(400, error.message);
+  return liveQueryDeliveryChangePayloadErrorToHttpError(error);
 }

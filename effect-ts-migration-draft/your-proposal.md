@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: ConnectionDO route dispatch boundary.
+- Previous completed checkpoint: Live query delivery payload validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the ConnectionDO route dispatch boundary checkpoint:
+Next recommended checkpoint after the Live query delivery payload validation boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,29 @@ Next recommended checkpoint after the ConnectionDO route dispatch boundary check
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 227 slice:
+
+1. Move live-query delivery request body validation into the shared
+   `decodeLiveQueryDeliveryChangesFromBody(...)` boundary and
+   `LiveQueryDeliveryChangePayloadError` in `liveQueryDelivery.ts`.
+2. Have public Worker live-query delivery routes and ConnectionDO live-query
+   delivery routes propagate the shared payload error instead of wrapping the
+   same parser failures into separate route-local validation errors.
+3. Keep invalidation-specific query ID validation in
+   `ConnectionRouteValidationError`; keep malformed JSON as `RequestJsonError`.
+4. Preserve adapter-edge HTTP 400 mapping through
+   `publicLiveQueryDeliveryRouteErrorToHttpError(...)` and
+   `connectionRouteErrorToHttpError(...)`.
+5. Keep live-query delivery fanout semantics, ConnectionDO state,
+   SchedulerDO/DeliveryDO behavior, PartitionDO SQL/OCC, executor-http,
+   protocol schemas, and `ValidatorJson` unchanged.
+6. Add direct shared decoder coverage plus public and ConnectionDO
+   route-boundary coverage for typed payload failures and preserved HTTP
+   mapping.
+7. Validate focused live-query delivery route/core tests, selected sync tests,
+   backend typecheck/build, protocol build/test, and only the EffectTS quality
+   checker reviewer.
 
 Completed Goal 226 slice:
 

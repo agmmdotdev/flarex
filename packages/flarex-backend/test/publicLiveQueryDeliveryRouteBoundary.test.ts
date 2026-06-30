@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { RequestJsonError } from "../src/http";
+import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
-  LiveQueryDeliveryRouteValidationError,
   parsePublicLiveQueryDeliveryRequest,
   parsePublicLiveQueryDeliveryRequestEffect,
   publicLiveQueryDeliveryRouteErrorToHttpError,
@@ -132,7 +132,7 @@ describe("public live query delivery route boundary", () => {
   it("exposes typed public live query delivery failures before HTTP mapping", async () => {
     await expect(Effect.runPromise(parsePublicLiveQueryDeliveryRequestEffect({})))
       .rejects.toMatchObject({
-        _tag: "LiveQueryDeliveryRouteValidationError",
+        _tag: "LiveQueryDeliveryChangePayloadError",
         message: "Live query delivery body must be an object with a deliveries array.",
       });
 
@@ -156,7 +156,7 @@ describe("public live query delivery route boundary", () => {
       message: "Request body must be JSON.",
     });
 
-    const validationError = new LiveQueryDeliveryRouteValidationError({
+    const validationError = new LiveQueryDeliveryChangePayloadError({
       message: "deliveries[0].queryId must be an integer.",
     });
     expect(publicLiveQueryDeliveryRouteErrorToHttpError(validationError)).toMatchObject({

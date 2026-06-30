@@ -1,4 +1,9 @@
-import { liveQueryDeliveryChangesFromBody, type LiveQueryDeliveryChange } from "../liveQueryDelivery";
+import {
+  decodeLiveQueryDeliveryChangesFromBody,
+  liveQueryDeliveryChangePayloadErrorToHttpError,
+  type LiveQueryDeliveryChange,
+  type LiveQueryDeliveryChangePayloadError,
+} from "../liveQueryDelivery";
 import { Data, Effect } from "effect";
 import {
   HttpError,
@@ -12,7 +17,10 @@ export class ConnectionRouteValidationError extends Data.TaggedError("Connection
   readonly message: string;
 }> {}
 
-export type ConnectionRouteError = RequestJsonError | ConnectionRouteValidationError;
+export type ConnectionRouteError =
+  | RequestJsonError
+  | ConnectionRouteValidationError
+  | LiveQueryDeliveryChangePayloadError;
 
 export async function readConnectionInvalidationRequest(
   request: Request,
@@ -68,23 +76,15 @@ export function decodeConnectionLiveQueryDeliveryRequest(
 export function parseConnectionLiveQueryDeliveryRequest(
   value: unknown,
 ): LiveQueryDeliveryChange[] {
-  try {
-    return liveQueryDeliveryChangesFromBody(value);
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
-  }
+  return Effect.runSync(parseConnectionLiveQueryDeliveryRequestEffect(value).pipe(
+    Effect.mapError(connectionRouteErrorToHttpError),
+  ));
 }
 
 export function parseConnectionLiveQueryDeliveryRequestEffect(
   value: unknown,
-): Effect.Effect<LiveQueryDeliveryChange[], ConnectionRouteValidationError> {
-  return Effect.try({
-    try: () => liveQueryDeliveryChangesFromBody(value),
-    catch: error => new ConnectionRouteValidationError({
-      message: error instanceof Error ? error.message : String(error),
-    }),
-  });
+): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+  return decodeLiveQueryDeliveryChangesFromBody(value);
 }
 
 type ConnectionRouteValidationResult<A> =
@@ -132,5 +132,8 @@ export function connectionRouteErrorToHttpError(error: ConnectionRouteError): Ht
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
-  return new HttpError(400, error.message);
+  if (error instanceof ConnectionRouteValidationError) {
+    return new HttpError(400, error.message);
+  }
+  return liveQueryDeliveryChangePayloadErrorToHttpError(error);
 }

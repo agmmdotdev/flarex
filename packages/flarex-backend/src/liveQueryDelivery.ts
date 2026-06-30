@@ -53,6 +53,12 @@ export class LiveQueryDeliveryTargetError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
+export class LiveQueryDeliveryChangePayloadError extends Data.TaggedError(
+  "LiveQueryDeliveryChangePayloadError",
+)<{
+  readonly message: string;
+}> {}
+
 export type LiveQueryDeliveryFanoutError =
   | LiveQueryDeliveryTargetError
   | HttpError;
@@ -71,6 +77,27 @@ export function liveQueryDeliveryChangesFromBody(
   return (body as { deliveries: unknown[] }).deliveries.map((value, index) =>
     liveQueryDeliveryChangeFromUnknown(value, `deliveries[${index}]`),
   );
+}
+
+export const decodeLiveQueryDeliveryChangesFromBody = Effect.fn(
+  "LiveQueryDelivery.decodeChangesFromBody",
+)(
+  function* (
+    body: unknown,
+  ): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+    return yield* Effect.try({
+      try: () => liveQueryDeliveryChangesFromBody(body),
+      catch: error => new LiveQueryDeliveryChangePayloadError({
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    });
+  },
+);
+
+export function liveQueryDeliveryChangePayloadErrorToHttpError(
+  error: LiveQueryDeliveryChangePayloadError,
+): HttpError {
+  return new HttpError(400, error.message);
 }
 
 export async function deliverLiveQueryChangesToConnections(

@@ -108,12 +108,12 @@ import {
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
   deliverLiveQueryChangesToConnectionsEffect,
+  LiveQueryDeliveryChangePayloadError,
   liveQueryDeliveryTargetErrorToHttpError,
   LiveQueryDeliveryTargetError,
 } from "./liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
-  LiveQueryDeliveryRouteValidationError,
   publicLiveQueryDeliveryRouteErrorToHttpError,
   type LiveQueryDeliveryRouteError,
 } from "./liveQueryDelivery/RouteBoundary";
@@ -879,7 +879,7 @@ function publicWorkerDeploymentSyncRouteErrorToHttpError(
   if (error instanceof DeliveryWakeRouteValidationError) {
     return publicDeliveryWakeRouteErrorToHttpError(error);
   }
-  if (error instanceof LiveQueryDeliveryRouteValidationError) {
+  if (error instanceof LiveQueryDeliveryChangePayloadError) {
     return publicLiveQueryDeliveryRouteErrorToHttpError(error);
   }
   return publicLiveQueryDeliveryRouteErrorToHttpError(error);

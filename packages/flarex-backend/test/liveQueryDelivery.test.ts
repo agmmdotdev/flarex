@@ -2,7 +2,10 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decodeConnectionLiveQueryDeliveryResultPayload,
+  decodeLiveQueryDeliveryChangesFromBody,
   liveQueryDeliveriesByConnection,
+  LiveQueryDeliveryChangePayloadError,
+  liveQueryDeliveryChangePayloadErrorToHttpError,
   liveQueryDeliveryResultFromUnknown,
   liveQueryDeliveryResultPayloadErrorToHttpError,
   liveQueryDeliveryTargetErrorToHttpError,
@@ -15,6 +18,51 @@ import {
 } from "../src/liveQueryDeliveryResponses";
 
 describe("live query delivery result parsing", () => {
+  it("decodes live query delivery changes through a shared typed boundary", async () => {
+    await expect(Effect.runPromise(decodeLiveQueryDeliveryChangesFromBody({
+      deliveries: [
+        {
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-a:session-a",
+          queryId: 1,
+          functionPath: "users:get",
+          argsJson: { id: "1:user" },
+          resultJson: { name: "Ada" },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    }))).resolves.toEqual([
+      {
+        kind: "updated",
+        deploymentId: "deployment-a",
+        connectionId: "connection:deployment-a:session-a",
+        queryId: 1,
+        functionPath: "users:get",
+        argsJson: { id: "1:user" },
+        resultJson: { name: "Ada" },
+        previousResultHash: "previous",
+        resultHash: "result",
+      },
+    ]);
+  });
+
+  it("exposes shared typed live query delivery change payload failures before HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(decodeLiveQueryDeliveryChangesFromBody({
+      deliveries: [{ queryId: 1 }],
+    })));
+
+    expect(failure).toBeInstanceOf(LiveQueryDeliveryChangePayloadError);
+    expect(failure).toMatchObject({
+      _tag: "LiveQueryDeliveryChangePayloadError",
+      message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+    expect(liveQueryDeliveryChangePayloadErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+  });
+
   it("exposes typed claim and ack response successes before payload parsing", async () => {
     await expect(
       Effect.runPromise(decodeLiveQueryDeliveryClaimResponse(Response.json({

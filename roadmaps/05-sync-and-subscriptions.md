@@ -1,5 +1,64 @@
 # Sync And Subscriptions
 
+## Live Query Delivery Payload Validation Boundary
+
+Previous completed checkpoint: `f062df2` Type ConnectionDO route dispatch boundary.
+
+What changed:
+
+- Live-query delivery request body validation now has a shared typed Effect
+  boundary, `decodeLiveQueryDeliveryChangesFromBody(...)`, in
+  `liveQueryDelivery.ts`.
+- Public Worker live-query delivery routes and ConnectionDO live-query delivery
+  routes now propagate `LiveQueryDeliveryChangePayloadError` from that shared
+  payload source instead of wrapping the same parser failures in separate
+  route-local validation errors.
+- ConnectionDO invalidation query ID validation remains a route-specific
+  `ConnectionRouteValidationError`, and malformed JSON remains
+  `RequestJsonError`.
+- Public and ConnectionDO route adapters still map typed payload failures to
+  the same HTTP 400 response shape at the adapter edge.
+
+Why it changed:
+
+The public live-query delivery route and ConnectionDO delivery route parsed the
+same payload shape but emitted different route-local validation tags for the
+same parser failures. This checkpoint moves the payload failure tag to the
+payload source, preserves route-specific JSON/invalidation failures, and keeps
+HTTP conversion at the existing adapter edges.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific live-query delivery
+  payload validation for Flarex sync routes.
+
+How Flarex differs from Convex:
+
+- Flarex delivers live-query result changes through public Worker and
+  ConnectionDO routes that fan out to Cloudflare WebSocket sessions. This
+  checkpoint keeps that Cloudflare route ownership explicit while sharing the
+  payload decoder used by both routes.
+
+Known limitations:
+
+- Live-query delivery fanout semantics, ConnectionDO state,
+  SchedulerDO/DeliveryDO behavior, PartitionDO SQL/OCC, executor-http, protocol
+  schemas, and `ValidatorJson` are unchanged.
+- The shared decoder still wraps the existing payload parser; it does not yet
+  replace the payload shape with a protocol package schema.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/liveQueryDelivery.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "reruns a subscribed query when a partition commit overlaps its read set|routes expired live query connection cleanup through SchedulerDO|triggers stale live query reruns and fans out changed results" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## ConnectionDO Route Dispatch Boundary
 
 Previous completed checkpoint: `996d830 Use decoded deployment metadata for activation writes`.
