@@ -1,5 +1,60 @@
 # Package Boundaries
 
+## Public Worker Top-Level Effect Boundary
+
+Previous completed checkpoint: `e9dfb06` Type public deployment dispatcher
+boundary.
+
+What changed:
+
+- The top-level backend Worker router now runs through
+  `Effect.fn("Worker.routePublicWorker")` with one `Effect.runPromise(...)`
+  adapter edge for the Worker `fetch()` path.
+- `/health`, top-level `/invoke`, registry `/deployments`, public scheduler
+  routes, and deployment-scoped routes delegate to their existing branch
+  helpers from that single route effect.
+- The top-level router now maps branch-specific typed failures inside the
+  Worker adapter effect, preserving public invoke's existing response-envelope
+  mapping while still letting `HttpError` and deployment protocol validation
+  failures reach the existing Worker `fetch()` catch path.
+
+Convex reference:
+
+- No new Convex source file was needed for this checkpoint. This is Cloudflare
+  Worker adapter wiring around already-modeled route/service boundaries, not a
+  change to Convex semantics, transaction behavior, sync behavior, or
+  validator semantics.
+
+How Flarex differs from Convex here:
+
+- Flarex's public Worker must explicitly dispatch Cloudflare Durable Object
+  bindings and generated internal routes. The route effect centralizes that
+  adapter dispatch without pretending this Worker shape exists in Convex.
+
+Known limitations:
+
+- Source-package analyzer response decoding still uses an internal
+  `Effect.runPromise(...)` compatibility decode.
+- Durable Object internals, generated HttpApi routes, executor-http, and
+  scheduled Worker behavior are unchanged.
+- This does not yet convert remaining DO entrypoints such as ConnectionDO,
+  DeliveryDO, SchedulerDO, or PartitionDO to a single fetch adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRoutePathBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "Worker invoke route|public Worker invoke bodies" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts -t "creates and lists deployments|rejects invalid JSON before schema decoding|rejects schema-invalid create deployment bodies|updates an existing deployment id without duplicating list entries" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/publicDeploymentPushDispatchSource.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "executes Add query modifications and emits Convex-style transitions|routes backend live query delivery callbacks to named connections|rejects malformed public live query delivery JSON at the Worker boundary|rejects unauthorized public live query delivery before parsing JSON|rejects invalid public live query delivery envelopes at the Worker boundary|rejects public live query deliveries whose target does not match the route deployment|rejects malformed public DeliveryDO wake JSON at the Worker boundary|rejects unauthorized public DeliveryDO wake before parsing JSON|rejects invalid public DeliveryDO wake envelopes at the Worker boundary" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Deployment Dispatcher Effect Boundary
 
 Previous completed checkpoint: `a4625c8` Type public deployment sync route

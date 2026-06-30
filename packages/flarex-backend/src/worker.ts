@@ -183,6 +183,16 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env): Promise<Response> {
+  return await Effect.runPromise(routePublicWorker(request, env));
+}
+
+type PublicWorkerRouteError = HttpError | DeploymentProtocolValidationError;
+
+const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
+  function* (
+    request: Request,
+    env: Env,
+  ): Effect.fn.Return<Response, PublicWorkerRouteError> {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
 
@@ -191,42 +201,35 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === "/invoke" && request.method === "POST") {
-    return await Effect.runPromise(
-      routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined).pipe(
-        Effect.matchEffect({
-          onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
-          onSuccess: response => Effect.succeed(response),
-        }),
-      ),
+    return yield* routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined).pipe(
+      Effect.matchEffect({
+        onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
+        onSuccess: response => Effect.succeed(response),
+      }),
     );
   }
 
   if (url.pathname === "/deployments" && ["GET", "POST"].includes(request.method)) {
-    return await Effect.runPromise(
-      routeRegistryDeployments(request, env).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      ),
+    return yield* routeRegistryDeployments(request, env).pipe(
+      Effect.mapError(publicWorkerDispatchErrorToHttpError),
     );
   }
 
   if (request.method === "POST" && isPublicSchedulerRoutePath(url.pathname)) {
-    return await Effect.runPromise(
-      routePublicScheduler(request, env, url.pathname).pipe(
-        Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
-      ),
+    return yield* routePublicScheduler(request, env, url.pathname).pipe(
+      Effect.mapError(publicWorkerSchedulerRouteErrorToHttpError),
     );
   }
 
   if (parts[0] === "deployments") {
-    return await Effect.runPromise(
-      routeDeployment(request, env, parts, url).pipe(
-        Effect.mapError(publicWorkerDeploymentRouteErrorToHttpError),
-      ),
+    return yield* routeDeployment(request, env, parts, url).pipe(
+      Effect.mapError(publicWorkerDeploymentRouteErrorToHttpError),
     );
   }
 
   return json({ error: "Not found." }, { status: 404 });
-}
+  },
+);
 
 const routeRegistryDeployments = Effect.fn("Worker.routeRegistryDeployments")(
   function* (request: Request, env: Env) {

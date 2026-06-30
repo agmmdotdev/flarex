@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: public Worker deployment dispatcher boundary.
+- Previous completed checkpoint: public Worker top-level route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker deployment dispatcher boundary checkpoint:
+Next recommended checkpoint after the public Worker top-level route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the public Worker deployment dispatcher bounda
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 207 slice:
+
+1. Convert the top-level backend Worker router to a named
+   `Effect.fn("Worker.routePublicWorker")` orchestration boundary.
+2. Keep `/health`, top-level `/invoke`, registry `/deployments`, public
+   scheduler routes, and deployment-scoped routes behind one
+   `Effect.runPromise(...)` adapter edge instead of separate branch runtime
+   boundaries.
+3. Preserve the existing public invoke response mapping, registry dispatch
+   failure mapping, public scheduler authorization/body/dispatch mapping,
+   deployment-scoped route mapping, not-found behavior, protocol schemas, and
+   `ValidatorJson` unchanged.
+4. Keep the source-package analyzer compatibility decode, Worker scheduled
+   handler, DeploymentDO, ExecutionDO, PartitionDO SQL/OCC, ConnectionDO,
+   DeliveryDO, SchedulerDO, executor-http, and generated HttpApi routes
+   unchanged.
+5. Validate public Worker route dispatch coverage plus representative invoke,
+   registry, scheduler, deployment, backend typecheck/build, protocol build,
+   and only the EffectTS quality checker reviewer.
 
 Completed Goal 206 slice:
 
