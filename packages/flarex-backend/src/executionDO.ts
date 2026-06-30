@@ -74,24 +74,18 @@ export class ExecutionDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (url.pathname === "/start" && request.method === "POST") {
+      if (request.method === "POST" && isExecutionJsonRoutePath(url.pathname)) {
         return await runExecutionRoute(
-          routeExecutionStart(request, body => this.start(body)),
+          routeExecutionDurableObject(request, url.pathname, {
+            start: body => this.start(body),
+            syscall: body => this.syscall(body),
+            finish: body => this.finish(body),
+            abort: () => Effect.sync(() => {
+              this.session = null;
+              return { aborted: true as const };
+            }),
+          }),
         );
-      }
-      if (url.pathname === "/syscall" && request.method === "POST") {
-        return await runExecutionRoute(
-          routeExecutionSyscall(request, body => this.syscall(body)),
-        );
-      }
-      if (url.pathname === "/finish" && request.method === "POST") {
-        return await runExecutionRoute(
-          routeExecutionFinish(request, body => this.finish(body)),
-        );
-      }
-      if (url.pathname === "/abort" && request.method === "POST") {
-        this.session = null;
-        return Response.json({ aborted: true });
       }
       return Response.json({ error: "Execution route not found." }, { status: 404 });
     } catch (error) {
@@ -287,6 +281,45 @@ export class ExecutionDO extends DurableObject<Env> {
     return requireActiveExecutionSession(operation, this.session);
   }
 }
+
+interface ExecutionRouteHandlers {
+  start(body: ExecutionStartRequest): Effect.Effect<ExecutionStartResponse, ExecutionServiceError>;
+  syscall(body: ExecutionSyscallRequest): Effect.Effect<Json, ExecutionServiceError>;
+  finish(body: ExecutionFinishRequest): Effect.Effect<InvokeResponse, ExecutionServiceError>;
+  abort(): Effect.Effect<{ aborted: true }>;
+}
+
+const EXECUTION_JSON_ROUTE_PATHS = [
+  "/start",
+  "/syscall",
+  "/finish",
+  "/abort",
+] as const;
+
+type ExecutionJsonRoutePath = typeof EXECUTION_JSON_ROUTE_PATHS[number];
+
+function isExecutionJsonRoutePath(pathname: string): pathname is ExecutionJsonRoutePath {
+  return (EXECUTION_JSON_ROUTE_PATHS as readonly string[]).includes(pathname);
+}
+
+const routeExecutionDurableObject = Effect.fn("ExecutionDO.route")(
+  function* (
+    request: Request,
+    pathname: ExecutionJsonRoutePath,
+    handlers: ExecutionRouteHandlers,
+  ): Effect.fn.Return<Response, ExecutionInternalRouteError> {
+    switch (pathname) {
+      case "/start":
+        return yield* routeExecutionStart(request, handlers.start);
+      case "/syscall":
+        return yield* routeExecutionSyscall(request, handlers.syscall);
+      case "/finish":
+        return yield* routeExecutionFinish(request, handlers.finish);
+      case "/abort":
+        return yield* routeExecutionJsonResult(handlers.abort);
+    }
+  },
+);
 
 const routeExecutionStart = Effect.fn("ExecutionDO.routeStart")(
   function* (

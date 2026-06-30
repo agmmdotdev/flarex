@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: DeliveryDO JSON route boundary.
+- Previous completed checkpoint: ExecutionDO JSON route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the DeliveryDO JSON route boundary checkpoint:
+Next recommended checkpoint after the ExecutionDO JSON route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,23 @@ Next recommended checkpoint after the DeliveryDO JSON route boundary checkpoint:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 211 slice:
+
+1. Convert ExecutionDO's JSON route dispatch to a named
+   `Effect.fn("ExecutionDO.route")` boundary.
+2. Route `/start`, `/syscall`, `/finish`, and `/abort` through one typed
+   Durable Object route dispatcher and the existing adapter runner.
+3. Preserve the typed start/syscall/finish body decoders, request JSON failure
+   mapping, protocol validation mapping, session error mapping, route-operation
+   failure mapping, abort response body, and unknown-route 404 behavior.
+4. Keep ExecutionDO session lifecycle, transaction setup, syscall execution,
+   commit/return validation, PartitionDO SQL/OCC, public Worker execution
+   routing, DeploymentDO, SchedulerDO, DeliveryDO, ConnectionDO,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate direct execution route-boundary coverage, representative ExecutionDO
+   session behavior, backend typecheck/build, protocol build, and only the
+   EffectTS quality checker reviewer.
 
 Completed Goal 210 slice:
 

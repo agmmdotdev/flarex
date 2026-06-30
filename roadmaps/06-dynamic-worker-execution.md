@@ -1,5 +1,48 @@
 # Dynamic Worker Execution
 
+## ExecutionDO JSON Route Effect Boundary
+
+Previous completed checkpoint: `8cafec1` Type delivery JSON route boundary.
+
+What changed:
+
+- ExecutionDO now routes its JSON endpoints through
+  `Effect.fn("ExecutionDO.route")`.
+- `/start`, `/syscall`, `/finish`, and `/abort` share one Durable Object route
+  dispatcher and the existing `runExecutionRoute(...)` adapter edge.
+- Start, syscall, and finish continue to use their typed body decoders and
+  typed session/operation failure mapping; abort remains a bodyless control
+  message that clears the in-memory session and returns `{ aborted: true }`.
+
+Why it changed:
+
+ExecutionDO already had typed request decoders and typed post-decode session
+errors, but `fetch()` still selected each internal route separately. This
+checkpoint makes the Durable Object entrypoint match the current Effect route
+shape while leaving execution session semantics and transaction behavior
+unchanged.
+
+Known limitations:
+
+- ExecutionDO session lifecycle, transaction setup, syscall execution,
+  commit/return validation, and abort semantics are unchanged.
+- PartitionDO SQL/OCC behavior, public Worker execution routing, DeploymentDO,
+  SchedulerDO, DeliveryDO, ConnectionDO, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+- This checkpoint does not persist ExecutionDO session state or replace the
+  Worker public execution router.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "commits mutation syscalls only after finish|validates returns before committing mutation syscalls|aborts execution sessions without committing staged syscalls|decodes public execution start bodies before creating a session|decodes execution syscall bodies before session dispatch|decodes execution finish bodies before session dispatch|keeps execution abort as a bodyless control message" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Execution Route Effect Boundary
 
 Previous completed checkpoint: `59d6f74 Type public deployment push route`.
