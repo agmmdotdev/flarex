@@ -33,11 +33,13 @@ import {
   idValidatorForSchema,
   invokeErrorResponse,
   invokeValidationErrorToHttpError,
+  InvokePartitionValidationError,
   InvokeReturnValidationError,
+  InvokeTableNotFoundError,
   isInvokableKind,
   loadActiveFunctionMetadata,
   readerFor,
-  resolveFunctionExecutionScope,
+  resolveFunctionExecutionScopeEffect,
   tableForName,
   validateReturnEffect,
   writerFor,
@@ -127,15 +129,12 @@ export class ExecutionDO extends DurableObject<Env> {
           ),
         );
       }
-      const scope = yield* Effect.try({
-        try: () => resolveFunctionExecutionScope(
-          metadata.partition,
-          metadata.route,
-          request,
-          schema,
-        ),
-        catch: error => executionRouteOperationError("start", error),
-      });
+      const scope = yield* resolveFunctionExecutionScopeEffect(
+        metadata.partition,
+        metadata.route,
+        request,
+        schema,
+      );
 
       yield* routeExecutionOperation("start", () => SingleShardTransaction.ensureSchema(
         self.env,
@@ -373,6 +372,8 @@ function routeExecutionOperation<A>(
 
 type ExecutionServiceError =
   | ExecutionSessionError
+  | InvokePartitionValidationError
+  | InvokeTableNotFoundError
   | InvokeReturnValidationError
   | ExecutionRouteOperationError;
 
@@ -393,6 +394,10 @@ function runExecutionRoute(
         ExecutionProtocolValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         ExecutionSessionError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokePartitionValidationError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeTableNotFoundError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeReturnValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -416,6 +421,12 @@ function executionInternalRouteErrorToResponse(
   }
   if (error instanceof ExecutionSessionError) {
     return invokeErrorResponse(executionSessionErrorToHttpError(error));
+  }
+  if (error instanceof InvokePartitionValidationError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeTableNotFoundError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokeReturnValidationError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));

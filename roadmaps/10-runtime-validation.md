@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Execution Start Scope Validation Boundary
+
+Previous completed checkpoint: `c25d975` Type execution finish return validation.
+
+What changed:
+
+- ExecutionDO start now calls `resolveFunctionExecutionScopeEffect(...)`
+  directly for partition/scope validation.
+- `InvokePartitionValidationError` and `InvokeTableNotFoundError` remain typed
+  through the ExecutionDO service flow and map once at the internal route
+  adapter edge.
+- Transaction schema setup/begin failures remain separate
+  `ExecutionRouteOperationError` values.
+
+Why it changed:
+
+Runtime partition scope validation should be distinguished from transaction
+operation failures. This checkpoint keeps invoke-domain validation in the
+invoke validation channel and leaves the operation wrapper for async
+SingleShardTransaction work.
+
+Known limitations:
+
+- Execution syscall/finish/abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Finish Return Validation Boundary
 
 Previous completed checkpoint: `776a65d` Preflight deployment store validation.
