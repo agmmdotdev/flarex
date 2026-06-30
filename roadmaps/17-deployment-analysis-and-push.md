@@ -1,5 +1,44 @@
 # Deployment Analysis And Push
 
+## Deployment Stored Push Row Validation Boundary
+
+Previous completed checkpoint: `af87f30 Type execution session errors`.
+
+What changed:
+
+- Added `decodePushStatusFromRow(...)` for typed stored push row validation.
+- Stored push row state, source package JSON, analysis JSON,
+  codegen-analysis JSON, and diagnostics JSON now fail with
+  `DeploymentValidationError`.
+- `DeploymentPushStore` and `DeploymentService` now preserve those validation
+  failures instead of wrapping them as `DeploymentSqlError`.
+
+Why it changed:
+
+`deployment/Validation.ts` already owned deployment analysis normalization, but
+stored push row reads still parsed JSON and called compatibility validators
+directly. Corrupt persisted rows could therefore defect or be reclassified as
+SQL failures. This checkpoint keeps stored deployment data validation in the
+deployment validation boundary while leaving SQL operation failures in
+`DeploymentSqlError`.
+
+Known limitations:
+
+- HttpApi read and abandon routes still expose storage-class responses for
+  corrupt stored rows, preserving their existing response envelope.
+- This does not change deployment protocol schemas, executor-http,
+  PartitionDO SQL/OCC behavior, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Artifact Ref Effect Boundary
 
 Previous completed checkpoint: `8990f06` Share dev response JSON reads.

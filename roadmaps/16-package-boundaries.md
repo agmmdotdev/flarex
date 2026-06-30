@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Deployment Stored Push Row Boundary
+
+Previous completed checkpoint: `af87f30 Type execution session errors`.
+
+What changed:
+
+- Stored deployment push row normalization now belongs to
+  `packages/flarex-backend/src/deployment/Validation.ts` through
+  `decodePushStatusFromRow(...)`.
+- `DeploymentPushStore` continues to own SQL reads and writes, but it no longer
+  classifies row-shape and stored JSON validation as SQL failures.
+- `DeploymentService` propagates stored-row validation failures in the typed
+  service error channel.
+
+Boundary decision:
+
+Persisted row shape is deployment domain data, not a SQL transport failure.
+SQL statement failures remain `DeploymentSqlError`; decoded stored data
+failures are `DeploymentValidationError`.
+
+Known limitations:
+
+- Generated HttpApi read/abandon handlers still map corrupted stored rows to
+  storage-class responses to preserve their route contract.
+- Protocol packages, executor-http, PartitionDO, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Execution Session Boundary
 
 Previous completed checkpoint: `8447a2f Type connection fanout payloads`.

@@ -99,6 +99,7 @@ export function mapDeploymentReadFailure<A>(
     | DeploymentActiveDeploymentInvalidError
     | DeploymentActiveDeploymentNotFoundError
     | DeploymentPushNotFoundError
+    | DeploymentValidationError
     | DeploymentSqlError
   >,
 ): Effect.Effect<A, DeploymentReadErrorResponse> {
@@ -135,7 +136,7 @@ export function mapDeploymentFinishFailure<A>(
 export function mapDeploymentAbandonFailure<A>(
   effect: Effect.Effect<
     A,
-    DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError
+    DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
   >,
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(
@@ -150,6 +151,7 @@ export function deploymentReadFailureToResponse(
     | DeploymentActiveDeploymentInvalidError
     | DeploymentActiveDeploymentNotFoundError
     | DeploymentPushNotFoundError
+    | DeploymentValidationError
     | DeploymentSqlError,
 ): DeploymentReadErrorResponse {
   if (error instanceof DeploymentActiveDeploymentNotFoundError) {
@@ -160,6 +162,9 @@ export function deploymentReadFailureToResponse(
   }
   if (error instanceof DeploymentActiveDeploymentInvalidError) {
     return new DeploymentStorageErrorResponse({ error: error.message });
+  }
+  if (error instanceof DeploymentValidationError) {
+    return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
   }
   return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
 }
@@ -193,7 +198,11 @@ export function deploymentFinishFailureToResponse(
 }
 
 export function deploymentAbandonFailureToResponse(
-  error: DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError,
+  error:
+    | DeploymentPushInvalidStateError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
+    | DeploymentValidationError,
 ): DeploymentAbandonErrorResponse {
   if (error instanceof DeploymentPushNotFoundError) {
     return new DeploymentNotFoundErrorResponse({ error: `Unknown push: ${error.pushId}` });
@@ -202,6 +211,9 @@ export function deploymentAbandonFailureToResponse(
     return new DeploymentConflictErrorResponse({
       error: `Cannot abandon push ${error.pushId} in state ${error.state}.`,
     });
+  }
+  if (error instanceof DeploymentValidationError) {
+    return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
   }
   return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
 }

@@ -71,17 +71,20 @@ export interface AbandonPushStoreInput {
 }
 
 export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
-  getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
+  getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError | DeploymentValidationError>;
   getActiveDeployment(): Effect.Effect<
     ActiveDeploymentStatus | null,
-    DeploymentActiveDeploymentInvalidError | DeploymentSqlError
+    DeploymentActiveDeploymentInvalidError | DeploymentSqlError | DeploymentValidationError
   >;
-  startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  startAnalyzedPush(input: StartAnalyzedPushStoreInput): Effect.Effect<
+    PushStatus,
+    DeploymentSqlError | DeploymentValidationError
+  >;
   finishPush(input: FinishPushStoreInput): Effect.Effect<
     FinishPushResponse,
     DeploymentSqlError | DeploymentValidationError
   >;
-  abandonPush(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  abandonPush(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentValidationError>;
 }>()("flarex-backend/deployment/DeploymentPushStore") {
   static layer(
     storage: DeploymentTransactionStorage,
@@ -174,10 +177,15 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         };
 
         const getPush = Effect.fn("DeploymentPushStore.getPush")(
-          function* (pushId: string): Effect.fn.Return<PushStatus | null, DeploymentSqlError> {
+          function* (
+            pushId: string,
+          ): Effect.fn.Return<PushStatus | null, DeploymentSqlError | DeploymentValidationError> {
             return yield* Effect.try({
               try: () => readPush(pushId),
-              catch: cause => new DeploymentSqlError({ operation: "getPush", cause }),
+              catch: cause =>
+                cause instanceof DeploymentValidationError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "getPush", cause }),
             });
           },
         );
@@ -185,7 +193,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         const getActiveDeployment = Effect.fn("DeploymentPushStore.getActiveDeployment")(
           function* (): Effect.fn.Return<
             ActiveDeploymentStatus | null,
-            DeploymentActiveDeploymentInvalidError | DeploymentSqlError
+            DeploymentActiveDeploymentInvalidError | DeploymentSqlError | DeploymentValidationError
           > {
             return yield* Effect.try({
               try: () => {
@@ -220,7 +228,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                 };
               },
               catch: cause =>
-                cause instanceof DeploymentActiveDeploymentInvalidError
+                cause instanceof DeploymentActiveDeploymentInvalidError || cause instanceof DeploymentValidationError
                   ? cause
                   : new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
             });
@@ -228,7 +236,9 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         );
 
         const startAnalyzedPush = Effect.fn("DeploymentPushStore.startAnalyzedPush")(
-          function* (input: StartAnalyzedPushStoreInput): Effect.fn.Return<PushStatus, DeploymentSqlError> {
+          function* (
+            input: StartAnalyzedPushStoreInput,
+          ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentValidationError> {
             return yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
@@ -268,7 +278,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                   if (!status) throw new Error(`Push ${input.pushId} was not stored.`);
                   return status;
                 }),
-              catch: cause => new DeploymentSqlError({ operation: "startPush", cause }),
+              catch: cause =>
+                cause instanceof DeploymentValidationError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "startPush", cause }),
             });
           },
         );
@@ -321,7 +334,9 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         );
 
         const abandonPush = Effect.fn("DeploymentPushStore.abandonPush")(
-          function* (input: AbandonPushStoreInput): Effect.fn.Return<PushStatus, DeploymentSqlError> {
+          function* (
+            input: AbandonPushStoreInput,
+          ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentValidationError> {
             return yield* Effect.tryPromise({
               try: () =>
                 storage.transaction(async () => {
@@ -335,7 +350,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                   if (!abandoned) throw new Error(`Abandoned push ${input.pushId} disappeared.`);
                   return abandoned;
                 }),
-              catch: cause => new DeploymentSqlError({ operation: "abandonPush", cause }),
+              catch: cause =>
+                cause instanceof DeploymentValidationError
+                  ? cause
+                  : new DeploymentSqlError({ operation: "abandonPush", cause }),
             });
           },
         );

@@ -22,17 +22,26 @@ export type StartAnalyzedPushInput = StartAnalyzedPushServiceInput;
 export interface DeploymentServiceApi {
   getActiveDeployment(): Effect.Effect<
     ActiveDeploymentStatus,
-    DeploymentActiveDeploymentInvalidError | DeploymentActiveDeploymentNotFoundError | DeploymentSqlError
+    | DeploymentActiveDeploymentInvalidError
+    | DeploymentActiveDeploymentNotFoundError
+    | DeploymentSqlError
+    | DeploymentValidationError
   >;
-  getPush(pushId: string): Effect.Effect<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError>;
-  startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  getPush(pushId: string): Effect.Effect<
+    PushStatus,
+    DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+  >;
+  startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<
+    PushStatus,
+    DeploymentSqlError | DeploymentValidationError
+  >;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
     DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
   >;
   abandonPush(pushId: string, request: AbandonPushRequest): Effect.Effect<
     PushStatus,
-    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError
+    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | DeploymentValidationError
   >;
 }
 
@@ -50,7 +59,10 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
       const getActiveDeployment = Effect.fn("DeploymentService.getActiveDeployment")(
         function* (): Effect.fn.Return<
           ActiveDeploymentStatus,
-          DeploymentActiveDeploymentInvalidError | DeploymentActiveDeploymentNotFoundError | DeploymentSqlError
+          | DeploymentActiveDeploymentInvalidError
+          | DeploymentActiveDeploymentNotFoundError
+          | DeploymentSqlError
+          | DeploymentValidationError
         > {
           const active = yield* store.getActiveDeployment();
           if (active === null) {
@@ -61,7 +73,9 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
       );
 
       const getPush = Effect.fn("DeploymentService.getPush")(
-        function* (pushId: string): Effect.fn.Return<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError> {
+        function* (
+          pushId: string,
+        ): Effect.fn.Return<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError> {
           const status = yield* store.getPush(pushId);
           if (status === null) {
             return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
@@ -71,7 +85,9 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
       );
 
       const startAnalyzedPush = Effect.fn("DeploymentService.startAnalyzedPush")(
-        function* (input: StartAnalyzedPushInput): Effect.fn.Return<PushStatus, DeploymentSqlError> {
+        function* (
+          input: StartAnalyzedPushInput,
+        ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentValidationError> {
           const now = yield* clock.currentTimeMillis;
           const pushId = yield* ids.pushId;
           if ("analysis" in input) {
@@ -121,7 +137,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           request: AbandonPushRequest,
         ): Effect.fn.Return<
           PushStatus,
-          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError
+          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | DeploymentValidationError
         > {
           const status = yield* store.getPush(pushId);
           if (status === null) {

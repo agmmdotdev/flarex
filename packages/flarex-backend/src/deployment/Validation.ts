@@ -84,6 +84,9 @@ function unwrapDeploymentValidation<A>(result: DeploymentValidationResult<A>): A
 }
 
 function normalizeSourcePackage(sourcePackage: PushSourcePackage): DeploymentValidationResult<PushSourcePackage> {
+  if (!isRecord(sourcePackage)) {
+    return deploymentValidationFailure("Source package must be an object.");
+  }
   if (!Array.isArray(sourcePackage.modules)) {
     return deploymentValidationFailure("Source package modules must be an array.");
   }
@@ -96,6 +99,9 @@ function normalizeSourcePackage(sourcePackage: PushSourcePackage): DeploymentVal
   const seen = new Set<string>();
   const modules = [];
   for (const module of sourcePackage.modules) {
+    if (!isRecord(module)) {
+      return deploymentValidationFailure("Source package module must be an object.");
+    }
     if (typeof module.path !== "string" || module.path.length === 0) {
       return deploymentValidationFailure("Source package module has an invalid path.");
     }
@@ -284,35 +290,73 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
 });
 
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
-  const storedAnalysis = row.schema_json === null || row.functions_json === null
-    ? undefined
-    : validateAnalysis({
-      schema: JSON.parse(row.schema_json),
-      functions: JSON.parse(row.functions_json),
-    });
-  const storedCodegenAnalysis: unknown = row.codegen_analysis_json === null
-    ? undefined
-    : JSON.parse(row.codegen_analysis_json);
+  return unwrapDeploymentValidation(normalizePushStatusRow(row));
+}
+
+export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePushStatusFromRow")(
+  function* (row: DeploymentPushStatusRow): Effect.fn.Return<PushStatus, DeploymentValidationError> {
+    return yield* deploymentValidationResultToEffect(normalizePushStatusRow(row));
+  },
+);
+
+function normalizePushStatusRow(row: DeploymentPushStatusRow): DeploymentValidationResult<PushStatus> {
+  const state = parsePushState(row.state);
+  if (!state.success) return state;
+  const sourcePackageJson = parseStoredJson("source_package_json", row.source_package_json);
+  if (!sourcePackageJson.success) return sourcePackageJson;
+  const sourcePackage = normalizeSourcePackage(sourcePackageJson.value as PushSourcePackage);
+  if (!sourcePackage.success) return sourcePackage;
   const diagnostics = row.diagnostics_json === null
-    ? []
-    : JSON.parse(row.diagnostics_json) as PushDiagnostic[];
-  return {
+    ? deploymentValidationSuccess([])
+    : parseStoredJson("diagnostics_json", row.diagnostics_json);
+  if (!diagnostics.success) return diagnostics;
+  const normalizedDiagnostics = Array.isArray(diagnostics.value)
+    ? normalizeDiagnostics(diagnostics.value)
+    : deploymentValidationFailure("Push diagnostics must be an array.");
+  if (!normalizedDiagnostics.success) return normalizedDiagnostics;
+
+  let storedAnalysis: DeploymentAnalysis | undefined;
+  if (row.schema_json !== null || row.functions_json !== null) {
+    if (row.schema_json === null || row.functions_json === null) {
+      return deploymentValidationFailure("Stored push analysis must include both schema_json and functions_json.");
+    }
+    const schema = parseStoredJson("schema_json", row.schema_json);
+    if (!schema.success) return schema;
+    const functions = parseStoredJson("functions_json", row.functions_json);
+    if (!functions.success) return functions;
+    const analysis = normalizeAnalysis({
+      schema: schema.value,
+      functions: functions.value,
+    });
+    if (!analysis.success) return analysis;
+    storedAnalysis = analysis.value;
+  }
+
+  const storedCodegenAnalysis = row.codegen_analysis_json === null
+    ? undefined
+    : parseStoredJson("codegen_analysis_json", row.codegen_analysis_json);
+  if (storedCodegenAnalysis !== undefined && !storedCodegenAnalysis.success) return storedCodegenAnalysis;
+  const codegenAnalysis: DeploymentValidationResult<DeploymentCodegenAnalysis> | undefined = storedAnalysis === undefined
+    ? undefined
+    : storedCodegenAnalysis === undefined
+      ? deploymentValidationSuccess(codegenAnalysisFromDeploymentAnalysis(storedAnalysis))
+      : normalizeCodegenAnalysis(storedCodegenAnalysis.value, storedAnalysis);
+  if (codegenAnalysis !== undefined && !codegenAnalysis.success) return codegenAnalysis;
+  return deploymentValidationSuccess({
     pushId: row.push_id,
-    state: parsePushState(row.state),
-    sourcePackage: JSON.parse(row.source_package_json) as PushSourcePackage,
+    state: state.value,
+    sourcePackage: sourcePackage.value,
     ...(storedAnalysis !== undefined
       ? {
           analysis: storedAnalysis,
-          codegenAnalysis: storedCodegenAnalysis === undefined
-            ? codegenAnalysisFromDeploymentAnalysis(storedAnalysis)
-            : validateCodegenAnalysis(storedCodegenAnalysis, storedAnalysis),
+          codegenAnalysis: codegenAnalysis!.value,
         }
       : {}),
     ...(row.error === null ? {} : { error: row.error }),
-    ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    ...(normalizedDiagnostics.value.length === 0 ? {} : { diagnostics: normalizedDiagnostics.value }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
+  });
 }
 
 export function codegenAnalysisFromDeploymentAnalysis(
@@ -356,7 +400,7 @@ function parseFunctionPath(path: string): { moduleName: string; exportName: stri
   };
 }
 
-function parsePushState(value: string): PushStatus["state"] {
+function parsePushState(value: string): DeploymentValidationResult<PushStatus["state"]> {
   if (
     value === "pending" ||
     value === "analyzed" ||
@@ -365,9 +409,17 @@ function parsePushState(value: string): PushStatus["state"] {
     value === "abandoned" ||
     value === "superseded"
   ) {
-    return value;
+    return deploymentValidationSuccess(value);
   }
-  throw new Error(`Unknown stored push state ${value}.`);
+  return deploymentValidationFailure(`Unknown stored push state ${value}.`);
+}
+
+function parseStoredJson(field: string, raw: string): DeploymentValidationResult<unknown> {
+  try {
+    return deploymentValidationSuccess(JSON.parse(raw));
+  } catch {
+    return deploymentValidationFailure(`Stored push ${field} must be valid JSON.`);
+  }
 }
 
 export function validateSchema(schema: unknown): DeploymentSchema {

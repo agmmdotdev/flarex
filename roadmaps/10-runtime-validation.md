@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Deployment Stored Push Row Validation Boundary
+
+Previous completed checkpoint: `af87f30 Type execution session errors`.
+
+What changed:
+
+- Stored push status reads now validate persisted JSON and row state through a
+  typed Effect decoder.
+- Malformed stored source package, analysis, codegen analysis, diagnostics, and
+  unknown stored state failures now use `DeploymentValidationError`.
+- `DeploymentPushStore.getPush(...)` preserves those validation failures
+  instead of wrapping them as storage failures.
+
+Why it changed:
+
+Deployment validation had already moved most domain checks away from
+adapter-shaped errors, but stored push row reads still parsed persisted JSON
+directly. This checkpoint makes stored deployment read validation explicit and
+typed without changing route body schemas or activation semantics.
+
+Known limitations:
+
+- Corrupted stored rows still surface through existing storage-class HttpApi
+  response envelopes for read/abandon routes.
+- PartitionDO SQL/OCC behavior, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## ExecutionDO Session Effect Boundary
 
 Previous completed checkpoint: `8447a2f Type connection fanout payloads`.

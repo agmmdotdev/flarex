@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8447a2f Type connection fanout payloads`.
-- Active checkpoint: ExecutionDO typed session service boundary.
+- Previous completed checkpoint: `af87f30 Type execution session errors`.
+- Active checkpoint: Deployment stored push row validation boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 186 slice:
+
+1. Add an Effect-returning `decodePushStatusFromRow(...)` boundary for stored
+   deployment push rows.
+2. Route stored push state, source package JSON, analysis JSON,
+   codegen-analysis JSON, and diagnostics JSON validation through
+   `DeploymentValidationError` instead of raw JSON parser defects or untyped
+   stored-state errors.
+3. Widen `DeploymentPushStore` and `DeploymentService` read/start/abandon
+   paths so stored-row validation failures propagate as typed deployment
+   validation failures instead of `DeploymentSqlError`.
+4. Keep HttpApi read/abandon adapter response shapes storage-class for
+   corrupted stored rows while preserving start/finish validation mapping,
+   protocol schemas, executor-http, PartitionDO SQL/OCC behavior, and
+   `ValidatorJson`.
+5. Validate the typed stored-row decoder directly and prove
+   `DeploymentPushStore.getPush(...)` preserves `DeploymentValidationError`
+   from corrupted persisted rows.
 
 Completed Goal 185 slice:
 

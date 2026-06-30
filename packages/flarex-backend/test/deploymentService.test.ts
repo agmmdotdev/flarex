@@ -173,6 +173,37 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
+  it("preserves typed DeploymentValidationError failures from stored push status reads", async () => {
+    const status = analyzedPushStatus("push-stored-validation-failed");
+    const row = pushStatusRow(status);
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        {
+          transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+        } as DeploymentTransactionStorage,
+        sqlWithPushRows([{
+          ...row,
+          source_package_json: "null",
+        }]),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store => store.getPush(status.pushId)).pipe(
+          Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentValidationError)) {
+        throw new Error("Expected DeploymentValidationError.");
+      }
+      expect(error.message).toBe("Source package must be an object.");
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("starts analyzed pushes with the controlled clock and push id", async () => {
     const writes: StartAnalyzedPushStoreInput[] = [];
     const input: StartAnalyzedPushInput = {
@@ -1507,17 +1538,19 @@ describe("DeploymentService", () => {
 });
 
 interface DeploymentTestStore {
-  getPush?(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError>;
+  getPush?(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError | DeploymentValidationError>;
   getActiveDeployment?(): Effect.Effect<
     ActiveDeploymentStatus | null,
-    DeploymentActiveDeploymentInvalidError | DeploymentSqlError
+    DeploymentActiveDeploymentInvalidError | DeploymentSqlError | DeploymentValidationError
   >;
-  startAnalyzedPush?(input: StartAnalyzedPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  startAnalyzedPush?(
+    input: StartAnalyzedPushStoreInput,
+  ): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentValidationError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<
     FinishPushResponse,
     DeploymentSqlError | DeploymentValidationError
   >;
-  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError>;
+  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentValidationError>;
 }
 
 interface DeploymentTestLayerOptions {
@@ -1637,7 +1670,17 @@ function sqlWithPushes(
     readonly onExec?: (query: string) => void;
   } = {},
 ): DeploymentSqlStorage {
-  const rows = new Map(pushes.map(push => [push.pushId, pushStatusRow(push)]));
+  return sqlWithPushRows(pushes.map(pushStatusRow), options);
+}
+
+function sqlWithPushRows(
+  pushRows: ReadonlyArray<DeploymentPushStatusRow>,
+  options: {
+    readonly metadata?: Map<string, string>;
+    readonly onExec?: (query: string) => void;
+  } = {},
+): DeploymentSqlStorage {
+  const rows = new Map(pushRows.map(row => [row.push_id, row]));
   const metadata = options.metadata ?? new Map<string, string>();
   return {
     exec: (query: string, ...args: ReadonlyArray<unknown>) => {

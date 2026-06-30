@@ -9,6 +9,7 @@ import {
   decodeCodegenAnalysis,
   decodeDiagnostics,
   decodeFunctions,
+  decodePushStatusFromRow,
   decodeSchema,
   decodeSourcePackage,
   decodeStartAnalyzedPushInput,
@@ -1254,8 +1255,56 @@ describe("deployment validation", () => {
   });
 
   it("preserves stored push row state error messages", () => {
-    expect(() => pushStatusFromRow(pushRow({ state: "unknown" }))).toThrow(
-      new Error("Unknown stored push state unknown."),
+    expectDeploymentValidationFailure(
+      () => pushStatusFromRow(pushRow({ state: "unknown" })),
+      "Unknown stored push state unknown.",
+    );
+  });
+
+  it("exposes typed stored push row validation failures", async () => {
+    await expect(Effect.runPromise(decodePushStatusFromRow(pushRow({
+      schema_json: JSON.stringify(simpleSchema()),
+      functions_json: JSON.stringify(simpleFunctions()),
+    })))).resolves.toMatchObject({
+      pushId: "push-row",
+      state: "analyzed",
+      sourcePackage: sourcePackage(),
+      analysis: validateAnalysis({
+        schema: simpleSchema(),
+        functions: simpleFunctions(),
+      }),
+    });
+
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({ source_package_json: "{" })),
+      "Stored push source_package_json must be valid JSON.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({ source_package_json: "null" })),
+      "Source package must be an object.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({
+        source_package_json: JSON.stringify({
+          modules: [null],
+          functions: [],
+          execution: "convex/_generated/server.ts",
+        }),
+      })),
+      "Source package module must be an object.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({
+        schema_json: JSON.stringify(simpleSchema()),
+        functions_json: null,
+      })),
+      "Stored push analysis must include both schema_json and functions_json.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({
+        diagnostics_json: JSON.stringify([{ level: "debug", message: "too chatty" }]),
+      })),
+      "Push diagnostic at index 0 has an invalid level.",
     );
   });
 });
