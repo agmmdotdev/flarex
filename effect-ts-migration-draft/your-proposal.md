@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: SchedulerDO rerun subscriptions boundary.
-- Active checkpoint: choose the next remaining SchedulerDO maintenance route group.
+- Previous completed checkpoint: SchedulerDO dead-letter reconnect boundary.
+- Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,10 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the SchedulerDO rerun subscriptions boundary checkpoint:
+Next recommended checkpoint after the SchedulerDO dead-letter reconnect boundary checkpoint:
 
 1. Continue through the remaining SchedulerDO maintenance paths as coherent
-   groups: dead-letter reconnect handling.
+   groups only if new maintenance routes are added; the current SchedulerDO
+   delivery reconcile, connection cleanup, rerun, and dead-letter maintenance
+   routes now run through Effect-returning service boundaries.
 2. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
    adapter mapping edge, without changing PartitionDO SQL/OCC behavior.
@@ -61,6 +63,25 @@ Next recommended checkpoint after the SchedulerDO rerun subscriptions boundary c
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 199 slice:
+
+1. Extend the typed Scheduler maintenance boundary to cover executor
+   dead-letter stuck delivery scans.
+2. Add a typed `scheduler/ForceReconnectBoundary.ts` for SchedulerDO to
+   ConnectionDO force-reconnect calls, preserving non-OK reconnect responses
+   as per-connection failed results while keeping invalid connection targets,
+   request failures, and malformed successful payloads typed until the adapter
+   edge.
+3. Route SchedulerDO dead-letter delivery handling through an Effect-returning
+   service instead of a Promise route callback.
+4. Keep dead-letter pagination, reconnect deduplication, scanned/dead-lettered
+   aggregation, reconnect failure aggregation, public response bodies/statuses,
+   delivery reconcile, connection cleanup, rerun, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate typed dead-letter maintenance and force-reconnect boundary
+   successes/failures directly, then preserve focused SchedulerDO route and
+   sync dead-letter coverage plus backend typecheck/build as practical.
 
 Completed Goal 198 slice:
 

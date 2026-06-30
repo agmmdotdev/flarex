@@ -1,6 +1,8 @@
 import { Data, Effect } from "effect";
 import { HttpError } from "../http";
 import {
+  decodeSchedulerDeadLetterPayload,
+  decodeSchedulerDeadLetterStuckResponse,
   decodeSchedulerCleanupConnectionsPayload,
   decodeSchedulerCleanupConnectionsResponse,
   decodeSchedulerExpiredConnectionDeploymentsPayload,
@@ -14,6 +16,7 @@ import {
   SchedulerResponsePayloadError,
   schedulerResponsePayloadErrorToHttpError,
   type ExecutorCleanupLiveQueryConnectionsResult,
+  type ExecutorDeadLetterStuckResult,
   type ExecutorLiveQueryRerunResult,
   type ExpiredConnectionDeploymentsResult,
   type PendingDeploymentsResult,
@@ -21,6 +24,7 @@ import {
 
 export type SchedulerMaintenanceOperation =
   | "cleanupConnections"
+  | "deadLetterStuck"
   | "expiredConnectionDeployments"
   | "pendingDeployments"
   | "rerun";
@@ -91,6 +95,29 @@ export const cleanupExpiredLiveQueryConnectionsEffect = Effect.fn(
       response,
     );
     return yield* decodeSchedulerCleanupConnectionsPayload(payload);
+  },
+);
+
+export const deadLetterStuckLiveQueryDeliveriesEffect = Effect.fn(
+  "SchedulerMaintenance.deadLetterStuckLiveQueryDeliveries",
+)(
+  function* (
+    schedulerFetch: SchedulerMaintenanceFetch,
+    body: Record<string, unknown>,
+  ): Effect.fn.Return<
+    ExecutorDeadLetterStuckResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    const response = yield* requestSchedulerMaintenance(
+      schedulerFetch,
+      "deadLetterStuck",
+      "/maintenance/live-queries/dead-letter-stuck",
+      body,
+    );
+    const payload = yield* decodeSchedulerDeadLetterStuckResponse<unknown>(
+      response,
+    );
+    return yield* decodeSchedulerDeadLetterPayload(payload);
   },
 );
 

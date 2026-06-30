@@ -26,7 +26,6 @@ import {
   type SchedulerRouteOperation,
 } from "./scheduler/RouteOperationError";
 import {
-  invalidSchedulerConnectionTarget,
   isSchedulerRuntimeError,
   missingSchedulerContinuationCursor,
   type SchedulerRuntimeError,
@@ -43,6 +42,7 @@ import {
 } from "./scheduler/PendingState";
 import {
   cleanupExpiredLiveQueryConnectionsEffect,
+  deadLetterStuckLiveQueryDeliveriesEffect,
   expiredConnectionDeploymentsEffect,
   isSchedulerMaintenanceBoundaryError,
   pendingDeploymentsEffect,
@@ -59,16 +59,18 @@ import {
   type SchedulerDeliveryWakeResult,
 } from "./scheduler/DeliveryWakeBoundary";
 import {
+  forceReconnectEffect,
+  type SchedulerForceReconnectBoundaryError,
+  type SchedulerForceReconnectInput,
+  type SchedulerForceReconnectResult,
+} from "./scheduler/ForceReconnectBoundary";
+import {
   routeSchedulerContinueConnectionCleanup,
   routeSchedulerEffectJsonResult,
   runSchedulerRoute,
   type SchedulerInternalRouteError,
 } from "./scheduler/InternalRouteBoundary";
 import {
-  decodeSchedulerDeadLetterStuckResponse,
-  decodeSchedulerDeadLetterPayload,
-  decodeSchedulerForceReconnectJsonResponse,
-  decodeSchedulerForceReconnectPayload,
   SchedulerResponseError,
   SchedulerResponsePayloadError,
   type ExecutorCleanupLiveQueryConnectionsResult,
@@ -131,6 +133,11 @@ type SchedulerRerunError =
   | SchedulerPendingStateError
   | SchedulerMaintenanceBoundaryError
   | SchedulerDeliveryWakeBoundaryError
+  | SchedulerRouteOperationError;
+
+type SchedulerDeadLetterError =
+  | SchedulerMaintenanceBoundaryError
+  | SchedulerForceReconnectBoundaryError
   | SchedulerRouteOperationError;
 
 type ReconcileConnectionCleanupResult = {
@@ -231,7 +238,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerDeadLetterDeliveries(request, body =>
-            this.deadLetterLiveQueryDeliveries(body),
+            this.deadLetterLiveQueryDeliveriesEffect(body),
           ),
         );
       }
@@ -1065,66 +1072,14 @@ export class SchedulerDO extends DurableObject<Env> {
     );
   }
 
-  private async deadLetterLiveQueryDeliveries(
+  private deadLetterLiveQueryDeliveriesEffect(
     request: SchedulerDeadLetterDeliveriesRequest,
-  ): Promise<DeadLetterResult> {
-    const failed: DeadLetterResult["failed"] = [];
-    const reconnectedConnectionIds = new Set<string>();
-    let reconnectTargets = 0;
-    let scanned = 0;
-    let deadLettered = 0;
-    let cursor = request.cursor;
-    let nextCursor: unknown = null;
-    let hasMore = false;
-    let batches = 0;
-
-    for (let batchIndex = 0; batchIndex < request.maxBatches; batchIndex += 1) {
-      const page = await this.deadLetterStuckLiveQueryDeliveries({
-        ...(request.deploymentId === undefined
-          ? {}
-          : { deploymentId: request.deploymentId }),
-        olderThan: request.olderThan,
-        minAttempts: request.minAttempts,
-        ...(cursor === undefined || cursor === null ? {} : { cursor }),
-        limit: request.limit,
-        reason: request.reason,
-        deadLetteredAt: request.deadLetteredAt,
-      });
-      batches += 1;
-      scanned += page.scanned.length;
-      deadLettered += page.deadLettered.length;
-      reconnectTargets += page.reconnectConnectionIds.length;
-
-      for (const connectionId of page.reconnectConnectionIds) {
-        if (reconnectedConnectionIds.has(connectionId)) continue;
-        const result = await this.forceReconnect(connectionId, request.reason);
-        if (result.ok) {
-          reconnectedConnectionIds.add(connectionId);
-          continue;
-        }
-        failed.push({
-          connectionId,
-          status: result.status,
-          error: result.error,
-        });
-      }
-
-      nextCursor = page.nextCursor;
-      hasMore = page.hasMore;
-      if (!page.hasMore) break;
-      cursor = page.nextCursor;
-    }
-
-    return {
-      batches,
-      scanned,
-      deadLettered,
-      reconnectTargets,
-      reconnected: reconnectedConnectionIds.size,
-      failed,
-      nextCursor,
-      hasMore,
-    };
+  ): Effect.Effect<DeadLetterResult, SchedulerDeadLetterError> {
+    return runDeadLetterLiveQueryDeliveriesEffect(
+      request,
+      body => this.deadLetterStuckLiveQueryDeliveriesEffect(body),
+      input => this.forceReconnectEffect(input),
+    );
   }
 
   private cleanupLiveQueryConnectionsEffect(
@@ -1167,57 +1122,35 @@ export class SchedulerDO extends DurableObject<Env> {
     );
   }
 
-  private async deadLetterStuckLiveQueryDeliveries(
+  private deadLetterStuckLiveQueryDeliveriesEffect(
     body: Record<string, unknown>,
-  ): Promise<ExecutorDeadLetterStuckResult> {
-    const response = await this.executorFetch(
-      "/maintenance/live-queries/dead-letter-stuck",
+  ): Effect.Effect<
+    ExecutorDeadLetterStuckResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    return deadLetterStuckLiveQueryDeliveriesEffect(
+      (path, body) => this.executorFetch(path, body),
       body,
-    );
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerDeadLetterStuckResponse<unknown>(
-          response,
-        );
-        return yield* decodeSchedulerDeadLetterPayload(payload);
-      }),
     );
   }
 
-  private async forceReconnect(
-    connectionId: string,
-    reason: string,
-  ): Promise<{ ok: boolean; status: number; error: string; closed: number }> {
-    validateConnectionId(connectionId);
-    const response = await this.env.CONNECTIONS
-      .getByName(connectionId)
-      .fetch("https://flarex.internal/force-reconnect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-    if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        error: await response.text(),
-        closed: 0,
-      };
-    }
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerForceReconnectJsonResponse<unknown>(
-          response,
-        );
-        return yield* decodeSchedulerForceReconnectPayload(payload);
-      }),
+  private forceReconnectEffect(
+    input: SchedulerForceReconnectInput,
+  ): Effect.Effect<
+    SchedulerForceReconnectResult,
+    SchedulerForceReconnectBoundaryError
+  > {
+    return forceReconnectEffect(
+      reconnectInput =>
+        this.env.CONNECTIONS
+          .getByName(reconnectInput.connectionId)
+          .fetch("https://flarex.internal/force-reconnect", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: reconnectInput.reason }),
+          }),
+      input,
     );
-    return {
-      ok: true,
-      status: response.status,
-      error: "",
-      closed: result.closed,
-    };
   }
 
   private pendingDeploymentsEffect(input: {
@@ -1285,13 +1218,12 @@ const routeSchedulerConnectionReconcile = Effect.fn("SchedulerDO.routeConnection
 const routeSchedulerDeadLetterDeliveries = Effect.fn("SchedulerDO.routeDeadLetterDeliveries")(
   function* (
     request: Request,
-    deadLetter: (body: SchedulerDeadLetterDeliveriesRequest) => Promise<DeadLetterResult>,
+    deadLetter: (
+      body: SchedulerDeadLetterDeliveriesRequest,
+    ) => Effect.Effect<DeadLetterResult, SchedulerDeadLetterError>,
   ) {
     const body = yield* decodeSchedulerDeadLetterDeliveriesRequest(request);
-    return yield* routeSchedulerJsonResult(
-      "dead-letter-deliveries",
-      () => deadLetter(body),
-    );
+    return yield* routeSchedulerEffectJsonResult(() => deadLetter(body));
   },
 );
 
@@ -1348,30 +1280,80 @@ const routeSchedulerContinueReruns = Effect.fn("SchedulerDO.routeContinueReruns"
   },
 );
 
-function routeSchedulerJsonResult<A extends object>(
-  operation: SchedulerRouteOperation,
-  execute: () => Promise<A>,
-): Effect.Effect<
-  Response,
-  | SchedulerRouteOperationError
-  | SchedulerPendingStateError
-  | SchedulerResponseError
-  | SchedulerResponsePayloadError
-  | SchedulerRuntimeError
-> {
-  return Effect.tryPromise({
-    try: execute,
-    catch: error =>
-      error instanceof SchedulerPendingStateError
-        || error instanceof SchedulerResponseError
-        || error instanceof SchedulerResponsePayloadError
-        || isSchedulerRuntimeError(error)
-        ? error
-        : schedulerRouteOperationError(operation, error),
-  }).pipe(
-    Effect.map(result => json(result)),
-  );
-}
+const runDeadLetterLiveQueryDeliveriesEffect = Effect.fn(
+  "SchedulerDO.deadLetterLiveQueryDeliveries",
+)(
+  function* (
+    request: SchedulerDeadLetterDeliveriesRequest,
+    deadLetterStuck: (
+      body: Record<string, unknown>,
+    ) => Effect.Effect<ExecutorDeadLetterStuckResult, SchedulerMaintenanceBoundaryError>,
+    forceReconnect: (
+      input: SchedulerForceReconnectInput,
+    ) => Effect.Effect<SchedulerForceReconnectResult, SchedulerForceReconnectBoundaryError>,
+  ): Effect.fn.Return<DeadLetterResult, SchedulerDeadLetterError> {
+    const failed: DeadLetterResult["failed"] = [];
+    const reconnectedConnectionIds = new Set<string>();
+    let reconnectTargets = 0;
+    let scanned = 0;
+    let deadLettered = 0;
+    let cursor = request.cursor;
+    let nextCursor: unknown = null;
+    let hasMore = false;
+    let batches = 0;
+
+    for (let batchIndex = 0; batchIndex < request.maxBatches; batchIndex += 1) {
+      const page = yield* deadLetterStuck({
+        ...(request.deploymentId === undefined
+          ? {}
+          : { deploymentId: request.deploymentId }),
+        olderThan: request.olderThan,
+        minAttempts: request.minAttempts,
+        ...(cursor === undefined || cursor === null ? {} : { cursor }),
+        limit: request.limit,
+        reason: request.reason,
+        deadLetteredAt: request.deadLetteredAt,
+      });
+      batches += 1;
+      scanned += page.scanned.length;
+      deadLettered += page.deadLettered.length;
+      reconnectTargets += page.reconnectConnectionIds.length;
+
+      for (const connectionId of page.reconnectConnectionIds) {
+        if (reconnectedConnectionIds.has(connectionId)) continue;
+        const result = yield* forceReconnect({
+          connectionId,
+          reason: request.reason,
+        });
+        if (result.ok) {
+          reconnectedConnectionIds.add(connectionId);
+          continue;
+        }
+        failed.push({
+          connectionId,
+          status: result.status,
+          error: result.error,
+        });
+      }
+
+      nextCursor = page.nextCursor;
+      hasMore = page.hasMore;
+      if (!page.hasMore) break;
+      cursor = page.nextCursor;
+    }
+
+    return {
+      batches,
+      scanned,
+      deadLettered,
+      reconnectTargets,
+      reconnected: reconnectedConnectionIds.size,
+      failed,
+      nextCursor,
+      hasMore,
+    };
+  },
+);
 
 function executorUrl(env: Env, path: string): string {
   const base = env.FLAREX_EXECUTOR_URL ?? "https://flarex-executor.internal";
@@ -1514,9 +1496,4 @@ function schedulerConnectionCleanupError(
     return error;
   }
   return schedulerRouteOperationError(operation, error);
-}
-
-function validateConnectionId(connectionId: string): void {
-  if (connectionId.startsWith("connection:")) return;
-  throw invalidSchedulerConnectionTarget(connectionId);
 }

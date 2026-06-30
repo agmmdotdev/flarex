@@ -1,5 +1,59 @@
 # Sync And Subscriptions
 
+## SchedulerDO Dead-Letter Reconnect Effect Boundary
+
+Previous completed checkpoint: `bdacecb Type scheduler rerun boundary`.
+
+What changed:
+
+- SchedulerDO dead-letter delivery handling now executes through an
+  Effect-returning service path instead of a Promise route callback.
+- Executor dead-letter stuck delivery scans share the typed scheduler
+  maintenance boundary.
+- ConnectionDO force-reconnect calls use a typed scheduler-to-connection
+  boundary that preserves non-OK reconnect responses as per-connection failed
+  results while keeping request failures, malformed successful payloads, and
+  invalid connection targets typed until the SchedulerDO adapter edge.
+
+Why it changed:
+
+The rerun checkpoint removed the last non-dead-letter SchedulerDO maintenance
+route group from the Promise callback pattern. Dead-letter handling still mixed
+executor scans, ConnectionDO force-reconnect calls, reconnect deduplication, and
+result aggregation in async methods. This checkpoint applies the same typed
+boundary shape while preserving the existing public dead-letter response
+contract.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific SchedulerDO,
+  executor maintenance, and ConnectionDO orchestration.
+
+How Flarex differs from Convex:
+
+- Flarex dead-letters stuck live-query deliveries through executor maintenance
+  and then asks per-connection Durable Objects to reconnect affected sessions.
+  Non-OK reconnect responses are reported per connection, while invalid
+  scheduler targets remain route-level consistency failures.
+
+Known limitations:
+
+- PartitionDO SQL/OCC logic is unchanged.
+- The next migration slice should leave SchedulerDO maintenance unless new
+  maintenance routes appear, and move to the next Worker/DO service boundary
+  that can keep typed errors until one adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerMaintenanceBoundary.test.ts test/schedulerForceReconnectBoundary.test.ts test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "dead-letters stuck live query deliveries|invalid live query dead-letter reconnect|malformed live query dead-letter|unauthorized live query dead-letter|invalid live query dead-letter envelopes"
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Rerun Subscriptions Effect Boundary
 
 Previous completed checkpoint: `7fc9d53 Type scheduler delivery reconcile boundary`.

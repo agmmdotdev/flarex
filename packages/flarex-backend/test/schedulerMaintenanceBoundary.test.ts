@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   cleanupExpiredLiveQueryConnectionsEffect,
+  deadLetterStuckLiveQueryDeliveriesEffect,
   expiredConnectionDeploymentsEffect,
   pendingDeploymentsEffect,
   rerunStaleLiveQuerySubscriptionsEffect,
@@ -32,6 +33,15 @@ describe("scheduler maintenance boundary", () => {
           unchanged: [],
           unsupported: [],
           hasMoreStale: true,
+        });
+      }
+      if (path === "/maintenance/live-queries/dead-letter-stuck") {
+        return Response.json({
+          scanned: [{ deliveryId: "delivery-a" }],
+          deadLettered: [{ deliveryId: "delivery-a" }],
+          reconnectConnectionIds: ["connection:deployment-a:session-a"],
+          nextCursor: null,
+          hasMore: false,
         });
       }
       if (path === "/maintenance/live-queries/expired-connection-deployments") {
@@ -86,6 +96,21 @@ describe("scheduler maintenance boundary", () => {
       hasMoreStale: true,
     });
 
+    await expect(Effect.runPromise(deadLetterStuckLiveQueryDeliveriesEffect(schedulerFetch, {
+      deploymentId: "deployment-a",
+      olderThan: "2026-01-01T00:01:00.000Z",
+      minAttempts: 3,
+      limit: 5,
+      reason: "test dead-letter",
+      deadLetteredAt: "2026-01-01T00:02:00.000Z",
+    }))).resolves.toEqual({
+      scanned: [{ deliveryId: "delivery-a" }],
+      deadLettered: [{ deliveryId: "delivery-a" }],
+      reconnectConnectionIds: ["connection:deployment-a:session-a"],
+      nextCursor: null,
+      hasMore: false,
+    });
+
     await expect(Effect.runPromise(cleanupExpiredLiveQueryConnectionsEffect(schedulerFetch, {
       deploymentId: "deployment-a",
       projectId: "project-a",
@@ -115,6 +140,17 @@ describe("scheduler maintenance boundary", () => {
           deploymentId: "deployment-rerun",
           projectId: "project-rerun",
           limit: 5,
+        },
+      },
+      {
+        path: "/maintenance/live-queries/dead-letter-stuck",
+        body: {
+          deploymentId: "deployment-a",
+          olderThan: "2026-01-01T00:01:00.000Z",
+          minAttempts: 3,
+          limit: 5,
+          reason: "test dead-letter",
+          deadLetteredAt: "2026-01-01T00:02:00.000Z",
         },
       },
       {

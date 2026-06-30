@@ -594,6 +594,22 @@ describe("scheduler route boundary", () => {
     });
   });
 
+  it("maps scheduler runtime failures through the scheduler route adapter", async () => {
+    const response = await runSchedulerRoute(
+      routeSchedulerEffectJsonResult(() =>
+        Effect.fail(new SchedulerConnectionTargetError({
+          connectionId: "invalid-connection",
+          message: "Invalid live query connection id invalid-connection.",
+        }))
+      ),
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid live query connection id invalid-connection.",
+    });
+  });
+
   it("preserves scheduler operation failures before HTTP mapping", () => {
     const cause = new HttpError(502, "Pending deployments failed.");
     const httpFailure = schedulerRouteOperationError("delivery-reconcile", cause);
