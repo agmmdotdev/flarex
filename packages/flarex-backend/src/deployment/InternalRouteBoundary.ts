@@ -51,9 +51,14 @@ export function runDeploymentDurableObjectRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(deploymentInternalRouteErrorToResponse(error))
-      ),
+      Effect.catchTags({
+        RequestJsonError: error =>
+          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
+        DeploymentProtocolValidationError: error =>
+          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
+        DeploymentRouteOperationError: error =>
+          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
+      }),
     ),
   );
 }

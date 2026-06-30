@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Generated HttpApi Durable Object Tagged Route Recovery
+
+Previous completed checkpoint: `419cef3` Use tagged deployment handler recovery.
+
+What changed:
+
+- RegistryDO and DeploymentDO generated HttpApi internal route adapters now use
+  `Effect.catchTags(...)` instead of broad catch-all recovery.
+- Request JSON failures, protocol validation failures, and generated-handler
+  operation failures remain typed until the Durable Object adapter maps them to
+  the existing HTTP response behavior.
+
+Boundary decision:
+
+The generated HttpApi Durable Object adapters own the runtime recovery edge for
+route decoding and generated handler forwarding. Registry and Deployment
+service/store modules continue to emit typed failures and do not depend on
+`HttpError`.
+
+Known limitations:
+
+- This checkpoint does not change generated Registry/Deployment HttpApi
+  handlers, services/stores, SQL behavior, public Worker routes, protocol
+  schemas, PartitionDO, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Registry Request Payload Source Boundary
 
 Previous completed checkpoint: `f35ae8d` Share artifact runtime request validation.

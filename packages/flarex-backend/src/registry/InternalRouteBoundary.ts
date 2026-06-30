@@ -51,9 +51,14 @@ export function runRegistryDurableObjectRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(registryInternalRouteErrorToResponse(error))
-      ),
+      Effect.catchTags({
+        RequestJsonError: error =>
+          Effect.succeed(registryInternalRouteErrorToResponse(error)),
+        ProtocolValidationError: error =>
+          Effect.succeed(registryInternalRouteErrorToResponse(error)),
+        RegistryRouteOperationError: error =>
+          Effect.succeed(registryInternalRouteErrorToResponse(error)),
+      }),
     ),
   );
 }
