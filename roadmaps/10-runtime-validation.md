@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Execution Finish Return Validation Boundary
+
+Previous completed checkpoint: `776a65d` Preflight deployment store validation.
+
+What changed:
+
+- ExecutionDO finish return validation now runs through
+  `validateReturnEffect(...)` before commit work enters the
+  `ExecutionRouteOperationError` channel.
+- `InvokeReturnValidationError` remains typed through the ExecutionDO service
+  flow and is mapped once at the internal route response adapter.
+- `Effect.ensuring(...)` preserves active-session cleanup for both validation
+  and commit failures.
+
+Why it changed:
+
+The runtime validation boundary should distinguish user return-value failures
+from transaction operation failures. This checkpoint keeps return validation as
+domain validation and reserves the route-operation wrapper for actual async
+transaction work.
+
+Known limitations:
+
+- Execution start/syscall/abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Validation Preflight Boundary
 
 Previous completed checkpoint: `93250ea` Type public finish artifact lookup.

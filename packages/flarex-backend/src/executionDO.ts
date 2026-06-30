@@ -32,12 +32,14 @@ import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http
 import {
   idValidatorForSchema,
   invokeErrorResponse,
+  invokeValidationErrorToHttpError,
+  InvokeReturnValidationError,
   isInvokableKind,
   loadActiveFunctionMetadata,
   readerFor,
   resolveFunctionExecutionScope,
   tableForName,
-  validateReturn,
+  validateReturnEffect,
   writerFor,
 } from "./invoke";
 import { SingleShardTransaction } from "./transaction";
@@ -241,33 +243,37 @@ export class ExecutionDO extends DurableObject<Env> {
     const self = this;
     return Effect.gen(function* () {
       const session = yield* self.requireSession("finish");
-      return yield* routeExecutionOperation("finish", async () => {
-        try {
-          validateReturn(session.metadata.returns, request.value, session.schema);
+      return yield* Effect.gen(function* () {
+        yield* validateReturnEffect(session.metadata.returns, request.value, session.schema);
 
-          if (session.kind === "query") {
-            return {
-              value: request.value,
-              readSet: session.tx.currentReadSet(),
-              readTs: session.tx.beginTs,
-            };
-          }
+        if (session.kind === "query") {
+          return {
+            value: request.value,
+            readSet: session.tx.currentReadSet(),
+            readTs: session.tx.beginTs,
+          };
+        }
 
-          const commit = await session.tx.commit({
+        const commit = yield* routeExecutionOperation("finish", () =>
+          session.tx.commit({
             source: `invoke:${session.path}`,
             ...(session.idempotencyKey === undefined
               ? {}
               : { idempotencyKey: session.idempotencyKey }),
-          });
-          return {
-            value: request.value,
-            committedTs: commit.committedTs,
-            writes: commit.writes,
-          };
-        } finally {
-          self.session = null;
-        }
-      });
+          })
+        );
+        return {
+          value: request.value,
+          committedTs: commit.committedTs,
+          writes: commit.writes,
+        };
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.session = null;
+          }),
+        ),
+      );
     });
   }
 
@@ -367,6 +373,7 @@ function routeExecutionOperation<A>(
 
 type ExecutionServiceError =
   | ExecutionSessionError
+  | InvokeReturnValidationError
   | ExecutionRouteOperationError;
 
 type ExecutionInternalRouteError =
@@ -386,6 +393,8 @@ function runExecutionRoute(
         ExecutionProtocolValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         ExecutionSessionError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeReturnValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         ExecutionRouteOperationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -407,6 +416,9 @@ function executionInternalRouteErrorToResponse(
   }
   if (error instanceof ExecutionSessionError) {
     return invokeErrorResponse(executionSessionErrorToHttpError(error));
+  }
+  if (error instanceof InvokeReturnValidationError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   return invokeErrorResponse(executionRouteDecodeErrorToHttpError(error));
 }

@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Execution Finish Return Validation Boundary
+
+Previous completed checkpoint: `776a65d` Preflight deployment store validation.
+
+What changed:
+
+- ExecutionDO finish now consumes the shared invoke `validateReturnEffect(...)`
+  boundary directly.
+- `InvokeReturnValidationError` stays in the execution service/domain error
+  channel until the ExecutionDO route adapter maps it to the existing invoke
+  validation HTTP response.
+- Commit failures remain owned by `ExecutionRouteOperationError`; return
+  validation is no longer thrown through that async operation wrapper.
+
+Boundary decision:
+
+Invoke validation owns return-value validation semantics. ExecutionDO owns
+session lifecycle and transaction commit. The internal route adapter owns the
+HTTP response conversion for both typed validation and operation failures.
+
+Known limitations:
+
+- This checkpoint does not change public execution dispatch, request protocol
+  schemas, executor-http, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Validation Preflight Boundary
 
 Previous completed checkpoint: `93250ea` Type public finish artifact lookup.

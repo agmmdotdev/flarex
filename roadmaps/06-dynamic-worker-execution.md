@@ -1,5 +1,46 @@
 # Dynamic Worker Execution
 
+## Execution Finish Return Validation Boundary
+
+Previous completed checkpoint: `776a65d` Preflight deployment store validation.
+
+What changed:
+
+- ExecutionDO finish now validates function return values through
+  `validateReturnEffect(...)` before transaction commit work enters
+  `routeExecutionOperation("finish", ...)`.
+- `InvokeReturnValidationError` is part of the ExecutionDO service error
+  channel and maps to the existing invoke validation HTTP response at the
+  internal route adapter edge.
+- Finish session cleanup now uses `Effect.ensuring(...)`, preserving the
+  existing behavior where failed return validation or commit failures clear the
+  active session.
+
+Why it changed:
+
+Return validation is domain validation, not a transaction operation failure.
+Keeping it inside the finish `tryPromise` boundary converted it through
+`ExecutionRouteOperationError`. This checkpoint keeps return validation typed
+until the adapter response mapping edge while leaving actual transaction commit
+failures in the route-operation channel.
+
+Known limitations:
+
+- Execution start, syscall, abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, DeploymentDO, SchedulerDO,
+  DeliveryDO, ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Invoke Route Decoder Ownership
 
 Previous completed checkpoint: `0620909 Own execution route decoders`.

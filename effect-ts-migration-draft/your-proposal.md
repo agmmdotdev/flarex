@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment store validation preflight boundary.
+- Previous completed checkpoint: Execution finish return validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment store validation preflight checkpoint:
+Next recommended checkpoint after the execution finish return validation checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the deployment store validation preflight chec
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 253 slice:
+
+1. Move ExecutionDO finish return validation from the
+   `routeExecutionOperation("finish", Effect.tryPromise(...))` operation
+   wrapper to the typed `validateReturnEffect(...)` domain boundary.
+2. Add `InvokeReturnValidationError` to the ExecutionDO service error channel
+   and map it at the internal route adapter edge through the existing invoke
+   validation HTTP mapper.
+3. Preserve the existing finish cleanup invariant with `Effect.ensuring(...)`,
+   so failed return validation and commit failures still clear the active
+   execution session.
+4. Keep transaction commit failures as `ExecutionRouteOperationError`, while
+   return validation failures now remain typed domain validation failures until
+   adapter response mapping.
+5. Preserve ExecutionDO start/syscall/abort behavior, public execution dispatch,
+   PartitionDO SQL/OCC, protocol schemas, executor-http, deployment/registry
+   behavior, and `ValidatorJson` semantics unchanged.
 
 Completed Goal 252 slice:
 
