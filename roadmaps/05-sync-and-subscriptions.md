@@ -1,5 +1,60 @@
 # Sync And Subscriptions
 
+## ConnectionDO Route Dispatch Boundary
+
+Previous completed checkpoint: `996d830 Use decoded deployment metadata for activation writes`.
+
+What changed:
+
+- ConnectionDO invalidation and live-query delivery operation calls now run
+  through named Effect boundaries in `connection/RouteDispatchBoundary.ts`.
+- ConnectionDO keeps JSON route selection and typed request decoding in the
+  existing route boundary, while operation Promise failures are mapped at the
+  dispatch source.
+- Operation failures remain typed as `ConnectionRouteOperationError` values
+  from `invalidate` and `deliver-live-query`.
+- Direct tests cover success forwarding and typed failure mapping for both
+  connection route operations.
+
+Why it changed:
+
+ConnectionDO already decoded `/invalidate` and `/deliver/live-query` request
+bodies through typed Effect route boundaries, but each branch still wrapped its
+handler Promise inline. This checkpoint moves those operation calls into a
+dedicated dispatch boundary so request decoding, operation failure mapping, and
+the final HTTP adapter edge are separate and directly testable.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare Durable Object route adapter
+  wiring for Flarex live-query sync.
+
+How Flarex differs from Convex:
+
+- Flarex uses ConnectionDO routes to invalidate live queries and deliver live
+  query changes to WebSocket sessions. Convex does not expose this as the same
+  Cloudflare Durable Object route pair.
+
+Known limitations:
+
+- ConnectionDO WebSocket state, sync protocol parsing, live query delivery
+  semantics, SchedulerDO/DeliveryDO behavior, PartitionDO SQL/OCC,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+- The dispatch handlers are explicit function dependencies rather than Effect
+  services/layers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "reruns a subscribed query when a partition commit overlaps its read set|routes expired live query connection cleanup through SchedulerDO|triggers stale live query reruns and fans out changed results" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## SchedulerDO Maintenance Route Effect Boundary
 
 Previous completed checkpoint: `c5da9c5` Type execution JSON route boundary.

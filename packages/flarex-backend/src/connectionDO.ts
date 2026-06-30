@@ -8,7 +8,12 @@ import {
   type ConnectionRouteError,
 } from "./connection/RouteBoundary";
 import {
-  connectionRouteOperationError,
+  dispatchConnectionInvalidationEffect,
+  dispatchConnectionLiveQueryDeliveryEffect,
+  type ConnectionInvalidationHandler,
+  type ConnectionLiveQueryDeliveryHandler,
+} from "./connection/RouteDispatchBoundary";
+import {
   connectionRouteOperationErrorToHttpError,
   ConnectionRouteOperationError,
 } from "./connection/RouteOperationError";
@@ -663,8 +668,8 @@ export class ConnectionDO extends DurableObject<Env> {
 }
 
 interface ConnectionRouteHandlers {
-  invalidate(queryId: QueryId): Promise<Response>;
-  deliverLiveQuery(deliveries: LiveQueryDeliveryChange[]): Promise<Response>;
+  invalidate: ConnectionInvalidationHandler;
+  deliverLiveQuery: ConnectionLiveQueryDeliveryHandler;
 }
 
 const CONNECTION_JSON_ROUTE_PATHS = [
@@ -696,26 +701,20 @@ const routeConnectionDurableObject = Effect.fn("ConnectionDO.route")(
 const routeConnectionInvalidation = Effect.fn("ConnectionDO.routeInvalidation")(
   function* (
     request: Request,
-    invalidate: (queryId: QueryId) => Promise<Response>,
+    invalidate: ConnectionInvalidationHandler,
   ) {
     const decoded = yield* decodeConnectionInvalidationRequest(request);
-    return yield* Effect.tryPromise({
-      try: () => invalidate(decoded),
-      catch: error => connectionRouteOperationError("invalidate", error),
-    });
+    return yield* dispatchConnectionInvalidationEffect(invalidate, decoded);
   },
 );
 
 const routeConnectionLiveQueryDelivery = Effect.fn("ConnectionDO.routeLiveQueryDelivery")(
   function* (
     request: Request,
-    deliver: (deliveries: LiveQueryDeliveryChange[]) => Promise<Response>,
+    deliver: ConnectionLiveQueryDeliveryHandler,
   ) {
     const decoded = yield* decodeConnectionLiveQueryDeliveryRequest(request);
-    return yield* Effect.tryPromise({
-      try: () => deliver(decoded),
-      catch: error => connectionRouteOperationError("deliver-live-query", error),
-    });
+    return yield* dispatchConnectionLiveQueryDeliveryEffect(deliver, decoded);
   },
 );
 

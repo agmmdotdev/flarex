@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment activation metadata write boundary.
+- Previous completed checkpoint: ConnectionDO route dispatch boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Deployment activation metadata write boundary checkpoint:
+Next recommended checkpoint after the ConnectionDO route dispatch boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,28 @@ Next recommended checkpoint after the Deployment activation metadata write bound
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 226 slice:
+
+1. Extract ConnectionDO invalidation and live-query delivery route operation
+   calls into `dispatchConnectionInvalidationEffect(...)` and
+   `dispatchConnectionLiveQueryDeliveryEffect(...)` under
+   `connection/RouteDispatchBoundary.ts`.
+2. Keep ConnectionDO route selection and request body decoding in
+   `connectionDO.ts` and `connection/RouteBoundary.ts`, while moving
+   Promise-to-Effect operation failure mapping out of inline route handlers.
+3. Preserve operation failures as `ConnectionRouteOperationError` values from
+   `invalidate` and `deliver-live-query`.
+4. Preserve the single ConnectionDO route adapter edge that maps body-decoding
+   and operation failures to HTTP responses.
+5. Keep sync protocol behavior, live query delivery payload semantics,
+   ConnectionDO state, scheduler/delivery behavior, PartitionDO SQL/OCC,
+   executor-http routes, protocol schemas, and `ValidatorJson` unchanged.
+6. Add direct Effect boundary coverage for both connection dispatch success
+   paths and typed operation failure mappings.
+7. Validate focused connection route/dispatch coverage, sync route behavior,
+   backend typecheck/build, protocol build/test, and only the EffectTS quality
+   checker reviewer.
 
 Completed Goal 225 slice:
 
