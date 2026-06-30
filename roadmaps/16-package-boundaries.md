@@ -1,5 +1,49 @@
 # Package Boundaries
 
+## Connection Request Payload Source Boundary
+
+Previous completed checkpoint: `a9cdba8` Share deployment push request validation.
+
+What changed:
+
+- `packages/flarex-backend/src/connection/Requests.ts` now owns ConnectionDO
+  invalidation payload validation with typed `ConnectionRouteValidationError`.
+- Connection live-query delivery payload decoding now flows through the same
+  source boundary while continuing to use the shared
+  `LiveQueryDeliveryChangePayloadError` emitted by `liveQueryDelivery.ts`.
+- `connection/RouteBoundary.ts` keeps JSON reading, compatibility read/parse
+  wrappers, and adapter-level HTTP mapping.
+- Tests cover source decoder successes and typed failures directly before HTTP
+  mapping.
+
+Boundary decision:
+
+Connection request payload validation is now source-owned by
+`connection/Requests.ts`. Connection route adapters own request JSON reading and
+HTTP conversion. Live-query delivery change validation remains source-owned by
+the existing `liveQueryDelivery.ts` decoder because both ConnectionDO and public
+Worker delivery routes share that payload contract.
+
+Known limitations:
+
+- ConnectionDO WebSocket/session lifecycle, route dispatch operation failures,
+  public live-query delivery dispatch, scheduler delivery fanout, executor-http,
+  protocol schemas, and `ValidatorJson` are unchanged.
+- The public live-query delivery route already consumed the shared live-query
+  payload decoder, so this checkpoint does not add a new public route module.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRequests.test.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteDispatchBoundary.test.ts packages/flarex-backend/test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Push Request Payload Source Boundary
 
 Previous completed checkpoint: `55c5287` Share public invoke request validation.

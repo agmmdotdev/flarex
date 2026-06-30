@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment push request validation source boundary.
+- Previous completed checkpoint: Connection request validation source boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Deployment push request validation source boundary checkpoint:
+Next recommended checkpoint after the Connection request validation source boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,27 @@ Next recommended checkpoint after the Deployment push request validation source 
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 234 slice:
+
+1. Move ConnectionDO invalidation request payload validation into the shared
+   `connection/Requests.ts` source boundary with
+   `ConnectionRouteValidationError`.
+2. Route ConnectionDO live-query delivery request payload decoding through the
+   same source boundary while preserving the existing shared
+   `LiveQueryDeliveryChangePayloadError` source from `liveQueryDelivery.ts`.
+3. Keep `connection/RouteBoundary.ts` as the JSON-read, compatibility
+   parse/read, and HTTP-mapping adapter with stable exports for existing
+   callers/tests.
+4. Preserve malformed JSON as `RequestJsonError`, invalid invalidation bodies
+   as typed connection validation failures before HTTP mapping, and live-query
+   delivery payload failures as typed live-query payload failures.
+5. Keep ConnectionDO WebSocket/session behavior, dispatch operation failures,
+   public live-query delivery route behavior, delivery fanout, scheduler,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+6. Add direct source decoder coverage for invalidation and connection
+   live-query delivery payloads, plus route/public delivery boundary coverage
+   for preserved adapter behavior.
 
 Completed Goal 233 slice:
 

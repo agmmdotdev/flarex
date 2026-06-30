@@ -1,10 +1,9 @@
 import {
-  decodeLiveQueryDeliveryChangesFromBody,
   liveQueryDeliveryChangePayloadErrorToHttpError,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliveryChangePayloadError,
 } from "../liveQueryDelivery";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import {
   HttpError,
   readJsonEffect,
@@ -12,10 +11,19 @@ import {
   requestJsonErrorToHttpError,
 } from "../http";
 import type { QueryId } from "../syncProtocol";
+import {
+  ConnectionRouteValidationError,
+  decodeConnectionInvalidationPayload,
+  decodeConnectionLiveQueryDeliveryPayload,
+  parseConnectionInvalidationPayload,
+} from "./Requests";
 
-export class ConnectionRouteValidationError extends Data.TaggedError("ConnectionRouteValidationError")<{
-  readonly message: string;
-}> {}
+export {
+  ConnectionRouteValidationError,
+  decodeConnectionInvalidationPayload,
+  decodeConnectionLiveQueryDeliveryPayload,
+  parseConnectionInvalidationPayload,
+} from "./Requests";
 
 export type ConnectionRouteError =
   | RequestJsonError
@@ -37,26 +45,20 @@ export function decodeConnectionInvalidationRequest(
 }
 
 export function parseConnectionInvalidationRequest(value: unknown): QueryId {
-  return unwrapConnectionRouteValidation(normalizeConnectionInvalidationRequest(value));
+  try {
+    return parseConnectionInvalidationPayload(value);
+  } catch (error) {
+    if (error instanceof ConnectionRouteValidationError) {
+      throw connectionRouteErrorToHttpError(error);
+    }
+    throw error;
+  }
 }
 
 export function parseConnectionInvalidationRequestEffect(
   value: unknown,
 ): Effect.Effect<QueryId, ConnectionRouteValidationError> {
-  return connectionRouteValidationResultToEffect(normalizeConnectionInvalidationRequest(value));
-}
-
-function normalizeConnectionInvalidationRequest(value: unknown): ConnectionRouteValidationResult<QueryId> {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { queryId?: unknown }).queryId === "number" &&
-    Number.isInteger((value as { queryId: number }).queryId)
-  ) {
-    return connectionRouteValidationSuccess((value as { queryId: number }).queryId);
-  }
-  return connectionRouteValidationFailure("Invalidation queryId must be an integer.");
+  return decodeConnectionInvalidationPayload(value);
 }
 
 export async function readConnectionLiveQueryDeliveryRequest(
@@ -84,42 +86,7 @@ export function parseConnectionLiveQueryDeliveryRequest(
 export function parseConnectionLiveQueryDeliveryRequestEffect(
   value: unknown,
 ): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-  return decodeLiveQueryDeliveryChangesFromBody(value);
-}
-
-type ConnectionRouteValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: ConnectionRouteValidationError;
-    };
-
-function connectionRouteValidationSuccess<A>(value: A): ConnectionRouteValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
-
-function connectionRouteValidationFailure<A = never>(message: string): ConnectionRouteValidationResult<A> {
-  return {
-    success: false,
-    error: new ConnectionRouteValidationError({ message }),
-  };
-}
-
-function connectionRouteValidationResultToEffect<A>(
-  result: ConnectionRouteValidationResult<A>,
-): Effect.Effect<A, ConnectionRouteValidationError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
-}
-
-function unwrapConnectionRouteValidation<A>(result: ConnectionRouteValidationResult<A>): A {
-  if (result.success) return result.value;
-  throw connectionRouteErrorToHttpError(result.error);
+  return decodeConnectionLiveQueryDeliveryPayload(value);
 }
 
 function runConnectionRouteEffect<A>(effect: Effect.Effect<A, ConnectionRouteError>): Promise<A> {
