@@ -33,8 +33,8 @@ import {
 } from "./scheduler/RuntimeError";
 import {
   continuationNextRunAtFromStorage,
+  decodePendingDeliveryReconcileFromStorage,
   decodePendingConnectionCleanupFromStorage,
-  pendingDeliveryReconcileFromStorage,
   pendingRerunFromStorage,
   SchedulerPendingStateError,
   type PendingLiveQueryConnectionCleanup,
@@ -45,9 +45,18 @@ import {
   cleanupExpiredLiveQueryConnectionsEffect,
   expiredConnectionDeploymentsEffect,
   isSchedulerMaintenanceBoundaryError,
+  pendingDeploymentsEffect,
   schedulerMaintenanceBoundaryErrorToHttpError,
   type SchedulerMaintenanceBoundaryError,
 } from "./scheduler/MaintenanceBoundary";
+import {
+  isDeliveryDrainFailureResult,
+  isSchedulerDeliveryWakeBoundaryError,
+  schedulerDeliveryWakeBoundaryErrorToHttpError,
+  wakeDeliveryEffect,
+  type SchedulerDeliveryWakeBoundaryError,
+  type SchedulerDeliveryWakeResult,
+} from "./scheduler/DeliveryWakeBoundary";
 import {
   routeSchedulerContinueConnectionCleanup,
   routeSchedulerEffectJsonResult,
@@ -59,11 +68,8 @@ import {
   decodeSchedulerDeadLetterPayload,
   decodeSchedulerForceReconnectJsonResponse,
   decodeSchedulerForceReconnectPayload,
-  decodeSchedulerPendingDeploymentsResponse,
-  decodeSchedulerPendingDeploymentsPayload,
   decodeSchedulerRerunResponse,
   decodeSchedulerRerunPayload,
-  decodeSchedulerWakeDeliveryJsonResponse,
   SchedulerResponseError,
   SchedulerResponsePayloadError,
   type ExecutorCleanupLiveQueryConnectionsResult,
@@ -75,7 +81,6 @@ import {
   type PendingDeploymentsResult,
 } from "./scheduler/Responses";
 import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
-import { isLiveQueryDeliverySkipReason } from "./liveQueryDelivery";
 import type { DeliveryDrainFailureResult } from "./deliveryDO";
 import type { Env } from "./types";
 
@@ -102,6 +107,13 @@ type PendingDeliveryReconcileRun = {
   retryAttempt: number;
   cursor?: PendingDeploymentCursor;
 };
+
+type SchedulerDeliveryReconcileError =
+  | SchedulerPendingStateError
+  | SchedulerMaintenanceBoundaryError
+  | SchedulerDeliveryWakeBoundaryError
+  | SchedulerRuntimeError
+  | SchedulerRouteOperationError;
 
 type PendingConnectionCleanupRun = {
   expiredAt: string;
@@ -174,7 +186,7 @@ const RERUN_RETRY_ALARM_MAX_DELAY_MS = 30_000;
 export class SchedulerDO extends DurableObject<Env> {
   private readonly deliveryReconcileInFlight = new Map<
     string,
-    Promise<ReconcileResult>
+    Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError>
   >();
   private rerunInFlight: Promise<RerunResult> | undefined;
   private readonly connectionCleanupInFlight = new Map<
@@ -194,7 +206,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerDeliveryReconcile(request, body =>
-            this.reconcileLiveQueryDeliveries(body),
+            this.reconcileLiveQueryDeliveriesEffect(body),
           ),
         );
       }
@@ -244,7 +256,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerContinueDeliveries(() =>
-            this.continuePendingLiveQueryDeliveryReconcile(),
+            this.continuePendingLiveQueryDeliveryReconcileEffect(),
           ),
         );
       }
@@ -275,7 +287,10 @@ export class SchedulerDO extends DurableObject<Env> {
   async alarm(): Promise<void> {
     const now = Date.now();
     await Promise.allSettled([
-      this.continuePendingLiveQueryDeliveryReconcile({ respectNextRunAt: true, now }),
+      Effect.runPromise(this.continuePendingLiveQueryDeliveryReconcileEffect({
+        respectNextRunAt: true,
+        now,
+      })),
       this.continuePendingLiveQueryRerun({ respectNextRunAt: true, now }),
       Effect.runPromise(this.continuePendingLiveQueryConnectionCleanupEffect({
         respectNextRunAt: true,
@@ -284,140 +299,187 @@ export class SchedulerDO extends DurableObject<Env> {
     ]);
   }
 
-  private async reconcileLiveQueryDeliveries(
+  private reconcileLiveQueryDeliveriesEffect(
     request: SchedulerDeliveryReconcileRequest,
-  ): Promise<ReconcileResult> {
-    if (request.cursor === undefined) {
-      const pending = await this.readPendingLiveQueryDeliveryReconcile();
-      if (pending !== undefined) {
-        if (!continuationIsDue(pending, Date.now())) {
-          return pendingDeliveryReconcileResult(pending);
+  ): Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError> {
+    const self = this;
+    return Effect.gen(function* () {
+      if (request.cursor === undefined) {
+        const pending = yield* self.readPendingLiveQueryDeliveryReconcileEffect(
+          "delivery-reconcile",
+        );
+        if (pending !== undefined) {
+          if (!continuationIsDue(pending, Date.now())) {
+            return pendingDeliveryReconcileResult(pending);
+          }
+          return yield* self.runAndPersistDeliveryReconcileEffect(
+            pending,
+            { persistContinuation: true },
+            "delivery-reconcile",
+          );
         }
-        return this.runAndPersistDeliveryReconcile(pending);
       }
-    }
-    const pending = {
-      limit: request.limit ?? DEFAULT_PENDING_DEPLOYMENT_LIMIT,
-      deliveryLimit: request.deliveryLimit ?? DEFAULT_DELIVERY_LIMIT,
-      maxBatches: request.maxBatches ?? DEFAULT_MAX_BATCHES,
-      retryAttempt: 0,
-      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
-    };
-    return this.runAndPersistDeliveryReconcile(pending, {
-      persistContinuation: request.cursor === undefined,
+      return yield* self.runAndPersistDeliveryReconcileEffect(
+        {
+          limit: request.limit ?? DEFAULT_PENDING_DEPLOYMENT_LIMIT,
+          deliveryLimit: request.deliveryLimit ?? DEFAULT_DELIVERY_LIMIT,
+          maxBatches: request.maxBatches ?? DEFAULT_MAX_BATCHES,
+          retryAttempt: 0,
+          ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+        },
+        { persistContinuation: request.cursor === undefined },
+        "delivery-reconcile",
+      );
     });
   }
 
-  private async continuePendingLiveQueryDeliveryReconcile(): Promise<
-    ReconcileResult | { skipped: true }
-  >;
-  private async continuePendingLiveQueryDeliveryReconcile(options: {
-    respectNextRunAt: true;
-    now: number;
-  }): Promise<ReconcileResult | { skipped: true }>;
-  private async continuePendingLiveQueryDeliveryReconcile(options?: {
+  private continuePendingLiveQueryDeliveryReconcileEffect(options?: {
     respectNextRunAt?: boolean;
     now?: number;
-  }): Promise<ReconcileResult | { skipped: true }> {
-    const pending = await this.readPendingLiveQueryDeliveryReconcile();
-    if (pending === undefined) return { skipped: true };
-    if (
-      options?.respectNextRunAt === true &&
-      !continuationIsDue(pending, options.now ?? Date.now())
-    ) {
-      await this.refreshContinuationAlarm();
-      return { skipped: true };
-    }
-    return this.runAndPersistDeliveryReconcile(pending);
-  }
-
-  private async readPendingLiveQueryDeliveryReconcile(): Promise<
-    PendingLiveQueryDeliveryReconcile | undefined
+  }): Effect.Effect<
+    ReconcileResult | { skipped: true },
+    SchedulerDeliveryReconcileError
   > {
-    const value = await this.ctx.storage.get<unknown>(
-      PENDING_DELIVERY_RECONCILE_KEY,
-    );
-    if (value === undefined) return undefined;
-    return pendingDeliveryReconcileFromStorage(value);
+    const self = this;
+    return Effect.gen(function* () {
+      const pending = yield* self.readPendingLiveQueryDeliveryReconcileEffect(
+        "continue-deliveries",
+      );
+      if (pending === undefined) return { skipped: true };
+      if (
+        options?.respectNextRunAt === true &&
+        !continuationIsDue(pending, options.now ?? Date.now())
+      ) {
+        yield* self.refreshContinuationAlarmEffect("continue-deliveries");
+        return { skipped: true };
+      }
+      return yield* self.runAndPersistDeliveryReconcileEffect(
+        pending,
+        { persistContinuation: true },
+        "continue-deliveries",
+      );
+    });
   }
 
-  private async runAndPersistDeliveryReconcile(
+  private readPendingLiveQueryDeliveryReconcileEffect(
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<
+    PendingLiveQueryDeliveryReconcile | undefined,
+    SchedulerPendingStateError | SchedulerRouteOperationError
+  > {
+    const storage = this.ctx.storage;
+    return Effect.gen(function* () {
+      const value = yield* Effect.tryPromise({
+        try: () => storage.get<unknown>(PENDING_DELIVERY_RECONCILE_KEY),
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
+      if (value === undefined) return undefined;
+      return yield* decodePendingDeliveryReconcileFromStorage(value);
+    });
+  }
+
+  private runAndPersistDeliveryReconcileEffect(
     pending: PendingDeliveryReconcileRun,
-    options: { persistContinuation: boolean } = { persistContinuation: true },
-  ): Promise<ReconcileResult> {
+    options: { persistContinuation: boolean },
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError> {
     const key = deliveryReconcileInFlightKey(pending, options);
     const existing = this.deliveryReconcileInFlight.get(key);
     if (existing !== undefined) {
       return existing;
     }
-    const reconcile = this.runDeliveryReconcile(pending)
-      .then(async result => {
-        if (options.persistContinuation) {
-          await this.persistDeliveryReconcileContinuation(pending, result);
+    const self = this;
+    const reconcile = this.runDeliveryReconcileEffect(pending).pipe(
+      Effect.tap(result =>
+        options.persistContinuation
+          ? this.persistDeliveryReconcileContinuationEffect(
+              pending,
+              result,
+              operation,
+            )
+          : Effect.void
+      ),
+      Effect.catch(error => {
+        if (!options.persistContinuation || pending.cursor === undefined) {
+          return Effect.fail(error);
         }
-        return result;
-      })
-      .catch(async (error: unknown) => {
-        if (options.persistContinuation && pending.cursor !== undefined) {
-          await this.scheduleDeliveryReconcileRetry(pending);
-        }
-        throw error;
-      })
-      .finally(() => {
-        this.deliveryReconcileInFlight.delete(key);
-      });
-    this.deliveryReconcileInFlight.set(key, reconcile);
-    return reconcile;
+        return this.scheduleDeliveryReconcileRetryEffect(pending, operation).pipe(
+          Effect.flatMap(() => Effect.fail(error)),
+        );
+      }),
+    );
+    const reconcileWithRelease = reconcile.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          self.deliveryReconcileInFlight.delete(key);
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const inFlight = yield* Effect.cached(reconcileWithRelease);
+      self.deliveryReconcileInFlight.set(key, inFlight);
+      return yield* inFlight;
+    });
   }
 
-  private async runDeliveryReconcile(
+  private runDeliveryReconcileEffect(
     pending: PendingDeliveryReconcileRun,
-  ): Promise<ReconcileResult> {
-    const deployments = await this.pendingDeployments({
-      limit: pending.limit,
-      ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
-    });
-    const failed: ReconcileResult["failed"] = [];
-    let woken = 0;
+  ): Effect.Effect<
+    ReconcileResult,
+    SchedulerMaintenanceBoundaryError | SchedulerDeliveryWakeBoundaryError
+  > {
+    const self = this;
+    return Effect.gen(function* () {
+      const deployments = yield* self.pendingDeploymentsEffect({
+        limit: pending.limit,
+        ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
+      });
+      const failed: ReconcileResult["failed"] = [];
+      let woken = 0;
 
-    for (const deployment of deployments.deployments) {
-      try {
-        const delivery = await this.wakeDelivery({
+      for (const deployment of deployments.deployments) {
+        const delivery = yield* self.wakeDeliveryEffect({
           deploymentId: deployment.deploymentId,
           limit: pending.deliveryLimit,
           maxBatches: pending.maxBatches,
-        });
-        if (delivery.woken) {
+        }).pipe(
+          Effect.matchEffect({
+            onFailure: error => Effect.succeed({ ok: false as const, error }),
+            onSuccess: result => Effect.succeed({ ok: true as const, result }),
+          }),
+        );
+        if (!delivery.ok) {
+          failed.push({
+            deploymentId: deployment.deploymentId,
+            status: schedulerServiceFailureStatus(delivery.error),
+            error: schedulerServiceFailureMessage(delivery.error),
+          });
+          continue;
+        }
+        if (delivery.result.woken) {
           woken += 1;
           continue;
         }
         failed.push({
           deploymentId: deployment.deploymentId,
-          status: delivery.status ?? 500,
-          error: delivery.error ?? "Delivery wake failed without an error body.",
-          ...(delivery.failure === undefined ? {} : { failure: delivery.failure }),
-          ...(isDeliveryDrainFailureResult(delivery.result)
-            ? { summary: delivery.result.summary }
+          status: delivery.result.status ?? 500,
+          error: delivery.result.error ?? "Delivery wake failed without an error body.",
+          ...(delivery.result.failure === undefined ? {} : { failure: delivery.result.failure }),
+          ...(isDeliveryDrainFailureResult(delivery.result.result)
+            ? { summary: delivery.result.result.summary }
             : {}),
         });
-      } catch (error) {
-        failed.push({
-          deploymentId: deployment.deploymentId,
-          status: schedulerServiceFailureStatus(error),
-          error: schedulerServiceFailureMessage(error),
-        });
       }
-    }
 
-    return {
-      deployments: deployments.deployments.length,
-      woken,
-      failed,
-      nextCursor: deployments.nextCursor,
-      hasMore: deployments.hasMore,
-    };
+      return {
+        deployments: deployments.deployments.length,
+        woken,
+        failed,
+        nextCursor: deployments.nextCursor,
+        hasMore: deployments.hasMore,
+      };
+    });
   }
-
   private async persistDeliveryReconcileContinuation(
     pending: PendingDeliveryReconcileRun,
     result: ReconcileResult,
@@ -444,6 +506,20 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.refreshContinuationAlarm();
   }
 
+  private persistDeliveryReconcileContinuationEffect(
+    pending: PendingDeliveryReconcileRun,
+    result: ReconcileResult,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRuntimeError | SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.persistDeliveryReconcileContinuation(pending, result),
+      catch: error =>
+        isSchedulerRuntimeError(error)
+          ? error
+          : schedulerRouteOperationError(operation, error),
+    });
+  }
+
   private async scheduleDeliveryReconcileRetry(
     pending: PendingDeliveryReconcileRun,
   ): Promise<void> {
@@ -461,6 +537,16 @@ export class SchedulerDO extends DurableObject<Env> {
       nextRunAt,
     } satisfies PendingLiveQueryDeliveryReconcile);
     await this.refreshContinuationAlarm();
+  }
+
+  private scheduleDeliveryReconcileRetryEffect(
+    pending: PendingDeliveryReconcileRun,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.scheduleDeliveryReconcileRetry(pending),
+      catch: error => schedulerRouteOperationError(operation, error),
+    });
   }
 
   private reconcileLiveQueryConnectionsEffect(
@@ -501,16 +587,16 @@ export class SchedulerDO extends DurableObject<Env> {
       if (request.cursor !== undefined) {
         return yield* cleanup;
       }
-      const inFlight = yield* Effect.cached(cleanup);
-      const cleanupWithRelease = inFlight.pipe(
+      const cleanupWithRelease = cleanup.pipe(
         Effect.ensuring(
           Effect.sync(() => {
             self.freshConnectionCleanupInFlight = undefined;
           }),
         ),
       );
-      self.freshConnectionCleanupInFlight = cleanupWithRelease;
-      return yield* cleanupWithRelease;
+      const inFlight = yield* Effect.cached(cleanupWithRelease);
+      self.freshConnectionCleanupInFlight = inFlight;
+      return yield* inFlight;
     });
   }
 
@@ -589,17 +675,17 @@ export class SchedulerDO extends DurableObject<Env> {
         );
       }),
     );
+    const cleanupWithRelease = cleanup.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          self.connectionCleanupInFlight.delete(key);
+        }),
+      ),
+    );
     return Effect.gen(function* () {
-      const inFlight = yield* Effect.cached(cleanup);
-      const cleanupWithRelease = inFlight.pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            self.connectionCleanupInFlight.delete(key);
-          }),
-        ),
-      );
-      self.connectionCleanupInFlight.set(key, cleanupWithRelease);
-      return yield* cleanupWithRelease;
+      const inFlight = yield* Effect.cached(cleanupWithRelease);
+      self.connectionCleanupInFlight.set(key, inFlight);
+      return yield* inFlight;
     });
   }
 
@@ -901,44 +987,31 @@ export class SchedulerDO extends DurableObject<Env> {
     limit: number;
     maxBatches?: number;
   }): Promise<RerunResult["delivery"]> {
-    const response = await this.env.DELIVERIES
-      .getByName(deliveryObjectName(input.deploymentId))
-      .fetch("https://flarex.internal/wake", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          deploymentId: input.deploymentId,
-          limit: input.limit,
-          ...(input.maxBatches === undefined ? {} : { maxBatches: input.maxBatches }),
-        }),
-      });
-    if (!response.ok) {
-      const result = responseBodyFromText(await response.text());
-      if (isDeliveryDrainFailureResult(result)) {
-        return {
-          woken: false,
-          status: response.status,
-          result,
-          error: result.error,
-          failure: result.failure,
-        };
-      }
-      return {
-        woken: false,
-        status: response.status,
-        result,
-        error: responseBodyError(result),
-      };
-    }
-    const result = await Effect.runPromise(
-      decodeSchedulerWakeDeliveryJsonResponse<unknown>(response),
+    return await Effect.runPromise(this.wakeDeliveryEffect(input));
+  }
+
+  private wakeDeliveryEffect(input: {
+    deploymentId: string;
+    limit: number;
+    maxBatches?: number;
+  }): Effect.Effect<SchedulerDeliveryWakeResult, SchedulerDeliveryWakeBoundaryError> {
+    return wakeDeliveryEffect(
+      fetchInput =>
+        this.env.DELIVERIES
+          .getByName(deliveryObjectName(fetchInput.deploymentId))
+          .fetch("https://flarex.internal/wake", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              deploymentId: fetchInput.deploymentId,
+              limit: fetchInput.limit,
+              ...(fetchInput.maxBatches === undefined
+                ? {}
+                : { maxBatches: fetchInput.maxBatches }),
+            }),
+          }),
+      input,
     );
-    return {
-      woken: true,
-      status: response.status,
-      result,
-      error: null,
-    };
   }
 
   private async deadLetterLiveQueryDeliveries(
@@ -1096,24 +1169,19 @@ export class SchedulerDO extends DurableObject<Env> {
     };
   }
 
-  private async pendingDeployments(input: {
+  private pendingDeploymentsEffect(input: {
     limit: number;
     cursor?: PendingDeploymentCursor;
-  }): Promise<PendingDeploymentsResult> {
-    const response = await this.executorFetch(
-      "/maintenance/live-queries/pending-deployments",
+  }): Effect.Effect<
+    PendingDeploymentsResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    return pendingDeploymentsEffect(
+      (path, body) => this.executorFetch(path, body),
       {
         limit: input.limit,
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       },
-    );
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerPendingDeploymentsResponse<unknown>(
-          response,
-        );
-        return yield* decodeSchedulerPendingDeploymentsPayload(payload);
-      }),
     );
   }
 
@@ -1138,11 +1206,12 @@ export class SchedulerDO extends DurableObject<Env> {
 const routeSchedulerDeliveryReconcile = Effect.fn("SchedulerDO.routeDeliveryReconcile")(
   function* (
     request: Request,
-    reconcile: (body: SchedulerDeliveryReconcileRequest) => Promise<ReconcileResult>,
+    reconcile: (
+      body: SchedulerDeliveryReconcileRequest,
+    ) => Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError>,
   ) {
     const body = yield* decodeSchedulerDeliveryReconcileRequest(request);
-    return yield* routeSchedulerJsonResult(
-      "delivery-reconcile",
+    return yield* routeSchedulerEffectJsonResult(
       () => reconcile(body),
     );
   },
@@ -1205,10 +1274,12 @@ const routeSchedulerRerunSubscriptions = Effect.fn("SchedulerDO.routeRerunSubscr
 
 const routeSchedulerContinueDeliveries = Effect.fn("SchedulerDO.routeContinueDeliveries")(
   function* (
-    continueDeliveries: () => Promise<ReconcileResult | { skipped: true }>,
+    continueDeliveries: () => Effect.Effect<
+      ReconcileResult | { skipped: true },
+      SchedulerDeliveryReconcileError
+    >,
   ) {
-    return yield* routeSchedulerJsonResult(
-      "continue-deliveries",
+    return yield* routeSchedulerEffectJsonResult(
       continueDeliveries,
     );
   },
@@ -1362,6 +1433,9 @@ function schedulerServiceFailureStatus(error: unknown): number {
   if (isSchedulerMaintenanceBoundaryError(error)) {
     return schedulerMaintenanceBoundaryErrorToHttpError(error).status;
   }
+  if (isSchedulerDeliveryWakeBoundaryError(error)) {
+    return schedulerDeliveryWakeBoundaryErrorToHttpError(error).status;
+  }
   if (error instanceof SchedulerResponseError) return 502;
   if (error instanceof SchedulerResponsePayloadError) return error.status;
   if (isSchedulerRuntimeError(error)) return 502;
@@ -1385,146 +1459,6 @@ function schedulerConnectionCleanupError(
     return error;
   }
   return schedulerRouteOperationError(operation, error);
-}
-
-function responseBodyFromText(text: string): unknown {
-  if (text.length === 0) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
-}
-
-function responseBodyError(value: unknown): string {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    const error = (value as Record<string, unknown>).error;
-    if (typeof error === "string") return error;
-  }
-  if (typeof value === "string") return value;
-  if (value === null) return "Delivery wake failed without an error body.";
-  return JSON.stringify(value) ?? String(value);
-}
-
-function isDeliveryDrainFailureResult(value: unknown): value is DeliveryDrainFailureResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const failure = record.failure;
-  const summary = record.summary;
-  return (
-    typeof record.deploymentId === "string" &&
-    typeof record.error === "string" &&
-    isDeliveryDrainFailureDetail(failure) &&
-    record.error === failure.error &&
-    isDeliveryDrainFailureSummary(summary) &&
-    deliveryDrainFailureDetailsMatch(failure, summary.failure)
-  );
-}
-
-function isDeliveryDrainFailureSummary(
-  value: unknown,
-): value is DeliveryDrainFailureResult["summary"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const skipReasons = record.skipReasons;
-  const staleSkipped = record.staleSkipped;
-  return (
-    isNonNegativeInteger(record.batches) &&
-    deliveryPendingAckMatches(record.claimed, record.acked, record.pendingAck) &&
-    isNonNegativeInteger(record.delivered) &&
-    isNonNegativeInteger(record.skipped) &&
-    (staleSkipped === undefined || isNonNegativeInteger(staleSkipped)) &&
-    isOptionalDeliverySkipReasons(skipReasons) &&
-    deliveryStaleSkippedMatchesSkipReason(staleSkipped, skipReasons) &&
-    typeof record.hasMore === "boolean" &&
-    isDeliveryDrainFailureDetail(record.failure)
-  );
-}
-
-function isDeliveryDrainFailureDetail(
-  value: unknown,
-): value is DeliveryDrainFailureResult["failure"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    (
-      record.stage === "claim" ||
-      record.stage === "fanout" ||
-      record.stage === "ack"
-    ) &&
-    isHttpStatus(record.status) &&
-    typeof record.error === "string"
-  );
-}
-
-function deliveryDrainFailureDetailsMatch(
-  left: DeliveryDrainFailureResult["failure"],
-  right: DeliveryDrainFailureResult["failure"],
-): boolean {
-  return left.stage === right.stage && left.status === right.status && left.error === right.error;
-}
-
-function isOptionalDeliverySkipReasons(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    Object.keys(record).every(isLiveQueryDeliverySkipReason) &&
-    isOptionalNonNegativeInteger(record.wrongDeployment) &&
-    isOptionalNonNegativeInteger(record.wrongConnection) &&
-    isOptionalNonNegativeInteger(record.missingQuery) &&
-    isOptionalNonNegativeInteger(record.stale) &&
-    isOptionalNonNegativeInteger(record.unchanged)
-  );
-}
-
-function deliveryStaleSkippedMatchesSkipReason(
-  staleSkipped: unknown,
-  skipReasons: unknown,
-): boolean {
-  if (
-    staleSkipped === undefined ||
-    typeof skipReasons !== "object" ||
-    skipReasons === null ||
-    Array.isArray(skipReasons)
-  ) {
-    return true;
-  }
-  const staleSkipReason = (skipReasons as Record<string, unknown>).stale;
-  return staleSkipReason === undefined || staleSkipReason === staleSkipped;
-}
-
-function deliveryPendingAckMatches(
-  claimed: unknown,
-  acked: unknown,
-  pendingAck: unknown,
-): boolean {
-  return (
-    isNonNegativeInteger(claimed) &&
-    isNonNegativeInteger(acked) &&
-    isNonNegativeInteger(pendingAck) &&
-    pendingAck === Math.max(0, claimed - acked)
-  );
-}
-
-function isOptionalNonNegativeInteger(value: unknown): boolean {
-  return value === undefined || isNonNegativeInteger(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isHttpStatus(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599;
 }
 
 function validateConnectionId(connectionId: string): void {

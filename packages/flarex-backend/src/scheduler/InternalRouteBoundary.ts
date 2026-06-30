@@ -10,6 +10,11 @@ import {
   type SchedulerMaintenanceBoundaryError,
 } from "./MaintenanceBoundary";
 import {
+  isSchedulerDeliveryWakeBoundaryError,
+  schedulerDeliveryWakeBoundaryErrorToHttpError,
+  type SchedulerDeliveryWakeBoundaryError,
+} from "./DeliveryWakeBoundary";
+import {
   schedulerRouteErrorToHttpError,
   type SchedulerRouteError,
 } from "./RouteBoundary";
@@ -36,6 +41,7 @@ export type SchedulerInternalRouteError =
   | SchedulerResponsePayloadError
   | SchedulerRuntimeError
   | SchedulerMaintenanceBoundaryError
+  | SchedulerDeliveryWakeBoundaryError
   | SchedulerRouteOperationError;
 
 export function routeSchedulerEffectJsonResult<
@@ -89,6 +95,9 @@ function schedulerInternalRouteErrorToHttpError(
   }
   if (isSchedulerMaintenanceBoundaryError(error)) {
     return schedulerMaintenanceBoundaryErrorToHttpError(error);
+  }
+  if (isSchedulerDeliveryWakeBoundaryError(error)) {
+    return schedulerDeliveryWakeBoundaryErrorToHttpError(error);
   }
   if (isSchedulerRuntimeError(error)) {
     return schedulerRuntimeErrorToHttpError(error);

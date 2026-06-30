@@ -43,6 +43,7 @@ import {
 } from "../src/scheduler/RuntimeError";
 import {
   routeSchedulerContinueConnectionCleanup,
+  routeSchedulerEffectJsonResult,
   runSchedulerRoute,
 } from "../src/scheduler/InternalRouteBoundary";
 import type { Env } from "../src/types";
@@ -538,6 +539,21 @@ describe("scheduler route boundary", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error: "pending connection cleanup limit must be a positive integer.",
+    });
+  });
+
+  it("maps malformed delivery continuation state through the scheduler route adapter", async () => {
+    const response = await runSchedulerRoute(
+      routeSchedulerEffectJsonResult(() =>
+        Effect.fail(new SchedulerPendingStateError({
+          message: "pending delivery reconcile limit must be a positive integer.",
+        }))
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "pending delivery reconcile limit must be a positive integer.",
     });
   });
 

@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: SchedulerDO connection-cleanup maintenance boundary.
+- Previous completed checkpoint: SchedulerDO delivery reconcile/wake boundary.
 - Active checkpoint: choose the next remaining SchedulerDO maintenance route group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,11 +48,10 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the SchedulerDO connection-cleanup maintenance boundary checkpoint:
+Next recommended checkpoint after the SchedulerDO delivery reconcile/wake boundary checkpoint:
 
 1. Continue through the remaining SchedulerDO maintenance paths as coherent
-   groups: delivery reconcile/wake, rerun subscriptions, and dead-letter
-   reconnect handling.
+   groups: rerun subscriptions and dead-letter reconnect handling.
 2. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
    adapter mapping edge, without changing PartitionDO SQL/OCC behavior.
@@ -62,6 +61,27 @@ Next recommended checkpoint after the SchedulerDO connection-cleanup maintenance
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 197 slice:
+
+1. Extend the typed Scheduler maintenance boundary to cover pending deployment
+   scans used by delivery reconcile.
+2. Add a typed `scheduler/DeliveryWakeBoundary.ts` for SchedulerDO to
+   DeliveryDO wake calls, preserving the existing non-OK delivery drain
+   failure envelope as a result and keeping request/response failures typed.
+3. Route SchedulerDO delivery reconcile and continue-deliveries through
+   Effect-returning services instead of Promise route callbacks.
+4. Decode pending delivery continuation state in the typed Effect channel and
+   keep pending scan failures, wake request failures, continuation cursor
+   failures, storage operation failures, retry scheduling, alarm refresh, and
+   in-flight coalescing typed until the SchedulerDO adapter edge.
+5. Preserve existing delivery reconcile response bodies/statuses, delivery
+   wake failure summaries, continuation persistence, rerun compatibility,
+   dead-letter, connection cleanup, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+6. Validate typed pending deployment and DeliveryDO wake boundary
+   successes/failures directly, then preserve focused SchedulerDO route and
+   sync coverage plus backend typecheck/build as practical.
 
 Completed Goal 196 slice:
 

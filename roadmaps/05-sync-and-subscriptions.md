@@ -1,5 +1,57 @@
 # Sync And Subscriptions
 
+## SchedulerDO Delivery Reconcile/Wake Effect Boundary
+
+Previous completed checkpoint: `028439d Type scheduler connection cleanup boundary`.
+
+What changed:
+
+- SchedulerDO delivery reconcile and continue-deliveries routes now execute
+  through Effect-returning service paths instead of Promise route callbacks.
+- Pending deployment scans share the typed scheduler maintenance boundary, and
+  DeliveryDO wake calls use a typed scheduler-to-delivery wake boundary.
+- Pending delivery continuation state, storage operation failures, pending scan
+  failures, wake request/response failures, continuation cursor consistency,
+  retry scheduling, alarm refresh, and in-flight coalescing stay typed until the
+  SchedulerDO adapter edge.
+
+Why it changed:
+
+Connection cleanup had already proven the SchedulerDO maintenance pattern. The
+delivery reconcile path has the same long-running continuation shape but also
+needs to preserve DeliveryDO drain failure envelopes as per-deployment results
+instead of turning them into route failures.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific SchedulerDO, DeliveryDO,
+  and executor maintenance orchestration.
+
+How Flarex differs from Convex:
+
+- Flarex coordinates live-query delivery across executor HTTP scans, SchedulerDO
+  alarms/storage, and per-deployment DeliveryDO wake calls. DeliveryDO non-OK
+  drain envelopes are operational results for a deployment, not adapter-level
+  route failures.
+
+Known limitations:
+
+- The live-query rerun route still uses the SchedulerDO wake compatibility
+  wrapper and should be migrated in the next SchedulerDO rerun checkpoint.
+- Dead-letter reconnect handling remains async-method based.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivery reconcile|pending delivery|pending deployment|continue-live-query-deliveries"
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Live Query Delivery Target Service Boundary
 
 Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.

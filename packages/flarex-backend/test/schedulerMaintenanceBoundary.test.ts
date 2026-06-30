@@ -3,16 +3,28 @@ import { describe, expect, it } from "vitest";
 import {
   cleanupExpiredLiveQueryConnectionsEffect,
   expiredConnectionDeploymentsEffect,
+  pendingDeploymentsEffect,
   schedulerMaintenanceBoundaryErrorToHttpError,
   SchedulerMaintenanceRequestError,
   type SchedulerMaintenanceFetch,
 } from "../src/scheduler/MaintenanceBoundary";
 
 describe("scheduler maintenance boundary", () => {
-  it("decodes expired deployment scans and connection cleanup responses", async () => {
+  it("decodes pending deployment, expired deployment, and connection cleanup responses", async () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const schedulerFetch: SchedulerMaintenanceFetch = async (path, body) => {
       requests.push({ path, body });
+      if (path === "/maintenance/live-queries/pending-deployments") {
+        return Response.json({
+          deployments: [{
+            deploymentId: "deployment-pending",
+            oldestCreatedAt: "2026-01-01T00:00:00.000Z",
+            pending: 2,
+          }],
+          nextCursor: null,
+          hasMore: false,
+        });
+      }
       if (path === "/maintenance/live-queries/expired-connection-deployments") {
         return Response.json({
           deployments: [{
@@ -27,6 +39,18 @@ describe("scheduler maintenance boundary", () => {
       }
       return Response.json({ deleted: 3, deletedConnections: 2 });
     };
+
+    await expect(Effect.runPromise(pendingDeploymentsEffect(schedulerFetch, {
+      limit: 5,
+    }))).resolves.toEqual({
+      deployments: [{
+        deploymentId: "deployment-pending",
+        oldestCreatedAt: "2026-01-01T00:00:00.000Z",
+        pending: 2,
+      }],
+      nextCursor: null,
+      hasMore: false,
+    });
 
     await expect(Effect.runPromise(expiredConnectionDeploymentsEffect(schedulerFetch, {
       expiredAt: "2026-01-01T00:01:00.000Z",
@@ -52,6 +76,12 @@ describe("scheduler maintenance boundary", () => {
     });
 
     expect(requests).toEqual([
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        body: {
+          limit: 5,
+        },
+      },
       {
         path: "/maintenance/live-queries/expired-connection-deployments",
         body: {
