@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Scheduler Pending Continuation State Boundary
+
+Previous completed checkpoint: `62988f1 Type delivery pending drain state`.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/PendingState.ts` now owns persisted
+  SchedulerDO continuation state validation for delivery reconcile, connection
+  cleanup, and live-query rerun state.
+- `SchedulerDO` still owns continuation orchestration, retry scheduling, alarm
+  refresh, executor calls, and route handling, but no longer owns the
+  field-by-field stored-state throwing helpers.
+- Route adapter mapping remains in `SchedulerDO`, where
+  `SchedulerPendingStateError` becomes the preserved HTTP `500` response.
+
+Boundary decision:
+
+Scheduler continuation state is backend runtime state, not protocol state.
+Keeping the decoders beside scheduler route/response modules avoids leaking
+internal DO alarm payloads into `flarex-protocol` while removing storage-state
+validation from the main `SchedulerDO` orchestration file.
+
+Convex source files inspected:
+
+- None for this checkpoint. This boundary is specific to Flarex's Cloudflare
+  Durable Object alarm continuation model.
+
+How Flarex differs from Convex:
+
+- Flarex resumes batched live-query maintenance through Durable Object storage
+  and alarms. The package boundary keeps that Cloudflare-specific state in the
+  backend package rather than pretending it is a public API contract.
+
+Known limitations:
+
+- SchedulerDO response parsing and operation failures remain separate boundary
+  modules.
+- Full scheduler service extraction is still future work; this checkpoint only
+  extracts persisted pending-state validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Delivery Pending Drain State Boundary
 
 Previous completed checkpoint: `df1e0fc Type stored push row validation`.

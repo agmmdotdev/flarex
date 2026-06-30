@@ -22,6 +22,16 @@ import {
   schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
 import {
+  decodePendingConnectionCleanupFromStorage,
+  decodePendingDeliveryReconcileFromStorage,
+  decodePendingRerunFromStorage,
+  SchedulerPendingStateError,
+  schedulerPendingStateErrorToHttpError,
+  type PendingLiveQueryConnectionCleanup,
+  type PendingLiveQueryDeliveryReconcile,
+  type PendingLiveQueryRerun,
+} from "../src/scheduler/PendingState";
+import {
   SchedulerRouteOperationError,
   schedulerRouteOperationError,
   schedulerRouteOperationErrorToHttpError,
@@ -423,6 +433,90 @@ describe("scheduler route boundary", () => {
     });
   });
 
+  it("exposes typed scheduler pending-state failures", async () => {
+    const deliveryPending: PendingLiveQueryDeliveryReconcile = {
+      limit: 20,
+      deliveryLimit: 10,
+      maxBatches: 3,
+      cursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+      retryAttempt: 1,
+      nextRunAt: "2026-06-23T00:00:11.000Z",
+    };
+    await expect(Effect.runPromise(
+      decodePendingDeliveryReconcileFromStorage(deliveryPending),
+    )).resolves.toEqual(deliveryPending);
+
+    await expectSchedulerPendingStateFailure(
+      decodePendingDeliveryReconcileFromStorage(null),
+      "pending live query delivery reconcile must be an object.",
+    );
+    await expectSchedulerPendingStateFailure(
+      decodePendingDeliveryReconcileFromStorage({
+        ...deliveryPending,
+        cursor: {
+          oldestCreatedAt: "not a date",
+          deploymentId: "deployment-a",
+        },
+      }),
+      "pending delivery reconcile cursor.oldestCreatedAt must be an ISO date string.",
+    );
+
+    const cleanupPending: PendingLiveQueryConnectionCleanup = {
+      expiredAt: "2026-06-23T00:00:00.000Z",
+      limit: 25,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+      retryAttempt: 2,
+      nextRunAt: "2026-06-23T00:00:12.000Z",
+    };
+    await expect(Effect.runPromise(
+      decodePendingConnectionCleanupFromStorage(cleanupPending),
+    )).resolves.toEqual(cleanupPending);
+    await expectSchedulerPendingStateFailure(
+      decodePendingConnectionCleanupFromStorage({
+        ...cleanupPending,
+        expiredAt: "not a date",
+      }),
+      "pending connection cleanup expiredAt must be an ISO date string.",
+    );
+
+    const rerunPending: PendingLiveQueryRerun = {
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 50,
+      deliveryLimit: 10,
+      maxBatches: 3,
+      retryAttempt: 0,
+      nextRunAt: "2026-06-23T00:00:13.000Z",
+    };
+    await expect(Effect.runPromise(
+      decodePendingRerunFromStorage(rerunPending),
+    )).resolves.toEqual(rerunPending);
+    await expectSchedulerPendingStateFailure(
+      decodePendingRerunFromStorage({
+        ...rerunPending,
+        limit: 0,
+      }),
+      "pending rerun limit must be a positive integer.",
+    );
+  });
+
+  it("maps scheduler pending-state errors at the adapter boundary", () => {
+    expect(schedulerPendingStateErrorToHttpError(
+      new SchedulerPendingStateError({
+        message: "pending rerun limit must be a positive integer.",
+      }),
+    )).toMatchObject({
+      status: 500,
+      message: "pending rerun limit must be a positive integer.",
+    });
+  });
+
   it("preserves scheduler operation failures before HTTP mapping", () => {
     const cause = new HttpError(502, "Pending deployments failed.");
     const httpFailure = schedulerRouteOperationError("delivery-reconcile", cause);
@@ -461,4 +555,18 @@ function jsonRequest(body: unknown): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+async function expectSchedulerPendingStateFailure(
+  effect: Effect.Effect<unknown, SchedulerPendingStateError>,
+  message: string,
+): Promise<void> {
+  const failure = await Effect.runPromise(effect.pipe(
+    Effect.catchTag("SchedulerPendingStateError", error => Effect.succeed(error)),
+  ));
+  expect(failure).toBeInstanceOf(SchedulerPendingStateError);
+  if (!(failure instanceof SchedulerPendingStateError)) {
+    throw new Error("Expected SchedulerPendingStateError.");
+  }
+  expect(failure.message).toBe(message);
 }

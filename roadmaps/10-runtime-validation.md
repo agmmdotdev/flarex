@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## SchedulerDO Pending Continuation State Validation Boundary
+
+Previous completed checkpoint: `62988f1 Type delivery pending drain state`.
+
+What changed:
+
+- Persisted SchedulerDO delivery-reconcile, connection-cleanup, and rerun
+  continuation state now validates through a typed pending-state boundary with
+  Effect decoders for direct tests.
+- Invalid stored cursor shapes, dates, deployment ids, limits, retry attempts,
+  project ids, and `nextRunAt` values now produce
+  `SchedulerPendingStateError`.
+- SchedulerDO maps pending-state validation failures at the route adapter edge
+  instead of throwing `HttpError` from storage helper code.
+
+Why it changed:
+
+Scheduler continuation state is runtime-domain state, not HTTP request data.
+Keeping its validation typed makes the scheduler `/continue-*` paths consistent
+with the DeliveryDO pending drain checkpoint and keeps HTTP mapping at the
+Durable Object adapter edge.
+
+Convex source files inspected:
+
+- None for this checkpoint. The change is scoped to Cloudflare Durable Object
+  continuation storage validation.
+
+How Flarex differs from Convex:
+
+- Flarex uses DO storage plus alarms for scheduler continuation and retry
+  state. The validation boundary exists because persisted continuation payloads
+  can be corrupted independently of HTTP route bodies.
+
+Known limitations:
+
+- SchedulerDO still uses compatibility async methods for continuation work;
+  this checkpoint does not convert the full scheduler service orchestration to
+  Effect.
+- Executor response payload decoders, scheduler route body decoders, DeliveryDO,
+  ConnectionDO, and PartitionDO behavior are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## DeliveryDO Pending Drain State Validation Boundary
 
 Previous completed checkpoint: `df1e0fc Type stored push row validation`.

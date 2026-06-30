@@ -29,6 +29,17 @@ import {
   type SchedulerRouteOperation,
 } from "./scheduler/RouteOperationError";
 import {
+  continuationNextRunAtFromStorage,
+  pendingConnectionCleanupFromStorage,
+  pendingDeliveryReconcileFromStorage,
+  pendingRerunFromStorage,
+  SchedulerPendingStateError,
+  schedulerPendingStateErrorToHttpError,
+  type PendingLiveQueryConnectionCleanup,
+  type PendingLiveQueryDeliveryReconcile,
+  type PendingLiveQueryRerun,
+} from "./scheduler/PendingState";
+import {
   decodeSchedulerCleanupConnectionsResponse,
   decodeSchedulerCleanupConnectionsPayload,
   decodeSchedulerDeadLetterStuckResponse,
@@ -73,15 +84,6 @@ type DeliveryWakeFailure = {
   summary?: DeliveryDrainFailureResult["summary"];
 };
 
-type PendingLiveQueryDeliveryReconcile = {
-  limit: number;
-  deliveryLimit: number;
-  maxBatches: number;
-  cursor: PendingDeploymentCursor;
-  retryAttempt: number;
-  nextRunAt: string;
-};
-
 type PendingDeliveryReconcileRun = {
   limit: number;
   deliveryLimit: number;
@@ -98,24 +100,6 @@ type ReconcileConnectionCleanupResult = {
   failed: Array<{ deploymentId: string; status: number; error: string }>;
   nextCursor: ExpiredConnectionDeploymentCursor | null;
   hasMore: boolean;
-};
-
-type PendingLiveQueryConnectionCleanup = {
-  expiredAt: string;
-  limit: number;
-  cursor: ExpiredConnectionDeploymentCursor;
-  retryAttempt: number;
-  nextRunAt: string;
-};
-
-type PendingLiveQueryRerun = {
-  deploymentId: string;
-  projectId?: string;
-  limit: number;
-  deliveryLimit: number;
-  maxBatches: number;
-  retryAttempt: number;
-  nextRunAt?: string;
 };
 
 type RerunResult = {
@@ -1199,10 +1183,13 @@ const routeSchedulerContinueConnectionCleanup = Effect.fn(
 function routeSchedulerJsonResult<A extends object>(
   operation: SchedulerRouteOperation,
   execute: () => Promise<A>,
-): Effect.Effect<Response, SchedulerRouteOperationError> {
+): Effect.Effect<Response, SchedulerRouteOperationError | SchedulerPendingStateError> {
   return Effect.tryPromise({
     try: execute,
-    catch: error => schedulerRouteOperationError(operation, error),
+    catch: error =>
+      error instanceof SchedulerPendingStateError
+        ? error
+        : schedulerRouteOperationError(operation, error),
   }).pipe(
     Effect.map(result => json(result)),
   );
@@ -1210,6 +1197,7 @@ function routeSchedulerJsonResult<A extends object>(
 
 type SchedulerInternalRouteError =
   | SchedulerRouteError
+  | SchedulerPendingStateError
   | SchedulerRouteOperationError;
 
 function runSchedulerRoute(
@@ -1229,6 +1217,9 @@ function schedulerInternalRouteErrorToHttpError(
 ): HttpError {
   if (error instanceof SchedulerRouteOperationError) {
     return schedulerRouteOperationErrorToHttpError(error);
+  }
+  if (error instanceof SchedulerPendingStateError) {
+    return schedulerPendingStateErrorToHttpError(error);
   }
   return schedulerRouteErrorToHttpError(error);
 }
@@ -1315,20 +1306,7 @@ function continuationIsDue(
 }
 
 function continuationNextRunAt(value: unknown): number | null {
-  if (value === undefined) return null;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
-  }
-  const record = value as Record<string, unknown>;
-  if (record.nextRunAt === undefined) {
-    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
-  }
-  if (typeof record.nextRunAt !== "string") {
-    return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
-  }
-  const nextRunAt = new Date(record.nextRunAt).getTime();
-  if (Number.isNaN(nextRunAt)) return Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS;
-  return nextRunAt;
+  return continuationNextRunAtFromStorage(value, CONTINUE_RERUN_ALARM_DELAY_MS);
 }
 
 function deliveryReconcileInFlightKey(
@@ -1354,138 +1332,6 @@ function connectionCleanupInFlightKey(input: {
     limit: input.limit,
     cursor: input.cursor ?? null,
   });
-}
-
-function pendingDeliveryReconcileFromStorage(
-  value: unknown,
-): PendingLiveQueryDeliveryReconcile {
-  const record = storageRecord(value, "pending live query delivery reconcile");
-  return {
-    limit: positiveIntegerFromStorage(record.limit, "pending delivery reconcile limit"),
-    deliveryLimit: positiveIntegerFromStorage(
-      record.deliveryLimit,
-      "pending delivery reconcile deliveryLimit",
-    ),
-    maxBatches: positiveIntegerFromStorage(
-      record.maxBatches,
-      "pending delivery reconcile maxBatches",
-    ),
-    cursor: pendingCursorFromStorage(record.cursor, "pending delivery reconcile cursor"),
-    retryAttempt: nonNegativeIntegerFromStorage(
-      record.retryAttempt,
-      "pending delivery reconcile retryAttempt",
-    ),
-    nextRunAt:
-      record.nextRunAt === undefined
-        ? new Date(0).toISOString()
-        : dateStringFromStorage(record.nextRunAt, "pending delivery reconcile nextRunAt"),
-  };
-}
-
-function pendingConnectionCleanupFromStorage(
-  value: unknown,
-): PendingLiveQueryConnectionCleanup {
-  const record = storageRecord(value, "pending live query connection cleanup");
-  return {
-    expiredAt: dateStringFromStorage(record.expiredAt, "pending connection cleanup expiredAt"),
-    limit: positiveIntegerFromStorage(record.limit, "pending connection cleanup limit"),
-    cursor: expiredConnectionCursorFromStorage(
-      record.cursor,
-      "pending connection cleanup cursor",
-    ),
-    retryAttempt: nonNegativeIntegerFromStorage(
-      record.retryAttempt,
-      "pending connection cleanup retryAttempt",
-    ),
-    nextRunAt:
-      record.nextRunAt === undefined
-        ? new Date(0).toISOString()
-        : dateStringFromStorage(record.nextRunAt, "pending connection cleanup nextRunAt"),
-  };
-}
-
-function pendingRerunFromStorage(value: unknown): PendingLiveQueryRerun {
-  const record = storageRecord(value, "pending live query rerun");
-  const projectId =
-    record.projectId === undefined
-      ? undefined
-      : nonEmptyStringFromStorage(record.projectId, "pending rerun projectId");
-  return {
-    deploymentId: nonEmptyStringFromStorage(record.deploymentId, "pending rerun deploymentId"),
-    ...(projectId === undefined ? {} : { projectId }),
-    limit: positiveIntegerFromStorage(record.limit, "pending rerun limit"),
-    deliveryLimit: positiveIntegerFromStorage(
-      record.deliveryLimit,
-      "pending rerun deliveryLimit",
-    ),
-    maxBatches: positiveIntegerFromStorage(record.maxBatches, "pending rerun maxBatches"),
-    retryAttempt: nonNegativeIntegerFromStorage(
-      record.retryAttempt,
-      "pending rerun retryAttempt",
-    ),
-    ...(record.nextRunAt === undefined
-      ? {}
-      : { nextRunAt: dateStringFromStorage(record.nextRunAt, "pending rerun nextRunAt") }),
-  };
-}
-
-function pendingCursorFromStorage(
-  value: unknown,
-  path: string,
-): PendingDeploymentCursor {
-  const record = storageRecord(value, path);
-  return {
-    oldestCreatedAt: dateStringFromStorage(
-      record.oldestCreatedAt,
-      `${path}.oldestCreatedAt`,
-    ),
-    deploymentId: nonEmptyStringFromStorage(record.deploymentId, `${path}.deploymentId`),
-  };
-}
-
-function expiredConnectionCursorFromStorage(
-  value: unknown,
-  path: string,
-): ExpiredConnectionDeploymentCursor {
-  const record = storageRecord(value, path);
-  return {
-    oldestExpiredAt: dateStringFromStorage(
-      record.oldestExpiredAt,
-      `${path}.oldestExpiredAt`,
-    ),
-    deploymentId: nonEmptyStringFromStorage(record.deploymentId, `${path}.deploymentId`),
-  };
-}
-
-function storageRecord(value: unknown, field: string): Record<string, unknown> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  throw new HttpError(500, `${field} must be an object.`);
-}
-
-function dateStringFromStorage(value: unknown, field: string): string {
-  const text = nonEmptyStringFromStorage(value, field);
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  throw new HttpError(500, `${field} must be an ISO date string.`);
-}
-
-function nonEmptyStringFromStorage(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(500, `${field} must be a non-empty string.`);
-}
-
-function positiveIntegerFromStorage(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  throw new HttpError(500, `${field} must be a positive integer.`);
-}
-
-function nonNegativeIntegerFromStorage(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return value;
-  }
-  throw new HttpError(500, `${field} must be a non-negative integer.`);
 }
 
 function responseBodyFromText(text: string): unknown {
