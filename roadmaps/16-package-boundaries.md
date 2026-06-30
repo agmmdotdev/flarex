@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Public Worker Deployment Dispatcher Effect Boundary
+
+Previous completed checkpoint: `a4625c8` Type public deployment sync route
+boundary.
+
+What changed:
+
+- The deployment-scoped public Worker subtree now runs through
+  `Effect.fn("Worker.routeDeployment")` with one `Effect.runPromise(...)`
+  adapter edge for `/deployments/:deploymentId/*`.
+- Deployment id parsing, active deployment reads, scoped invoke, public push,
+  execution, partition, sync, and deployment scheduler branches reuse their
+  existing Effect-returning helpers instead of running separate runtime edges
+  in the top-level dispatcher.
+- The old async wrapper functions for deployment push, execution, and
+  partition routing were removed; the dispatcher now calls their Effect route
+  services directly.
+
+Boundary decision:
+
+This is a Worker adapter boundary, not a domain move. Branch-specific route
+services still own request decoding, authorization, target validation, and
+forwarding behavior. The dispatcher only chooses the deployment-scoped branch
+and maps typed branch failures at the public Worker edge.
+
+Known limitations:
+
+- Top-level `/invoke`, `/deployments` registry, and public scheduler routes
+  still have their own top-level runtime edges.
+- Analyzer response decoding still uses an internal `Effect.runPromise(...)`
+  as part of source-package analysis compatibility behavior.
+- DeploymentDO, ExecutionDO, PartitionDO SQL/OCC, ConnectionDO, DeliveryDO,
+  SchedulerDO, executor-http, generated HttpApi routes, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRoutePathBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "Worker invoke route|public Worker invoke bodies" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start boundary|execution syscall bodies|execution finish bodies" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "keeps execution abort as a bodyless control message" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts -t "public partition|commit requests|schema-cache|commits through the public partition route boundary" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "executes Add query modifications and emits Convex-style transitions|routes backend live query delivery callbacks to named connections|rejects malformed public live query delivery JSON at the Worker boundary|rejects unauthorized public live query delivery before parsing JSON|rejects invalid public live query delivery envelopes at the Worker boundary|rejects public live query deliveries whose target does not match the route deployment|rejects malformed public DeliveryDO wake JSON at the Worker boundary|rejects unauthorized public DeliveryDO wake before parsing JSON|rejects invalid public DeliveryDO wake envelopes at the Worker boundary" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Executor HTTP Backend Live Query Integration Boundary
 
 Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.

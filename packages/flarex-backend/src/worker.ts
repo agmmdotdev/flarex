@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
+  DeploymentProtocolValidationError,
   DeploymentPushAction,
   DeploymentRoute,
   type DeploymentRoutePath,
@@ -51,6 +52,8 @@ import {
 import {
   deploymentPushActionFromPath,
   MissingDeploymentPushIdError,
+  MissingPublicDeploymentIdError,
+  MissingPublicPartitionKeyError,
   publicDeploymentIdFromPartsEffect,
   publicDeploymentPushPathFromPartsEffect,
   publicPartitionKeyFromPartsEffect,
@@ -215,56 +218,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (parts[0] === "deployments") {
-    const deploymentId = await Effect.runPromise(
-      publicDeploymentIdFromPartsEffect(parts).pipe(
-        Effect.mapError(publicRoutePathErrorToHttpError),
+    return await Effect.runPromise(
+      routeDeployment(request, env, parts, url).pipe(
+        Effect.mapError(publicWorkerDeploymentRouteErrorToHttpError),
       ),
     );
-    if (parts[2] === "push") {
-      return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
-    }
-    if (parts[2] === "deployment" && request.method === "GET") {
-      return await Effect.runPromise(
-        routeDeploymentActiveRead(env, deploymentId).pipe(
-          Effect.mapError(publicWorkerDispatchErrorToHttpError),
-        ),
-      );
-    }
-    if (parts[2] === "invoke" && request.method === "POST") {
-      return await Effect.runPromise(
-        routePublicInvoke(request, env, deploymentId).pipe(
-          Effect.matchEffect({
-            onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
-            onSuccess: response => Effect.succeed(response),
-          }),
-        ),
-      );
-    }
-    if (parts[2] === "executions") {
-      return routeExecution(request, env, deploymentId, parts.slice(3));
-    }
-    if (parts[2] === "partitions") {
-      const partitionKey = await Effect.runPromise(
-        publicPartitionKeyFromPartsEffect(parts).pipe(
-          Effect.mapError(publicRoutePathErrorToHttpError),
-        ),
-      );
-      return routePartition(request, env, deploymentId, partitionKey, parts.slice(4), url);
-    }
-    if (parts[2] === "sync") {
-      return await Effect.runPromise(
-        routeDeploymentSync(request, env, deploymentId, parts.slice(3)).pipe(
-          Effect.mapError(publicWorkerDeploymentSyncRouteErrorToHttpError),
-        ),
-      );
-    }
-    if (parts[2] === "scheduler") {
-      return await Effect.runPromise(
-        routeDeploymentScheduler(request, env, deploymentId).pipe(
-          Effect.mapError(publicWorkerDispatchErrorToHttpError),
-        ),
-      );
-    }
   }
 
   return json({ error: "Not found." }, { status: 404 });
@@ -319,6 +277,72 @@ const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
     });
   },
 );
+
+type PublicWorkerDeploymentRouteError =
+  | MissingPublicDeploymentIdError
+  | MissingPublicPartitionKeyError
+  | HttpError
+  | DeploymentProtocolValidationError;
+
+const routeDeployment = Effect.fn("Worker.routeDeployment")(
+  function* (
+    request: Request,
+    env: Env,
+    parts: readonly string[],
+    originalUrl: URL,
+  ): Effect.fn.Return<Response, PublicWorkerDeploymentRouteError> {
+    const deploymentId = yield* publicDeploymentIdFromPartsEffect(parts);
+    if (parts[2] === "push") {
+      return yield* routeDeploymentPushEffect(request, env, deploymentId, parts.slice(3)).pipe(
+        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
+      );
+    }
+    if (parts[2] === "deployment" && request.method === "GET") {
+      return yield* routeDeploymentActiveRead(env, deploymentId).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      );
+    }
+    if (parts[2] === "invoke" && request.method === "POST") {
+      return yield* routePublicInvoke(request, env, deploymentId).pipe(
+        Effect.matchEffect({
+          onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
+          onSuccess: response => Effect.succeed(response),
+        }),
+      );
+    }
+    if (parts[2] === "executions") {
+      return yield* routeExecutionEffect(request, env, deploymentId, parts.slice(3)).pipe(
+        Effect.mapError(publicWorkerExecutionRouteErrorToHttpError),
+      );
+    }
+    if (parts[2] === "partitions") {
+      const partitionKey = yield* publicPartitionKeyFromPartsEffect(parts);
+      return yield* routePartitionEffect(request, env, deploymentId, partitionKey, parts.slice(4), originalUrl).pipe(
+        Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
+      );
+    }
+    if (parts[2] === "sync") {
+      return yield* routeDeploymentSync(request, env, deploymentId, parts.slice(3)).pipe(
+        Effect.mapError(publicWorkerDeploymentSyncRouteErrorToHttpError),
+      );
+    }
+    if (parts[2] === "scheduler") {
+      return yield* routeDeploymentScheduler(request, env, deploymentId).pipe(
+        Effect.mapError(publicWorkerDispatchErrorToHttpError),
+      );
+    }
+    return json({ error: "Not found." }, { status: 404 });
+  },
+);
+
+function publicWorkerDeploymentRouteErrorToHttpError(
+  error: PublicWorkerDeploymentRouteError,
+): HttpError | DeploymentProtocolValidationError {
+  if (error instanceof HttpError || error instanceof DeploymentProtocolValidationError) {
+    return error;
+  }
+  return publicRoutePathErrorToHttpError(error);
+}
 
 async function forwardLiveQuerySchedulerBody(
   body: unknown,
@@ -477,19 +501,6 @@ function publicWorkerSchedulerRouteErrorToHttpError(
     return publicWorkerDispatchErrorToHttpError(error);
   }
   return publicSchedulerRouteErrorToHttpError(error);
-}
-
-async function routeDeploymentPush(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-  parts: string[],
-): Promise<Response> {
-  return await Effect.runPromise(
-    routeDeploymentPushEffect(request, env, deploymentId, parts).pipe(
-      Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-    ),
-  );
 }
 
 const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
@@ -740,19 +751,6 @@ async function analyzeSourcePackage(
   };
 }
 
-async function routeExecution(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-  parts: string[],
-): Promise<Response> {
-  return await Effect.runPromise(
-    routeExecutionEffect(request, env, deploymentId, parts).pipe(
-      Effect.mapError(publicWorkerExecutionRouteErrorToHttpError),
-    ),
-  );
-}
-
 type PublicWorkerExecutionRouteError =
   | Parameters<typeof executionStartRouteErrorToHttpError>[0]
   | PublicExecutionRoutePathError
@@ -907,21 +905,6 @@ function artifactRuntimeFromEnv(
       ? {}
       : { capabilityToken: env.FLAREX_ARTIFACT_RUNTIME_TOKEN }),
   });
-}
-
-async function routePartition(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-  partitionKey: string,
-  parts: string[],
-  originalUrl: URL,
-): Promise<Response> {
-  return await Effect.runPromise(
-    routePartitionEffect(request, env, deploymentId, partitionKey, parts, originalUrl).pipe(
-      Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
-    ),
-  );
 }
 
 type PublicWorkerPartitionRouteError =
