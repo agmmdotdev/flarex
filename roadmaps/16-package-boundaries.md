@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Artifact Runtime Request Payload Source Boundary
+
+Previous completed checkpoint: `6e4119b` Share connection request validation.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/Requests.ts` now owns execution
+  artifact runtime invoke payload validation with typed
+  `ExecutionArtifactInvokePayloadError`.
+- `artifactRuntime/RouteBoundary.ts` delegates payload validation to the shared
+  source boundary while keeping JSON reading, compatibility read/parse wrappers,
+  and adapter-level HTTP mapping.
+- Tests cover source decoder success and typed payload failures directly before
+  HTTP mapping.
+
+Boundary decision:
+
+Artifact runtime invoke payload validation is now source-owned by
+`artifactRuntime/Requests.ts`. The route boundary owns request JSON reading and
+HTTP conversion. Runtime route matching, capability authorization, artifact
+header validation, source-package lookup, materialization, and invocation remain
+owned by `artifactRuntime/RuntimeRoute.ts`.
+
+Known limitations:
+
+- This checkpoint does not change artifact materialization/cache behavior,
+  service-binding dispatch, public Worker artifact routing, executor-http,
+  protocol schemas, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntimeRequests.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Connection Request Payload Source Boundary
 
 Previous completed checkpoint: `a9cdba8` Share deployment push request validation.
