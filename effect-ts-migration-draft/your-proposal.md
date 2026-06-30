@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `095ff56 Type invoke query planning`.
-- Active checkpoint: public Worker invoke route typed request-shaping and execution mapping.
+- Previous completed checkpoint: `06af891 Type public invoke routing`.
+- Active checkpoint: public Worker execution route typed path and response boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,24 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 181 slice:
+
+1. Add typed public execution route path failures for missing session id and
+   missing execution action, while preserving unknown actions as the existing
+   `404 Execution route not found.` response.
+2. Add a named `publicExecutionRoutePathFromPartsEffect(...)` helper so Worker
+   execution path parsing runs through a typed Effect boundary instead of
+   `required(...)` throws.
+3. Route public execution start response JSON reads through the shared
+   `readResponseJsonEffect(...)` boundary and map malformed response JSON as a
+   typed `PublicWorkerDispatchError`.
+4. Preserve execution start/syscall/finish/abort request body decoding,
+   session creation, session forwarding, unknown-session behavior, public route
+   response bodies, ExecutionDO behavior, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson` semantics.
+5. Validate typed path failure channels directly, then preserve public Worker
+   HTTP adapter mapping with focused execution route tests.
 
 Completed Goal 180 slice:
 

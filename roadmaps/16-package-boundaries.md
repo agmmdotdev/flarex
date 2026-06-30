@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Execution Route Typed Path Boundary
+
+Previous completed checkpoint: `06af891 Type public invoke routing`.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/ActionRouteBoundary.ts` now owns
+  public execution route path parsing for session/action forwarding.
+- `packages/flarex-backend/src/worker.ts` delegates execution action path
+  validation to the typed boundary and uses the shared backend response JSON
+  reader for execution-start response enrichment.
+- Tests cover typed path failures directly and preserved Worker HTTP responses
+  for missing session/action and unknown actions.
+
+Boundary decision:
+
+Execution protocol packages still own JSON body shape. Backend execution
+route-boundary code owns Worker path segment shaping. Worker dispatch owns
+forwarding to ExecutionDO and adapter response mapping.
+
+Known limitations:
+
+- A future slice can decide whether public execution dispatch should move out
+  of `worker.ts` into a dedicated service module after the route boundary is
+  fully typed.
+- ExecutionDO, PartitionDO, protocol schemas, executor-http, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Invoke Route Typed Execution Boundary
 
 Previous completed checkpoint: `095ff56 Type invoke query planning`.

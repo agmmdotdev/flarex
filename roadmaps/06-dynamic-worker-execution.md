@@ -1,5 +1,42 @@
 # Dynamic Worker Execution
 
+## Public Execution Route Typed Path Boundary
+
+Previous completed checkpoint: `06af891 Type public invoke routing`.
+
+What changed:
+
+- Public Worker execution path parsing now has typed failures for missing
+  session id and missing execution action.
+- Invalid execution actions still return the existing
+  `404 Execution route not found.` response.
+- Public execution start response JSON reads now use the shared typed response
+  JSON boundary before mapping malformed response JSON as a typed Worker
+  dispatch failure.
+
+Why it changed:
+
+The public invoke route now has typed request shaping and adapter-edge response
+mapping. This checkpoint applies the same boundary shape to public execution
+session routes without changing session semantics or ExecutionDO internals.
+
+Known limitations:
+
+- ExecutionDO route operation logic, session state, transaction behavior, and
+  PartitionDO SQL/OCC are unchanged.
+- Public deployment, partition, scheduler, sync, and delivery Worker routes
+  still have their own remaining route-boundary cleanup opportunities.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Invoke Route Typed Execution Boundary
 
 Previous completed checkpoint: `095ff56 Type invoke query planning`.

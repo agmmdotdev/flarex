@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, ResponseJsonError } from "../src/http";
 import { PartitionRequestError } from "../src/transaction";
 import {
   publicWorkerDispatchError,
@@ -60,6 +60,25 @@ describe("public Worker route dispatch errors", () => {
     expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
       status: 500,
       message: "Binding failed.",
+    });
+  });
+
+  it("maps public execution start response JSON failures as typed dispatch failures", () => {
+    const cause = new ResponseJsonError({
+      message: "Response body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const error = publicWorkerDispatchError("execution-start-response", cause);
+
+    expect(error).toMatchObject({
+      source: "execution-start-response",
+      status: 500,
+      message: "Response body must be JSON.",
+      cause,
+    });
+    expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+      status: 500,
+      message: "Response body must be JSON.",
     });
   });
 

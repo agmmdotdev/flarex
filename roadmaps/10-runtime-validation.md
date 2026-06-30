@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Public Execution Route Typed Path Boundary
+
+Previous completed checkpoint: `06af891 Type public invoke routing`.
+
+What changed:
+
+- Public execution route path parsing now exposes typed failures for missing
+  session id and missing action before Worker HTTP mapping.
+- Public execution action parsing still preserves protocol/body typed failures
+  for syscall and finish bodies and leaves abort as bodyless forwarding.
+- Public execution start response JSON reads now go through
+  `readResponseJsonEffect(...)`, making malformed downstream response JSON a
+  typed dispatch failure instead of a raw `response.json()` failure.
+
+Why it changed:
+
+The execution route already had typed request body decoders, but route segment
+validation and start response body reads were still outside the typed boundary.
+This checkpoint keeps the public Worker validation surface typed while
+preserving ExecutionDO runtime behavior.
+
+Known limitations:
+
+- ExecutionDO internal validation and route operation errors are unchanged.
+- Session state, transaction commit behavior, PartitionDO SQL/OCC, executor-http,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Invoke Route Typed Execution Boundary
 
 Previous completed checkpoint: `095ff56 Type invoke query planning`.

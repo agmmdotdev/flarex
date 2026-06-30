@@ -4,9 +4,13 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicExecutionActionRequest,
+  MissingExecutionActionError,
+  MissingExecutionSessionIdError,
   parsePublicExecutionActionRequest,
   parsePublicExecutionActionRequestEffect,
   publicExecutionActionRouteErrorToHttpError,
+  publicExecutionRoutePathErrorToHttpError,
+  publicExecutionRoutePathFromPartsEffect,
   readPublicExecutionActionRequest,
 } from "../src/execution/ActionRouteBoundary";
 
@@ -144,6 +148,39 @@ describe("public execution action route boundary", () => {
       status: 400,
       message: "Execution finish request must include JSON value.",
     });
+  });
+
+  it("keeps public execution route path parsing typed before Worker mapping", async () => {
+    await expect(Effect.runPromise(publicExecutionRoutePathFromPartsEffect([
+      "session-a",
+      "syscall",
+    ]))).resolves.toEqual({
+      matched: true,
+      sessionId: "session-a",
+      action: "syscall",
+    });
+
+    await expect(Effect.runPromise(publicExecutionRoutePathFromPartsEffect([
+      "session-a",
+      "unknown",
+    ]))).resolves.toEqual({ matched: false });
+
+    await expect(Effect.runPromise(publicExecutionRoutePathFromPartsEffect([])))
+      .rejects.toBeInstanceOf(MissingExecutionSessionIdError);
+
+    await expect(Effect.runPromise(publicExecutionRoutePathFromPartsEffect(["session-a"])))
+      .rejects.toBeInstanceOf(MissingExecutionActionError);
+
+    expect(publicExecutionRoutePathErrorToHttpError(new MissingExecutionSessionIdError()))
+      .toMatchObject({
+        status: 400,
+        message: "Missing execution session id.",
+      });
+    expect(publicExecutionRoutePathErrorToHttpError(new MissingExecutionActionError()))
+      .toMatchObject({
+        status: 400,
+        message: "Missing execution action.",
+      });
   });
 });
 

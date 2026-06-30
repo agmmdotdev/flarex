@@ -27,6 +27,8 @@ import {
 import { DeploymentDO } from "./deploymentDO";
 import {
   decodePublicExecutionActionRequest,
+  publicExecutionRoutePathErrorToHttpError,
+  publicExecutionRoutePathFromPartsEffect,
   publicExecutionActionRouteErrorToHttpError,
   type PublicExecutionAction,
 } from "./execution/ActionRouteBoundary";
@@ -55,7 +57,7 @@ import {
   parsePublicStartPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
-import { errorResponse, HttpError, json, required } from "./http";
+import { errorResponse, HttpError, json, readResponseJsonEffect, required } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
@@ -741,12 +743,17 @@ async function routeExecution(
     );
   }
 
-  const sessionId = required(parts[0], "execution session id");
-  const action = required(parts[1], "execution action");
-  const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
-  if (isPublicExecutionAction(action) && request.method === "POST") {
+  const publicAction = await Effect.runPromise(
+    publicExecutionRoutePathFromPartsEffect(parts).pipe(
+      Effect.mapError(publicExecutionRoutePathErrorToHttpError),
+    ),
+  );
+  if (publicAction.matched && request.method === "POST") {
+    const execution = env.EXECUTIONS.getByName(
+      executionObjectName(deploymentId, publicAction.sessionId),
+    );
     return await Effect.runPromise(
-      routePublicExecutionAction(request, execution, action).pipe(
+      routePublicExecutionAction(request, execution, publicAction.action).pipe(
         Effect.mapError(publicWorkerExecutionActionRouteErrorToHttpError),
       ),
     );
@@ -773,11 +780,10 @@ const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
       catch: error => publicWorkerDispatchError("execution-start", error),
     });
     if (!response.ok) return response;
-    const responseBody = yield* Effect.tryPromise({
-      try: () => response.json() as Promise<Record<string, unknown>>,
-      catch: error => publicWorkerDispatchError("execution-start-response", error),
-    });
-    return json({ sessionId, ...responseBody });
+    const responseBody = yield* readResponseJsonEffect(response).pipe(
+      Effect.mapError(error => publicWorkerDispatchError("execution-start-response", error)),
+    );
+    return json({ sessionId, ...(responseBody as Record<string, unknown>) });
   },
 );
 
@@ -814,15 +820,11 @@ function publicWorkerExecutionActionRouteErrorToHttpError(
   return publicExecutionActionRouteErrorToHttpError(error);
 }
 
-function isPublicExecutionAction(action: string): action is PublicExecutionAction {
-  return action === "syscall" || action === "finish" || action === "abort";
-}
-
 const routeInvoke = Effect.fn("Worker.routeInvoke")(
   function* (
-  env: Env,
-  deploymentId: string,
-  body: PublicInvokeRequestBody,
+    env: Env,
+    deploymentId: string,
+    body: PublicInvokeRequestBody,
   ) {
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);

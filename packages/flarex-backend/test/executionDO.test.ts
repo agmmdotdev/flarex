@@ -585,6 +585,45 @@ describe("ExecutionDO sessions", () => {
     await expect(malformed.json()).resolves.toEqual({
       error: "Request body must be JSON.",
     });
+
+    const missingSession = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-syscall-boundary-deployment/executions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "get", id: "1:progress" }),
+      },
+    );
+    expect(missingSession.status).toBe(400);
+    await expect(missingSession.json()).resolves.toEqual({
+      error: "Missing execution session id.",
+    });
+
+    const missingAction = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-syscall-boundary-deployment/executions/missing-session",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "get", id: "1:progress" }),
+      },
+    );
+    expect(missingAction.status).toBe(400);
+    await expect(missingAction.json()).resolves.toEqual({
+      error: "Missing execution action.",
+    });
+
+    const unknownAction = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/execution-syscall-boundary-deployment/executions/missing-session/unknown",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "get", id: "1:progress" }),
+      },
+    );
+    expect(unknownAction.status).toBe(404);
+    await expect(unknownAction.json()).resolves.toEqual({
+      error: "Execution route not found.",
+    });
   });
 
   it("decodes execution finish bodies before session dispatch", async () => {
