@@ -1,5 +1,42 @@
 # Dynamic Worker Execution
 
+## ExecutionDO Session Effect Boundary
+
+Previous completed checkpoint: `8447a2f Type connection fanout payloads`.
+
+What changed:
+
+- ExecutionDO start, syscall, and finish service methods now return typed
+  Effects after the route body decoders succeed.
+- Session lifecycle and domain validation failures now use
+  `ExecutionSessionError` until the `ExecutionDO.fetch()` adapter maps them to
+  the preserved HTTP response shape.
+- Route-operation failures for active metadata lookup, transaction setup,
+  storage syscalls, commit, and return validation remain in
+  `ExecutionRouteOperationError`.
+
+Why it changed:
+
+Public and internal execution routes already had typed request-boundary
+coverage. The next runtime step is moving post-decode session validation out of
+direct `HttpError` throws while keeping transaction/session behavior identical.
+
+Known limitations:
+
+- This does not persist ExecutionDO session state or change abort semantics.
+- PartitionDO SQL/OCC behavior, generated execution artifacts, executor-http,
+  protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Deployment Path Boundary
 
 Previous completed checkpoint: `735fbff Type public execution routing`.

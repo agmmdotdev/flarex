@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## ExecutionDO Session Effect Boundary
+
+Previous completed checkpoint: `8447a2f Type connection fanout payloads`.
+
+What changed:
+
+- `ExecutionDO.start(...)`, `ExecutionDO.syscall(...)`, and
+  `ExecutionDO.finish(...)` now return Effects instead of Promises.
+- Session lifecycle and domain validation failures now use typed
+  `ExecutionSessionError` values before HTTP compatibility mapping.
+- Active-function lookup, transaction setup, storage syscalls, and finish
+  commit/return validation remain typed as `ExecutionRouteOperationError`.
+
+Why it changed:
+
+ExecutionDO route bodies already decode through typed Effect boundaries, but
+post-decode session validation still threw adapter-shaped `HttpError` values
+from service code. This moves session lifecycle failures into the typed service
+failure channel while preserving the existing HTTP responses at the DO adapter.
+
+Known limitations:
+
+- This checkpoint does not change public Worker execution forwarding.
+- It does not change PartitionDO SQL/OCC behavior, request body schemas,
+  executor-http routes, or `ValidatorJson` document/function validation.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Connection Fanout Payload Effect Decoder
 
 Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.

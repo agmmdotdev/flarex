@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
+import { Effect } from "effect";
 import {
   decodeExecutionFinishRouteRequest,
   type ExecutionFinishRouteError,
@@ -18,8 +19,16 @@ import {
   executionRouteOperationErrorToAdapterError,
   type ExecutionRouteOperation,
 } from "./execution/RouteOperationError";
+import {
+  ExecutionSessionError,
+  executionSessionError,
+  executionSessionErrorToHttpError,
+  requireActiveExecutionSession,
+  requireExecutionKindMatch,
+  requireMutationExecution,
+  requireNoActiveExecutionSession,
+} from "./execution/SessionError";
 import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
-import { Effect } from "effect";
 import {
   idValidatorForSchema,
   invokeErrorResponse,
@@ -90,203 +99,252 @@ export class ExecutionDO extends DurableObject<Env> {
     }
   }
 
-  private async start(request: ExecutionStartRequest): Promise<ExecutionStartResponse> {
-    if (this.session !== null) {
-      throw new HttpError(409, "Execution session is already active.");
-    }
+  private start(
+    request: ExecutionStartRequest,
+  ): Effect.Effect<ExecutionStartResponse, ExecutionServiceError> {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* requireNoActiveExecutionSession("start", self.session);
 
-    const active = await loadActiveFunctionMetadata(this.env, request.deploymentId, request.path);
-    const schema = active.deployment.analysis.schema;
-    const metadata = active.metadata;
-    if (!isInvokableKind(metadata.kind)) {
-      throw new HttpError(400, `${metadata.kind} execution is not implemented by execution sessions.`);
-    }
-    if (request.kind !== undefined && request.kind !== metadata.kind) {
-      throw new HttpError(
-        400,
-        `Function kind mismatch. Request has ${request.kind}, function is ${metadata.kind}.`,
+      const active = yield* routeExecutionOperation("start", () =>
+        loadActiveFunctionMetadata(self.env, request.deploymentId, request.path)
       );
-    }
-
-    try {
-      if (metadata.args !== undefined && metadata.args !== null) {
-        validateJsonValue(metadata.args, request.args, "$args", {
-          validateId: idValidatorForSchema(schema),
-        });
+      const schema = active.deployment.analysis.schema;
+      const metadata = active.metadata;
+      if (!isInvokableKind(metadata.kind)) {
+        return yield* Effect.fail(executionSessionError(
+          "start",
+          { _tag: "UnsupportedFunctionKind", functionKind: metadata.kind },
+        ));
       }
-    } catch (error) {
-      if (error instanceof BackendValidationError) {
-        throw new HttpError(400, `ArgumentValidationError: ${error.message}`);
-      }
-      throw error;
-    }
-    const scope = resolveFunctionExecutionScope(metadata.partition, metadata.route, request, schema);
+      yield* requireExecutionKindMatch("start", request.kind, metadata.kind);
 
-    await SingleShardTransaction.ensureSchema(
-      this.env,
-      request.deploymentId,
-      scope.partitionKey,
-      schema,
-    );
-    const tx = await SingleShardTransaction.begin(
-      this.env,
-      request.deploymentId,
-      scope.partitionKey,
-      scope.kind === "partitionCreateRoot"
-        ? {
-            createRoot: {
-              rootTableId: tableForName(schema, scope.table).tableId,
-              preallocatedRootId: scope.preallocatedRootId,
-            },
+      yield* Effect.try({
+        try: () => {
+          if (metadata.args !== undefined && metadata.args !== null) {
+            validateJsonValue(metadata.args, request.args, "$args", {
+              validateId: idValidatorForSchema(schema),
+            });
           }
-        : {},
-    );
-    this.session = {
-      deploymentId: request.deploymentId,
-      partitionKey: scope.partitionKey,
-      path: request.path,
-      kind: metadata.kind,
-      ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
-      scope,
-      schema,
-      metadata,
-      tx,
-    };
-    return { beginTs: tx.beginTs, schemaVersion: tx.schemaVersion, kind: metadata.kind };
+        },
+        catch: error =>
+          error instanceof BackendValidationError
+            ? executionSessionError("start", {
+                _tag: "ArgumentValidation",
+                message: error.message,
+              })
+            : executionRouteOperationError("start", error),
+      });
+      const scope = yield* Effect.try({
+        try: () => resolveFunctionExecutionScope(
+          metadata.partition,
+          metadata.route,
+          request,
+          schema,
+        ),
+        catch: error => executionRouteOperationError("start", error),
+      });
+
+      yield* routeExecutionOperation("start", () => SingleShardTransaction.ensureSchema(
+        self.env,
+        request.deploymentId,
+        scope.partitionKey,
+        schema,
+      ));
+      const tx = yield* routeExecutionOperation("start", () => SingleShardTransaction.begin(
+        self.env,
+        request.deploymentId,
+        scope.partitionKey,
+        scope.kind === "partitionCreateRoot"
+          ? {
+              createRoot: {
+                rootTableId: tableForName(schema, scope.table).tableId,
+                preallocatedRootId: scope.preallocatedRootId,
+              },
+            }
+          : {},
+      ));
+      self.session = {
+        deploymentId: request.deploymentId,
+        partitionKey: scope.partitionKey,
+        path: request.path,
+        kind: metadata.kind,
+        ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
+        scope,
+        schema,
+        metadata,
+        tx,
+      };
+      return { beginTs: tx.beginTs, schemaVersion: tx.schemaVersion, kind: metadata.kind };
+    });
   }
 
-  private async syscall(request: ExecutionSyscallRequest): Promise<Json> {
-    const session = this.requireSession();
-    const reader = readerFor(session.tx, session.schema);
-    if (request.op === "get") return reader.get(request.id);
-    if (request.op === "query") {
-      const query = reader.query(request.request.table);
-      const ordered =
-        request.request.index === undefined
-          ? query
-          : query.withIndex(request.request.index, () => ({
-              expressions: request.request.range?.expressions ?? [],
-            }));
-      const orderedQuery =
-        request.request.order === undefined ? ordered : ordered.order(request.request.order);
-      if (request.request.cursor !== undefined || request.request.limit !== undefined) {
-        return orderedQuery.paginate({
-          numItems: request.request.limit ?? 100,
-          cursor: request.request.cursor ?? null,
+  private syscall(
+    request: ExecutionSyscallRequest,
+  ): Effect.Effect<Json, ExecutionServiceError> {
+    const self = this;
+    return Effect.gen(function* () {
+      const session = yield* self.requireSession("syscall");
+      const reader = readerFor(session.tx, session.schema);
+      if (request.op === "get") {
+        return yield* routeExecutionOperation("syscall", () => reader.get(request.id));
+      }
+      if (request.op === "query") {
+        return yield* routeExecutionOperation("syscall", async () => {
+          const query = reader.query(request.request.table);
+          const ordered =
+            request.request.index === undefined
+              ? query
+              : query.withIndex(request.request.index, () => ({
+                  expressions: request.request.range?.expressions ?? [],
+                }));
+          const orderedQuery =
+            request.request.order === undefined ? ordered : ordered.order(request.request.order);
+          if (request.request.cursor !== undefined || request.request.limit !== undefined) {
+            return orderedQuery.paginate({
+              numItems: request.request.limit ?? 100,
+              cursor: request.request.cursor ?? null,
+            });
+          }
+          const page = await orderedQuery.collect();
+          return {
+            page,
+            isDone: true,
+            continueCursor: String(
+              typeof page.at(-1) === "object" && page.at(-1) !== null
+                ? (page.at(-1) as { _id?: unknown })._id ?? ""
+                : "",
+            ),
+          };
         });
       }
-      const page = await orderedQuery.collect();
-      return {
-        page,
-        isDone: true,
-        continueCursor: String(
-          typeof page.at(-1) === "object" && page.at(-1) !== null
-            ? (page.at(-1) as { _id?: unknown })._id ?? ""
-            : "",
-        ),
-      };
-    }
 
-    if (session.kind !== "mutation") {
-      throw new HttpError(400, `Cannot run ${request.op} during ${session.kind} execution.`);
-    }
-    const writer = writerFor(session.tx, session.schema);
-    if (request.op === "insert") return writer.insert(request.table, request.value, request.id);
-    if (request.op === "patch") {
-      await writer.patch(request.id, request.value);
-      return null;
-    }
-    if (request.op === "replace") {
-      await writer.replace(request.id, request.value);
-      return null;
-    }
-    if (request.op === "delete") {
-      await writer.delete(request.id);
-      return null;
-    }
-    throw new HttpError(400, `Unsupported execution syscall: ${(request as { op: string }).op}.`);
-  }
-
-  private async finish(request: ExecutionFinishRequest): Promise<InvokeResponse> {
-    const session = this.requireSession();
-    try {
-      validateReturn(session.metadata.returns, request.value, session.schema);
-
-      if (session.kind === "query") {
-        return {
-          value: request.value,
-          readSet: session.tx.currentReadSet(),
-          readTs: session.tx.beginTs,
-        };
+      yield* requireMutationExecution("syscall", session.kind, request.op);
+      const writer = writerFor(session.tx, session.schema);
+      if (request.op === "insert") {
+        return yield* routeExecutionOperation("syscall", () =>
+          writer.insert(request.table, request.value, request.id)
+        );
       }
-
-      const commit = await session.tx.commit({
-        source: `invoke:${session.path}`,
-        ...(session.idempotencyKey === undefined ? {} : { idempotencyKey: session.idempotencyKey }),
-      });
-      return {
-        value: request.value,
-        committedTs: commit.committedTs,
-        writes: commit.writes,
-      };
-    } finally {
-      this.session = null;
-    }
+      if (request.op === "patch") {
+        yield* routeExecutionOperation("syscall", () => writer.patch(request.id, request.value));
+        return null;
+      }
+      if (request.op === "replace") {
+        yield* routeExecutionOperation("syscall", () => writer.replace(request.id, request.value));
+        return null;
+      }
+      if (request.op === "delete") {
+        yield* routeExecutionOperation("syscall", () => writer.delete(request.id));
+        return null;
+      }
+      return yield* Effect.fail(executionSessionError(
+        "syscall",
+        { _tag: "UnsupportedSyscall", syscall: (request as { op: string }).op },
+      ));
+    });
   }
 
-  private requireSession(): ExecutionSession {
-    if (this.session === null) throw new HttpError(409, "Execution session has not started.");
-    return this.session;
+  private finish(
+    request: ExecutionFinishRequest,
+  ): Effect.Effect<InvokeResponse, ExecutionServiceError> {
+    const self = this;
+    return Effect.gen(function* () {
+      const session = yield* self.requireSession("finish");
+      return yield* routeExecutionOperation("finish", async () => {
+        try {
+          validateReturn(session.metadata.returns, request.value, session.schema);
+
+          if (session.kind === "query") {
+            return {
+              value: request.value,
+              readSet: session.tx.currentReadSet(),
+              readTs: session.tx.beginTs,
+            };
+          }
+
+          const commit = await session.tx.commit({
+            source: `invoke:${session.path}`,
+            ...(session.idempotencyKey === undefined
+              ? {}
+              : { idempotencyKey: session.idempotencyKey }),
+          });
+          return {
+            value: request.value,
+            committedTs: commit.committedTs,
+            writes: commit.writes,
+          };
+        } finally {
+          self.session = null;
+        }
+      });
+    });
+  }
+
+  private requireSession(
+    operation: ExecutionRouteOperation,
+  ): Effect.Effect<ExecutionSession, ExecutionSessionError> {
+    return requireActiveExecutionSession(operation, this.session);
   }
 }
 
 const routeExecutionStart = Effect.fn("ExecutionDO.routeStart")(
   function* (
     request: Request,
-    start: (body: ExecutionStartRequest) => Promise<ExecutionStartResponse>,
+    start: (body: ExecutionStartRequest) => Effect.Effect<ExecutionStartResponse, ExecutionServiceError>,
   ) {
     const body = yield* decodeExecutionStartRouteRequest(request);
-    return yield* routeExecutionJsonResult("start", () => start(body));
+    return yield* routeExecutionJsonResult(() => start(body));
   },
 );
 
 const routeExecutionSyscall = Effect.fn("ExecutionDO.routeSyscall")(
   function* (
     request: Request,
-    syscall: (body: ExecutionSyscallRequest) => Promise<Json>,
+    syscall: (body: ExecutionSyscallRequest) => Effect.Effect<Json, ExecutionServiceError>,
   ) {
     const body = yield* decodeExecutionSyscallRouteRequest(request);
-    return yield* routeExecutionJsonResult("syscall", () => syscall(body));
+    return yield* routeExecutionJsonResult(() => syscall(body));
   },
 );
 
 const routeExecutionFinish = Effect.fn("ExecutionDO.routeFinish")(
   function* (
     request: Request,
-    finish: (body: ExecutionFinishRequest) => Promise<InvokeResponse>,
+    finish: (body: ExecutionFinishRequest) => Effect.Effect<InvokeResponse, ExecutionServiceError>,
   ) {
     const body = yield* decodeExecutionFinishRouteRequest(request);
-    return yield* routeExecutionJsonResult("finish", () => finish(body));
+    return yield* routeExecutionJsonResult(() => finish(body));
   },
 );
 
 function routeExecutionJsonResult<A extends Json | object>(
-  operation: ExecutionRouteOperation,
-  execute: () => Promise<A>,
-): Effect.Effect<Response, ExecutionRouteOperationError> {
-  return Effect.tryPromise({
-    try: execute,
-    catch: error => executionRouteOperationError(operation, error),
-  }).pipe(
+  execute: () => Effect.Effect<A, ExecutionServiceError>,
+): Effect.Effect<Response, ExecutionServiceError> {
+  return execute().pipe(
     Effect.map(result => Response.json(result)),
   );
 }
+
+function routeExecutionOperation<A>(
+  operation: ExecutionRouteOperation,
+  execute: () => Promise<A>,
+): Effect.Effect<A, ExecutionRouteOperationError> {
+  return Effect.tryPromise({
+    try: execute,
+    catch: error => executionRouteOperationError(operation, error),
+  });
+}
+
+type ExecutionServiceError =
+  | ExecutionSessionError
+  | ExecutionRouteOperationError;
 
 type ExecutionInternalRouteError =
   | ExecutionStartRouteError
   | ExecutionSyscallRouteError
   | ExecutionFinishRouteError
-  | ExecutionRouteOperationError;
+  | ExecutionServiceError;
 
 function runExecutionRoute(
   effect: Effect.Effect<Response, ExecutionInternalRouteError>,
@@ -310,6 +368,9 @@ function executionInternalRouteErrorToResponse(
 ): Response {
   if (error instanceof ExecutionRouteOperationError) {
     return invokeErrorResponse(executionRouteOperationErrorToAdapterError(error));
+  }
+  if (error instanceof ExecutionSessionError) {
+    return invokeErrorResponse(executionSessionErrorToHttpError(error));
   }
   return invokeErrorResponse(executionRouteDecodeErrorToHttpError(error));
 }

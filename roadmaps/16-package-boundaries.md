@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Execution Session Boundary
+
+Previous completed checkpoint: `8447a2f Type connection fanout payloads`.
+
+What changed:
+
+- `packages/flarex-backend/src/execution/SessionError.ts` now owns typed
+  session lifecycle/domain failures for ExecutionDO.
+- `ExecutionDO` service methods return typed Effects and no longer throw
+  `HttpError` for active-session, missing-session, kind mismatch, unsupported
+  syscall, or mutation-only syscall validation.
+- The DO route adapter remains the only place that maps those session failures
+  to the legacy HTTP response shape.
+
+Boundary decision:
+
+Session lifecycle validation belongs to the ExecutionDO runtime service
+boundary, not to protocol body decoders or PartitionDO. Async storage and
+transaction failures stay in the existing route-operation boundary because they
+represent execution operations after session validation.
+
+Known limitations:
+
+- Request body schemas remain in the execution route-boundary modules.
+- PartitionDO SQL/OCC behavior, executor-http, protocol packages, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Connection Fanout Result Boundary
 
 Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.
