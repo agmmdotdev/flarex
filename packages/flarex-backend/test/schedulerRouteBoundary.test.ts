@@ -41,6 +41,10 @@ import {
   SchedulerContinuationCursorError,
   schedulerRuntimeErrorToHttpError,
 } from "../src/scheduler/RuntimeError";
+import {
+  routeSchedulerContinueConnectionCleanup,
+  runSchedulerRoute,
+} from "../src/scheduler/InternalRouteBoundary";
 import type { Env } from "../src/types";
 
 describe("scheduler route boundary", () => {
@@ -519,6 +523,21 @@ describe("scheduler route boundary", () => {
     )).toMatchObject({
       status: 500,
       message: "pending rerun limit must be a positive integer.",
+    });
+  });
+
+  it("maps malformed connection cleanup continuation state through the continue route adapter", async () => {
+    const response = await runSchedulerRoute(
+      routeSchedulerContinueConnectionCleanup(() =>
+        Effect.fail(new SchedulerPendingStateError({
+          message: "pending connection cleanup limit must be a positive integer.",
+        }))
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "pending connection cleanup limit must be a positive integer.",
     });
   });
 

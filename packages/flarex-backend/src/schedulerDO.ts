@@ -14,45 +14,49 @@ import {
   decodeSchedulerDeadLetterDeliveriesRequest,
   decodeSchedulerDeliveryReconcileRequest,
   decodeSchedulerRerunSubscriptionsRequest,
-  schedulerRouteErrorToHttpError,
   type SchedulerCleanupConnectionsRequest,
   type SchedulerConnectionReconcileRequest,
   type SchedulerDeadLetterDeliveriesRequest,
   type SchedulerDeliveryReconcileRequest,
-  type SchedulerRouteError,
   type SchedulerRerunSubscriptionsRequest,
 } from "./scheduler/RouteBoundary";
 import {
   SchedulerRouteOperationError,
   schedulerRouteOperationError,
-  schedulerRouteOperationErrorToHttpError,
   type SchedulerRouteOperation,
 } from "./scheduler/RouteOperationError";
 import {
   invalidSchedulerConnectionTarget,
   isSchedulerRuntimeError,
   missingSchedulerContinuationCursor,
-  schedulerRuntimeErrorToHttpError,
   type SchedulerRuntimeError,
 } from "./scheduler/RuntimeError";
 import {
   continuationNextRunAtFromStorage,
-  pendingConnectionCleanupFromStorage,
+  decodePendingConnectionCleanupFromStorage,
   pendingDeliveryReconcileFromStorage,
   pendingRerunFromStorage,
   SchedulerPendingStateError,
-  schedulerPendingStateErrorToHttpError,
   type PendingLiveQueryConnectionCleanup,
   type PendingLiveQueryDeliveryReconcile,
   type PendingLiveQueryRerun,
 } from "./scheduler/PendingState";
 import {
-  decodeSchedulerCleanupConnectionsResponse,
-  decodeSchedulerCleanupConnectionsPayload,
+  cleanupExpiredLiveQueryConnectionsEffect,
+  expiredConnectionDeploymentsEffect,
+  isSchedulerMaintenanceBoundaryError,
+  schedulerMaintenanceBoundaryErrorToHttpError,
+  type SchedulerMaintenanceBoundaryError,
+} from "./scheduler/MaintenanceBoundary";
+import {
+  routeSchedulerContinueConnectionCleanup,
+  routeSchedulerEffectJsonResult,
+  runSchedulerRoute,
+  type SchedulerInternalRouteError,
+} from "./scheduler/InternalRouteBoundary";
+import {
   decodeSchedulerDeadLetterStuckResponse,
   decodeSchedulerDeadLetterPayload,
-  decodeSchedulerExpiredConnectionDeploymentsResponse,
-  decodeSchedulerExpiredConnectionDeploymentsPayload,
   decodeSchedulerForceReconnectJsonResponse,
   decodeSchedulerForceReconnectPayload,
   decodeSchedulerPendingDeploymentsResponse,
@@ -62,8 +66,6 @@ import {
   decodeSchedulerWakeDeliveryJsonResponse,
   SchedulerResponseError,
   SchedulerResponsePayloadError,
-  schedulerResponseErrorToHttpError,
-  schedulerResponsePayloadErrorToHttpError,
   type ExecutorCleanupLiveQueryConnectionsResult,
   type ExecutorDeadLetterStuckResult,
   type ExecutorLiveQueryRerunResult,
@@ -100,6 +102,19 @@ type PendingDeliveryReconcileRun = {
   retryAttempt: number;
   cursor?: PendingDeploymentCursor;
 };
+
+type PendingConnectionCleanupRun = {
+  expiredAt: string;
+  limit: number;
+  retryAttempt: number;
+  cursor?: ExpiredConnectionDeploymentCursor;
+};
+
+type SchedulerConnectionCleanupError =
+  | SchedulerPendingStateError
+  | SchedulerMaintenanceBoundaryError
+  | SchedulerRuntimeError
+  | SchedulerRouteOperationError;
 
 type ReconcileConnectionCleanupResult = {
   deployments: number;
@@ -164,10 +179,10 @@ export class SchedulerDO extends DurableObject<Env> {
   private rerunInFlight: Promise<RerunResult> | undefined;
   private readonly connectionCleanupInFlight = new Map<
     string,
-    Promise<ReconcileConnectionCleanupResult>
+    Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError>
   >();
   private freshConnectionCleanupInFlight:
-    | Promise<ReconcileConnectionCleanupResult>
+    | Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError>
     | undefined;
 
   async fetch(request: Request): Promise<Response> {
@@ -189,7 +204,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerConnectionReconcile(request, body =>
-            this.reconcileLiveQueryConnections(body),
+            this.reconcileLiveQueryConnectionsEffect(body),
           ),
         );
       }
@@ -209,7 +224,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerCleanupConnections(request, this.env, body =>
-            this.cleanupLiveQueryConnections(body),
+            this.cleanupLiveQueryConnectionsEffect(body),
           ),
         );
       }
@@ -247,7 +262,7 @@ export class SchedulerDO extends DurableObject<Env> {
       ) {
         return await runSchedulerRoute(
           routeSchedulerContinueConnectionCleanup(() =>
-            this.continuePendingLiveQueryConnectionCleanup(),
+            this.continuePendingLiveQueryConnectionCleanupEffect(),
           ),
         );
       }
@@ -262,7 +277,10 @@ export class SchedulerDO extends DurableObject<Env> {
     await Promise.allSettled([
       this.continuePendingLiveQueryDeliveryReconcile({ respectNextRunAt: true, now }),
       this.continuePendingLiveQueryRerun({ respectNextRunAt: true, now }),
-      this.continuePendingLiveQueryConnectionCleanup({ respectNextRunAt: true, now }),
+      Effect.runPromise(this.continuePendingLiveQueryConnectionCleanupEffect({
+        respectNextRunAt: true,
+        now,
+      })),
     ]);
   }
 
@@ -445,159 +463,202 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.refreshContinuationAlarm();
   }
 
-  private async reconcileLiveQueryConnections(
+  private reconcileLiveQueryConnectionsEffect(
     request: SchedulerConnectionReconcileRequest,
-  ): Promise<ReconcileConnectionCleanupResult> {
-    if (request.cursor === undefined) {
-      const pending = await this.readPendingLiveQueryConnectionCleanup();
-      if (pending !== undefined) {
-        if (!continuationIsDue(pending, Date.now())) {
-          return pendingConnectionCleanupResult(pending);
+  ): Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError> {
+    const self = this;
+    return Effect.gen(function* () {
+      if (request.cursor === undefined) {
+        const pending = yield* self.readPendingLiveQueryConnectionCleanupEffect(
+          "connection-reconcile",
+        );
+        if (pending !== undefined) {
+          if (!continuationIsDue(pending, Date.now())) {
+            return pendingConnectionCleanupResult(pending);
+          }
+          return yield* self.runAndPersistConnectionCleanupEffect(
+            pending,
+            { persistContinuation: true },
+            "connection-reconcile",
+          );
         }
-        return this.runAndPersistConnectionCleanup(pending);
+        if (self.freshConnectionCleanupInFlight !== undefined) {
+          return yield* self.freshConnectionCleanupInFlight;
+        }
       }
-      if (this.freshConnectionCleanupInFlight !== undefined) {
-        return this.freshConnectionCleanupInFlight;
+      const expiredAt = request.expiredAt ?? new Date().toISOString();
+      const limit = request.limit ?? DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT;
+      const cleanup = self.runAndPersistConnectionCleanupEffect(
+        {
+          expiredAt,
+          limit,
+          retryAttempt: 0,
+          ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+        },
+        { persistContinuation: request.cursor === undefined },
+        "connection-reconcile",
+      );
+      if (request.cursor !== undefined) {
+        return yield* cleanup;
       }
-    }
-    const expiredAt = request.expiredAt ?? new Date().toISOString();
-    const limit = request.limit ?? DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT;
-    const cleanup = this.runAndPersistConnectionCleanup({
-      expiredAt,
-      limit,
-      retryAttempt: 0,
-      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
-    }, { persistContinuation: request.cursor === undefined });
-    if (request.cursor === undefined) {
-      this.freshConnectionCleanupInFlight = cleanup.finally(() => {
-        this.freshConnectionCleanupInFlight = undefined;
-      });
-      return this.freshConnectionCleanupInFlight;
-    }
-    return cleanup;
+      const inFlight = yield* Effect.cached(cleanup);
+      const cleanupWithRelease = inFlight.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.freshConnectionCleanupInFlight = undefined;
+          }),
+        ),
+      );
+      self.freshConnectionCleanupInFlight = cleanupWithRelease;
+      return yield* cleanupWithRelease;
+    });
   }
 
-  private async continuePendingLiveQueryConnectionCleanup(): Promise<
-    ReconcileConnectionCleanupResult | { skipped: true }
-  >;
-  private async continuePendingLiveQueryConnectionCleanup(options: {
-    respectNextRunAt: true;
-    now: number;
-  }): Promise<ReconcileConnectionCleanupResult | { skipped: true }>;
-  private async continuePendingLiveQueryConnectionCleanup(options?: {
+  private continuePendingLiveQueryConnectionCleanupEffect(options?: {
     respectNextRunAt?: boolean;
     now?: number;
-  }): Promise<ReconcileConnectionCleanupResult | { skipped: true }> {
-    const pending = await this.readPendingLiveQueryConnectionCleanup();
-    if (pending === undefined) return { skipped: true };
-    if (
-      options?.respectNextRunAt === true &&
-      !continuationIsDue(pending, options.now ?? Date.now())
-    ) {
-      await this.refreshContinuationAlarm();
-      return { skipped: true };
-    }
-    return this.runAndPersistConnectionCleanup(pending);
-  }
-
-  private async readPendingLiveQueryConnectionCleanup(): Promise<
-    PendingLiveQueryConnectionCleanup | undefined
+  }): Effect.Effect<
+    ReconcileConnectionCleanupResult | { skipped: true },
+    SchedulerConnectionCleanupError
   > {
-    const value = await this.ctx.storage.get<unknown>(
-      PENDING_CONNECTION_CLEANUP_KEY,
-    );
-    if (value === undefined) return undefined;
-    return pendingConnectionCleanupFromStorage(value);
+    const self = this;
+    return Effect.gen(function* () {
+      const pending = yield* self.readPendingLiveQueryConnectionCleanupEffect(
+        "continue-connection-cleanup",
+      );
+      if (pending === undefined) return { skipped: true };
+      if (
+        options?.respectNextRunAt === true &&
+        !continuationIsDue(pending, options.now ?? Date.now())
+      ) {
+        yield* self.refreshContinuationAlarmEffect("continue-connection-cleanup");
+        return { skipped: true };
+      }
+      return yield* self.runAndPersistConnectionCleanupEffect(
+        pending,
+        { persistContinuation: true },
+        "continue-connection-cleanup",
+      );
+    });
   }
 
-  private async runAndPersistConnectionCleanup(
-    pending: {
-      expiredAt: string;
-      limit: number;
-      retryAttempt: number;
-      cursor?: ExpiredConnectionDeploymentCursor;
-    },
-    options: { persistContinuation: boolean } = { persistContinuation: true },
-  ): Promise<ReconcileConnectionCleanupResult> {
+  private readPendingLiveQueryConnectionCleanupEffect(
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<
+    PendingLiveQueryConnectionCleanup | undefined,
+    SchedulerPendingStateError | SchedulerRouteOperationError
+  > {
+    const storage = this.ctx.storage;
+    return Effect.gen(function* () {
+      const value = yield* Effect.tryPromise({
+        try: () => storage.get<unknown>(PENDING_CONNECTION_CLEANUP_KEY),
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
+      if (value === undefined) return undefined;
+      return yield* decodePendingConnectionCleanupFromStorage(value);
+    });
+  }
+
+  private runAndPersistConnectionCleanupEffect(
+    pending: PendingConnectionCleanupRun,
+    options: { persistContinuation: boolean },
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError> {
     const key = connectionCleanupInFlightKey(pending);
     const existing = this.connectionCleanupInFlight.get(key);
     if (existing !== undefined) {
       return existing;
     }
-    const cleanup = this.runConnectionCleanup(pending)
-      .then(async result => {
-        if (options.persistContinuation) {
-          await this.persistConnectionCleanupContinuation(pending, result);
+    const self = this;
+    const cleanup = this.runConnectionCleanupEffect(pending).pipe(
+      Effect.tap(result =>
+        options.persistContinuation
+          ? this.persistConnectionCleanupContinuationEffect(
+              pending,
+              result,
+              operation,
+            )
+          : Effect.void
+      ),
+      Effect.catch(error => {
+        if (!options.persistContinuation || pending.cursor === undefined) {
+          return Effect.fail(error);
         }
-        return result;
-      })
-      .catch(async error => {
-        if (options.persistContinuation && pending.cursor !== undefined) {
-          await this.scheduleConnectionCleanupRetry(pending);
-        }
-        throw error;
-      })
-      .finally(() => {
-        this.connectionCleanupInFlight.delete(key);
-      });
-    this.connectionCleanupInFlight.set(key, cleanup);
-    return cleanup;
+        return this.scheduleConnectionCleanupRetryEffect(pending, operation).pipe(
+          Effect.flatMap(() => Effect.fail(error)),
+        );
+      }),
+    );
+    return Effect.gen(function* () {
+      const inFlight = yield* Effect.cached(cleanup);
+      const cleanupWithRelease = inFlight.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.connectionCleanupInFlight.delete(key);
+          }),
+        ),
+      );
+      self.connectionCleanupInFlight.set(key, cleanupWithRelease);
+      return yield* cleanupWithRelease;
+    });
   }
 
-  private async runConnectionCleanup(
-    pending: {
-      expiredAt: string;
-      limit: number;
-      cursor?: ExpiredConnectionDeploymentCursor;
-    },
-  ): Promise<ReconcileConnectionCleanupResult> {
-    const candidates = await this.expiredConnectionDeployments({
-      expiredAt: pending.expiredAt,
-      limit: pending.limit,
-      ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
-    });
-    const failed: ReconcileConnectionCleanupResult["failed"] = [];
-    let cleaned = 0;
-    let deleted = 0;
-    let deletedConnections = 0;
+  private runConnectionCleanupEffect(
+    pending: PendingConnectionCleanupRun,
+  ): Effect.Effect<
+    ReconcileConnectionCleanupResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    const self = this;
+    return Effect.gen(function* () {
+      const candidates = yield* self.expiredConnectionDeploymentsEffect({
+        expiredAt: pending.expiredAt,
+        limit: pending.limit,
+        ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
+      });
+      const failed: ReconcileConnectionCleanupResult["failed"] = [];
+      let cleaned = 0;
+      let deleted = 0;
+      let deletedConnections = 0;
 
-    for (const deployment of candidates.deployments) {
-      try {
-        const result = await this.cleanupExpiredLiveQueryConnections({
+      for (const deployment of candidates.deployments) {
+        const cleanup = yield* self.cleanupExpiredLiveQueryConnectionsEffect({
           deploymentId: deployment.deploymentId,
           projectId: deployment.projectId,
           expiredAt: pending.expiredAt,
-        });
-        cleaned += 1;
-        deleted += result.deleted;
-        deletedConnections += result.deletedConnections;
-      } catch (error) {
+        }).pipe(
+          Effect.matchEffect({
+            onFailure: error => Effect.succeed({ ok: false as const, error }),
+            onSuccess: result => Effect.succeed({ ok: true as const, result }),
+          }),
+        );
+        if (cleanup.ok) {
+          cleaned += 1;
+          deleted += cleanup.result.deleted;
+          deletedConnections += cleanup.result.deletedConnections;
+          continue;
+        }
         failed.push({
           deploymentId: deployment.deploymentId,
-          status: schedulerServiceFailureStatus(error),
-          error: schedulerServiceFailureMessage(error),
+          status: schedulerServiceFailureStatus(cleanup.error),
+          error: schedulerServiceFailureMessage(cleanup.error),
         });
       }
-    }
 
-    return {
-      deployments: candidates.deployments.length,
-      cleaned,
-      deleted,
-      deletedConnections,
-      failed,
-      nextCursor: candidates.nextCursor,
-      hasMore: candidates.hasMore,
-    };
+      return {
+        deployments: candidates.deployments.length,
+        cleaned,
+        deleted,
+        deletedConnections,
+        failed,
+        nextCursor: candidates.nextCursor,
+        hasMore: candidates.hasMore,
+      };
+    });
   }
 
   private async persistConnectionCleanupContinuation(
-    pending: {
-      expiredAt: string;
-      limit: number;
-      retryAttempt: number;
-      cursor?: ExpiredConnectionDeploymentCursor;
-    },
+    pending: PendingConnectionCleanupRun,
     result: ReconcileConnectionCleanupResult,
   ): Promise<void> {
     if (!result.hasMore) {
@@ -621,13 +682,22 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.refreshContinuationAlarm();
   }
 
+  private persistConnectionCleanupContinuationEffect(
+    pending: PendingConnectionCleanupRun,
+    result: ReconcileConnectionCleanupResult,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRuntimeError | SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.persistConnectionCleanupContinuation(pending, result),
+      catch: error =>
+        isSchedulerRuntimeError(error)
+          ? error
+          : schedulerRouteOperationError(operation, error),
+    });
+  }
+
   private async scheduleConnectionCleanupRetry(
-    pending: {
-      expiredAt: string;
-      limit: number;
-      retryAttempt: number;
-      cursor?: ExpiredConnectionDeploymentCursor;
-    },
+    pending: PendingConnectionCleanupRun,
   ): Promise<void> {
     if (pending.cursor === undefined) return;
     const retryAttempt = pending.retryAttempt + 1;
@@ -642,6 +712,25 @@ export class SchedulerDO extends DurableObject<Env> {
       nextRunAt,
     } satisfies PendingLiveQueryConnectionCleanup);
     await this.refreshContinuationAlarm();
+  }
+
+  private scheduleConnectionCleanupRetryEffect(
+    pending: PendingConnectionCleanupRun,
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.scheduleConnectionCleanupRetry(pending),
+      catch: error => schedulerRouteOperationError(operation, error),
+    });
+  }
+
+  private refreshContinuationAlarmEffect(
+    operation: SchedulerRouteOperation,
+  ): Effect.Effect<void, SchedulerRouteOperationError> {
+    return Effect.tryPromise({
+      try: () => this.refreshContinuationAlarm(),
+      catch: error => schedulerRouteOperationError(operation, error),
+    });
   }
 
   private async rerunLiveQuerySubscriptions(
@@ -914,52 +1003,43 @@ export class SchedulerDO extends DurableObject<Env> {
     };
   }
 
-  private async cleanupLiveQueryConnections(
+  private cleanupLiveQueryConnectionsEffect(
     request: SchedulerCleanupConnectionsRequest,
-  ): Promise<CleanupLiveQueryConnectionsResult> {
-    const cleanup = await this.cleanupExpiredLiveQueryConnections({
+  ): Effect.Effect<CleanupLiveQueryConnectionsResult, SchedulerMaintenanceBoundaryError> {
+    return this.cleanupExpiredLiveQueryConnectionsEffect({
       deploymentId: request.deploymentId,
       projectId: request.projectId,
       ...(request.expiredAt === undefined ? {} : { expiredAt: request.expiredAt }),
-    });
-    return {
-      deploymentId: request.deploymentId,
-      deleted: cleanup.deleted,
-      deletedConnections: cleanup.deletedConnections,
-    };
+    }).pipe(
+      Effect.map(cleanup => ({
+        deploymentId: request.deploymentId,
+        deleted: cleanup.deleted,
+        deletedConnections: cleanup.deletedConnections,
+      })),
+    );
   }
 
-  private async cleanupExpiredLiveQueryConnections(
+  private cleanupExpiredLiveQueryConnectionsEffect(
     body: SchedulerCleanupConnectionsRequest,
-  ): Promise<ExecutorCleanupLiveQueryConnectionsResult> {
-    const response = await this.executorFetch(
-      "/maintenance/live-queries/connections/cleanup",
+  ): Effect.Effect<
+    ExecutorCleanupLiveQueryConnectionsResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    return cleanupExpiredLiveQueryConnectionsEffect(
+      (path, body) => this.executorFetch(path, body),
       body,
-    );
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerCleanupConnectionsResponse<unknown>(
-          response,
-        );
-        return yield* decodeSchedulerCleanupConnectionsPayload(payload);
-      }),
     );
   }
 
-  private async expiredConnectionDeployments(
+  private expiredConnectionDeploymentsEffect(
     body: Record<string, unknown>,
-  ): Promise<ExpiredConnectionDeploymentsResult> {
-    const response = await this.executorFetch(
-      "/maintenance/live-queries/expired-connection-deployments",
+  ): Effect.Effect<
+    ExpiredConnectionDeploymentsResult,
+    SchedulerMaintenanceBoundaryError
+  > {
+    return expiredConnectionDeploymentsEffect(
+      (path, body) => this.executorFetch(path, body),
       body,
-    );
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const payload = yield* decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(
-          response,
-        );
-        return yield* decodeSchedulerExpiredConnectionDeploymentsPayload(payload);
-      }),
     );
   }
 
@@ -1073,11 +1153,10 @@ const routeSchedulerConnectionReconcile = Effect.fn("SchedulerDO.routeConnection
     request: Request,
     reconcile: (
       body: SchedulerConnectionReconcileRequest,
-    ) => Promise<ReconcileConnectionCleanupResult>,
+    ) => Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError>,
   ) {
     const body = yield* decodeSchedulerConnectionReconcileRequest(request);
-    return yield* routeSchedulerJsonResult(
-      "connection-reconcile",
+    return yield* routeSchedulerEffectJsonResult(
       () => reconcile(body),
     );
   },
@@ -1102,11 +1181,10 @@ const routeSchedulerCleanupConnections = Effect.fn("SchedulerDO.routeCleanupConn
     env: Env,
     cleanup: (
       body: SchedulerCleanupConnectionsRequest,
-    ) => Promise<CleanupLiveQueryConnectionsResult>,
+    ) => Effect.Effect<CleanupLiveQueryConnectionsResult, SchedulerMaintenanceBoundaryError>,
   ) {
     const body = yield* decodeSchedulerCleanupConnectionsRequest(request, env);
-    return yield* routeSchedulerJsonResult(
-      "cleanup-connections",
+    return yield* routeSchedulerEffectJsonResult(
       () => cleanup(body),
     );
   },
@@ -1144,21 +1222,6 @@ const routeSchedulerContinueReruns = Effect.fn("SchedulerDO.routeContinueReruns"
   },
 );
 
-const routeSchedulerContinueConnectionCleanup = Effect.fn(
-  "SchedulerDO.routeContinueConnectionCleanup",
-)(
-  function* (
-    continueConnectionCleanup: () => Promise<
-      ReconcileConnectionCleanupResult | { skipped: true }
-    >,
-  ) {
-    return yield* routeSchedulerJsonResult(
-      "continue-connection-cleanup",
-      continueConnectionCleanup,
-    );
-  },
-);
-
 function routeSchedulerJsonResult<A extends object>(
   operation: SchedulerRouteOperation,
   execute: () => Promise<A>,
@@ -1182,47 +1245,6 @@ function routeSchedulerJsonResult<A extends object>(
   }).pipe(
     Effect.map(result => json(result)),
   );
-}
-
-type SchedulerInternalRouteError =
-  | SchedulerRouteError
-  | SchedulerPendingStateError
-  | SchedulerResponseError
-  | SchedulerResponsePayloadError
-  | SchedulerRuntimeError
-  | SchedulerRouteOperationError;
-
-function runSchedulerRoute(
-  effect: Effect.Effect<Response, SchedulerInternalRouteError>,
-): Promise<Response> {
-  return Effect.runPromise(
-    effect.pipe(
-      Effect.catch(error =>
-        Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)))
-      ),
-    ),
-  );
-}
-
-function schedulerInternalRouteErrorToHttpError(
-  error: SchedulerInternalRouteError,
-): HttpError {
-  if (error instanceof SchedulerRouteOperationError) {
-    return schedulerRouteOperationErrorToHttpError(error);
-  }
-  if (error instanceof SchedulerPendingStateError) {
-    return schedulerPendingStateErrorToHttpError(error);
-  }
-  if (error instanceof SchedulerResponseError) {
-    return schedulerResponseErrorToHttpError(error);
-  }
-  if (error instanceof SchedulerResponsePayloadError) {
-    return schedulerResponsePayloadErrorToHttpError(error);
-  }
-  if (isSchedulerRuntimeError(error)) {
-    return schedulerRuntimeErrorToHttpError(error);
-  }
-  return schedulerRouteErrorToHttpError(error);
 }
 
 function executorUrl(env: Env, path: string): string {
@@ -1337,6 +1359,9 @@ function connectionCleanupInFlightKey(input: {
 
 function schedulerServiceFailureStatus(error: unknown): number {
   if (error instanceof HttpError) return error.status;
+  if (isSchedulerMaintenanceBoundaryError(error)) {
+    return schedulerMaintenanceBoundaryErrorToHttpError(error).status;
+  }
   if (error instanceof SchedulerResponseError) return 502;
   if (error instanceof SchedulerResponsePayloadError) return error.status;
   if (isSchedulerRuntimeError(error)) return 502;
@@ -1345,6 +1370,21 @@ function schedulerServiceFailureStatus(error: unknown): number {
 
 function schedulerServiceFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function schedulerConnectionCleanupError(
+  operation: SchedulerRouteOperation,
+  error: unknown,
+): SchedulerConnectionCleanupError {
+  if (
+    error instanceof SchedulerPendingStateError ||
+    isSchedulerMaintenanceBoundaryError(error) ||
+    isSchedulerRuntimeError(error) ||
+    error instanceof SchedulerRouteOperationError
+  ) {
+    return error;
+  }
+  return schedulerRouteOperationError(operation, error);
 }
 
 function responseBodyFromText(text: string): unknown {
