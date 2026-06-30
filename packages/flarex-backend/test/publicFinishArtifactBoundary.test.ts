@@ -49,6 +49,25 @@ describe("public finish artifact boundary", () => {
     });
   });
 
+  it("treats synchronous artifact lookup failures as missing artifacts", async () => {
+    const package_ = sourcePackage();
+    const status = analyzedPushStatus(package_);
+    const ref = await executionArtifactRefForSourcePackage(package_);
+
+    const response = await Effect.runPromise(verifyStoredPushArtifactEffect(
+      throwingArtifactStore(),
+      Effect.succeed(Response.json(status)),
+    ));
+
+    expect(response?.status).toBe(409);
+    await expect(response?.json()).resolves.toEqual({
+      result: "rejected",
+      push: status,
+      code: "missing_artifact",
+      error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
+    });
+  });
+
   it("keeps fetch and push-status JSON failures in the dispatch error channel", async () => {
     const fetchFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
       artifactStore({ available: true }),
@@ -94,6 +113,15 @@ function artifactStore(options: { readonly available: boolean }): BackendExecuti
         throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
       }
       return sourcePackage();
+    },
+  };
+}
+
+function throwingArtifactStore(): BackendExecutionArtifactStore {
+  return {
+    put: async sourcePackage => executionArtifactRefForSourcePackage(sourcePackage),
+    get: () => {
+      throw new Error("artifact store unavailable");
     },
   };
 }

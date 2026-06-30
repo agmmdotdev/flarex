@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Partition route decoder ownership.
+- Previous completed checkpoint: Public finish artifact lookup Effect boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the partition route decoder ownership checkpoint:
+Next recommended checkpoint after the public finish artifact lookup Effect boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,22 @@ Next recommended checkpoint after the partition route decoder ownership checkpoi
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 251 slice:
+
+1. Replace the public finish-push artifact preflight's remaining untyped
+   `Effect.promise(...)` lookup with `Effect.tryPromise(...)` mapped to
+   `PublicWorkerDispatchError`.
+2. Preserve the existing public behavior by recovering artifact lookup failures
+   to the same `missing_artifact` rejected finish response instead of treating
+   them as Worker dispatch failures.
+3. Preserve malformed push-status JSON failures, artifact-ref generation
+   failures, generated DeploymentApi finish forwarding, DeploymentDO service
+   behavior, artifact persistence, PartitionDO SQL/OCC, protocol schemas,
+   executor-http, and `ValidatorJson` behavior unchanged.
+4. Extend direct finish-artifact boundary coverage so synchronous artifact
+   store lookup failures are handled by the typed Effect boundary and still
+   produce the existing `409` rejected finish response.
 
 Completed Goal 250 slice:
 

@@ -31,11 +31,14 @@ export const verifyStoredPushArtifactEffect = Effect.fn(
     try: () => executionArtifactRefForSourcePackage(status.sourcePackage),
     catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
   });
-  const artifactAvailable = yield* Effect.promise(() =>
-    artifactStore.get(ref).then(
-      () => true,
-      () => false,
-    )
+  const artifactAvailable = yield* Effect.tryPromise({
+    try: async () => {
+      await artifactStore.get(ref);
+      return true;
+    },
+    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
+  }).pipe(
+    Effect.catchTag("PublicWorkerDispatchError", () => Effect.succeed(false)),
   );
   if (artifactAvailable) return undefined;
 

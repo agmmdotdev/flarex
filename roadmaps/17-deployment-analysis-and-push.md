@@ -1,5 +1,57 @@
 # Deployment Analysis And Push
 
+## Public Finish Artifact Lookup Effect Boundary
+
+Previous completed checkpoint: `0c596a7` Own partition route decoders.
+
+What changed:
+
+- Public finish-push durable artifact preflight now checks
+  `artifactStore.get(ref)` through `Effect.tryPromise(...)` instead of an
+  untyped `Effect.promise(...)`.
+- Artifact lookup failures are first mapped to `PublicWorkerDispatchError`,
+  then intentionally recovered to the existing missing-artifact branch.
+- Synchronous artifact-store lookup failures now follow the same typed Effect
+  boundary and still produce the existing rejected finish response.
+
+Why it changed:
+
+The public finish-push Worker adapter already owned the artifact preflight, but
+its artifact lookup used an untyped promise edge. This checkpoint keeps
+artifact availability as Worker adapter behavior while ensuring lookup failures
+cannot escape as defects before the existing `missing_artifact` response is
+constructed.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare public Worker artifact
+  durability preflight before DeploymentDO finish forwarding.
+
+How Flarex differs from Convex:
+
+- Flarex can require a generated execution artifact to exist in durable
+  Cloudflare storage before public finish-push activation. Convex does not have
+  this Worker-side deployment artifact preflight shape.
+
+Known limitations:
+
+- Missing artifact remains a `409` rejected finish response, preserving the
+  existing public contract.
+- DeploymentDO service/store behavior, artifact persistence, public deployment
+  push routing, PartitionDO SQL/OCC, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public finish artifact boundary|requires durable artifact storage before public finish|rejects malformed finish push request bodies" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Worker Deployment Adapter Mapping
 
 Previous completed checkpoint: `e809aa1 Own deployment route decoders`.
