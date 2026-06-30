@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { errorResponse, HttpError, json } from "./http";
+import { errorResponse, HttpError, json, RequestJsonError } from "./http";
 import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
@@ -9,13 +9,15 @@ import {
   decodePartitionSchemaCacheRequest,
   decodePartitionSubscriptionRegistrationRequest,
   decodePartitionSubscriptionTargetRequest,
+  PartitionRoutePayloadError,
   partitionRouteErrorToHttpError,
+  type PartitionRouteError,
   type PartitionConnectionUnregisterRequest,
   type PartitionSchemaCacheRequest,
   type PartitionSubscriptionRegistrationRequest,
   type PartitionSubscriptionTargetRequest,
 } from "./partition/RouteBoundary";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import type {
   BeginResponse,
   CommitRequest,
@@ -995,7 +997,7 @@ const routePartitionDurableObject = Effect.fn("PartitionDO.route")(
     request: Request,
     url: URL,
     handlers: PartitionRouteHandlers,
-  ): Effect.fn.Return<Response, HttpError> {
+  ): Effect.fn.Return<Response, PartitionInternalRouteError> {
     if (url.pathname === "/health") {
       return json(handlers.health());
     }
@@ -1027,10 +1029,10 @@ const routePartitionDurableObject = Effect.fn("PartitionDO.route")(
       );
     }
     if (url.pathname === "/document" && request.method === "GET") {
-      return routePartitionDocumentRead(url, handlers.currentTs, handlers.readDocument);
+      return yield* routePartitionDocumentRead(url, handlers.currentTs, handlers.readDocument);
     }
     if (url.pathname === "/index" && request.method === "GET") {
-      return routePartitionIndexRead(url, handlers.currentTs, handlers.readIndex);
+      return yield* routePartitionIndexRead(url, handlers.currentTs, handlers.readIndex);
     }
     return json({ error: "Not found." }, { status: 404 });
   },
@@ -1040,32 +1042,36 @@ function routePartitionDocumentRead(
   url: URL,
   currentTs: PartitionRouteHandlers["currentTs"],
   readDocument: PartitionRouteHandlers["readDocument"],
-): Response {
+): Effect.Effect<Response, PartitionRouteOperationError> {
   const tableId = Number(url.searchParams.get("tableId"));
   const id = url.searchParams.get("id");
   const at = Number(url.searchParams.get("at") ?? currentTs());
   if (!Number.isInteger(tableId) || !id) {
-    return json({ error: "tableId and id are required." }, { status: 400 });
+    return Effect.succeed(json({ error: "tableId and id are required." }, { status: 400 }));
   }
-  return json(readDocument(tableId, id, at));
+  return routePartitionJsonResult(
+    "document-read",
+    () => readDocument(tableId, id, at),
+  );
 }
 
 function routePartitionIndexRead(
   url: URL,
   currentTs: PartitionRouteHandlers["currentTs"],
   readIndex: PartitionRouteHandlers["readIndex"],
-): Response {
+): Effect.Effect<Response, PartitionRouteOperationError> {
   const indexId = Number(url.searchParams.get("indexId"));
   if (!Number.isInteger(indexId)) {
-    return json({ error: "indexId is required." }, { status: 400 });
+    return Effect.succeed(json({ error: "indexId is required." }, { status: 400 }));
   }
   const at = Number(url.searchParams.get("at") ?? currentTs());
   const lower = url.searchParams.get("lower") ?? undefined;
   const upper = url.searchParams.get("upper") ?? undefined;
   const cursor = url.searchParams.get("cursor") ?? undefined;
   const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
-  return json(
-    readIndex(
+  return routePartitionJsonResult(
+    "index-read",
+    () => readIndex(
       indexId,
       at,
       lower,
@@ -1082,10 +1088,8 @@ const routePartitionSchemaCache = Effect.fn("PartitionDO.routeSchemaCache")(
     request: Request,
     putSchemaCache: (body: PartitionSchemaCacheRequest) => Promise<{ schemaVersion: number }>,
   ) {
-    const body = yield* decodePartitionSchemaCacheRequest(request).pipe(
-      Effect.mapError(partitionRouteErrorToHttpError),
-    );
-    return yield* routePartitionJsonResult(() => putSchemaCache(body));
+    const body = yield* decodePartitionSchemaCacheRequest(request);
+    return yield* routePartitionJsonResult("schema-cache", () => putSchemaCache(body));
   },
 );
 
@@ -1094,10 +1098,9 @@ const routePartitionCommit = Effect.fn("PartitionDO.routeCommit")(
     request: Request,
     commit: (body: CommitRequest) => Promise<CommitResponse>,
   ) {
-    const body = yield* decodePartitionCommitRequest(request).pipe(
-      Effect.mapError(partitionRouteErrorToHttpError),
-    );
+    const body = yield* decodePartitionCommitRequest(request);
     return yield* routePartitionJsonResult(
+      "commit",
       () => commit(body),
       result => ({ status: result.replayed ? 200 : 201 }),
     );
@@ -1111,10 +1114,11 @@ const routePartitionSubscriptionRegistration = Effect.fn("PartitionDO.routeSubsc
       body: PartitionSubscriptionRegistrationRequest,
     ) => { registered: true },
   ) {
-    const body = yield* decodePartitionSubscriptionRegistrationRequest(request).pipe(
-      Effect.mapError(partitionRouteErrorToHttpError),
+    const body = yield* decodePartitionSubscriptionRegistrationRequest(request);
+    return yield* routePartitionJsonResult(
+      "subscription-register",
+      () => registerSubscription(body),
     );
-    return yield* routePartitionJsonResult(() => registerSubscription(body));
   },
 );
 
@@ -1125,10 +1129,11 @@ const routePartitionSubscriptionUnregister = Effect.fn("PartitionDO.routeSubscri
       body: PartitionSubscriptionTargetRequest,
     ) => { unregistered: true },
   ) {
-    const body = yield* decodePartitionSubscriptionTargetRequest(request).pipe(
-      Effect.mapError(partitionRouteErrorToHttpError),
+    const body = yield* decodePartitionSubscriptionTargetRequest(request);
+    return yield* routePartitionJsonResult(
+      "subscription-unregister",
+      () => unregisterSubscription(body),
     );
-    return yield* routePartitionJsonResult(() => unregisterSubscription(body));
   },
 );
 
@@ -1139,29 +1144,94 @@ const routePartitionConnectionUnregister = Effect.fn("PartitionDO.routeConnectio
       body: PartitionConnectionUnregisterRequest,
     ) => { unregistered: true },
   ) {
-    const body = yield* decodePartitionConnectionUnregisterRequest(request).pipe(
-      Effect.mapError(partitionRouteErrorToHttpError),
+    const body = yield* decodePartitionConnectionUnregisterRequest(request);
+    return yield* routePartitionJsonResult(
+      "connection-unregister",
+      () => unregisterConnection(body),
     );
-    return yield* routePartitionJsonResult(() => unregisterConnection(body));
   },
 );
 
+type PartitionRouteOperation =
+  | "schema-cache"
+  | "commit"
+  | "subscription-register"
+  | "subscription-unregister"
+  | "connection-unregister"
+  | "document-read"
+  | "index-read";
+
+class PartitionRouteOperationError extends Data.TaggedError(
+  "PartitionRouteOperationError",
+)<{
+  readonly operation: PartitionRouteOperation;
+  readonly status: number;
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+type PartitionInternalRouteError =
+  | PartitionRouteError
+  | PartitionRouteOperationError;
+
 function routePartitionJsonResult<A extends Json | object>(
+  operation: PartitionRouteOperation,
   execute: () => A | Promise<A>,
   init?: (value: A) => ResponseInit,
-): Effect.Effect<Response> {
-  return Effect.promise(async () => {
-    const value = await execute();
-    return json(value, init?.(value));
+): Effect.Effect<Response, PartitionRouteOperationError> {
+  return Effect.tryPromise({
+    try: async () => {
+      const value = await execute();
+      return json(value, init?.(value));
+    },
+    catch: cause => partitionRouteOperationError(operation, cause),
   });
 }
 
-function runPartitionRoute(effect: Effect.Effect<Response, HttpError>): Promise<Response> {
+function partitionRouteOperationError(
+  operation: PartitionRouteOperation,
+  cause: unknown,
+): PartitionRouteOperationError {
+  if (cause instanceof HttpError) {
+    return new PartitionRouteOperationError({
+      operation,
+      status: cause.status,
+      message: cause.message,
+      cause,
+    });
+  }
+  return new PartitionRouteOperationError({
+    operation,
+    status: 500,
+    message: cause instanceof Error ? cause.message : String(cause),
+    cause,
+  });
+}
+
+function runPartitionRoute(effect: Effect.Effect<Response, PartitionInternalRouteError>): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catch(error => Effect.succeed(errorResponse(error))),
+      Effect.catchTags({
+        RequestJsonError: recoverPartitionInternalRouteError,
+        PartitionRoutePayloadError: recoverPartitionInternalRouteError,
+        PartitionRouteOperationError: recoverPartitionInternalRouteError,
+      }),
     ),
   );
+}
+
+function recoverPartitionInternalRouteError(
+  error: PartitionInternalRouteError,
+): Effect.Effect<Response> {
+  return Effect.succeed(partitionInternalRouteErrorToResponse(error));
+}
+
+function partitionInternalRouteErrorToResponse(error: PartitionInternalRouteError): Response {
+  if (error instanceof PartitionRouteOperationError) {
+    if (isOccConflict(error.cause)) return json(error.cause, { status: 409 });
+    return errorResponse(new HttpError(error.status, error.message));
+  }
+  return errorResponse(partitionRouteErrorToHttpError(error));
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {

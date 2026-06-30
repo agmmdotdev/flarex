@@ -70,6 +70,27 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("maps partition schema-cache operation failures at the route boundary", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("schema-cache-operation-boundary-deployment", "user:ada"),
+    );
+
+    const response = await partition.fetch("https://flarex.internal/schema-cache", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        tables: [],
+        indexes: [],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "partitionKey must be provided with schema-cache.",
+    });
+  });
+
   it("rejects malformed partition subscription registration JSON at the route boundary", async () => {
     const partition = env.PARTITIONS.getByName(
       partitionObjectName("subscription-register-boundary-deployment", "user:ada"),

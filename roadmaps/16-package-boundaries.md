@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## PartitionDO Route Adapter Typed Recovery
+
+Previous completed checkpoint: `1d81071` Use tagged artifact runtime recovery.
+
+What changed:
+
+- PartitionDO internal route adapters now keep request JSON and payload
+  failures typed as `RequestJsonError | PartitionRoutePayloadError` until the
+  Durable Object adapter response edge.
+- PartitionDO route handler failures are wrapped once as tagged
+  `PartitionRouteOperationError` values and recovered through
+  `Effect.catchTags(...)`.
+- Document and index read handlers now pass through the same route operation
+  boundary while preserving their existing query parameter validation
+  responses.
+
+Boundary decision:
+
+PartitionDO owns the HTTP response conversion for internal route request
+decoding and route operation failures. Existing SQL/OCC, schema-cache,
+document-validation, subscription, document-read, and index-read logic remains
+inside PartitionDO and is not refactored in this checkpoint.
+
+Known limitations:
+
+- This checkpoint does not migrate PartitionDO SQL/OCC internals,
+  document-validation helpers, schema-cache transaction logic, public Worker
+  routing, protocol schemas, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/partitionFlow.test.ts packages/flarex-backend/test/publicPartitionDispatchBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Artifact Runtime Adapter Tagged Recovery
 
 Previous completed checkpoint: `fd1e5b8` Use tagged scheduler delivery recovery.
