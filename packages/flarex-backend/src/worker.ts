@@ -43,6 +43,13 @@ import {
   PublicWorkerDispatchError,
 } from "./worker/PublicRouteDispatchError";
 import {
+  deploymentPushActionFromPath,
+  publicDeploymentIdFromPartsEffect,
+  publicDeploymentPushPathFromPartsEffect,
+  publicPartitionKeyFromPartsEffect,
+  publicRoutePathErrorToHttpError,
+} from "./worker/PublicRoutePathBoundary";
+import {
   authorizePublicLiveQueryDeliveryRequest,
   publicLiveQueryDeliveryAuthorizationErrorToHttpError,
   PublicLiveQueryDeliveryAuthorizationError,
@@ -57,7 +64,7 @@ import {
   parsePublicStartPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
-import { errorResponse, HttpError, json, readResponseJsonEffect, required } from "./http";
+import { errorResponse, HttpError, json, readResponseJsonEffect } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
@@ -254,7 +261,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   if (parts[0] === "deployments") {
-    const deploymentId = required(parts[1], "deployment id");
+    const deploymentId = await Effect.runPromise(
+      publicDeploymentIdFromPartsEffect(parts).pipe(
+        Effect.mapError(publicRoutePathErrorToHttpError),
+      ),
+    );
     if (parts[2] === "push") {
       return routeDeploymentPush(request, env, deploymentId, parts.slice(3));
     }
@@ -279,7 +290,11 @@ async function route(request: Request, env: Env): Promise<Response> {
       return routeExecution(request, env, deploymentId, parts.slice(3));
     }
     if (parts[2] === "partitions") {
-      const partitionKey = required(parts[3], "partition key");
+      const partitionKey = await Effect.runPromise(
+        publicPartitionKeyFromPartsEffect(parts).pipe(
+          Effect.mapError(publicRoutePathErrorToHttpError),
+        ),
+      );
       return routePartition(request, env, deploymentId, partitionKey, parts.slice(4), url);
     }
     if (parts[2] === "sync") {
@@ -484,36 +499,45 @@ async function routeDeploymentPush(
   parts: string[],
 ): Promise<Response> {
   const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  if (parts[0] === "start" && request.method === "POST") {
+  const path = await Effect.runPromise(
+    publicDeploymentPushPathFromPartsEffect(parts, request.method).pipe(
+      Effect.mapError(publicRoutePathErrorToHttpError),
+    ),
+  );
+  if (path.kind === "start" && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentStartPush(request, env, deployment, deploymentId).pipe(
         Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
-  if (parts[0] === "start-analyzed" && request.method === "POST") {
+  if (path.kind === "startAnalyzed" && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentAnalyzedStartPush(request, deployment).pipe(
         Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
-  const pushId = decodeURIComponent(required(parts[0], "push id"));
-  if (parts.length === 1 && request.method === "GET") {
+  if (path.kind !== "push") {
+    return json({ error: "Push route not found." }, { status: 404 });
+  }
+  const pushId = decodeURIComponent(path.encodedPushId);
+  const action = deploymentPushActionFromPath(path.action);
+  if (path.action === undefined && request.method === "GET") {
     return await Effect.runPromise(
       routeDeploymentReadPush(deployment, pushId).pipe(
         Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
-  if (parts[1] === DeploymentPushAction.finish && request.method === "POST") {
+  if (action === DeploymentPushAction.finish && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentFinishPush(request, env, deployment, pushId).pipe(
         Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
       ),
     );
   }
-  if (parts[1] === DeploymentPushAction.abandon && request.method === "POST") {
+  if (action === DeploymentPushAction.abandon && request.method === "POST") {
     return await Effect.runPromise(
       routeDeploymentAbandonPush(request, deployment, pushId).pipe(
         Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),

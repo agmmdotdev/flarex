@@ -1,5 +1,43 @@
 # Dynamic Worker Execution
 
+## Public Worker Deployment Path Boundary
+
+Previous completed checkpoint: `735fbff Type public execution routing`.
+
+What changed:
+
+- Public Worker path parsing now has typed failures for missing deployment id,
+  missing partition key, and missing deployment push id.
+- Deployment push path classification now distinguishes method-sensitive
+  `POST /push/start`, `POST /push/start-analyzed`, push-id reads, finish,
+  abandon, and unknown push actions through a named Effect helper.
+- Public partition routing now gets partition keys through a typed helper
+  before forwarding to PartitionDO.
+
+Why it changed:
+
+The public invoke and execution routes now use typed request/path boundaries.
+This checkpoint applies the same route-shaping pattern to the remaining
+deployment/push/partition path segments without changing Durable Object
+storage or runtime execution semantics.
+
+Known limitations:
+
+- `/deployments` remains the registry list/create route and is intentionally
+  not treated as a missing deployment id.
+- DeploymentDO, PartitionDO SQL/OCC, public scheduler/sync/delivery routes,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRoutePathBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Execution Route Typed Path Boundary
 
 Previous completed checkpoint: `06af891 Type public invoke routing`.

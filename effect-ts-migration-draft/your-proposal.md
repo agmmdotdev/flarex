@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `06af891 Type public invoke routing`.
-- Active checkpoint: public Worker execution route typed path and response boundary.
+- Previous completed checkpoint: `735fbff Type public execution routing`.
+- Active checkpoint: public Worker deployment/push/partition typed path boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 182 slice:
+
+1. Add typed public Worker path failures for missing deployment id, missing
+   partition key, and missing deployment push id.
+2. Add named Worker path helpers for deployment id extraction, partition key
+   extraction, and deployment push path classification.
+3. Route deployment, push, and partition Worker path parsing through typed
+   Effect helpers instead of `required(...)` throws, while preserving
+   `/deployments` registry listing, treating only `POST /push/start` and
+   `POST /push/start-analyzed` as push actions, unknown push actions as
+   `404 Push route not found.`, and unknown partition actions as
+   `404 Partition route not found.`.
+4. Preserve public push start/start-analyzed/read/finish/abandon behavior,
+   public partition begin/commit/schema-cache/document/index behavior,
+   DeploymentDO behavior, PartitionDO SQL/OCC behavior, executor-http,
+   protocol schemas, and `ValidatorJson` semantics.
+5. Validate typed path failure channels directly, then preserve Worker HTTP
+   adapter mapping with focused route tests.
 
 Completed Goal 181 slice:
 

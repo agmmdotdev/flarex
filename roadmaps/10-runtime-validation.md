@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Worker Deployment Path Boundary
+
+Previous completed checkpoint: `735fbff Type public execution routing`.
+
+What changed:
+
+- Missing deployment id, partition key, and push id path segments now have
+  typed Worker route failures before HTTP mapping.
+- Direct tests cover the typed helper success and failure channels for
+  deployment, partition, and push path parsing.
+- HTTP tests preserve missing push id and missing partition key responses,
+  keep `GET /push/start` as a push-id read, and keep unknown push actions as
+  `404 Push route not found.`.
+
+Why it changed:
+
+Route path validation is part of the public Worker validation boundary. The
+previous public invoke and execution checkpoints moved body/path shaping to
+typed Effect helpers; this checkpoint removes the remaining `required(...)`
+throws from deployment/push/partition routing.
+
+Known limitations:
+
+- This does not change request body validation for push or partition routes;
+  those remain in their existing typed route-boundary modules.
+- DeploymentDO, PartitionDO SQL/OCC, executor-http, scheduler/sync/delivery
+  routes, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRoutePathBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Execution Route Typed Path Boundary
 
 Previous completed checkpoint: `06af891 Type public invoke routing`.

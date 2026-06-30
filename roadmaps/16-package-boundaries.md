@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Public Worker Deployment Path Boundary
+
+Previous completed checkpoint: `735fbff Type public execution routing`.
+
+What changed:
+
+- `packages/flarex-backend/src/worker/PublicRoutePathBoundary.ts` now owns
+  public Worker path-segment parsing for deployment id, partition key, and
+  deployment push paths.
+- `packages/flarex-backend/src/worker.ts` delegates deployment, push, and
+  partition path validation to that backend-only boundary before forwarding to
+  DeploymentDO or PartitionDO, while preserving method-sensitive push route
+  interpretation.
+- Existing protocol packages continue to own body schemas; the new helper does
+  not move route path concerns into `flarex-protocol`.
+
+Boundary decision:
+
+URL path segments are Worker adapter concerns. DeploymentDO and PartitionDO own
+their internal route behavior and storage. Protocol packages own JSON request
+contracts. This checkpoint keeps those responsibilities separate while typing
+the Worker path boundary.
+
+Known limitations:
+
+- Future slices can apply the same pattern to public scheduler, sync, delivery,
+  and deployment-scheduler route path details.
+- DeploymentDO, PartitionDO, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicWorkerRoutePathBoundary.test.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Execution Route Typed Path Boundary
 
 Previous completed checkpoint: `06af891 Type public invoke routing`.
