@@ -1,5 +1,47 @@
 # Postgres Executor
 
+## Executor HTTP Backend Live Query Integration Boundary
+
+Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.
+
+What changed:
+
+- Backend live-query delivery, wake, and trigger helper calls now have
+  Effect-returning integration functions.
+- Non-OK backend responses fail as typed
+  `FlarexBackendLiveQueryResponseError` values, and fetch/text failures fail
+  as typed `FlarexBackendLiveQueryFetchError` values.
+- Existing `createFlarexBackendLiveQueryDelivery(...)`,
+  `createFlarexBackendLiveQueryWakeNotifier(...)`, and
+  `createFlarexBackendLiveQueryTriggerNotifier(...)` promise APIs remain as
+  compatibility wrappers with preserved rejection message strings.
+
+Why it changed:
+
+The executor HTTP route adapter already has typed body decoders and operation
+errors. The backend live-query integration helpers were still throwing plain
+`Error` values at the integration boundary. This checkpoint makes those
+backend callback failures typed while keeping the public callback factory
+ergonomics unchanged for executor runtime callers.
+
+Preserved behavior:
+
+- Delivery grouping, backend URL construction, authorization headers,
+  notification request bodies, Elysia executor routes, executor method
+  mappings, backend Worker routes, protocol schemas, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+node ./node_modules/vitest/vitest.mjs run packages/executor-http/test/http.test.ts -t "backend live query|live query delivery callbacks|live query trigger notifications" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Executor HTTP Live Query Body Effect Decoders
 
 Previous completed checkpoint: `8d99add` Decode executor invoke bodies with

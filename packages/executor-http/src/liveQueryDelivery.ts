@@ -3,6 +3,7 @@ import type {
   LiveQueryInvalidationConfig,
   RunLiveQueryDeliveryBatchInput,
 } from "@flarex/executor";
+import { Data, Effect } from "effect";
 
 export interface FlarexBackendLiveQueryDeliveryConfig {
   backendUrl: string | URL;
@@ -41,66 +42,138 @@ export interface FlarexBackendLiveQueryTriggerInput {
   maxBatches?: number;
 }
 
+type FlarexBackendLiveQueryOperation = "delivery" | "wake" | "trigger";
+
+export class FlarexBackendLiveQueryResponseError extends Data.TaggedError(
+  "FlarexBackendLiveQueryResponseError",
+)<{
+  readonly operation: FlarexBackendLiveQueryOperation;
+  readonly deploymentId: string;
+  readonly status: number;
+  readonly body: string;
+  readonly message: string;
+}> {}
+
+export class FlarexBackendLiveQueryFetchError extends Data.TaggedError(
+  "FlarexBackendLiveQueryFetchError",
+)<{
+  readonly operation: FlarexBackendLiveQueryOperation;
+  readonly deploymentId: string;
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+export type FlarexBackendLiveQueryError =
+  | FlarexBackendLiveQueryResponseError
+  | FlarexBackendLiveQueryFetchError;
+
 export function createFlarexBackendLiveQueryDelivery(
   config: FlarexBackendLiveQueryDeliveryConfig,
 ): RunLiveQueryDeliveryBatchInput["deliver"] {
-  const fetcher = config.fetch ?? fetch;
-  return async deliveries => {
-    const byDeployment = groupDeliveriesByDeployment(deliveries);
-    for (const [deploymentId, deploymentDeliveries] of byDeployment) {
-      const response = await fetcher(
-        liveQueryDeliveryUrl(config.backendUrl, deploymentId),
-        {
-          method: "POST",
-          headers: liveQueryDeliveryHeaders(config.capabilityToken),
-          body: JSON.stringify({
-            deliveries: deploymentDeliveries.map(delivery => delivery.payloadJson),
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(
-          `Flarex backend live query delivery failed for ${deploymentId}: ${response.status} ${await response.text()}`,
-        );
-      }
-    }
-  };
+  return deliveries =>
+    Effect.runPromise(
+      deliverFlarexBackendLiveQueryEffect(config, deliveries).pipe(
+        Effect.mapError(flarexBackendLiveQueryErrorToError),
+      ),
+    );
 }
 
 export function createFlarexBackendLiveQueryWakeNotifier(
   config: FlarexBackendLiveQueryWakeConfig,
 ): (input: FlarexBackendLiveQueryWakeInput) => Promise<void> {
-  const fetcher = config.fetch ?? fetch;
-  return async input => {
-    const response = await fetcher(
-      liveQueryWakeUrl(config.backendUrl, input.deploymentId),
-      {
-        method: "POST",
-        headers: liveQueryDeliveryHeaders(config.capabilityToken),
-        body: JSON.stringify({
-          ...((input.limit ?? config.limit) === undefined
-            ? {}
-            : { limit: input.limit ?? config.limit }),
-          ...((input.maxBatches ?? config.maxBatches) === undefined
-            ? {}
-            : { maxBatches: input.maxBatches ?? config.maxBatches }),
-        }),
-      },
+  return input =>
+    Effect.runPromise(
+      notifyFlarexBackendLiveQueryWakeEffect(config, input).pipe(
+        Effect.mapError(flarexBackendLiveQueryErrorToError),
+      ),
     );
-    if (!response.ok) {
-      throw new Error(
-        `Flarex backend live query wake failed for ${input.deploymentId}: ${response.status} ${await response.text()}`,
-      );
-    }
-  };
 }
 
 export function createFlarexBackendLiveQueryTriggerNotifier(
   config: FlarexBackendLiveQueryTriggerConfig,
 ): NonNullable<LiveQueryInvalidationConfig["notifyTrigger"]> {
+  return input =>
+    Effect.runPromise(
+      notifyFlarexBackendLiveQueryTriggerEffect(config, input).pipe(
+        Effect.mapError(flarexBackendLiveQueryErrorToError),
+      ),
+    );
+}
+
+export const deliverFlarexBackendLiveQueryEffect = Effect.fn(
+  "ExecutorHttp.deliverFlarexBackendLiveQuery",
+)(function* (
+  config: FlarexBackendLiveQueryDeliveryConfig,
+  deliveries: ReadonlyArray<LiveQueryDeliveryRecord>,
+) {
   const fetcher = config.fetch ?? fetch;
-  return async input => {
-    const response = await fetcher(liveQueryTriggerUrl(config.backendUrl), {
+  const byDeployment = groupDeliveriesByDeployment(deliveries);
+  for (const [deploymentId, deploymentDeliveries] of byDeployment) {
+    yield* postFlarexBackendLiveQuery(
+      {
+        operation: "delivery",
+        deploymentId,
+        failedMessagePrefix: "Flarex backend live query delivery failed",
+        fetcher,
+      },
+      liveQueryDeliveryUrl(config.backendUrl, deploymentId),
+      {
+        method: "POST",
+        headers: liveQueryDeliveryHeaders(config.capabilityToken),
+        body: JSON.stringify({
+          deliveries: deploymentDeliveries.map(delivery => delivery.payloadJson),
+        }),
+      },
+    );
+  }
+});
+
+export const notifyFlarexBackendLiveQueryWakeEffect = Effect.fn(
+  "ExecutorHttp.notifyFlarexBackendLiveQueryWake",
+)(function* (
+  config: FlarexBackendLiveQueryWakeConfig,
+  input: FlarexBackendLiveQueryWakeInput,
+) {
+  const fetcher = config.fetch ?? fetch;
+  yield* postFlarexBackendLiveQuery(
+    {
+      operation: "wake",
+      deploymentId: input.deploymentId,
+      failedMessagePrefix: "Flarex backend live query wake failed",
+      fetcher,
+    },
+    liveQueryWakeUrl(config.backendUrl, input.deploymentId),
+    {
+      method: "POST",
+      headers: liveQueryDeliveryHeaders(config.capabilityToken),
+      body: JSON.stringify({
+        ...((input.limit ?? config.limit) === undefined
+          ? {}
+          : { limit: input.limit ?? config.limit }),
+        ...((input.maxBatches ?? config.maxBatches) === undefined
+          ? {}
+          : { maxBatches: input.maxBatches ?? config.maxBatches }),
+      }),
+    },
+  );
+});
+
+export const notifyFlarexBackendLiveQueryTriggerEffect = Effect.fn(
+  "ExecutorHttp.notifyFlarexBackendLiveQueryTrigger",
+)(function* (
+  config: FlarexBackendLiveQueryTriggerConfig,
+  input: FlarexBackendLiveQueryTriggerInput,
+) {
+  const fetcher = config.fetch ?? fetch;
+  yield* postFlarexBackendLiveQuery(
+    {
+      operation: "trigger",
+      deploymentId: input.deploymentId,
+      failedMessagePrefix: "Flarex backend live query trigger failed",
+      fetcher,
+    },
+    liveQueryTriggerUrl(config.backendUrl),
+    {
       method: "POST",
       headers: liveQueryDeliveryHeaders(config.capabilityToken),
       body: JSON.stringify({
@@ -114,17 +187,78 @@ export function createFlarexBackendLiveQueryTriggerNotifier(
           ? {}
           : { maxBatches: config.maxBatches }),
       }),
+    },
+  );
+});
+
+function postFlarexBackendLiveQuery(
+  context: {
+    readonly operation: FlarexBackendLiveQueryOperation;
+    readonly deploymentId: string;
+    readonly failedMessagePrefix: string;
+    readonly fetcher: typeof fetch;
+  },
+  input: RequestInfo | URL,
+  init: RequestInit,
+): Effect.Effect<void, FlarexBackendLiveQueryError> {
+  return postFlarexBackendLiveQueryEffect(context, input, init);
+}
+
+const postFlarexBackendLiveQueryEffect = Effect.fn(
+  "ExecutorHttp.postFlarexBackendLiveQuery",
+)(
+  function* (
+    context: {
+      readonly operation: FlarexBackendLiveQueryOperation;
+      readonly deploymentId: string;
+      readonly failedMessagePrefix: string;
+      readonly fetcher: typeof fetch;
+    },
+    input: RequestInfo | URL,
+    init: RequestInit,
+  ) {
+    const response = yield* Effect.tryPromise({
+      try: () => context.fetcher(input, init),
+      catch: cause => new FlarexBackendLiveQueryFetchError({
+        operation: context.operation,
+        deploymentId: context.deploymentId,
+        message: `${context.failedMessagePrefix} for ${context.deploymentId}: ${errorMessage(cause)}`,
+        cause,
+      }),
     });
-    if (!response.ok) {
-      throw new Error(
-        `Flarex backend live query trigger failed for ${input.deploymentId}: ${response.status} ${await response.text()}`,
-      );
-    }
-  };
+    if (response.ok) return;
+    const body = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: cause => new FlarexBackendLiveQueryFetchError({
+        operation: context.operation,
+        deploymentId: context.deploymentId,
+        message: `${context.failedMessagePrefix} for ${context.deploymentId}: ${response.status} ${errorMessage(cause)}`,
+        cause,
+      }),
+    });
+    return yield* Effect.fail(new FlarexBackendLiveQueryResponseError({
+      operation: context.operation,
+      deploymentId: context.deploymentId,
+      status: response.status,
+      body,
+      message: `${context.failedMessagePrefix} for ${context.deploymentId}: ${response.status} ${body}`,
+    }));
+  },
+);
+
+function flarexBackendLiveQueryErrorToError(error: FlarexBackendLiveQueryError): Error {
+  if (error instanceof FlarexBackendLiveQueryFetchError && error.cause instanceof Error) {
+    return error.cause;
+  }
+  return new Error(error.message);
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function groupDeliveriesByDeployment(
-  deliveries: LiveQueryDeliveryRecord[],
+  deliveries: ReadonlyArray<LiveQueryDeliveryRecord>,
 ): Map<string, LiveQueryDeliveryRecord[]> {
   const byDeployment = new Map<string, LiveQueryDeliveryRecord[]>();
   for (const delivery of deliveries) {

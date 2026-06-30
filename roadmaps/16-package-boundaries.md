@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Executor HTTP Backend Live Query Integration Boundary
+
+Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.
+
+What changed:
+
+- `packages/executor-http/src/liveQueryDelivery.ts` now owns typed backend
+  live-query integration errors for delivery, wake, and trigger helper calls.
+- The public executor-http package exports the typed Effect helpers and error
+  classes while preserving the existing callback factory APIs.
+- Compatibility wrappers map typed integration failures back to plain
+  `Error` values with the same message strings expected by existing executor
+  callbacks.
+
+Boundary decision:
+
+These failures belong in `@flarex/executor-http`, not backend Worker route
+modules, because they describe the executor adapter's outbound callback to a
+Flarex backend deployment/scheduler endpoint. The backend remains responsible
+for its own route response shape; executor-http owns the integration failure
+seen by executor runtime callers.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex executor adapter integration
+  plumbing.
+
+How Flarex differs from Convex:
+
+- Flarex can run executor logic outside the backend Worker and callback into
+  Cloudflare Worker/DO routes for live-query delivery and scheduling. That
+  boundary needs typed integration errors before preserving the callback
+  factory promise API.
+
+Known limitations:
+
+- The Elysia route registration remains in place.
+- Backend Worker delivery/scheduler routes, PartitionDO SQL/OCC behavior,
+  protocol packages, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+node ./node_modules/vitest/vitest.mjs run packages/executor-http/test/http.test.ts -t "backend live query|live query delivery callbacks|live query trigger notifications" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Edge
 
 Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.

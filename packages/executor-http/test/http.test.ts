@@ -68,7 +68,12 @@ import {
   decodeLiveQuerySubscriptionRemoveBody,
   decodeLiveQuerySubscriptionRemoveConnectionBody,
   decodePrepareInvokeBody,
+  deliverFlarexBackendLiveQueryEffect,
   ExecutorHttpBodyValidationError,
+  FlarexBackendLiveQueryFetchError,
+  FlarexBackendLiveQueryResponseError,
+  notifyFlarexBackendLiveQueryTriggerEffect,
+  notifyFlarexBackendLiveQueryWakeEffect,
 } from "../src";
 
 describe("executor HTTP invoke body decoders", () => {
@@ -2943,6 +2948,126 @@ describe("createFlarexHttpApp", () => {
     ])).rejects.toThrow(
       'Flarex backend live query delivery failed for deployment_active: 502 {"error":"fanout failed"}',
     );
+  });
+
+  it("exposes typed backend live query delivery failures before compatibility mapping", async () => {
+    const failure = await Effect.runPromise(
+      deliverFlarexBackendLiveQueryEffect(
+        {
+          backendUrl: "https://backend.test",
+          fetch: async () => Response.json({ error: "fanout failed" }, { status: 502 }),
+        },
+        [
+          {
+            deploymentId: "deployment_active",
+            deliveryId: "delivery_1",
+            connectionId: "connection:deployment_active:session_1",
+            queryId: 1,
+            payloadJson: {
+              deploymentId: "deployment_active",
+              connectionId: "connection:deployment_active:session_1",
+              queryId: 1,
+              functionPath: "messages:list",
+              argsJson: { teamId: "team_a" },
+              resultJson: ["fresh"],
+              previousResultHash: "old",
+              resultHash: "fresh",
+            },
+            deliveredAt: null,
+            claimedAt: null,
+            claimExpiresAt: null,
+            claimOwner: null,
+            attemptCount: 0,
+            lastAttemptedAt: null,
+            lastErrorStage: null,
+            lastError: null,
+            deadLetteredAt: null,
+            deadLetterReason: null,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          },
+        ],
+      ).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(FlarexBackendLiveQueryResponseError);
+    expect(failure).toMatchObject({
+      operation: "delivery",
+      deploymentId: "deployment_active",
+      status: 502,
+      body: '{"error":"fanout failed"}',
+      message:
+        'Flarex backend live query delivery failed for deployment_active: 502 {"error":"fanout failed"}',
+    });
+  });
+
+  it("exposes typed backend live query wake failures before compatibility mapping", async () => {
+    const failure = await Effect.runPromise(
+      notifyFlarexBackendLiveQueryWakeEffect(
+        {
+          backendUrl: "https://backend.test",
+          fetch: async () => Response.json({ error: "wake failed" }, { status: 503 }),
+        },
+        {
+          deploymentId: "deployment_active",
+        },
+      ).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(FlarexBackendLiveQueryResponseError);
+    expect(failure).toMatchObject({
+      operation: "wake",
+      deploymentId: "deployment_active",
+      status: 503,
+      body: '{"error":"wake failed"}',
+      message:
+        'Flarex backend live query wake failed for deployment_active: 503 {"error":"wake failed"}',
+    });
+  });
+
+  it("exposes typed backend live query transport failures before compatibility mapping", async () => {
+    const unavailable = new Error("backend unavailable");
+    const failure = await Effect.runPromise(
+      notifyFlarexBackendLiveQueryTriggerEffect(
+        {
+          backendUrl: "https://backend.test",
+          fetch: async () => {
+            throw unavailable;
+          },
+        },
+        {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+        },
+      ).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(FlarexBackendLiveQueryFetchError);
+    expect(failure).toMatchObject({
+      operation: "trigger",
+      deploymentId: "deployment_active",
+      message:
+        "Flarex backend live query trigger failed for deployment_active: backend unavailable",
+      cause: unavailable,
+    });
+  });
+
+  it("preserves compatibility wrapper fetch rejection messages", async () => {
+    const unavailable = new Error("backend unavailable");
+    const notifyTrigger = createFlarexBackendLiveQueryTriggerNotifier({
+      backendUrl: "https://backend.test",
+      fetch: async () => {
+        throw unavailable;
+      },
+    });
+
+    await expect(notifyTrigger({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      sessionId: "session_active",
+      functionPath: "messages:send",
+      committedTs: 101,
+      writes: [],
+    })).rejects.toBe(unavailable);
   });
 
   it("fails live query trigger notifications when the backend rejects scheduling", async () => {

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.
-- Active checkpoint: Artifact runtime invoke route edge.
+- Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.
+- Active checkpoint: Executor HTTP backend live-query integration boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the artifact runtime invoke route edge checkpoint:
+Next recommended checkpoint after the executor HTTP backend live-query integration boundary checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
@@ -59,7 +59,25 @@ Next recommended checkpoint after the artifact runtime invoke route edge checkpo
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 193 slice:
+Current Goal 194 slice:
+
+1. Add typed backend live-query integration failures for executor-http delivery,
+   wake, and trigger helper calls into the backend Worker/Scheduler routes.
+2. Add Effect-returning helpers for backend live-query delivery, wake, and
+   trigger operations that map failed fetches and non-OK responses at the
+   integration boundary.
+3. Keep existing `createFlarexBackendLiveQueryDelivery(...)`,
+   `createFlarexBackendLiveQueryWakeNotifier(...)`, and
+   `createFlarexBackendLiveQueryTriggerNotifier(...)` promise APIs as
+   compatibility wrappers that reject with the same message strings.
+4. Preserve executor-http route body decoders, Elysia route registration,
+   executor method mappings, backend Worker routes, SchedulerDO, DeliveryDO,
+   ConnectionDO, PartitionDO SQL/OCC behavior, protocol schemas, and
+   `ValidatorJson` unchanged.
+5. Validate typed Effect failures directly and prove compatibility wrappers
+   preserve current delivery/trigger rejection messages.
+
+Completed Goal 193 slice:
 
 1. Convert artifact-runtime route-local not-found, authorization, header
    mismatch, and missing source-package failures into typed Effect errors.
