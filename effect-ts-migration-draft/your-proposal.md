@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: ConnectionDO JSON route boundary.
+- Previous completed checkpoint: DeliveryDO JSON route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the ConnectionDO JSON route boundary checkpoint:
+Next recommended checkpoint after the DeliveryDO JSON route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the ConnectionDO JSON route boundary checkpoin
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 210 slice:
+
+1. Convert DeliveryDO's JSON route dispatch to a named
+   `Effect.fn("DeliveryDO.route")` boundary.
+2. Route `/wake` and `/continue` through the existing typed wake decoder,
+   pending-drain state decoder, drain failure mapping, and operation-failure
+   mapper behind one adapter runner for DeliveryDO JSON routes.
+3. Preserve malformed JSON, invalid wake validation, wake drain response
+   bodies, structured continue failures, claim/fanout/ack failure envelopes,
+   retry/continuation behavior, and health response behavior.
+4. Keep DeliveryDO alarm handling, drain concurrency, executor claim/ack
+   protocol, ConnectionDO fanout, SchedulerDO, PartitionDO SQL/OCC, public
+   Worker routing, executor-http, protocol schemas, and `ValidatorJson`
+   unchanged.
+5. Validate direct delivery route/executor boundary coverage, representative
+   sync delivery behavior, backend typecheck/build, protocol build, and only
+   the EffectTS quality checker reviewer.
 
 Completed Goal 209 slice:
 

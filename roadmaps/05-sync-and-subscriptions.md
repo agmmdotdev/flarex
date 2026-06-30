@@ -1,5 +1,57 @@
 # Sync And Subscriptions
 
+## DeliveryDO JSON Route Effect Boundary
+
+Previous completed checkpoint: `1ab1b0d` Type connection JSON route boundary.
+
+What changed:
+
+- DeliveryDO now routes its JSON endpoints through
+  `Effect.fn("DeliveryDO.route")`.
+- `/wake` and `/continue` share one route adapter runner while continuing to
+  use the existing typed wake decoder, pending-drain decoder, drain failure
+  response mapper, and operation-failure mapper.
+- Only the two JSON paths enter the route Effect, so health responses and alarm
+  continuation behavior stay owned by the existing DeliveryDO branches.
+
+Why it changed:
+
+DeliveryDO wake and continue routes already used typed Effect helpers, but
+`fetch()` still selected each route separately. This checkpoint groups the
+related JSON route dispatch behind one named Effect boundary while leaving the
+drain loop, retry persistence, and alarm behavior unchanged.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare Durable Object adapter wiring
+  around Flarex live-query delivery routes.
+
+How Flarex differs from Convex:
+
+- Flarex drains live-query delivery rows through Cloudflare Durable Object
+  routes and executor maintenance calls. This checkpoint keeps those
+  Cloudflare-specific delivery routes explicit while moving route selection
+  closer to the typed Effect adapter shape.
+
+Known limitations:
+
+- DeliveryDO alarm handling, drain in-flight coalescing, claim/fanout/ack
+  internals, retry scheduling, and executor calls remain otherwise unchanged.
+- The JSON dispatcher intentionally does not own the full DeliveryDO lifecycle.
+- ConnectionDO, SchedulerDO, PartitionDO SQL/OCC behavior, public Worker
+  routing, executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/deliveryExecutorBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "wakes DeliveryDO to claim, fanout, and ack live query deliveries|reports DeliveryDO fanout target validation failures with a 400 detail|rejects malformed DeliveryDO wake JSON at the delivery route boundary|rejects invalid DeliveryDO wake envelopes at the delivery route boundary|records DeliveryDO fanout failures before retrying pending rows|records DeliveryDO claim failures|records DeliveryDO ack failures after successful fanout|continues DeliveryDO draining from pending alarm state when more deliveries remain|returns structured DeliveryDO continue failures from pending drain state" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## ConnectionDO JSON Route Effect Boundary
 
 Previous completed checkpoint: `bbf4ea8` Type deployment store active

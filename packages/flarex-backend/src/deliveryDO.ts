@@ -99,15 +99,11 @@ export class DeliveryDO extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/wake" && request.method === "POST") {
-      return runDeliveryRoute(
-        routeDeliveryWake(request, body => this.wakeEffect(body)),
-      );
-    }
-    if (url.pathname === "/continue" && request.method === "POST") {
-      return runDeliveryRoute(
-        routeDeliveryContinue(() => this.continuePendingDrainEffect()),
-      );
+    if (request.method === "POST" && isDeliveryJsonRoutePath(url.pathname)) {
+      return runDeliveryRoute(routeDeliveryDurableObject(request, url.pathname, {
+        wake: body => this.wakeEffect(body),
+        continuePendingDrain: () => this.continuePendingDrainEffect(),
+      }));
     }
     return json({ service: "flarex-delivery", status: "ok" });
   }
@@ -486,6 +482,43 @@ export class DeliveryDO extends DurableObject<Env> {
     return fetch(request);
   }
 }
+
+interface DeliveryRouteHandlers {
+  wake(body: DeliveryWakeRequest): Effect.Effect<
+    DeliveryDrainResult,
+    DeliveryDrainFailureError | DeliveryRouteOperationError
+  >;
+  continuePendingDrain(): Effect.Effect<
+    DeliveryDrainResult | { skipped: true },
+    DeliveryPendingDrainStateError | DeliveryDrainFailureError | DeliveryRouteOperationError
+  >;
+}
+
+const DELIVERY_JSON_ROUTE_PATHS = [
+  "/wake",
+  "/continue",
+] as const;
+
+type DeliveryJsonRoutePath = typeof DELIVERY_JSON_ROUTE_PATHS[number];
+
+function isDeliveryJsonRoutePath(pathname: string): pathname is DeliveryJsonRoutePath {
+  return (DELIVERY_JSON_ROUTE_PATHS as readonly string[]).includes(pathname);
+}
+
+const routeDeliveryDurableObject = Effect.fn("DeliveryDO.route")(
+  function* (
+    request: Request,
+    pathname: DeliveryJsonRoutePath,
+    handlers: DeliveryRouteHandlers,
+  ): Effect.fn.Return<Response, DeliveryInternalRouteError> {
+    switch (pathname) {
+      case "/wake":
+        return yield* routeDeliveryWake(request, handlers.wake);
+      case "/continue":
+        return yield* routeDeliveryContinue(handlers.continuePendingDrain);
+    }
+  },
+);
 
 const routeDeliveryWake = Effect.fn("DeliveryDO.routeWake")(
   function* (
