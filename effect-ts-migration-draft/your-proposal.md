@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `62988f1 Type delivery pending drain state`.
-- Active checkpoint: SchedulerDO pending continuation state validation boundary.
+- Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
+- Active checkpoint: SchedulerDO executor response service boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 189 slice:
+
+1. Preserve typed `SchedulerResponseError` and
+   `SchedulerResponsePayloadError` failures through SchedulerDO executor
+   response service helpers instead of mapping them to `HttpError` inside the
+   helpers.
+2. Route SchedulerDO internal route execution through one adapter mapper that
+   now handles route validation, pending-state validation, executor response
+   failures, payload validation failures, and route operation failures.
+3. Keep per-deployment delivery reconcile and connection cleanup failure
+   summaries compatible by deriving the same 502-style status/message from
+   typed scheduler response failures.
+4. Preserve scheduler request decoders, pending continuation state, retry/alarm
+   scheduling, DeliveryDO, ConnectionDO, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson`.
+5. Validate typed response/payload boundaries directly and prove malformed
+   executor cleanup payloads still surface through SchedulerDO as the preserved
+   `502` adapter response.
 
 Completed Goal 188 slice:
 

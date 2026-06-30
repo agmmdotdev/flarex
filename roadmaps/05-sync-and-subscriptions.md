@@ -1,5 +1,58 @@
 # Sync And Subscriptions
 
+## SchedulerDO Executor Response Service Boundary
+
+Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
+
+What changed:
+
+- SchedulerDO executor response helpers now preserve typed
+  `SchedulerResponseError` and `SchedulerResponsePayloadError` failures instead
+  of mapping them to `HttpError` inside service helper methods.
+- SchedulerDO route execution now maps scheduler route, pending-state,
+  executor-response, payload, and operation failures at the Durable Object
+  adapter edge.
+- Per-deployment delivery reconcile and connection cleanup summaries still
+  report the same 502-style status/message when executor response decoding
+  fails.
+
+Why it changed:
+
+SchedulerDO had typed response decoders, but most service helpers immediately
+converted those failures into adapter-shaped `HttpError`s. This checkpoint
+moves scheduler maintenance closer to a typed service boundary without changing
+live-query delivery, cleanup, rerun, retry, or alarm behavior.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare scheduler/executor response
+  plumbing, not a Convex semantic port.
+
+How Flarex differs from Convex:
+
+- Flarex splits live-query maintenance across executor HTTP endpoints,
+  SchedulerDO, DeliveryDO, and ConnectionDO. Typed response failures model
+  those internal service calls before the Cloudflare adapter converts them to
+  HTTP responses.
+
+Known limitations:
+
+- `validateConnectionId(...)` and continuation consistency checks still have
+  adapter-shaped compatibility errors.
+- Full SchedulerDO orchestration is still async-method based; this checkpoint
+  only removes early HTTP mapping from executor response helpers.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/schedulerResponses.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "reports malformed executor cleanup payloads|reports executor failures during expired live query connection cleanup|reconciles expired live query connection deployment scans through SchedulerDO" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Pending Continuation State Boundary
 
 Previous completed checkpoint: `62988f1 Type delivery pending drain state`.

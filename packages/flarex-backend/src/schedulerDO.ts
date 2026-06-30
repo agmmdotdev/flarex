@@ -53,6 +53,8 @@ import {
   decodeSchedulerRerunResponse,
   decodeSchedulerRerunPayload,
   decodeSchedulerWakeDeliveryJsonResponse,
+  SchedulerResponseError,
+  SchedulerResponsePayloadError,
   schedulerResponseErrorToHttpError,
   schedulerResponsePayloadErrorToHttpError,
   type ExecutorCleanupLiveQueryConnectionsResult,
@@ -376,8 +378,8 @@ export class SchedulerDO extends DurableObject<Env> {
       } catch (error) {
         failed.push({
           deploymentId: deployment.deploymentId,
-          status: error instanceof HttpError ? error.status : 500,
-          error: error instanceof Error ? error.message : String(error),
+          status: schedulerServiceFailureStatus(error),
+          error: schedulerServiceFailureMessage(error),
         });
       }
     }
@@ -568,8 +570,8 @@ export class SchedulerDO extends DurableObject<Env> {
       } catch (error) {
         failed.push({
           deploymentId: deployment.deploymentId,
-          status: error instanceof HttpError ? error.status : 500,
-          error: error instanceof Error ? error.message : String(error),
+          status: schedulerServiceFailureStatus(error),
+          error: schedulerServiceFailureMessage(error),
         });
       }
     }
@@ -798,12 +800,8 @@ export class SchedulerDO extends DurableObject<Env> {
     );
     return await Effect.runPromise(
       Effect.gen(function* () {
-        const payload = yield* decodeSchedulerRerunResponse<unknown>(response).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
-        );
-        return yield* decodeSchedulerRerunPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        const payload = yield* decodeSchedulerRerunResponse<unknown>(response);
+        return yield* decodeSchedulerRerunPayload(payload);
       }),
     );
   }
@@ -941,12 +939,8 @@ export class SchedulerDO extends DurableObject<Env> {
       Effect.gen(function* () {
         const payload = yield* decodeSchedulerCleanupConnectionsResponse<unknown>(
           response,
-        ).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
         );
-        return yield* decodeSchedulerCleanupConnectionsPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        return yield* decodeSchedulerCleanupConnectionsPayload(payload);
       }),
     );
   }
@@ -962,12 +956,8 @@ export class SchedulerDO extends DurableObject<Env> {
       Effect.gen(function* () {
         const payload = yield* decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(
           response,
-        ).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
         );
-        return yield* decodeSchedulerExpiredConnectionDeploymentsPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        return yield* decodeSchedulerExpiredConnectionDeploymentsPayload(payload);
       }),
     );
   }
@@ -983,12 +973,8 @@ export class SchedulerDO extends DurableObject<Env> {
       Effect.gen(function* () {
         const payload = yield* decodeSchedulerDeadLetterStuckResponse<unknown>(
           response,
-        ).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
         );
-        return yield* decodeSchedulerDeadLetterPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        return yield* decodeSchedulerDeadLetterPayload(payload);
       }),
     );
   }
@@ -1017,12 +1003,8 @@ export class SchedulerDO extends DurableObject<Env> {
       Effect.gen(function* () {
         const payload = yield* decodeSchedulerForceReconnectJsonResponse<unknown>(
           response,
-        ).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
         );
-        return yield* decodeSchedulerForceReconnectPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        return yield* decodeSchedulerForceReconnectPayload(payload);
       }),
     );
     return {
@@ -1048,12 +1030,8 @@ export class SchedulerDO extends DurableObject<Env> {
       Effect.gen(function* () {
         const payload = yield* decodeSchedulerPendingDeploymentsResponse<unknown>(
           response,
-        ).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
         );
-        return yield* decodeSchedulerPendingDeploymentsPayload(payload).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
-        );
+        return yield* decodeSchedulerPendingDeploymentsPayload(payload);
       }),
     );
   }
@@ -1183,11 +1161,19 @@ const routeSchedulerContinueConnectionCleanup = Effect.fn(
 function routeSchedulerJsonResult<A extends object>(
   operation: SchedulerRouteOperation,
   execute: () => Promise<A>,
-): Effect.Effect<Response, SchedulerRouteOperationError | SchedulerPendingStateError> {
+): Effect.Effect<
+  Response,
+  | SchedulerRouteOperationError
+  | SchedulerPendingStateError
+  | SchedulerResponseError
+  | SchedulerResponsePayloadError
+> {
   return Effect.tryPromise({
     try: execute,
     catch: error =>
       error instanceof SchedulerPendingStateError
+        || error instanceof SchedulerResponseError
+        || error instanceof SchedulerResponsePayloadError
         ? error
         : schedulerRouteOperationError(operation, error),
   }).pipe(
@@ -1198,6 +1184,8 @@ function routeSchedulerJsonResult<A extends object>(
 type SchedulerInternalRouteError =
   | SchedulerRouteError
   | SchedulerPendingStateError
+  | SchedulerResponseError
+  | SchedulerResponsePayloadError
   | SchedulerRouteOperationError;
 
 function runSchedulerRoute(
@@ -1220,6 +1208,12 @@ function schedulerInternalRouteErrorToHttpError(
   }
   if (error instanceof SchedulerPendingStateError) {
     return schedulerPendingStateErrorToHttpError(error);
+  }
+  if (error instanceof SchedulerResponseError) {
+    return schedulerResponseErrorToHttpError(error);
+  }
+  if (error instanceof SchedulerResponsePayloadError) {
+    return schedulerResponsePayloadErrorToHttpError(error);
   }
   return schedulerRouteErrorToHttpError(error);
 }
@@ -1332,6 +1326,17 @@ function connectionCleanupInFlightKey(input: {
     limit: input.limit,
     cursor: input.cursor ?? null,
   });
+}
+
+function schedulerServiceFailureStatus(error: unknown): number {
+  if (error instanceof HttpError) return error.status;
+  if (error instanceof SchedulerResponseError) return 502;
+  if (error instanceof SchedulerResponsePayloadError) return error.status;
+  return 500;
+}
+
+function schedulerServiceFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function responseBodyFromText(text: string): unknown {

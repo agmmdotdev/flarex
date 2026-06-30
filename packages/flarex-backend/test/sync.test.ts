@@ -875,6 +875,41 @@ describe("sync protocol", () => {
     });
   });
 
+  it("reports malformed executor cleanup payloads through SchedulerDO", async () => {
+    const deploymentId = "sync-connection-cleanup-malformed-executor-payload";
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            if (url.pathname === "/maintenance/live-queries/connections/cleanup") {
+              return Response.json("not-cleanup-result");
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/cleanup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deploymentId }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Connection cleanup response must be an object.",
+    });
+  });
+
   it("reconciles expired live query connection deployment scans through SchedulerDO", async () => {
     const executorRequests: Array<{
       path: string;
