@@ -10,6 +10,12 @@ import {
   readDeliveryWakeRequest,
 } from "../src/delivery/RouteBoundary";
 import {
+  decodePendingDeliveryDrainFromStorage,
+  DeliveryPendingDrainStateError,
+  deliveryPendingDrainStateErrorToHttpError,
+  type PendingDeliveryDrain,
+} from "../src/delivery/PendingDrainState";
+import {
   DeliveryRouteOperationError,
   deliveryRouteOperationError,
   deliveryRouteOperationErrorToHttpError,
@@ -131,6 +137,53 @@ describe("delivery route boundary", () => {
       message: "pending drain storage failed",
     });
   });
+
+  it("exposes typed pending drain storage state failures", async () => {
+    const pending: PendingDeliveryDrain = {
+      deploymentId: "deployment-a",
+      limit: 10,
+      maxBatches: 2,
+      leaseDurationMs: 30_000,
+      claimOwner: "delivery:deployment-a:owner",
+      retryAttempt: 1,
+      cursor: {
+        createdAt: "2026-01-01T00:00:00.000Z",
+        deliveryId: "delivery-1",
+      },
+    };
+
+    await expect(Effect.runPromise(decodePendingDeliveryDrainFromStorage(pending))).resolves.toEqual(pending);
+
+    const objectFailure = await pendingDrainStateFailure(null);
+    expect(objectFailure).toBeInstanceOf(DeliveryPendingDrainStateError);
+    expect(objectFailure).toMatchObject({
+      _tag: "DeliveryPendingDrainStateError",
+      message: "Pending delivery drain state must be an object.",
+    });
+
+    const cursorFailure = await pendingDrainStateFailure({
+      ...pending,
+      cursor: {
+        createdAt: "not-a-date",
+        deliveryId: "delivery-1",
+      },
+    });
+    expect(cursorFailure).toMatchObject({
+      _tag: "DeliveryPendingDrainStateError",
+      message: "pending delivery drain cursor.createdAt must be an ISO date string.",
+    });
+  });
+
+  it("maps pending drain storage state errors at the adapter boundary", () => {
+    expect(deliveryPendingDrainStateErrorToHttpError(
+      new DeliveryPendingDrainStateError({
+        message: "pending delivery drain limit must be a positive integer.",
+      }),
+    )).toMatchObject({
+      status: 500,
+      message: "pending delivery drain limit must be a positive integer.",
+    });
+  });
 });
 
 function jsonRequest(body: unknown): Request {
@@ -139,4 +192,14 @@ function jsonRequest(body: unknown): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+async function pendingDrainStateFailure(value: unknown): Promise<DeliveryPendingDrainStateError> {
+  const failure = await Effect.runPromise(decodePendingDeliveryDrainFromStorage(value).pipe(
+    Effect.catchTag("DeliveryPendingDrainStateError", error => Effect.succeed(error)),
+  ));
+  if (!(failure instanceof DeliveryPendingDrainStateError)) {
+    throw new Error("Expected DeliveryPendingDrainStateError.");
+  }
+  return failure;
 }

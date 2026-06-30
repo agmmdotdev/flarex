@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## DeliveryDO Pending Drain State Validation Boundary
+
+Previous completed checkpoint: `df1e0fc Type stored push row validation`.
+
+What changed:
+
+- Persisted DeliveryDO pending drain state now validates through a typed
+  pending-state boundary with an Effect decoder for direct tests.
+- Invalid stored deployment id, limits, retry attempts, claim owner, and
+  cursor shape now produce `DeliveryPendingDrainStateError`.
+- DeliveryDO maps pending-state validation failures at the route adapter edge
+  instead of throwing `HttpError` from storage helper code.
+
+Why it changed:
+
+DeliveryDO continuation reads persisted runtime state before resuming claim,
+fanout, and ack work. That state validation is runtime-domain validation, not
+an HTTP concern. Moving it to a typed failure channel keeps `/continue` aligned
+with the rest of the Effect migration.
+
+Known limitations:
+
+- The scheduler continuation-state validators remain a separate migration
+  surface.
+- Delivery wake request schemas, executor response payload decoders, claim,
+  fanout, ack, retry, and alarm behavior are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continues DeliveryDO" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Stored Push Row Validation Boundary
 
 Previous completed checkpoint: `af87f30 Type execution session errors`.

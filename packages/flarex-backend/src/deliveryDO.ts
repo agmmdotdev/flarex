@@ -11,6 +11,12 @@ import {
   deliveryRouteOperationErrorToHttpError,
   type DeliveryRouteOperation,
 } from "./delivery/RouteOperationError";
+import {
+  DeliveryPendingDrainStateError,
+  deliveryPendingDrainStateErrorToHttpError,
+  pendingDeliveryDrainFromStorage,
+  type PendingDeliveryDrain,
+} from "./delivery/PendingDrainState";
 import { HttpError, errorResponse, json } from "./http";
 import { Effect } from "effect";
 import {
@@ -34,16 +40,6 @@ import {
   type LiveQueryDeliveryRecord,
 } from "./liveQueryDeliveryResponses";
 import type { Env } from "./types";
-
-type PendingDeliveryDrain = {
-  deploymentId: string;
-  limit: number;
-  maxBatches: number;
-  leaseDurationMs: number;
-  claimOwner: string;
-  retryAttempt: number;
-  cursor?: LiveQueryDeliveryCursor;
-};
 
 type DeliveryDrainResult = LiveQueryDeliveryResult & {
   deploymentId: string;
@@ -460,11 +456,14 @@ const routeDeliveryContinue = Effect.fn("DeliveryDO.routeContinue")(
 function routeDeliveryDrainResult<A extends object>(
   operation: DeliveryRouteOperation,
   execute: () => Promise<A>,
-): Effect.Effect<Response, DeliveryRouteOperationError | DeliveryDrainFailureError> {
+): Effect.Effect<
+  Response,
+  DeliveryRouteOperationError | DeliveryPendingDrainStateError | DeliveryDrainFailureError
+> {
   return Effect.tryPromise({
     try: execute,
     catch: error =>
-      error instanceof DeliveryDrainFailureError
+      error instanceof DeliveryDrainFailureError || error instanceof DeliveryPendingDrainStateError
         ? error
         : deliveryRouteOperationError(operation, error),
   }).pipe(
@@ -475,6 +474,7 @@ function routeDeliveryDrainResult<A extends object>(
 type DeliveryInternalRouteError =
   | DeliveryWakeRouteError
   | DeliveryRouteOperationError
+  | DeliveryPendingDrainStateError
   | DeliveryDrainFailureError;
 
 function runDeliveryRoute(
@@ -497,6 +497,9 @@ function deliveryInternalRouteErrorToResponse(
   }
   if (error instanceof DeliveryRouteOperationError) {
     return errorResponse(deliveryRouteOperationErrorToHttpError(error));
+  }
+  if (error instanceof DeliveryPendingDrainStateError) {
+    return errorResponse(deliveryPendingDrainStateErrorToHttpError(error));
   }
   return errorResponse(deliveryWakeRouteErrorToHttpError(error));
 }
@@ -553,30 +556,6 @@ function publicDrainResult(result: DeliveryDrainRunResult): DeliveryDrainResult 
   return publicResult;
 }
 
-function pendingDeliveryDrainFromStorage(value: unknown): PendingDeliveryDrain {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(500, "Pending delivery drain state must be an object.");
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    deploymentId: storageString(record.deploymentId, "pending delivery drain deploymentId"),
-    limit: storagePositiveInteger(record.limit, "pending delivery drain limit"),
-    maxBatches: storagePositiveInteger(record.maxBatches, "pending delivery drain maxBatches"),
-    leaseDurationMs: storagePositiveInteger(
-      record.leaseDurationMs,
-      "pending delivery drain leaseDurationMs",
-    ),
-    claimOwner: storageString(record.claimOwner, "pending delivery drain claimOwner"),
-    retryAttempt: storageNonNegativeInteger(
-      record.retryAttempt,
-      "pending delivery drain retryAttempt",
-    ),
-    ...(record.cursor === undefined
-      ? {}
-      : { cursor: storageCursor(record.cursor, "pending delivery drain cursor") }),
-  };
-}
-
 function pendingDrainFromWake(body: DeliveryWakeRequest): PendingDeliveryDrain {
   const deploymentId = body.deploymentId;
   return {
@@ -616,37 +595,4 @@ function executorUrl(env: Env, path: string): string {
   url.search = "";
   url.hash = "";
   return url.href;
-}
-
-function storageCursor(value: unknown, field: string): LiveQueryDeliveryCursor {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(500, `${field} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    createdAt: dateStringFromStorage(record.createdAt, `${field}.createdAt`),
-    deliveryId: storageString(record.deliveryId, `${field}.deliveryId`),
-  };
-}
-
-function storageString(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new HttpError(500, `${field} must be a non-empty string.`);
-}
-
-function storagePositiveInteger(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  throw new HttpError(500, `${field} must be a positive integer.`);
-}
-
-function storageNonNegativeInteger(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
-  throw new HttpError(500, `${field} must be a non-negative integer.`);
-}
-
-function dateStringFromStorage(value: unknown, field: string): string {
-  const text = storageString(value, field);
-  const date = new Date(text);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  throw new HttpError(500, `${field} must be an ISO date string.`);
 }

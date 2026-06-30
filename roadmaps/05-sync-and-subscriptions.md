@@ -1,5 +1,45 @@
 # Sync And Subscriptions
 
+## DeliveryDO Pending Drain State Boundary
+
+Previous completed checkpoint: `df1e0fc Type stored push row validation`.
+
+What changed:
+
+- Added `delivery/PendingDrainState.ts` for typed pending drain state
+  validation.
+- DeliveryDO `/continue` now validates persisted drain continuation state
+  through the same typed pending-state boundary exposed by
+  `decodePendingDeliveryDrainFromStorage(...)`.
+- Corrupt pending state now fails with `DeliveryPendingDrainStateError` until
+  the DeliveryDO adapter maps it to the preserved `500` response.
+
+Why it changed:
+
+Delivery claim/ack/fanout response payloads were already typed, but persisted
+continuation state still threw `HttpError(500, ...)` directly from helper
+functions. This checkpoint keeps stored DeliveryDO state validation in a typed
+Effect channel while preserving continuation, retry, and alarm behavior.
+
+Known limitations:
+
+- SchedulerDO pending continuation state still has its own remaining storage
+  validation surface.
+- Delivery target validation and claim/fanout/ack failure aggregation are
+  unchanged.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continues DeliveryDO" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## ConnectionDO Fanout Payload Effect Boundary
 
 Previous completed checkpoint: `401a08d` Type delivery scheduler payloads.

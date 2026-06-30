@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Delivery Pending Drain State Boundary
+
+Previous completed checkpoint: `df1e0fc Type stored push row validation`.
+
+What changed:
+
+- `packages/flarex-backend/src/delivery/PendingDrainState.ts` now owns
+  persisted DeliveryDO pending drain state validation.
+- `DeliveryDO` still owns continuation orchestration, retry scheduling, and
+  drain execution, but no longer owns field-by-field stored-state throwing
+  helpers.
+- Route adapter mapping remains in `DeliveryDO`, where
+  `DeliveryPendingDrainStateError` becomes the preserved HTTP `500` response.
+
+Boundary decision:
+
+Pending drain state is DeliveryDO runtime state. Keeping its decoder beside the
+delivery route modules keeps storage-state validation out of claim/fanout/ack
+workflow code while avoiding protocol-package ownership for internal persisted
+state.
+
+Known limitations:
+
+- SchedulerDO continuation state needs its own equivalent boundary later.
+- Delivery wake body validation, response payload validation, executor calls,
+  PartitionDO, protocol packages, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continues DeliveryDO" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Deployment Stored Push Row Boundary
 
 Previous completed checkpoint: `af87f30 Type execution session errors`.

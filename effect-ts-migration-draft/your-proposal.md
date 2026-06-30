@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `af87f30 Type execution session errors`.
-- Active checkpoint: Deployment stored push row validation boundary.
+- Previous completed checkpoint: `df1e0fc Type stored push row validation`.
+- Active checkpoint: DeliveryDO pending drain state validation boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 187 slice:
+
+1. Add `delivery/PendingDrainState.ts` with typed
+   `DeliveryPendingDrainStateError` and
+   `decodePendingDeliveryDrainFromStorage(...)` for persisted DeliveryDO
+   continuation state.
+2. Route DeliveryDO `/continue` pending-state validation through the same
+   typed pending-state boundary instead of throwing `HttpError` from storage
+   helper functions.
+3. Map pending-state failures only at the DeliveryDO adapter edge while
+   preserving `DeliveryDrainFailureError` structured claim/fanout/ack failures
+   and `DeliveryRouteOperationError` runtime failures.
+4. Preserve wake body decoders, delivery claim/fanout/ack behavior,
+   retry/alarm scheduling, SchedulerDO and ConnectionDO behavior,
+   PartitionDO SQL/OCC behavior, executor-http, protocol schemas, and
+   `ValidatorJson`.
+5. Validate typed pending-state success/failure channels directly and keep
+   focused DeliveryDO continuation runtime coverage passing.
 
 Completed Goal 186 slice:
 
