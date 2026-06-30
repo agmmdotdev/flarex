@@ -738,6 +738,37 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
+  it("rejects unauthorized live query maintenance before config and body parsing", async () => {
+    const app = createFlarexHttpApp({
+      capabilityToken: "executor-secret",
+      executor: fakeExecutor(),
+    });
+
+    const rerun = await app.handle(
+      new Request("https://executor.test/maintenance/live-queries/rerun", {
+        method: "POST",
+        body: "{",
+      }),
+    );
+    const delivery = await app.handle(
+      new Request("https://executor.test/maintenance/live-queries/deliver", {
+        method: "POST",
+        body: "{",
+      }),
+    );
+
+    expect(rerun.status).toBe(401);
+    await expect(rerun.json()).resolves.toEqual({
+      error: "unauthorized",
+      message: "Unauthorized Flarex executor request.",
+    });
+    expect(delivery.status).toBe(401);
+    await expect(delivery.json()).resolves.toEqual({
+      error: "unauthorized",
+      message: "Unauthorized Flarex executor request.",
+    });
+  });
+
   it("validates invoke start idempotency keys before calling the executor", async () => {
     let called = false;
     const app = createFlarexHttpApp({

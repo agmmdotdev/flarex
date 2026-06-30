@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: PartitionDO route dispatch boundary.
+- Previous completed checkpoint: Executor HTTP authorization route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the PartitionDO route dispatch boundary checkpoint:
+Next recommended checkpoint after the Executor HTTP authorization route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the PartitionDO route dispatch boundary checkp
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 214 slice:
+
+1. Move executor-http capability authorization into the named
+   `Effect.fn("ExecutorHttp.routeDecodedBody")` route boundary.
+2. Add typed executor HTTP authorization and route-precondition failures so
+   unauthorized requests, not-configured live-query rerun, and not-configured
+   live-query delivery stay in the Effect error channel until the Elysia adapter
+   writes status/body responses.
+3. Preserve authorization-before-JSON ordering, live-query maintenance
+   not-configured responses, malformed JSON responses, typed body validation,
+   executor operation error mapping, route paths, Elysia app shape, backend
+   live-query callback helpers, protocol schemas, and `ValidatorJson`
+   unchanged.
+4. Keep executor core semantics, Postgres runtime behavior, backend Worker/DO
+   routes, PartitionDO SQL/OCC, scheduler/delivery/connection behavior, and
+   deployment HttpApi routes unchanged.
+5. Validate direct executor-http auth/config/body coverage, full executor-http
+   typecheck/build/test gates, backend typecheck/build, protocol build, and
+   only the EffectTS quality checker reviewer.
 
 Completed Goal 213 slice:
 

@@ -1,5 +1,54 @@
 # Postgres Executor
 
+## Executor HTTP Authorization Route Effect Boundary
+
+Previous completed checkpoint: `b40230e` Type partition route dispatch
+boundary.
+
+What changed:
+
+- Executor HTTP capability authorization now runs inside
+  `Effect.fn("ExecutorHttp.routeDecodedBody")`.
+- Unauthorized requests fail through typed `ExecutorHttpUnauthorizedError`
+  values before JSON parsing or route preflight checks.
+- Live-query rerun and delivery maintenance configuration checks now run as
+  typed route preflight failures before body parsing, preserving their existing
+  `501 not_implemented` responses when authorized.
+- The shared executor HTTP route adapter now owns authorization, optional
+  route preflight, JSON reading, body decoding, executor operation execution,
+  and adapter-edge response mapping.
+
+Why it changed:
+
+Executor HTTP already had typed body decoders and operation errors, but
+capability authorization still happened imperatively before the Effect route
+pipeline. Moving it into the same named route boundary makes the adapter shape
+more consistent without replacing Elysia or changing executor semantics.
+
+Preserved behavior:
+
+- Authorization still happens before malformed JSON parsing.
+- Live-query rerun/delivery not-configured responses still happen before body
+  parsing for authorized requests.
+- Malformed JSON `400`, body validation `400`, executor error mappings, route
+  paths, Elysia app shape, backend live-query callback helpers, protocol
+  schemas, and `ValidatorJson` are unchanged.
+- Backend Worker/DO routes, PartitionDO SQL/OCC, SchedulerDO, DeliveryDO,
+  ConnectionDO, and DeploymentDO are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+node ./node_modules/vitest/vitest.mjs run packages/executor-http/test/http.test.ts -t "requires the configured capability token for invoke routes|rejects unauthorized invoke requests before parsing malformed JSON|rejects unauthorized live query maintenance before config and body parsing|requires live query rerun maintenance configuration|validates live query rerun maintenance requests before calling the executor|requires live query delivery maintenance configuration|validates live query delivery maintenance requests before calling the executor|maps live query rerun maintenance requests to the executor core|maps live query delivery maintenance requests to the executor core" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Executor HTTP Backend Live Query Integration Boundary
 
 Previous completed checkpoint: `6250aa2 Type artifact runtime route edge`.

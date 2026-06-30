@@ -106,7 +106,24 @@ export class ExecutorHttpOperationError extends Data.TaggedError("ExecutorHttpOp
   readonly cause: unknown;
 }> {}
 
+export class ExecutorHttpUnauthorizedError extends Data.TaggedError(
+  "ExecutorHttpUnauthorizedError",
+)<{
+  readonly body: {
+    readonly error: "unauthorized";
+    readonly message: string;
+  };
+}> {}
+
+export class ExecutorHttpRoutePreconditionError extends Data.TaggedError(
+  "ExecutorHttpRoutePreconditionError",
+)<{
+  readonly response: ExecutorErrorResponse;
+}> {}
+
 type ExecutorHttpRouteError =
+  | ExecutorHttpUnauthorizedError
+  | ExecutorHttpRoutePreconditionError
   | ExecutorHttpJsonBodyError
   | ExecutorHttpBodyValidationError
   | ExecutorHttpOperationError;
@@ -542,39 +559,77 @@ export function createFlarexHttpHandler(
   return (request) => app.handle(request);
 }
 
-function handleExecutorHttpDecodedBody<A, R extends object>(
+function handleExecutorHttpDecodedBody<A, R extends object, P = void>(
   request: Request,
   set: ElysiaSet,
   capabilityToken: string | undefined,
   decode: ExecutorHttpBodyDecoder<A>,
-  execute: (input: A) => Promise<R>,
+  execute: (input: A, preflight: P) => Promise<R>,
+  preflight?: () => Effect.Effect<P, ExecutorHttpRoutePreconditionError>,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return Promise.resolve(unauthorized);
-
   return Effect.runPromise(
-    routeExecutorHttpDecodedBody(request, decode, execute).pipe(
+    routeExecutorHttpDecodedBody(request, capabilityToken, decode, execute, preflight).pipe(
       Effect.catch(error => Effect.succeed(executorHttpRouteErrorBody(error, set))),
     ),
   );
 }
 
 const routeExecutorHttpDecodedBody = Effect.fn("ExecutorHttp.routeDecodedBody")(
-  function* <A, R extends object>(
+  function* <A, R extends object, P = void>(
     request: Request,
+    capabilityToken: string | undefined,
     decode: ExecutorHttpBodyDecoder<A>,
-    execute: (input: A) => Promise<R>,
+    execute: (input: A, preflight: P) => Promise<R>,
+    preflight?: () => Effect.Effect<P, ExecutorHttpRoutePreconditionError>,
   ) {
+    yield* authorizeExecutorRequestEffect(request, capabilityToken);
+    const preflightResult = preflight === undefined
+      ? undefined as P
+      : yield* preflight();
     const body = yield* readExecutorHttpJsonBody(request);
     const input = yield* decode(body);
     return yield* Effect.tryPromise({
-      try: () => execute(input),
+      try: () => execute(input, preflightResult),
       catch: cause => new ExecutorHttpOperationError({
         response: executorErrorBody(cause),
         cause,
       }),
     });
   },
+);
+
+const liveQueryRerunConfigured = Effect.fn("ExecutorHttp.liveQueryRerunConfigured")(
+  (
+    config: FlarexLiveQueryRerunConfig | undefined,
+  ): Effect.Effect<FlarexLiveQueryRerunConfig, ExecutorHttpRoutePreconditionError> =>
+    config === undefined
+      ? Effect.fail(new ExecutorHttpRoutePreconditionError({
+          response: {
+            status: 501,
+            body: {
+              error: "not_implemented",
+              message: "Live query rerun maintenance is not configured.",
+            },
+          },
+        }))
+      : Effect.succeed(config),
+);
+
+const liveQueryDeliveryConfigured = Effect.fn("ExecutorHttp.liveQueryDeliveryConfigured")(
+  (
+    config: FlarexLiveQueryDeliveryConfig | undefined,
+  ): Effect.Effect<FlarexLiveQueryDeliveryConfig, ExecutorHttpRoutePreconditionError> =>
+    config === undefined
+      ? Effect.fail(new ExecutorHttpRoutePreconditionError({
+          response: {
+            status: 501,
+            body: {
+              error: "not_implemented",
+              message: "Live query delivery maintenance is not configured.",
+            },
+          },
+        }))
+      : Effect.succeed(config),
 );
 
 function readExecutorHttpJsonBody(
@@ -600,6 +655,14 @@ function decodeExecutorHttpParsedBody<A>(
 }
 
 function executorHttpRouteErrorBody(error: ExecutorHttpRouteError, set: ElysiaSet): object {
+  if (error instanceof ExecutorHttpUnauthorizedError) {
+    set.status = 401;
+    return error.body;
+  }
+  if (error instanceof ExecutorHttpRoutePreconditionError) {
+    set.status = error.response.status;
+    return error.response.body;
+  }
   if (error instanceof ExecutorHttpJsonBodyError) {
     set.status = 400;
     return {
@@ -865,45 +928,35 @@ async function handleLiveQueryRerunMaintenance(
   capabilityToken: string | undefined,
   config: FlarexLiveQueryRerunConfig | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  if (config === undefined) {
-    set.status = 501;
-    return {
-      error: "not_implemented",
-      message: "Live query rerun maintenance is not configured.",
-    };
-  }
-
   return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
     decodeLiveQueryRerunMaintenanceBody,
-    async input => {
+    async (input, liveQueryRerun) => {
       const result = await executor.rerunStaleLiveQuerySubscriptions({
         deploymentId: input.deploymentId,
         ...(input.limit === undefined ? {} : { limit: input.limit }),
-        freshnessStore: config.freshnessStore,
-        ...(config.deliverChanges === undefined
+        freshnessStore: liveQueryRerun.freshnessStore,
+        ...(liveQueryRerun.deliverChanges === undefined
           ? {}
-          : { deliverChanges: config.deliverChanges }),
+          : { deliverChanges: liveQueryRerun.deliverChanges }),
         runQuery: (subscription) =>
           executor.runLiveQuerySubscriptionWithInvoke({
             subscription,
             projectId: input.projectId,
-            executeQuery: config.executeQuery,
+            executeQuery: liveQueryRerun.executeQuery,
           }),
       });
       if (result.changed.length > 0) {
-        await config.notifyDelivery?.({
+        await liveQueryRerun.notifyDelivery?.({
           deploymentId: input.deploymentId,
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         });
       }
       return result;
     },
+    () => liveQueryRerunConfigured(config),
   );
 }
 
@@ -914,27 +967,19 @@ async function handleLiveQueryDeliveryMaintenance(
   capabilityToken: string | undefined,
   config: FlarexLiveQueryDeliveryConfig | undefined,
 ): Promise<object> {
-  const unauthorized = authorizeExecutorRequest(request, capabilityToken, set);
-  if (unauthorized !== null) return unauthorized;
-
-  if (config === undefined) {
-    set.status = 501;
-    return {
-      error: "not_implemented",
-      message: "Live query delivery maintenance is not configured.",
-    };
-  }
-
   return handleExecutorHttpDecodedBody(
     request,
     set,
     capabilityToken,
     decodeLiveQueryDeliveryMaintenanceBody,
-    input => executor.runLiveQueryDeliveryBatch({
-      deploymentId: input.deploymentId,
-      ...(input.limit === undefined ? {} : { limit: input.limit }),
-      deliver: config.deliver,
-    }),
+    async (input, liveQueryDelivery) => {
+      return executor.runLiveQueryDeliveryBatch({
+        deploymentId: input.deploymentId,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        deliver: liveQueryDelivery.deliver,
+      });
+    },
+    () => liveQueryDeliveryConfigured(config),
   );
 }
 
@@ -1133,20 +1178,22 @@ async function handleLiveQueryStuckDeliveriesMaintenance(
   );
 }
 
-function authorizeExecutorRequest(
-  request: Request,
-  capabilityToken: string | undefined,
-  set: { status?: number | string },
-): { error: "unauthorized"; message: string } | null {
-  if (capabilityToken === undefined) return null;
-  const expected = `Bearer ${capabilityToken}`;
-  if (request.headers.get("authorization") === expected) return null;
-  set.status = 401;
-  return {
-    error: "unauthorized",
-    message: "Unauthorized Flarex executor request.",
-  };
-}
+const authorizeExecutorRequestEffect = Effect.fn("ExecutorHttp.authorize")(
+  function* (
+    request: Request,
+    capabilityToken: string | undefined,
+  ): Effect.fn.Return<void, ExecutorHttpUnauthorizedError> {
+    if (capabilityToken === undefined) return;
+    const expected = `Bearer ${capabilityToken}`;
+    if (request.headers.get("authorization") === expected) return;
+    return yield* Effect.fail(new ExecutorHttpUnauthorizedError({
+      body: {
+        error: "unauthorized",
+        message: "Unauthorized Flarex executor request.",
+      },
+    }));
+  },
+);
 
 function parsePrepareInvokeBody(
   body: unknown,
