@@ -22,9 +22,9 @@ import {
   publicDeliveryWakeRouteErrorToHttpError,
 } from "./delivery/PublicWakeRouteBoundary";
 import {
-  DeliveryWakeRouteValidationError,
   type DeliveryWakeRouteError,
 } from "./delivery/RouteBoundary";
+import { DeliveryWakePayloadError } from "./delivery/WakeRequest";
 import { DeploymentDO } from "./deploymentDO";
 import {
   decodePublicExecutionActionRequest,
@@ -876,7 +876,7 @@ function publicWorkerDeploymentSyncRouteErrorToHttpError(
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
-  if (error instanceof DeliveryWakeRouteValidationError) {
+  if (error instanceof DeliveryWakePayloadError) {
     return publicDeliveryWakeRouteErrorToHttpError(error);
   }
   if (error instanceof LiveQueryDeliveryChangePayloadError) {

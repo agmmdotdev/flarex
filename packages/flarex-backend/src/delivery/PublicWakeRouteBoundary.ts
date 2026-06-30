@@ -1,8 +1,5 @@
 import {
-  DeliveryWakeRouteValidationError,
   deliveryWakeRouteErrorToHttpError,
-  parseDeliveryWakeRequestEffect,
-  parseDeliveryWakeRequest,
   type DeliveryWakeRequest,
   type DeliveryWakeRouteError,
 } from "./RouteBoundary";
@@ -11,6 +8,7 @@ import {
   HttpError,
   readJsonEffect,
 } from "../http";
+import { decodePublicDeliveryWakePayload } from "./WakeRequest";
 
 export async function readPublicDeliveryWakeRequest(
   request: Request,
@@ -34,28 +32,16 @@ export function parsePublicDeliveryWakeRequest(
   value: unknown,
   deploymentId: string,
 ): DeliveryWakeRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "Delivery wake request body must be an object.");
-  }
-  return parseDeliveryWakeRequest({
-    ...(value as Record<string, unknown>),
-    deploymentId,
-  });
+  return Effect.runSync(parsePublicDeliveryWakeRequestEffect(value, deploymentId).pipe(
+    Effect.mapError(publicDeliveryWakeRouteErrorToHttpError),
+  ));
 }
 
 export function parsePublicDeliveryWakeRequestEffect(
   value: unknown,
   deploymentId: string,
-): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteValidationError> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return Effect.fail(new DeliveryWakeRouteValidationError({
-      message: "Delivery wake request body must be an object.",
-    }));
-  }
-  return parseDeliveryWakeRequestEffect({
-    ...(value as Record<string, unknown>),
-    deploymentId,
-  });
+): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteError> {
+  return decodePublicDeliveryWakePayload(value, deploymentId);
 }
 
 export function publicDeliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {

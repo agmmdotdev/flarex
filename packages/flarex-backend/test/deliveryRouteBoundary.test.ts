@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeDeliveryWakeRequest,
-  DeliveryWakeRouteValidationError,
   deliveryWakeRouteErrorToHttpError,
   parseDeliveryWakeRequest,
   parseDeliveryWakeRequestEffect,
   readDeliveryWakeRequest,
 } from "../src/delivery/RouteBoundary";
+import {
+  decodeDeliveryWakePayload,
+  DeliveryWakePayloadError,
+} from "../src/delivery/WakeRequest";
 import {
   decodePendingDeliveryDrainFromStorage,
   DeliveryPendingDrainStateError,
@@ -22,6 +25,21 @@ import {
 } from "../src/delivery/RouteOperationError";
 
 describe("delivery route boundary", () => {
+  it("decodes delivery wake payloads through a shared typed boundary", async () => {
+    await expect(Effect.runPromise(decodeDeliveryWakePayload({
+      deploymentId: "deployment-a",
+      limit: 10,
+      maxBatches: 2,
+      leaseDurationMs: 30_000,
+      ignored: true,
+    }))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      limit: 10,
+      maxBatches: 2,
+      leaseDurationMs: 30_000,
+    });
+  });
+
   it("decodes wake requests", async () => {
     await expect(readDeliveryWakeRequest(jsonRequest({
       deploymentId: "deployment-a",
@@ -77,7 +95,7 @@ describe("delivery route boundary", () => {
       deploymentId: "deployment-a",
       limit: 0,
     }))).rejects.toMatchObject({
-      _tag: "DeliveryWakeRouteValidationError",
+      _tag: "DeliveryWakePayloadError",
       message: "limit must be a positive integer.",
     });
 
@@ -98,12 +116,25 @@ describe("delivery route boundary", () => {
       message: "Request body must be JSON.",
     });
 
-    const validationError = new DeliveryWakeRouteValidationError({
+    const validationError = new DeliveryWakePayloadError({
       message: "deploymentId must be a non-empty string.",
     });
     expect(deliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("exposes shared typed wake payload failures before HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(decodeDeliveryWakePayload({
+      deploymentId: "deployment-a",
+      limit: 0,
+    })));
+
+    expect(failure).toBeInstanceOf(DeliveryWakePayloadError);
+    expect(failure).toMatchObject({
+      _tag: "DeliveryWakePayloadError",
+      message: "limit must be a positive integer.",
     });
   });
 

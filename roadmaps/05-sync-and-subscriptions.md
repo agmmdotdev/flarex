@@ -1,5 +1,61 @@
 # Sync And Subscriptions
 
+## Delivery Wake Payload Validation Boundary
+
+Previous completed checkpoint: `92596fe` Share live query delivery payload validation.
+
+What changed:
+
+- Delivery wake request payload validation now lives in the shared
+  `delivery/WakeRequest.ts` source boundary.
+- Internal DeliveryDO wake routes and public Worker wake-delivery routes now
+  propagate `DeliveryWakePayloadError` from that shared payload source instead
+  of keeping a route-local validation tag.
+- The public wake-delivery boundary still injects the deployment ID from the
+  route, overriding any body `deploymentId`, before using the shared payload
+  decoder.
+- Malformed JSON remains `RequestJsonError`, while payload shape failures map
+  to HTTP 400 only at the delivery wake route adapter edges.
+
+Why it changed:
+
+DeliveryDO wake and public wake-delivery parsed the same wake payload shape, but
+validation lived in route boundary files. This checkpoint moves wake payload
+validation and the typed payload failure to the delivery source boundary, keeps
+public route ownership explicit, and preserves the existing HTTP response
+mapping.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific delivery wake payload
+  validation around Flarex live-query delivery routes.
+
+How Flarex differs from Convex:
+
+- Flarex wakes a Cloudflare DeliveryDO to claim, fan out, acknowledge, and
+  continue live-query delivery batches. This checkpoint keeps that wake route
+  shape while making its payload validation shared and typed.
+
+Known limitations:
+
+- DeliveryDO drain semantics, pending drain state, SchedulerDO wake behavior,
+  ConnectionDO/live-query fanout, PartitionDO SQL/OCC, executor-http, protocol
+  schemas, and `ValidatorJson` are unchanged.
+- The shared wake decoder still uses the existing manual wake payload rules; it
+  does not move the shape into the protocol package yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "wakes DeliveryDO to claim, fanout, and ack live query deliveries|reports DeliveryDO fanout target validation failures with a 400 detail|rejects malformed DeliveryDO wake JSON at the delivery route boundary|rejects invalid DeliveryDO wake envelopes at the delivery route boundary" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Delivery Payload Validation Boundary
 
 Previous completed checkpoint: `f062df2` Type ConnectionDO route dispatch boundary.
