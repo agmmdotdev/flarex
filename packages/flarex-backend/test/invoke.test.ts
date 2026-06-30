@@ -8,11 +8,15 @@ import {
   InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
   InvokePartitionValidationError,
+  InvokeQueryPlanningError,
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
+  findQueryIndexEffect,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
   partitionKeyFromArgsEffect,
+  queryIndexBoundsEffect,
+  requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
   resolveFunctionExecutionScope,
   resolveFunctionExecutionScopeEffect,
@@ -23,6 +27,7 @@ import {
   validatePartitionPolicyAgainstSchemaEffect,
   validateQueryPlacementEffect,
   validateReturnEffect,
+  validateUniqueQueryResultEffect,
   type BackendFunctionRegistry,
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
@@ -315,6 +320,208 @@ describe("executeInvoke", () => {
     expect(invokeValidationErrorToHttpError(badPreallocation)).toMatchObject({
       status: 500,
       message: "PartitionValidationError: preallocated root id for users:create must be an ID for table users.",
+    });
+  });
+
+  it("keeps invoke query planning validation typed until adapter mapping", async () => {
+    const schema = usersQuerySchema();
+    const table = schema.tables[0]!;
+    const index = schema.indexes[0]!;
+
+    const missingIndex = await Effect.runPromise(
+      requireQueryIndexEffect(undefined).pipe(
+        Effect.catchTag("InvokeQueryPlanningError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(missingIndex).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(missingIndex instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingIndex)).toMatchObject({
+      status: 400,
+      message: "Flarex table scans are not implemented. Use withIndex().",
+    });
+
+    const unknownIndex = await Effect.runPromise(
+      findQueryIndexEffect(schema, table, "missing").pipe(
+        Effect.catchTag("InvokeQueryPlanningError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(unknownIndex).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(unknownIndex instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(unknownIndex)).toMatchObject({
+      status: 400,
+      message: "Unknown index users.missing.",
+    });
+
+    const invalidRange = await Effect.runPromise(
+      queryIndexBoundsEffect("users", "by_user_score", index, [
+        { op: "gte", field: "userId", value: "u1" },
+        { op: "gt", field: "userId", value: "u2" },
+      ]).pipe(
+        Effect.catchTag("InvokeQueryPlanningError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(invalidRange).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(invalidRange instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(invalidRange)).toMatchObject({
+      status: 400,
+      message: "Invalid range for index users.by_user_score: Index range can have only one lower bound.",
+    });
+
+    const nonUnique = await Effect.runPromise(
+      validateUniqueQueryResultEffect([{ id: 1 }, { id: 2 }]).pipe(
+        Effect.catchTag("InvokeQueryPlanningError", error => Effect.succeed(error)),
+      ),
+    );
+    expect(nonUnique).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(nonUnique instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(nonUnique)).toMatchObject({
+      status: 400,
+      message: "Query returned more than one document.",
+    });
+  });
+
+  it("maps invoke query planning failures through the query API compatibility adapter", async () => {
+    const schema = {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
+          tableId: 1,
+          name: "scores",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+      ],
+      indexes: [
+        { indexId: 1, tableId: 1, name: "by_user_score", fields: ["userId", "score"] },
+      ],
+    } satisfies DeploymentSchema;
+    await putSchema("query-planning-adapter-deployment", schema);
+    await SingleShardTransaction.ensureSchema(
+      env,
+      "query-planning-adapter-deployment",
+      "u1",
+      schema,
+    );
+    const seed = await SingleShardTransaction.begin(
+      env,
+      "query-planning-adapter-deployment",
+      "u1",
+    );
+    seed.insert(1, { userId: "u1", score: 10 }, "1:score-a");
+    seed.insert(1, { userId: "u1", score: 10 }, "1:score-b");
+    await seed.commit({ source: "seed" });
+
+    const functions: BackendFunctionRegistry = {
+      "scores:tableScan": {
+        kind: "query",
+        partition: userPartition(),
+        handler: ctx => ctx.db.query("scores").collect(),
+      },
+      "scores:unknownIndex": {
+        kind: "query",
+        partition: userPartition(),
+        handler: ctx => ctx.db.query("scores").withIndex("missing").collect(),
+      },
+      "scores:invalidRange": {
+        kind: "query",
+        partition: userPartition(),
+        handler: ctx =>
+          ctx.db
+            .query("scores")
+            .withIndex("by_user_score", q =>
+              q.eq("userId", "u1").gte("score", 10).gt("score", 20),
+            )
+            .collect(),
+      },
+      "scores:notUnique": {
+        kind: "query",
+        partition: userPartition(),
+        handler: ctx =>
+          ctx.db
+            .query("scores")
+            .withIndex("by_user_score", q => q.eq("userId", "u1").eq("score", 10))
+            .unique(),
+      },
+    };
+
+    await expect(
+      executeInvoke(
+        env,
+        "query-planning-adapter-deployment",
+        {
+          path: "scores:tableScan",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Flarex table scans are not implemented. Use withIndex().",
+    });
+
+    await expect(
+      executeInvoke(
+        env,
+        "query-planning-adapter-deployment",
+        {
+          path: "scores:unknownIndex",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Unknown index scores.missing.",
+    });
+
+    await expect(
+      executeInvoke(
+        env,
+        "query-planning-adapter-deployment",
+        {
+          path: "scores:invalidRange",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Invalid range for index scores.by_user_score: Index range can have only one lower bound.",
+    });
+
+    await expect(
+      executeInvoke(
+        env,
+        "query-planning-adapter-deployment",
+        {
+          path: "scores:notUnique",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        functions,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Query returned more than one document.",
     });
   });
 
@@ -2028,6 +2235,27 @@ function usersPartitionSchema(): DeploymentSchema {
       },
     ],
     indexes: [],
+  };
+}
+
+function usersQuerySchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [
+      {
+        tableId: 1,
+        name: "users",
+        placement: { kind: "partitionBy", field: "_id" },
+      },
+    ],
+    indexes: [
+      {
+        indexId: 1,
+        tableId: 1,
+        name: "by_user_score",
+        fields: ["userId", "score"],
+      },
+    ],
   };
 }
 

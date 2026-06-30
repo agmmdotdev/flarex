@@ -26,6 +26,7 @@ import type {
   InvokeRequest,
   InvokeResponse,
   Json,
+  SchemaIndex,
   SchemaTable,
   ValidatorJson,
 } from "./types";
@@ -115,6 +116,11 @@ export class InvokePartitionValidationError
     readonly status: 400 | 500;
   }> {}
 
+export class InvokeQueryPlanningError
+  extends Data.TaggedError("InvokeQueryPlanningError")<{
+    readonly message: string;
+  }> {}
+
 export type InvokeFunctionValidationError =
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokeArgumentValidationError
@@ -138,10 +144,13 @@ export type InvokePartitionValidationFailure =
   | InvokePartitionValidationError
   | InvokeTableNotFoundError;
 
+export type InvokeQueryPlanningFailure = InvokeQueryPlanningError;
+
 export type InvokeValidationError =
   | InvokeFunctionValidationError
   | InvokeDocumentValidationFailure
   | InvokePartitionValidationFailure
+  | InvokeQueryPlanningFailure
   | InvokeReturnValidationFailure;
 
 export type BackendQueryCtx = {
@@ -611,32 +620,14 @@ function backendQuery(
     queryLimit?: number,
     queryCursor?: string,
   ): Promise<{ page: Json[]; isDone: boolean; continueCursor: string }> => {
-    if (index === undefined) {
-      throw new HttpError(400, "Flarex table scans are not implemented. Use withIndex().");
-    }
+    const resolvedIndex = requireQueryIndex(index);
     const tableMetadata = tableForName(schema, table);
     const tableId = tableMetadata.tableId;
-    const metadata = schema.indexes.find(
-      candidate =>
-        candidate.tableId === tableId &&
-        candidate.name === index &&
-        (candidate.state === undefined || candidate.state === "enabled"),
-    );
-    if (!metadata) throw new HttpError(400, `Unknown index ${table}.${index}.`);
+    const metadata = findQueryIndex(schema, tableMetadata, resolvedIndex);
 
     const expressions = range?.expressions ?? [];
     validateQueryPlacement(tableMetadata, expressions, tx.partitionKey);
-    let bounds: { lower?: string; upper?: string };
-    try {
-      bounds = indexBoundsForExpressions(metadata.fields, expressions);
-    } catch (error) {
-      throw new HttpError(
-        400,
-        `Invalid range for index ${table}.${index}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    const bounds = queryIndexBounds(table, resolvedIndex, metadata, expressions);
     const resolvedLimit = queryLimit ?? limit;
     const resolvedCursor = queryCursor ?? cursor;
     const result = await tx.queryIndexPage({
@@ -667,13 +658,113 @@ function backendQuery(
     first: async () => (await execute(1)).page[0] ?? null,
     unique: async () => {
       const documents = (await execute(2)).page;
-      if (documents.length > 1) throw new HttpError(400, "Query returned more than one document.");
+      validateUniqueQueryResult(documents);
       return documents[0] ?? null;
     },
     paginate: options =>
       execute(options.numItems, options.cursor === null ? undefined : options.cursor),
   };
   return query;
+}
+
+function requireQueryIndex(index: string | undefined): string {
+  return Effect.runSync(
+    requireQueryIndexEffect(index).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const requireQueryIndexEffect = Effect.fn("Invoke.requireQueryIndex")(function* (
+  index: string | undefined,
+): Effect.fn.Return<string, InvokeQueryPlanningError> {
+  if (index === undefined) {
+    return yield* queryPlanningFailure("Flarex table scans are not implemented. Use withIndex().");
+  }
+  return index;
+});
+
+function findQueryIndex(
+  schema: DeploymentSchema,
+  table: SchemaTable,
+  index: string,
+): SchemaIndex {
+  return Effect.runSync(
+    findQueryIndexEffect(schema, table, index).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const findQueryIndexEffect = Effect.fn("Invoke.findQueryIndex")(function* (
+  schema: DeploymentSchema,
+  table: SchemaTable,
+  index: string,
+): Effect.fn.Return<SchemaIndex, InvokeQueryPlanningError> {
+  const metadata = schema.indexes.find(
+    candidate =>
+      candidate.tableId === table.tableId &&
+      candidate.name === index &&
+      (candidate.state === undefined || candidate.state === "enabled"),
+  );
+  if (!metadata) {
+    return yield* queryPlanningFailure(`Unknown index ${table.name}.${index}.`);
+  }
+  return metadata;
+});
+
+function queryIndexBounds(
+  table: string,
+  index: string,
+  metadata: SchemaIndex,
+  expressions: IndexRangeExpression[],
+): { lower?: string; upper?: string } {
+  return Effect.runSync(
+    queryIndexBoundsEffect(table, index, metadata, expressions).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const queryIndexBoundsEffect = Effect.fn("Invoke.queryIndexBounds")(function* (
+  table: string,
+  index: string,
+  metadata: Pick<SchemaIndex, "fields">,
+  expressions: IndexRangeExpression[],
+): Effect.fn.Return<{ lower?: string; upper?: string }, InvokeQueryPlanningError> {
+  return yield* Effect.suspend(() => {
+    try {
+      return Effect.succeed(indexBoundsForExpressions(metadata.fields, expressions));
+    } catch (error) {
+      return queryPlanningFailure(
+        `Invalid range for index ${table}.${index}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  });
+});
+
+function validateUniqueQueryResult(documents: Json[]): void {
+  Effect.runSync(
+    validateUniqueQueryResultEffect(documents).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const validateUniqueQueryResultEffect = Effect.fn(
+  "Invoke.validateUniqueQueryResult",
+)(function* (
+  documents: readonly Json[],
+): Effect.fn.Return<void, InvokeQueryPlanningError> {
+  if (documents.length > 1) {
+    return yield* queryPlanningFailure("Query returned more than one document.");
+  }
+});
+
+function queryPlanningFailure(message: string): Effect.Effect<never, InvokeQueryPlanningError> {
+  return Effect.fail(new InvokeQueryPlanningError({ message }));
 }
 
 function backendRangeBuilder(
@@ -1038,6 +1129,9 @@ export function invokeValidationErrorToHttpError(error: InvokeValidationError): 
   }
   if (error instanceof InvokePartitionValidationError) {
     return new HttpError(error.status, `PartitionValidationError: ${error.message}`);
+  }
+  if (error instanceof InvokeQueryPlanningError) {
+    return new HttpError(400, error.message);
   }
   return new HttpError(400, `ReturnValidationError: ${error.message}`);
 }

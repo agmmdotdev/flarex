@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Invoke Query Planning Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke query planning`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke.ts` now owns typed query planning
+  failures for missing `withIndex`, unknown indexes, invalid index ranges, and
+  non-unique `unique()` results.
+- Effect helpers back query index requirement, metadata lookup, range-bound
+  derivation, and unique-result validation.
+- Existing query APIs map those typed failures to the same adapter-shaped
+  `HttpError` responses for Worker, ConnectionDO, and ExecutionDO callers.
+
+Boundary decision:
+
+Query planning is invoke service/domain behavior. Partition query execution and
+SQL/OCC remain below this boundary in `SingleShardTransaction` and PartitionDO.
+
+Known limitations:
+
+- Mutation commit, execution sessions, artifact runtime routing, and PartitionDO
+  SQL/OCC are separate follow-up surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Partition Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke partition validation`.
@@ -21,8 +55,9 @@ checkpoint keeps the typed failure source in `flarex-backend` while preserving
 
 Known limitations:
 
-- Query/index planning, transaction commit, execution sessions, artifact
-  runtime routing, and PartitionDO SQL/OCC are separate follow-up surfaces.
+- Query/index planning is a separate follow-up completed by the next
+  checkpoint. Transaction commit, execution sessions, artifact runtime routing,
+  and PartitionDO SQL/OCC are separate follow-up surfaces.
 
 Verification:
 

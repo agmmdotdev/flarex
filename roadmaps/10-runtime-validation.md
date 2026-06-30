@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Invoke Query Planning Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke query planning`.
+
+What changed:
+
+- Invoke query planning now emits typed failures for missing `withIndex`,
+  unknown indexes, invalid index range expressions, and non-unique `unique()`
+  results.
+- Named Effect helpers back index requirement, index metadata resolution,
+  bounds derivation, and unique-result validation.
+- Direct tests cover typed query planning failure channels before adapter
+  mapping.
+
+Why it changed:
+
+Function, document, placement, and partition validation were typed, but query
+planning still threw adapter-shaped HTTP errors from the backend query API.
+This checkpoint keeps deterministic query planning failures typed while leaving
+actual index page execution unchanged.
+
+Known limitations:
+
+- Mutation commit and PartitionDO request failures still use the existing
+  compatibility paths.
+- Public Worker invoke routing and artifact-runtime routing are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Partition Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke partition validation`.
@@ -23,8 +60,9 @@ sync wrapper used by direct invoke and `ExecutionDO`.
 
 Known limitations:
 
-- Query/index planning, mutation commit, and PartitionDO request failures still
-  use the existing compatibility paths.
+- Query/index planning is a separate follow-up completed by the next
+  checkpoint; mutation commit and PartitionDO request failures still use the
+  existing compatibility paths.
 - Public Worker invoke routing and artifact-runtime routing are unchanged.
 
 Verification:

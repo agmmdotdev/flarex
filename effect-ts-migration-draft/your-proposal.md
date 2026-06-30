@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: this commit, `Type invoke partition validation`.
+- Previous completed checkpoint: this commit, `Type invoke query planning`.
 - Active checkpoint: continue route/service Effect migration slices with typed request/body decoders, typed service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -58,6 +58,22 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 179 slice:
+
+1. Add typed invoke query planning failures for missing `withIndex`, unknown
+   indexes, invalid index ranges, and non-unique `unique()` results.
+2. Add named Effect helpers for requiring an index, resolving active index
+   metadata, deriving index bounds, and validating unique query result count.
+3. Keep the existing query Promise API as the compatibility adapter mapping
+   typed query planning failures to the same `HttpError` statuses and messages.
+4. Preserve SingleShardTransaction, PartitionDO SQL/OCC behavior,
+   `tx.queryIndexPage(...)`, document placement validation, mutation commit
+   behavior, public Worker route decoding, artifact runtime routing, execution
+   sessions, deployment routes, protocol schemas, and `ValidatorJson`
+   semantics.
+5. Validate typed query planning failure channels directly, then preserve
+   existing invoke runtime behavior with focused tests.
 
 Completed Goal 178 slice:
 

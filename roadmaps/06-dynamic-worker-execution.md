@@ -1,5 +1,42 @@
 # Dynamic Worker Execution
 
+## Invoke Query Planning Typed Failure Boundary
+
+Previous completed checkpoint: this commit, `Type invoke query planning`.
+
+What changed:
+
+- Backend invoke query planning now has typed failures for missing
+  `withIndex`, unknown index metadata, invalid range expressions, and
+  non-unique `unique()` results.
+- The generated/user-facing query API remains Promise based, but its
+  deterministic planning failures flow through named Effect helpers before the
+  existing adapter mapping.
+- Direct tests cover typed query planning failures before adapter mapping.
+
+Why it changed:
+
+Dynamic-worker handlers depend on backend query planning before hitting the
+partition query API. Typing those checks completes the invoke validation batch
+around user-code query setup without changing `tx.queryIndexPage(...)`,
+transaction sessions, or Durable Object storage behavior.
+
+Known limitations:
+
+- Mutation commit, session behavior, and PartitionDO SQL/OCC are unchanged.
+- Artifact runtime service-binding invocation and public route decoding are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Partition Validation Typed Failure Boundary
 
 Previous completed checkpoint: this commit, `Type invoke partition validation`.
@@ -25,8 +62,9 @@ storage behavior.
 
 Known limitations:
 
-- Query/index planning, mutation commit, session behavior, and PartitionDO
-  SQL/OCC are unchanged.
+- Query/index planning is a separate follow-up completed by the next
+  checkpoint. Mutation commit, session behavior, and PartitionDO SQL/OCC are
+  unchanged.
 - Artifact runtime service-binding invocation and public route decoding are
   unchanged.
 
