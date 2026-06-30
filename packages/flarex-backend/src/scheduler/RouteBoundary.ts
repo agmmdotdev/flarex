@@ -43,7 +43,7 @@ export function decodeSchedulerDeliveryReconcileRequest(
   request: Request,
 ): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseSchedulerDeliveryReconcileRequestEffect),
+    Effect.flatMap(decodeSchedulerDeliveryReconcileRoutePayload),
   );
 }
 
@@ -56,6 +56,12 @@ export function parseSchedulerDeliveryReconcileRequest(
 }
 
 export function parseSchedulerDeliveryReconcileRequestEffect(
+  value: unknown,
+): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
+  return decodeSchedulerDeliveryReconcileRoutePayload(value);
+}
+
+export function decodeSchedulerDeliveryReconcileRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerDeliveryReconcilePayload(value);
@@ -71,7 +77,7 @@ export function decodeSchedulerConnectionReconcileRequest(
   request: Request,
 ): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseSchedulerConnectionReconcileRequestEffect),
+    Effect.flatMap(decodeSchedulerConnectionReconcileRoutePayload),
   );
 }
 
@@ -84,6 +90,12 @@ export function parseSchedulerConnectionReconcileRequest(
 }
 
 export function parseSchedulerConnectionReconcileRequestEffect(
+  value: unknown,
+): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
+  return decodeSchedulerConnectionReconcileRoutePayload(value);
+}
+
+export function decodeSchedulerConnectionReconcileRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerConnectionReconcilePayload(value);
@@ -99,7 +111,7 @@ export function decodeSchedulerRerunSubscriptionsRequest(
   request: Request,
 ): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseSchedulerRerunSubscriptionsRequestEffect),
+    Effect.flatMap(decodeSchedulerRerunSubscriptionsRoutePayload),
   );
 }
 
@@ -112,6 +124,12 @@ export function parseSchedulerRerunSubscriptionsRequest(
 }
 
 export function parseSchedulerRerunSubscriptionsRequestEffect(
+  value: unknown,
+): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
+  return decodeSchedulerRerunSubscriptionsRoutePayload(value);
+}
+
+export function decodeSchedulerRerunSubscriptionsRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerRerunSubscriptionsPayload(value);
@@ -127,7 +145,7 @@ export function decodeSchedulerDeadLetterDeliveriesRequest(
   request: Request,
 ): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseSchedulerDeadLetterDeliveriesRequestEffect),
+    Effect.flatMap(decodeSchedulerDeadLetterDeliveriesRoutePayload),
   );
 }
 
@@ -140,6 +158,12 @@ export function parseSchedulerDeadLetterDeliveriesRequest(
 }
 
 export function parseSchedulerDeadLetterDeliveriesRequestEffect(
+  value: unknown,
+): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
+  return decodeSchedulerDeadLetterDeliveriesRoutePayload(value);
+}
+
+export function decodeSchedulerDeadLetterDeliveriesRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerDeadLetterDeliveriesPayload(value);
@@ -157,7 +181,7 @@ export function decodeSchedulerCleanupConnectionsRequest(
   env: Env,
 ): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => parseSchedulerCleanupConnectionsRequestEffect(value, env)),
+    Effect.flatMap(value => decodeSchedulerCleanupConnectionsRoutePayload(value, env)),
   );
 }
 
@@ -171,6 +195,13 @@ export function parseSchedulerCleanupConnectionsRequest(
 }
 
 export function parseSchedulerCleanupConnectionsRequestEffect(
+  value: unknown,
+  env: Env,
+): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
+  return decodeSchedulerCleanupConnectionsRoutePayload(value, env);
+}
+
+export function decodeSchedulerCleanupConnectionsRoutePayload(
   value: unknown,
   env: Env,
 ): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {

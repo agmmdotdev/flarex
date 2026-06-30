@@ -1,5 +1,61 @@
 # Sync And Subscriptions
 
+## Scheduler Route Decoder Ownership
+
+Previous completed checkpoint: `a976927` Own delivery connection route decoders.
+
+What changed:
+
+- Scheduler delivery reconcile, connection reconcile, rerun subscriptions,
+  dead-letter deliveries, and cleanup connections routes now expose
+  decode-named route payload boundaries.
+- Scheduler request decoders call `decode*RoutePayload(...)` functions directly
+  after the shared JSON body Effect boundary succeeds.
+- Parse-named Effect helpers remain as compatibility wrappers, but newly
+  migrated SchedulerDO and public scheduler request paths prefer the
+  decode-named route payload functions.
+- Typed scheduler payload failures still propagate unchanged until the existing
+  SchedulerDO or public Worker route adapter maps them to HTTP responses.
+
+Why it changed:
+
+The scheduler route family already shared typed source decoders in
+`scheduler/Requests.ts`, but request decoders still flowed through parse-named
+compatibility helpers. This checkpoint makes route payload ownership explicit
+across the SchedulerDO and public scheduler maintenance route family while
+preserving existing HTTP mapping behavior.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific scheduler route adapter
+  wiring around Flarex live-query maintenance.
+
+How Flarex differs from Convex:
+
+- Flarex uses Cloudflare scheduler routes to reconcile delivery wakes, cleanup
+  expired live-query connections, rerun stale subscriptions, trigger
+  subscription reruns, and dead-letter stuck delivery rows. This checkpoint
+  keeps that route shape while tightening the Effect request decoder boundary.
+
+Known limitations:
+
+- SchedulerDO maintenance behavior, continuation state, DeliveryDO,
+  ConnectionDO/live-query fanout, PartitionDO SQL/OCC, executor-http, protocol
+  schemas, and `ValidatorJson` are unchanged.
+- These route payload functions still delegate to the existing manual payload
+  decoders; the payload shapes are not moved into the protocol package yet.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Delivery And Connection Route Decoder Ownership
 
 Previous completed checkpoint: `ea9c8ca` Own invoke route decoders.

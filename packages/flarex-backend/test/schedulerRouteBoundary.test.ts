@@ -2,10 +2,15 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
+  decodeSchedulerCleanupConnectionsRoutePayload,
   decodeSchedulerCleanupConnectionsRequest,
+  decodeSchedulerConnectionReconcileRoutePayload,
   decodeSchedulerConnectionReconcileRequest,
+  decodeSchedulerDeadLetterDeliveriesRoutePayload,
   decodeSchedulerDeadLetterDeliveriesRequest,
+  decodeSchedulerDeliveryReconcileRoutePayload,
   decodeSchedulerDeliveryReconcileRequest,
+  decodeSchedulerRerunSubscriptionsRoutePayload,
   decodeSchedulerRerunSubscriptionsRequest,
   parseSchedulerCleanupConnectionsRequest,
   parseSchedulerDeadLetterDeliveriesRequest,
@@ -73,6 +78,68 @@ describe("scheduler route boundary", () => {
         oldestCreatedAt: "2026-06-23T00:00:10.000Z",
         deploymentId: "deployment-a",
       },
+    });
+  });
+
+  it("decodes scheduler route payloads through named Effect boundaries", async () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRoutePayload({
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      cursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000+00:00",
+        deploymentId: "deployment-a",
+      },
+      ignored: true,
+    }))).resolves.toEqual({
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      cursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRoutePayload({
+      cursor: {
+        oldestExpiredAt: "not a date",
+        deploymentId: "deployment-a",
+      },
+    }))).rejects.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "cursor.oldestExpiredAt must be an ISO date string.",
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRoutePayload({
+      deploymentId: "deployment-a",
+      maxBatches: 3,
+    }))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      maxBatches: 3,
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRoutePayload({
+      stuckAfterMs: 0,
+    }))).rejects.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "stuckAfterMs must be a positive integer.",
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRoutePayload({
+      deploymentId: "deployment-a",
+    }, env))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-default",
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRoutePayload({
+      deploymentId: "deployment-a",
+    }, {} as Env))).rejects.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "projectId is required when FLAREX_PROJECT_ID is not configured.",
     });
   });
 
