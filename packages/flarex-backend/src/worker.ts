@@ -104,6 +104,7 @@ import {
   decodePublicInvokeRouteRequest,
   invokeRequestFromPublicInvokeBodyEffect,
   MissingInvokeDeploymentError,
+  publicInvokeDeploymentIdEffect,
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
@@ -698,10 +699,7 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
     routeDeploymentId: string | undefined,
   ) {
     const body = yield* decodePublicInvokeRouteRequest(request);
-    const deploymentId = routeDeploymentId ?? body.deploymentId;
-    if (deploymentId === undefined || deploymentId.length === 0) {
-      return yield* Effect.fail(new MissingInvokeDeploymentError());
-    }
+    const deploymentId = yield* publicInvokeDeploymentIdEffect(routeDeploymentId, body);
     return yield* routeInvoke(env, deploymentId, body);
   },
 );

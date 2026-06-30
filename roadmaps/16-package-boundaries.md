@@ -1,5 +1,47 @@
 # Package Boundaries
 
+## Public Invoke Request Payload Source Boundary
+
+Previous completed checkpoint: `5d4192e` Share execution route payload validation.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke/Requests.ts` now owns public invoke body
+  decoding, route/body deployment id selection, and backend
+  `InvokeRequest` normalization.
+- `PublicInvokeRouteBoundary.ts` delegates source validation to the shared
+  invoke request boundary while keeping compatibility read/parse exports and
+  adapter-level HTTP mapping.
+- The public Worker now calls the source-owned deployment id resolver before
+  dispatching invoke execution.
+- Tests cover typed source successes and failures directly before HTTP mapping.
+
+Boundary decision:
+
+Public invoke request validation is now source-owned by `invoke/Requests.ts`.
+The route boundary owns JSON body reading, compatibility throwing wrappers, and
+HTTP mapping. The Worker still owns public dispatch, active deployment loading,
+artifact-runtime routing, and invoke execution response mapping.
+
+Known limitations:
+
+- Invoke execution failures and active deployment load failures remain in their
+  existing Worker/invoke boundaries.
+- Artifact runtime dispatch, PartitionDO SQL/OCC behavior, execution routes,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invokeRequests.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "Worker invoke route|public Worker invoke bodies" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Request Payload Source Boundary
 
 Previous completed checkpoint: `be9974b` Share partition route payload validation.

@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Execution route payload validation source boundary.
+- Previous completed checkpoint: Public invoke request validation source boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Execution route payload validation source boundary checkpoint:
+Next recommended checkpoint after the Public invoke request validation source boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,29 @@ Next recommended checkpoint after the Execution route payload validation source 
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 232 slice:
+
+1. Move public invoke body decoding, route/body deployment id selection, and
+   backend `InvokeRequest` normalization into the shared
+   `invoke/Requests.ts` source boundary.
+2. Keep invoke protocol parser failures typed as
+   `InvokeProtocolValidationError` until the route adapter maps them to the
+   existing HTTP 400 compatibility error.
+3. Keep missing deployment id, missing function path, and empty partition key
+   as typed source-boundary failures that are converted to HTTP only at the
+   public invoke adapter edge.
+4. Preserve public Worker behavior where route deployment id wins over body
+   deployment id, omitted args default to `null` only for backend invoke
+   execution, and malformed JSON stays `RequestJsonError`.
+5. Keep `PublicInvokeRouteBoundary.ts` as a compatibility adapter with stable
+   read/parse exports and route error mapping.
+6. Keep invoke execution, active deployment loading, artifact runtime dispatch,
+   PartitionDO SQL/OCC, execution routes, executor-http, protocol schemas, and
+   `ValidatorJson` unchanged.
+7. Add direct shared decoder coverage for public invoke payloads, deployment
+   id selection, backend invoke request normalization, and typed source
+   failures before HTTP mapping.
 
 Completed Goal 231 slice:
 

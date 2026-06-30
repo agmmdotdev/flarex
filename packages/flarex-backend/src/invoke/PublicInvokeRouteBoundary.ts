@@ -1,7 +1,6 @@
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import {
   InvokeProtocolValidationError,
-  parsePublicInvokeRequestBody,
   type PublicInvokeRequestBody,
 } from "flarex-protocol/invoke";
 import {
@@ -10,16 +9,23 @@ import {
   RequestJsonError,
   requestJsonErrorToHttpError,
 } from "../http";
-import type { InvokeRequest, Json } from "../types";
+import {
+  decodePublicInvokePayload,
+  invokeRequestFromPublicInvokeBodyEffect,
+  MissingInvokeDeploymentError,
+  MissingInvokePartitionKeyError,
+  MissingInvokePathError,
+  parsePublicInvokePayload,
+  publicInvokeDeploymentIdEffect,
+} from "./Requests";
 
-export class MissingInvokeDeploymentError
-  extends Data.TaggedError("MissingInvokeDeploymentError")<{}> {}
-
-export class MissingInvokePathError
-  extends Data.TaggedError("MissingInvokePathError")<{}> {}
-
-export class MissingInvokePartitionKeyError
-  extends Data.TaggedError("MissingInvokePartitionKeyError")<{}> {}
+export {
+  invokeRequestFromPublicInvokeBodyEffect,
+  MissingInvokeDeploymentError,
+  MissingInvokePartitionKeyError,
+  MissingInvokePathError,
+  publicInvokeDeploymentIdEffect,
+} from "./Requests";
 
 export type PublicInvokeRouteError =
   | RequestJsonError
@@ -50,7 +56,7 @@ export function parsePublicInvokeRouteRequest(
   value: unknown,
 ): PublicInvokeRequestBody {
   try {
-    return parsePublicInvokeRequestBody(value);
+    return parsePublicInvokePayload(value);
   } catch (error) {
     if (error instanceof InvokeProtocolValidationError) {
       throw new HttpError(400, error.message);
@@ -62,38 +68,8 @@ export function parsePublicInvokeRouteRequest(
 export function parsePublicInvokeRouteRequestEffect(
   value: unknown,
 ): Effect.Effect<PublicInvokeRequestBody, InvokeProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parsePublicInvokeRequestBody(value));
-    } catch (error) {
-      if (error instanceof InvokeProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
+  return decodePublicInvokePayload(value);
 }
-
-export const invokeRequestFromPublicInvokeBodyEffect = Effect.fn(
-  "PublicInvokeRouteBoundary.invokeRequestFromPublicInvokeBody",
-)(function* (
-  body: PublicInvokeRequestBody,
-): Effect.fn.Return<InvokeRequest, MissingInvokePathError | MissingInvokePartitionKeyError> {
-  if (body.path === undefined || body.path.length === 0) {
-    return yield* Effect.fail(new MissingInvokePathError());
-  }
-  if (body.partitionKey !== undefined && body.partitionKey.length === 0) {
-    return yield* Effect.fail(new MissingInvokePartitionKeyError());
-  }
-
-  return {
-    path: body.path,
-    args: (body.args ?? null) as Json,
-    ...(body.kind === undefined ? {} : { kind: body.kind }),
-    ...(body.partitionKey === undefined ? {} : { partitionKey: body.partitionKey }),
-    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
-  };
-});
 
 export function publicInvokeRouteErrorToHttpError(
   error: PublicInvokeRouteError,
