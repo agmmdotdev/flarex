@@ -1,5 +1,60 @@
 # Deployment Analysis And Push
 
+## Public Worker Deployment Adapter Mapping
+
+Previous completed checkpoint: `e809aa1 Own deployment route decoders`.
+
+What changed:
+
+- Public Worker deployment protocol failures now map through the Worker
+  deployment adapter path instead of a top-level `fetch(...)` special case.
+- The public Worker route Effect boundary now exposes `HttpError` at the
+  top-level error channel for deployment route failures.
+- Source-only start-push and finish-push delayed validation now call the
+  decode-named public deployment route payload boundaries.
+- Analyzer-disabled start pushes still return the preserved `501` response
+  before validating the source package payload, and finish-push artifact
+  preflight still runs before finish payload validation.
+
+Why it changed:
+
+The Effect migration quality bar asks HTTP response conversion to happen at
+one adapter edge and migrated route paths to prefer decode-named Effect
+boundaries. This checkpoint keeps deployment protocol errors typed inside the
+deployment route flow, then converts them to `HttpError` at the public Worker
+adapter edge instead of making the global Worker `fetch(...)` catch know about
+deployment-specific protocol errors.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare public Worker adapter
+  for deployment push routes.
+
+How Flarex differs from Convex:
+
+- Flarex has a Cloudflare Worker gateway that routes public deployment push
+  requests into DeploymentDO and analyzer/artifact service bindings. Convex
+  does not expose this Worker-level deployment adapter shape.
+
+Known limitations:
+
+- Compatibility parse wrappers remain in route-boundary modules for older
+  callers and direct compatibility tests.
+- DeploymentService/Store behavior, Durable Object SQL/OCC behavior, analyzer
+  response semantics, artifact persistence, protocol schemas, executor-http,
+  PartitionDO, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Route Decoder Ownership
 
 Previous completed checkpoint: `fd9498f Share validator effect boundary`.

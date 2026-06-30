@@ -71,13 +71,12 @@ import {
   PublicLiveQueryDeliveryAuthorizationError,
 } from "./worker/PublicLiveQueryDeliveryAuthorization";
 import {
-  deploymentProtocolValidationErrorResponse,
   decodePublicAbandonPushRequest,
   decodePublicAnalyzedStartPushRequest,
   decodePublicFinishPushJson,
+  decodePublicFinishPushRoutePayload,
   decodePublicStartPushJson,
-  parsePublicFinishPushRequestEffect,
-  parsePublicStartPushRequestEffect,
+  decodePublicStartPushRoutePayload,
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
 import {
@@ -180,8 +179,6 @@ export default {
     try {
       return await route(request, env);
     } catch (error) {
-      const deploymentProtocolError = deploymentProtocolValidationErrorResponse(error);
-      if (deploymentProtocolError !== undefined) return deploymentProtocolError;
       return errorResponse(error);
     }
   },
@@ -215,7 +212,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   return await Effect.runPromise(routePublicWorker(request, env));
 }
 
-type PublicWorkerRouteError = HttpError | DeploymentProtocolValidationError;
+type PublicWorkerRouteError = HttpError;
 
 const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
   function* (
@@ -302,8 +299,7 @@ const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
 type PublicWorkerDeploymentRouteError =
   | MissingPublicDeploymentIdError
   | MissingPublicPartitionKeyError
-  | HttpError
-  | DeploymentProtocolValidationError;
+  | HttpError;
 
 const routeDeployment = Effect.fn("Worker.routeDeployment")(
   function* (
@@ -358,8 +354,8 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
 
 function publicWorkerDeploymentRouteErrorToHttpError(
   error: PublicWorkerDeploymentRouteError,
-): HttpError | DeploymentProtocolValidationError {
-  if (error instanceof HttpError || error instanceof DeploymentProtocolValidationError) {
+): HttpError {
+  if (error instanceof HttpError) {
     return error;
   }
   return publicRoutePathErrorToHttpError(error);
@@ -543,7 +539,7 @@ const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
       readDeploymentPushForFinishArtifactEffect(deployment, pushId),
     );
     if (missingArtifact !== undefined) return missingArtifact;
-    const body = yield* parsePublicFinishPushRequestEffect(rawBody);
+    const body = yield* decodePublicFinishPushRoutePayload(rawBody);
     return yield* finishDeploymentPushEffect(deployment, pushId, body);
   },
 );
@@ -566,7 +562,7 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
         { status: 501 },
       );
     }
-    const body = yield* parsePublicStartPushRequestEffect(rawBody);
+    const body = yield* decodePublicStartPushRoutePayload(rawBody);
     const analyzed = yield* analyzeSourcePackageEffect(analyzer, deploymentId, body);
     yield* persistAnalyzedSourcePackageEffect(artifactStoreFromEnv(env), analyzed);
     return yield* startDeploymentPushEffect(deployment, analyzed);
@@ -588,14 +584,18 @@ function publicDeploymentWorkerRouteErrorToHttpError(
     | Parameters<typeof publicDeploymentRouteErrorToHttpError>[0]
     | PublicWorkerDispatchError
     | MissingDeploymentPushIdError,
-): ReturnType<typeof publicDeploymentRouteErrorToHttpError> | HttpError {
+): HttpError {
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
   if (error instanceof MissingDeploymentPushIdError) {
     return publicRoutePathErrorToHttpError(error);
   }
-  return publicDeploymentRouteErrorToHttpError(error);
+  const routeError = publicDeploymentRouteErrorToHttpError(error);
+  if (routeError instanceof DeploymentProtocolValidationError) {
+    return new HttpError(400, routeError.message);
+  }
+  return routeError;
 }
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {
