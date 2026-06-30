@@ -18,9 +18,15 @@ import {
   readSchedulerConnectionReconcileRequest,
   readSchedulerDeliveryReconcileRequest,
   readSchedulerRerunSubscriptionsRequest,
-  SchedulerRouteValidationError,
   schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
+import {
+  decodeSchedulerCleanupConnectionsPayload,
+  decodeSchedulerDeadLetterDeliveriesPayload,
+  decodeSchedulerDeliveryReconcilePayload,
+  decodeSchedulerRerunSubscriptionsPayload,
+  SchedulerRoutePayloadError,
+} from "../src/scheduler/Requests";
 import {
   decodePendingConnectionCleanupFromStorage,
   decodePendingDeliveryReconcileFromStorage,
@@ -49,6 +55,27 @@ import {
 import type { Env } from "../src/types";
 
 describe("scheduler route boundary", () => {
+  it("decodes scheduler maintenance payloads through a shared typed boundary", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcilePayload({
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      cursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000+00:00",
+        deploymentId: "deployment-a",
+      },
+      ignored: true,
+    }))).resolves.toEqual({
+      limit: 5,
+      deliveryLimit: 10,
+      maxBatches: 2,
+      cursor: {
+        oldestCreatedAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+    });
+  });
+
   it("decodes delivery reconcile requests", async () => {
     await expect(readSchedulerDeliveryReconcileRequest(jsonRequest({
       limit: 5,
@@ -98,7 +125,7 @@ describe("scheduler route boundary", () => {
         oldestCreatedAt: "not a date",
         deploymentId: "deployment-a",
       },
-    }))).rejects.toBeInstanceOf(SchedulerRouteValidationError);
+    }))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
   it("preserves malformed JSON as the shared JSON body error", async () => {
@@ -434,12 +461,48 @@ describe("scheduler route boundary", () => {
       message: "Request body must be JSON.",
     });
 
-    const validationError = new SchedulerRouteValidationError({
+    const validationError = new SchedulerRoutePayloadError({
       message: "limit must be a positive integer.",
     });
     expect(schedulerRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "limit must be a positive integer.",
+    });
+  });
+
+  it("exposes shared typed scheduler payload failures before HTTP mapping", async () => {
+    const deliveryFailure = await Effect.runPromise(Effect.flip(decodeSchedulerDeliveryReconcilePayload({
+      cursor: {
+        oldestCreatedAt: "not a date",
+        deploymentId: "deployment-a",
+      },
+    })));
+
+    expect(deliveryFailure).toBeInstanceOf(SchedulerRoutePayloadError);
+    expect(deliveryFailure).toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "cursor.oldestCreatedAt must be an ISO date string.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodeSchedulerRerunSubscriptionsPayload({
+      deploymentId: "",
+    })))).resolves.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "deploymentId must be a non-empty string.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodeSchedulerDeadLetterDeliveriesPayload({
+      stuckAfterMs: 0,
+    })))).resolves.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "stuckAfterMs must be a positive integer.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodeSchedulerCleanupConnectionsPayload({
+      deploymentId: "deployment-a",
+    }, {} as Env)))).resolves.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "projectId is required when FLAREX_PROJECT_ID is not configured.",
     });
   });
 

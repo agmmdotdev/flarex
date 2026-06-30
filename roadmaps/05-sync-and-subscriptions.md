@@ -1,5 +1,64 @@
 # Sync And Subscriptions
 
+## Scheduler Maintenance Payload Validation Boundary
+
+Previous completed checkpoint: `d4e5712` Share delivery wake payload validation.
+
+What changed:
+
+- Scheduler maintenance request payload validation now lives in the shared
+  `scheduler/Requests.ts` source boundary.
+- Delivery reconcile, connection reconcile, rerun/trigger subscriptions,
+  dead-letter deliveries, and cleanup connections now emit
+  `SchedulerRoutePayloadError` from named Effect decoders at the payload source.
+- Internal SchedulerDO routes and public Worker scheduler routes continue to
+  share the same request decoders, while malformed JSON remains
+  `RequestJsonError`.
+- Cleanup route project ID fallback no longer catches a throwing `HttpError`
+  helper; missing or invalid `projectId` is emitted as a typed payload failure.
+- Scheduler route adapters still map typed payload failures to the same HTTP
+  400 response shape at the adapter edge.
+
+Why it changed:
+
+Scheduler maintenance routes had a large route-local validation block covering
+multiple shared public/internal request shapes. This checkpoint moves that
+payload validation and the typed payload failure to the scheduler source
+boundary, leaving route files responsible for request JSON reads and HTTP
+conversion.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific scheduler maintenance
+  route payload validation around Flarex live-query delivery and cleanup.
+
+How Flarex differs from Convex:
+
+- Flarex uses a Cloudflare SchedulerDO plus public Worker scheduler routes to
+  reconcile deliveries, clean expired connections, rerun stale subscriptions,
+  and dead-letter stuck deliveries. This checkpoint keeps that route ownership
+  while making the maintenance payload validation shared and typed.
+
+Known limitations:
+
+- SchedulerDO maintenance behavior, continuation state, DeliveryDO,
+  ConnectionDO/live-query fanout, PartitionDO SQL/OCC, executor-http, protocol
+  schemas, and `ValidatorJson` are unchanged.
+- The shared scheduler request decoders still use the existing manual payload
+  rules; they do not move these route shapes into the protocol package yet.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "routes expired live query connection cleanup through SchedulerDO|reports malformed executor cleanup payloads through SchedulerDO|reconciles expired live query connection deployment scans through SchedulerDO|reconciles lost live query wake notifications through SchedulerDO|dead-letters stuck live query deliveries and reconnects affected connections|rejects invalid live query dead-letter envelopes at the public scheduler boundary|triggers stale live query reruns and fans out changed results" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Delivery Wake Payload Validation Boundary
 
 Previous completed checkpoint: `92596fe` Share live query delivery payload validation.

@@ -22,10 +22,32 @@ import {
   readPublicSchedulerTriggerSubscriptionsRequest,
   publicSchedulerRouteErrorToHttpError,
 } from "../src/scheduler/PublicRouteBoundary";
-import { SchedulerRouteValidationError } from "../src/scheduler/RouteBoundary";
+import {
+  decodeSchedulerConnectionReconcilePayload,
+  SchedulerRoutePayloadError,
+} from "../src/scheduler/Requests";
 import type { Env } from "../src/types";
 
 describe("public scheduler route boundary", () => {
+  it("shares scheduler maintenance payload decoders with internal routes", async () => {
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcilePayload({
+      expiredAt: "2026-06-23T00:00:05.000+00:00",
+      limit: 7,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:10.000+00:00",
+        deploymentId: "deployment-a",
+      },
+      ignored: true,
+    }))).resolves.toEqual({
+      expiredAt: "2026-06-23T00:00:05.000Z",
+      limit: 7,
+      cursor: {
+        oldestExpiredAt: "2026-06-23T00:00:10.000Z",
+        deploymentId: "deployment-a",
+      },
+    });
+  });
+
   it("decodes delivery reconcile requests", async () => {
     await expect(readPublicSchedulerDeliveryReconcileRequest(jsonRequest({
       limit: 5,
@@ -370,7 +392,7 @@ describe("public scheduler route boundary", () => {
       },
       "/scheduler/live-query-connections/reconcile",
     )))).rejects.toMatchObject({
-      _tag: "SchedulerRouteValidationError",
+      _tag: "SchedulerRoutePayloadError",
       message: "cursor.oldestExpiredAt must be an ISO date string.",
     });
 
@@ -378,7 +400,7 @@ describe("public scheduler route boundary", () => {
       null,
       "/scheduler/live-query-deliveries/dead-letter",
     )))).rejects.toMatchObject({
-      _tag: "SchedulerRouteValidationError",
+      _tag: "SchedulerRoutePayloadError",
       message: "Dead-letter request body must be an object.",
     });
 
@@ -386,7 +408,7 @@ describe("public scheduler route boundary", () => {
       { deploymentId: "deployment-a" },
       "/scheduler/live-query-connections/cleanup",
     ), { FLAREX_PROJECT_ID: "" } as Env))).rejects.toMatchObject({
-      _tag: "SchedulerRouteValidationError",
+      _tag: "SchedulerRoutePayloadError",
       message: "projectId is required when FLAREX_PROJECT_ID is not configured.",
     });
 
@@ -394,7 +416,7 @@ describe("public scheduler route boundary", () => {
       { deploymentId: "", limit: 1 },
       "/scheduler/live-query-subscriptions/rerun",
     )))).rejects.toMatchObject({
-      _tag: "SchedulerRouteValidationError",
+      _tag: "SchedulerRoutePayloadError",
       message: "deploymentId must be a non-empty string.",
     });
 
@@ -402,7 +424,7 @@ describe("public scheduler route boundary", () => {
       { deploymentId: "deployment-a", deliveryLimit: 0 },
       "/scheduler/live-query-subscriptions/trigger",
     )))).rejects.toMatchObject({
-      _tag: "SchedulerRouteValidationError",
+      _tag: "SchedulerRoutePayloadError",
       message: "deliveryLimit must be a positive integer.",
     });
 
@@ -426,12 +448,27 @@ describe("public scheduler route boundary", () => {
       message: "Request body must be JSON.",
     });
 
-    const validationError = new SchedulerRouteValidationError({
+    const validationError = new SchedulerRoutePayloadError({
       message: "deploymentId must be a non-empty string.",
     });
     expect(publicSchedulerRouteErrorToHttpError(validationError)).toMatchObject({
       status: 400,
       message: "deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("exposes shared typed public scheduler payload failures before HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(decodeSchedulerConnectionReconcilePayload({
+      cursor: {
+        oldestExpiredAt: "not a date",
+        deploymentId: "deployment-a",
+      },
+    })));
+
+    expect(failure).toBeInstanceOf(SchedulerRoutePayloadError);
+    expect(failure).toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "cursor.oldestExpiredAt must be an ISO date string.",
     });
   });
 });
