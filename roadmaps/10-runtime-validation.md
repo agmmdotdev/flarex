@@ -1,5 +1,65 @@
 # Runtime Validation
 
+## Public Scheduler Dispatch Boundary
+
+Previous completed checkpoint: `038f350 Type public partition dispatch boundary`.
+
+What changed:
+
+- Public scheduler delivery reconcile, connection reconcile, dead-letter,
+  connection cleanup, subscription rerun, and subscription trigger dispatch now
+  run through named Effect boundaries in `scheduler/PublicDispatchBoundary.ts`.
+- Public scheduler authorization and request decoding remain in the Worker and
+  existing typed scheduler route boundaries.
+- Scheduler dispatch failures stay typed as `PublicWorkerDispatchError` values
+  from `scheduler-delivery-reconcile`, `scheduler-connection-reconcile`,
+  `scheduler-dead-letter-deliveries`, `scheduler-cleanup-connections`,
+  `scheduler-rerun-subscriptions`, and `scheduler-trigger-subscriptions`.
+- Direct tests cover each forwarded URL/method/body shape plus typed dispatch
+  failure mapping for all six public scheduler operations.
+- Public trigger still forwards to the same internal rerun-subscriptions route
+  as before.
+
+Why it changed:
+
+Public scheduler routes already had typed request decoders and authorization,
+but Worker-to-SchedulerDO dispatch still lived inline in `worker.ts`. This
+checkpoint moves the dispatch family into named Effect functions so public
+scheduler integration failures are emitted at the source while route decoding,
+authorization, and HTTP mapping stay at the Worker edge.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Worker-to-SchedulerDO public
+  dispatch boundary.
+
+How Flarex differs from Convex:
+
+- Flarex exposes public maintenance hooks for live-query delivery, connection,
+  and subscription scheduling. The Worker facade authorizes and normalizes those
+  requests before forwarding to the singleton live-query SchedulerDO.
+
+Known limitations:
+
+- The dispatch target is still passed as an explicit interface instead of an
+  Effect service/layer.
+- SchedulerDO maintenance behavior, live-query scheduler semantics, public
+  scheduler authorization, route validation, protocol schemas, executor-http,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "rejects invalid live query delivery reconcile envelopes at the public scheduler boundary|rejects malformed live query connection reconcile JSON at the public scheduler boundary|rejects invalid live query connection reconcile envelopes at the public scheduler boundary|rejects malformed live query subscription rerun JSON|rejects unauthorized live query subscription rerun before parsing JSON|rejects invalid live query subscription rerun envelopes at the public scheduler boundary|rejects malformed live query subscription trigger JSON|rejects unauthorized live query subscription trigger before parsing JSON|rejects invalid live query subscription trigger envelopes at the public scheduler boundary|rejects malformed live query dead-letter JSON|rejects unauthorized live query dead-letter before parsing JSON|rejects invalid live query dead-letter envelopes at the public scheduler boundary" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Partition Dispatch Boundary
 
 Previous completed checkpoint: `e12faea Type public execution dispatch boundary`.
