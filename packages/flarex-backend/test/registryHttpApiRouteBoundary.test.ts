@@ -5,8 +5,6 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeRegistryApiRequestForRoute,
   decodeRegistryCreateDeploymentRouteRequest,
-  parseRegistryCreateDeploymentRouteRequest,
-  parseRegistryCreateDeploymentRouteRequestEffect,
   readRegistryCreateDeploymentRouteRequest,
   registryApiRequestForRoute,
 } from "../src/registry/HttpApiRouteBoundary";
@@ -62,18 +60,6 @@ describe("registry HttpApi route boundary", () => {
       deploymentId: "deployment-effect",
       slug: "effect-slug",
     });
-    expect(parseRegistryCreateDeploymentRouteRequest({
-      deploymentId: "deployment-c",
-      slug: "slug-c",
-    })).toEqual({
-      deploymentId: "deployment-c",
-      slug: "slug-c",
-    });
-    await expect(Effect.runPromise(parseRegistryCreateDeploymentRouteRequestEffect({
-      deploymentId: "deployment-parser-effect",
-    }))).resolves.toEqual({
-      deploymentId: "deployment-parser-effect",
-    });
   });
 
   it("keeps malformed JSON and schema failures at the Durable Object boundary", async () => {
@@ -117,9 +103,6 @@ describe("registry HttpApi route boundary", () => {
     await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(jsonRequest({
       deploymentId: 123,
     })))).rejects.toBeInstanceOf(ProtocolValidationError);
-    await expect(Effect.runPromise(parseRegistryCreateDeploymentRouteRequestEffect({
-      deploymentId: 123,
-    }))).rejects.toBeInstanceOf(ProtocolValidationError);
   });
 
   it("leaves fallback routes on the existing plain RegistryDO responses", async () => {

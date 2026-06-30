@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Registry Request Payload Source Boundary
+
+Previous completed checkpoint: `f35ae8d` Share artifact runtime request validation.
+
+What changed:
+
+- `packages/flarex-backend/src/registry/Requests.ts` now owns RegistryDO
+  create-deployment payload validation using the shared registry protocol
+  schema and typed `ProtocolValidationError`.
+- `registry/HttpApiRouteBoundary.ts` delegates create-deployment payload
+  validation to the shared source boundary while keeping JSON reading,
+  generated-handler request reconstruction, and adapter-level HTTP mapping.
+- Tests cover source decoder success and typed protocol failures directly
+  before HTTP mapping.
+
+Boundary decision:
+
+Registry create-deployment payload validation is now source-owned by
+`registry/Requests.ts`. The route boundary owns request JSON reading,
+canonical generated-handler request reconstruction, read-route forwarding, and
+HTTP conversion. Registry generated handlers, RegistryService, and RegistryStore
+still own health/list/create behavior and SQLite persistence.
+
+Known limitations:
+
+- This checkpoint does not change registry generated HttpApi handlers,
+  RegistryService/Store SQL behavior, Durable Object fallback route behavior,
+  executor-http, protocol schemas, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryRequests.test.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/registryService.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Artifact Runtime Request Payload Source Boundary
 
 Previous completed checkpoint: `6e4119b` Share connection request validation.

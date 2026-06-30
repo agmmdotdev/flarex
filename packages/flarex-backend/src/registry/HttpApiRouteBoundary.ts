@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import {
-  parseCreateDeploymentRequest,
   ProtocolValidationError,
   RegistryRoute,
   type CreateDeploymentRequest,
@@ -11,6 +10,7 @@ import {
   requestJsonErrorToHttpError,
   type HttpError,
 } from "../http";
+import { decodeRegistryCreateDeploymentPayload } from "./Requests";
 
 export async function registryApiRequestForRoute(request: Request): Promise<Request | null> {
   return await Effect.runPromise(
@@ -48,29 +48,8 @@ export function decodeRegistryCreateDeploymentRouteRequest(
   request: Request,
 ): Effect.Effect<CreateDeploymentRequest, RequestJsonError | ProtocolValidationError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseRegistryCreateDeploymentRouteRequestEffect),
+    Effect.flatMap(decodeRegistryCreateDeploymentPayload),
   );
-}
-
-export function parseRegistryCreateDeploymentRouteRequest(
-  value: unknown,
-): CreateDeploymentRequest {
-  return parseCreateDeploymentRequest(value);
-}
-
-export function parseRegistryCreateDeploymentRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<CreateDeploymentRequest, ProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parseRegistryCreateDeploymentRouteRequest(value));
-    } catch (error) {
-      if (error instanceof ProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
 }
 
 export function registryRouteErrorToHttpError(

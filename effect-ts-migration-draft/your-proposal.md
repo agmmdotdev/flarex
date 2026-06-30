@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Artifact runtime request validation source boundary.
+- Previous completed checkpoint: Registry request validation source boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Artifact runtime request validation source boundary checkpoint:
+Next recommended checkpoint after the Registry request validation source boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,22 @@ Next recommended checkpoint after the Artifact runtime request validation source
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 236 slice:
+
+1. Move RegistryDO create-deployment payload validation into the shared
+   `registry/Requests.ts` source boundary.
+2. Keep `registry/HttpApiRouteBoundary.ts` as the JSON-read,
+   generated-handler request reconstruction, and HTTP-mapping adapter.
+3. Preserve malformed JSON as `RequestJsonError`, invalid create-deployment
+   bodies as `ProtocolValidationError`, and existing 400 compatibility mapping
+   at the Durable Object route edge.
+4. Keep registry generated HttpApi handlers, RegistryService/Store SQL
+   behavior, route fallback behavior, executor-http, protocol schemas, and
+   `ValidatorJson` unchanged.
+5. Add direct source decoder coverage for create-deployment payload success and
+   typed protocol failures, plus route boundary coverage for preserved adapter
+   behavior.
 
 Completed Goal 235 slice:
 
