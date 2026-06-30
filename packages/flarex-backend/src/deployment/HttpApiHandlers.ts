@@ -112,7 +112,13 @@ export function mapDeploymentReadFailure<A>(
 }
 
 export function mapDeploymentStartFailure<A>(
-  effect: Effect.Effect<A, DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError>,
+  effect: Effect.Effect<
+    A,
+    | DeploymentProtocolValidationError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError
+  >,
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
@@ -179,9 +185,13 @@ export function deploymentReadFailureToResponse(
 }
 
 export function deploymentStartFailureToResponse(
-  error: DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError,
+  error:
+    | DeploymentProtocolValidationError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError,
 ): DeploymentStartErrorResponse {
-  if (error instanceof DeploymentValidationError) {
+  if (error instanceof DeploymentProtocolValidationError || error instanceof DeploymentValidationError) {
     return new DeploymentBadRequestErrorResponse({ error: error.message });
   }
   return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
@@ -267,7 +277,10 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
   "decodeStartAnalyzedPushHandlerInput",
 )(function* (
   payload: AnalyzedStartPushRequest,
-): Effect.fn.Return<StartAnalyzedPushInput, DeploymentValidationError> {
+): Effect.fn.Return<
+  StartAnalyzedPushInput,
+  DeploymentProtocolValidationError | DeploymentValidationError
+> {
   const protocolPayload = yield* decodeStartAnalyzedPushHandlerPayload(payload);
   const request = yield* decodeAnalyzedStartPushRequest(protocolPayload);
   return yield* decodeStartAnalyzedPushInput(request);
@@ -276,25 +289,18 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
 export function startAnalyzedPushHandlerInputFromPayload(
   payload: AnalyzedStartPushRequest,
 ): StartAnalyzedPushInput {
-  try {
-    return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
-  } catch (cause) {
-    if (cause instanceof DeploymentProtocolValidationError) {
-      throw new DeploymentValidationError({ message: cause.message });
-    }
-    throw cause;
-  }
+  return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
 }
 
 function decodeStartAnalyzedPushHandlerPayload(
   payload: AnalyzedStartPushRequest,
-): Effect.Effect<AnalyzedStartPushRequest, DeploymentValidationError> {
+): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
   return Effect.suspend(() => {
     try {
       return Effect.succeed(parseAnalyzedStartPushRequest(payload));
     } catch (cause) {
       if (cause instanceof DeploymentProtocolValidationError) {
-        return Effect.fail(new DeploymentValidationError({ message: cause.message }));
+        return Effect.fail(cause);
       }
       return Effect.die(cause);
     }

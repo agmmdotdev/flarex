@@ -6,6 +6,7 @@ import {
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
   DeploymentNotFoundErrorResponse,
+  DeploymentProtocolValidationError,
   DeploymentRoute,
   DeploymentStorageErrorResponse,
   parseDeploymentErrorResponse,
@@ -297,6 +298,16 @@ describe("DeploymentApiHandlers", () => {
       }),
       DeploymentStorageErrorResponse,
       "Deployment storage error.",
+    );
+    expectMappedFailure(
+      deploymentStartFailureToResponse,
+      new DeploymentProtocolValidationError({
+        schema: "AnalyzedStartPushRequest",
+        message: "Analyzed start push request must include sourcePackage.",
+        cause: {},
+      }),
+      DeploymentBadRequestErrorResponse,
+      "Analyzed start push request must include sourcePackage.",
     );
     expectMappedFailure(
       deploymentStartFailureToResponse,
@@ -745,11 +756,11 @@ describe("DeploymentApiHandlers", () => {
       error: "analysis failed",
       codegenAnalysis: deploymentCodegenAnalysis(),
     }).pipe(
-      Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
+      Effect.catchTag("DeploymentProtocolValidationError", error => Effect.succeed(error)),
     ));
-    expect(failure).toBeInstanceOf(DeploymentValidationError);
-    if (!(failure instanceof DeploymentValidationError)) {
-      throw new Error("Expected DeploymentValidationError.");
+    expect(failure).toBeInstanceOf(DeploymentProtocolValidationError);
+    if (!(failure instanceof DeploymentProtocolValidationError)) {
+      throw new Error("Expected DeploymentProtocolValidationError.");
     }
     expect(failure.message).toBe("A push without analysis must not include codegenAnalysis.");
 
@@ -1209,7 +1220,12 @@ function expectStartPayloadBadRequest(
     startAnalyzedPushHandlerInputFromPayload(payload);
     throw new Error("Expected analyzed start-push payload to fail.");
   } catch (cause) {
-    if (!(cause instanceof DeploymentValidationError)) throw cause;
+    if (
+      !(cause instanceof DeploymentProtocolValidationError) &&
+      !(cause instanceof DeploymentValidationError)
+    ) {
+      throw cause;
+    }
     const error = deploymentStartFailureToResponse(cause);
     expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
     expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });

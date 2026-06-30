@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Deployment HttpApi Protocol Validation Boundary
+
+Previous completed checkpoint: `bd51608 Type public deployment push dispatch boundary`.
+
+What changed:
+
+- DeploymentDO analyzed-start HttpApi payload parsing now keeps
+  `DeploymentProtocolValidationError` in the typed Effect error channel instead
+  of remapping it to `DeploymentValidationError`.
+- `mapDeploymentStartFailure(...)` and
+  `deploymentStartFailureToResponse(...)` now map both protocol payload
+  failures and deployment-domain validation failures to the declared 400
+  `DeploymentBadRequestErrorResponse` at the HttpApi adapter edge.
+- Deployment-domain validation from `deployment/Validation.ts` still emits
+  `DeploymentValidationError`, so protocol-shape failures and semantic
+  deployment metadata failures remain distinguishable until response mapping.
+- Focused tests cover the typed error split and the preserved bad-request
+  response bodies.
+
+Why it changed:
+
+The migration quality bar requires protocol validation failures to be emitted at
+the protocol boundary and propagated unchanged instead of being remapped
+downstream. The analyzed-start DeploymentDO HttpApi handler still converted
+`DeploymentProtocolValidationError` into `DeploymentValidationError`; this
+checkpoint fixes that while keeping one declared HttpApi response mapping edge.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Effect HttpApi adapter boundary
+  for deployment push activation.
+
+How Flarex differs from Convex:
+
+- Flarex DeploymentDO exposes its internal push lifecycle through Effect
+  HttpApi handlers. Protocol decoding happens before the deployment service
+  call, while deployment metadata normalization stays in the Flarex validation
+  module.
+
+Known limitations:
+
+- Compatibility throwing helpers remain for older tests and call sites.
+- DeploymentDO service/store behavior, SQL transaction callbacks, public Worker
+  forwarding, protocol schemas, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "DeploymentApiHandlers|deployment HttpApi route boundary|preserves analyzer codegen analysis through source-only push activation|requires durable artifact storage before public finish" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Deployment Push Dispatch Boundary
 
 Previous completed checkpoint: `dd78214 Type public worker pass-through dispatch boundary`.

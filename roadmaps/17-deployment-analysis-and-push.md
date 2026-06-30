@@ -1,5 +1,63 @@
 # Deployment Analysis And Push
 
+## Analyzed Start Push Protocol Validation Boundary
+
+Previous completed checkpoint: `bd51608 Type public deployment push dispatch boundary`.
+
+What changed:
+
+- The DeploymentDO analyzed-start HttpApi handler now preserves
+  `DeploymentProtocolValidationError` from the deployment protocol parser
+  instead of converting it into `DeploymentValidationError`.
+- Deployment metadata validation after protocol parsing still flows through
+  `deployment/Validation.ts` and emits `DeploymentValidationError`.
+- The start-push HttpApi adapter maps both protocol payload failures and
+  deployment-domain validation failures to the same declared 400 response body,
+  preserving public behavior while keeping source errors typed internally.
+- Handler tests now assert the typed split between protocol payload errors and
+  deployment validation errors.
+
+Why it changed:
+
+Analyzed deployment push activation is the handoff from protocol transport
+shape into Flarex deployment metadata normalization. Keeping protocol parser
+failures tagged at their source makes the Effect migration closer to the target
+shape: protocol, domain validation, service, and adapter mapping each own their
+own failure boundary.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's deployment push analysis boundary
+  around backend-controlled analyzer payloads.
+
+How Flarex differs from Convex:
+
+- Flarex receives backend analyzer output through DeploymentDO HttpApi
+  analyzed-start routes, then normalizes the metadata before storing the push in
+  Durable Object SQLite. This Cloudflare-specific path has no direct Convex
+  Durable Object equivalent.
+
+Known limitations:
+
+- Compatibility throwing helpers remain for current tests and older call sites.
+- Store transaction callbacks still use compatibility validation wrappers for
+  activation writes.
+- Deployment service/store behavior, SQL schema, analyzer behavior, artifact
+  persistence, public Worker forwarding, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "DeploymentApiHandlers|deployment HttpApi route boundary|preserves analyzer codegen analysis through source-only push activation|requires durable artifact storage before public finish" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Push Store Active Validation Boundary
 
 Previous completed checkpoint: `3f4b4c6` Type public Worker route boundary.

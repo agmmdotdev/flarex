@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public deployment push dispatch boundary.
+- Previous completed checkpoint: Deployment HttpApi protocol validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public deployment push dispatch boundary checkpoint:
+Next recommended checkpoint after the Deployment HttpApi protocol validation boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,33 @@ Next recommended checkpoint after the Public deployment push dispatch boundary c
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 224 slice:
+
+1. Keep analyzed-start DeploymentDO HttpApi protocol parser failures as
+   `DeploymentProtocolValidationError` values through
+   `decodeStartAnalyzedPushHandlerInput(...)` instead of remapping them to
+   `DeploymentValidationError`.
+2. Extend `mapDeploymentStartFailure(...)` and
+   `deploymentStartFailureToResponse(...)` so protocol payload failures and
+   deployment-domain validation failures both map to declared 400
+   `DeploymentBadRequestErrorResponse` values at the HttpApi adapter edge.
+3. Preserve domain validation failures from `decodeAnalyzedStartPushRequest(...)`
+   and `decodeStartAnalyzedPushInput(...)` as `DeploymentValidationError`
+   values emitted by `deployment/Validation.ts`.
+4. Keep the compatibility helper
+   `startAnalyzedPushHandlerInputFromPayload(...)` aligned with the same
+   source-error split while preserving the public bad-request response bodies.
+5. Keep DeploymentDO service/store behavior, SQL writes, analyzer behavior,
+   artifact persistence, public Worker forwarding, protocol schemas,
+   executor-http routes, and `ValidatorJson` unchanged.
+6. Add focused handler coverage proving protocol payload errors remain
+   `DeploymentProtocolValidationError`, domain validation errors remain
+   `DeploymentValidationError`, and both map to the declared 400 response at
+   the adapter boundary.
+7. Validate focused DeploymentDO HttpApi handler/validation coverage, backend
+   typecheck/build, protocol build/test, and only the EffectTS quality checker
+   reviewer.
 
 Completed Goal 223 slice:
 
