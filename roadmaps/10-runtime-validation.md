@@ -1,5 +1,65 @@
 # Runtime Validation
 
+## Public Finish Artifact Preflight Boundary
+
+Previous completed checkpoint: `0a9fd6e Type public deployment analyzer boundary`.
+
+What changed:
+
+- Public finish-push durable artifact preflight now runs through
+  `verifyStoredPushArtifactEffect(...)` in
+  `deployment/PublicFinishArtifactBoundary.ts`.
+- DeploymentDO push-status fetch failures, malformed push-status JSON, and
+  artifact-ref computation failures stay typed as `PublicWorkerDispatchError`
+  values from `deployment-finish-push-artifact`.
+- Missing durable artifacts still return the existing `409` rejected
+  finish-push response before the finish body is protocol-decoded.
+- Direct tests cover no-store skip, non-analyzed/unknown-push skip,
+  missing-artifact rejection, and typed dispatch failures.
+
+Why it changed:
+
+The public finish-push route already decoded its JSON body through typed
+Effect helpers, but its durable artifact preflight still lived in an async
+Worker helper wrapped by `Effect.tryPromise(...)`. This checkpoint keeps the
+preflight branch in the route Effect pipeline without changing the
+compatibility-sensitive ordering that lets missing artifacts reject before
+finish protocol validation.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare R2-backed execution
+  artifact preflight.
+
+How Flarex differs from Convex:
+
+- Flarex may require execution artifacts to exist in durable object/R2 storage
+  before activating a push. That preflight can reject a finish request with a
+  deployment-shaped 409 response even before the finish body is protocol
+  validated.
+
+Known limitations:
+
+- Artifact store `get(...)` failures intentionally remain compatibility
+  signals for a missing-artifact rejection, not typed dispatch failures.
+- Artifact persistence after source-only analysis still uses the existing
+  `Effect.tryPromise(...)` dispatch wrapper.
+- DeploymentDO, deployment service/store behavior, SQL statements, protocol
+  schemas, executor-http, PartitionDO SQL/OCC, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage before public finish|rejects malformed analyzer analysis|preserves analyzer codegen" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## Public Deployment Analyzer Effect Boundary
 
 Previous completed checkpoint: `5903883 Type deployment stored push write boundary`.

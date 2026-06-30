@@ -1,0 +1,129 @@
+import { Effect } from "effect";
+import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { describe, expect, it } from "vitest";
+import type { BackendExecutionArtifactStore } from "../src/artifactStore";
+import { verifyStoredPushArtifactEffect } from "../src/deployment/PublicFinishArtifactBoundary";
+import type { PushSourcePackage, PushStatus } from "../src/types";
+
+describe("public finish artifact boundary", () => {
+  it("skips artifact preflight when durable artifact storage is not configured", async () => {
+    let fetchCalled = false;
+
+    await expect(Effect.runPromise(verifyStoredPushArtifactEffect(undefined, async () => {
+      fetchCalled = true;
+      return Response.json(analyzedPushStatus());
+    }))).resolves.toBeUndefined();
+    expect(fetchCalled).toBe(false);
+  });
+
+  it("skips artifact preflight for missing or non-analyzed pushes", async () => {
+    const store = artifactStore({ available: true });
+
+    await expect(Effect.runPromise(verifyStoredPushArtifactEffect(
+      store,
+      async () => Response.json({ error: "Unknown push." }, { status: 404 }),
+    ))).resolves.toBeUndefined();
+    await expect(Effect.runPromise(verifyStoredPushArtifactEffect(
+      store,
+      async () => Response.json({ ...analyzedPushStatus(), state: "failed" }),
+    ))).resolves.toBeUndefined();
+  });
+
+  it("returns the existing missing-artifact finish rejection response", async () => {
+    const package_ = sourcePackage();
+    const status = analyzedPushStatus(package_);
+    const ref = await executionArtifactRefForSourcePackage(package_);
+
+    const response = await Effect.runPromise(verifyStoredPushArtifactEffect(
+      artifactStore({ available: false }),
+      async () => Response.json(status),
+    ));
+
+    expect(response?.status).toBe(409);
+    await expect(response?.json()).resolves.toEqual({
+      result: "rejected",
+      push: status,
+      code: "missing_artifact",
+      error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
+    });
+  });
+
+  it("keeps fetch and push-status JSON failures in the dispatch error channel", async () => {
+    const fetchFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
+      artifactStore({ available: true }),
+      async () => {
+        throw new Error("deployment unavailable");
+      },
+    )));
+    expect(fetchFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+      message: "deployment unavailable",
+    });
+
+    const jsonFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
+      artifactStore({ available: true }),
+      async () => new Response("{", { status: 200 }),
+    )));
+    expect(jsonFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+
+    const semanticFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
+      artifactStore({ available: true }),
+      async () => Response.json(null),
+    )));
+    expect(semanticFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+  });
+});
+
+function artifactStore(options: { readonly available: boolean }): BackendExecutionArtifactStore {
+  return {
+    put: async sourcePackage => executionArtifactRefForSourcePackage(sourcePackage),
+    get: async ref => {
+      if (!options.available) {
+        throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
+      }
+      return sourcePackage();
+    },
+  };
+}
+
+function analyzedPushStatus(source = sourcePackage()): PushStatus {
+  return {
+    pushId: "push-artifact",
+    state: "analyzed",
+    sourcePackage: source,
+    analysis: {
+      schema: { version: 1, tables: [], indexes: [] },
+      functions: { functions: [] },
+    },
+    codegenAnalysis: {
+      schema: { version: 1, tables: [], indexes: [] },
+      functions: [],
+    },
+    createdAt: 1_000,
+    updatedAt: 1_000,
+  };
+}
+
+function sourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "__execution.ts",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+      },
+    ],
+    functions: [],
+    execution: "__execution.ts",
+  };
+}

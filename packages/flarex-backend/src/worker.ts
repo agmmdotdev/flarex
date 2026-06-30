@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
@@ -73,6 +72,7 @@ import {
   parsePublicStartPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
+import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { errorResponse, HttpError, json, readResponseJsonEffect } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
@@ -109,7 +109,6 @@ import {
 } from "./partition/PublicSchemaCacheRouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
-import { rejectedFinishPushResponse } from "./pushResponses.ts";
 import {
   connectionObjectName,
   deliveryObjectName,
@@ -581,10 +580,10 @@ const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
     pushId: string,
   ) {
     const rawBody = yield* decodePublicFinishPushJson(request);
-    const missingArtifact = yield* Effect.tryPromise({
-      try: () => verifyStoredPushArtifact(env, deployment, pushId),
-      catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-    });
+    const missingArtifact = yield* verifyStoredPushArtifactEffect(
+      artifactStoreFromEnv(env),
+      () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
+    );
     if (missingArtifact !== undefined) return missingArtifact;
     const body = yield* parsePublicFinishPushRequestEffect(rawBody);
     return yield* Effect.tryPromise({
@@ -688,28 +687,6 @@ async function persistAnalyzedSourcePackage(
   const artifactStore = artifactStoreFromEnv(env);
   if (artifactStore === undefined || analyzed.analysis === undefined) return;
   await artifactStore.put(analyzed.sourcePackage);
-}
-
-async function verifyStoredPushArtifact(
-  env: Env,
-  deployment: DurableObjectStub,
-  pushId: string,
-): Promise<Response | undefined> {
-  const artifactStore = artifactStoreFromEnv(env);
-  if (artifactStore === undefined) return;
-
-  const response = await deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId)));
-  if (!response.ok) return;
-  const status = await response.json() as PushStatus;
-  if (status.state !== "analyzed") return;
-
-  const ref = await executionArtifactRefForSourcePackage(status.sourcePackage);
-  try {
-    await artifactStore.get(ref);
-  } catch {
-    const error = `Execution artifact ${ref.artifactId} is not available in durable storage.`;
-    return json(rejectedFinishPushResponse(status, "missing_artifact", error), { status: 409 });
-  }
 }
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {

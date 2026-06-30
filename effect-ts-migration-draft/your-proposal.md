@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public deployment analyzer Effect boundary.
+- Previous completed checkpoint: Public finish artifact preflight boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public deployment analyzer Effect boundary checkpoint:
+Next recommended checkpoint after the Public finish artifact preflight boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,27 @@ Next recommended checkpoint after the Public deployment analyzer Effect boundary
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 217 slice:
+
+1. Extract public finish-push durable artifact preflight into
+   `verifyStoredPushArtifactEffect(...)`, a named Effect boundary under
+   `deployment/PublicFinishArtifactBoundary.ts`.
+2. Keep DeploymentDO push-status fetch failures, malformed push-status JSON,
+   and artifact-ref computation failures in the typed `PublicWorkerDispatchError`
+   channel for `deployment-finish-push-artifact`.
+3. Preserve the compatibility behavior where a missing durable artifact returns
+   the existing `409` rejected finish-push response before finish body protocol
+   validation.
+4. Keep finish-push request JSON ordering, generated DeploymentDO forwarding,
+   `DeploymentApiHandlers.finishPush`, `DeploymentService.finishPush`,
+   source-only analyzer routing, artifact persistence, SQL statements,
+   protocol schemas, public response bodies, and `ValidatorJson` unchanged.
+5. Add direct Effect boundary coverage for no artifact store, skipped preflight,
+   missing-artifact rejection, and dispatch failures.
+6. Validate focused artifact-boundary/public-push coverage, backend
+   typecheck/build, protocol build/test, and only the EffectTS quality checker
+   reviewer.
 
 Completed Goal 216 slice:
 
