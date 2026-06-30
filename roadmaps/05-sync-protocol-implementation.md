@@ -1,5 +1,49 @@
 # Sync Protocol Implementation Details
 
+## Public Worker Deployment Sync Route Effect Boundary
+
+Previous completed checkpoint: `e781e42` Type public scheduler route boundary.
+
+What changed:
+
+- Deployment-scoped public sync routing now runs through
+  `Effect.fn("Worker.routeDeploymentSync")` with one `Effect.runPromise(...)`
+  adapter edge for the `/deployments/:deploymentId/sync/*` branch.
+- `POST /sync/deliver-live-query`, `POST /sync/wake-delivery`, and the
+  default ConnectionDO sync fallback reuse the existing Effect-returning
+  helpers instead of running separate Worker runtime boundaries.
+- Public sync dispatch-source coverage now groups `connection-sync`,
+  `live-query-delivery`, and `delivery-wake` together.
+
+Protocol behavior:
+
+- Delivery callback and wake routes still require the configured live-query
+  delivery authorization before body parsing.
+- Wrong methods for `deliver-live-query` and `wake-delivery` still fall through
+  to the default ConnectionDO sync path, preserving the previous route
+  priority and fallback behavior.
+- Connection sync still keeps `x-flarex-session` when present and generates a
+  session id when it is absent.
+
+Known limitations:
+
+- ConnectionDO and DeliveryDO internals are unchanged.
+- This checkpoint does not change the WebSocket protocol, SchedulerDO
+  maintenance, executor delivery contracts, PartitionDO SQL/OCC, public
+  scheduler routes, public partition routes, generated HttpApi routes,
+  protocol schemas, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "executes Add query modifications and emits Convex-style transitions|routes backend live query delivery callbacks to named connections|rejects malformed public live query delivery JSON at the Worker boundary|rejects unauthorized public live query delivery before parsing JSON|rejects invalid public live query delivery envelopes at the Worker boundary|rejects public live query deliveries whose target does not match the route deployment|rejects malformed public DeliveryDO wake JSON at the Worker boundary|rejects unauthorized public DeliveryDO wake before parsing JSON|rejects invalid public DeliveryDO wake envelopes at the Worker boundary" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Backend Delivery Callback Route
 
 Previous completed checkpoint: `4e4d736` Add ConnectionDO live query delivery

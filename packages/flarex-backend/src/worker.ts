@@ -24,6 +24,10 @@ import {
   decodePublicDeliveryWakeRequest,
   publicDeliveryWakeRouteErrorToHttpError,
 } from "./delivery/PublicWakeRouteBoundary";
+import {
+  DeliveryWakeRouteValidationError,
+  type DeliveryWakeRouteError,
+} from "./delivery/RouteBoundary";
 import { DeploymentDO } from "./deploymentDO";
 import {
   decodePublicExecutionActionRequest,
@@ -90,7 +94,9 @@ import {
 } from "./liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
+  LiveQueryDeliveryRouteValidationError,
   publicLiveQueryDeliveryRouteErrorToHttpError,
+  type LiveQueryDeliveryRouteError,
 } from "./liveQueryDelivery/RouteBoundary";
 import {
   decodePartitionCommitRequest,
@@ -246,17 +252,9 @@ async function route(request: Request, env: Env): Promise<Response> {
       return routePartition(request, env, deploymentId, partitionKey, parts.slice(4), url);
     }
     if (parts[2] === "sync") {
-      if (parts[3] === "deliver-live-query" && request.method === "POST") {
-        return routeLiveQueryDelivery(request, env, deploymentId);
-      }
-      if (parts[3] === "wake-delivery" && request.method === "POST") {
-        return routeWakeDelivery(request, env, deploymentId);
-      }
-      const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
-      const connectionName = connectionObjectName(deploymentId, sessionId);
       return await Effect.runPromise(
-        routeConnectionSync(request, env, deploymentId, connectionName).pipe(
-          Effect.mapError(publicWorkerDispatchErrorToHttpError),
+        routeDeploymentSync(request, env, deploymentId, parts.slice(3)).pipe(
+          Effect.mapError(publicWorkerDeploymentSyncRouteErrorToHttpError),
         ),
       );
     }
@@ -1030,17 +1028,31 @@ const routePublicPartitionIndexRead = Effect.fn("Worker.routePublicPartitionInde
   },
 );
 
-async function routeLiveQueryDelivery(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-): Promise<Response> {
-  return await Effect.runPromise(
-    routePublicLiveQueryDelivery(request, env, deploymentId).pipe(
-      Effect.mapError(publicWorkerLiveQueryDeliveryRouteErrorToHttpError),
-    ),
-  );
-}
+type PublicWorkerDeploymentSyncRouteError =
+  | LiveQueryDeliveryRouteError
+  | DeliveryWakeRouteError
+  | PublicWorkerDispatchError
+  | LiveQueryDeliveryTargetError
+  | PublicLiveQueryDeliveryAuthorizationError;
+
+const routeDeploymentSync = Effect.fn("Worker.routeDeploymentSync")(
+  function* (
+    request: Request,
+    env: Env,
+    deploymentId: string,
+    parts: readonly string[],
+  ): Effect.fn.Return<Response, PublicWorkerDeploymentSyncRouteError> {
+    if (parts[0] === "deliver-live-query" && request.method === "POST") {
+      return yield* routePublicLiveQueryDelivery(request, env, deploymentId);
+    }
+    if (parts[0] === "wake-delivery" && request.method === "POST") {
+      return yield* routePublicDeliveryWake(request, env, deploymentId);
+    }
+    const sessionId = request.headers.get("x-flarex-session") ?? crypto.randomUUID();
+    const connectionName = connectionObjectName(deploymentId, sessionId);
+    return yield* routeConnectionSync(request, env, deploymentId, connectionName);
+  },
+);
 
 const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDelivery")(
   function* (request: Request, env: Env, deploymentId: string) {
@@ -1061,11 +1073,8 @@ const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDeliv
   },
 );
 
-function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
-  error: Parameters<typeof publicLiveQueryDeliveryRouteErrorToHttpError>[0]
-    | PublicWorkerDispatchError
-    | LiveQueryDeliveryTargetError
-    | PublicLiveQueryDeliveryAuthorizationError,
+function publicWorkerDeploymentSyncRouteErrorToHttpError(
+  error: PublicWorkerDeploymentSyncRouteError,
 ): HttpError {
   if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
     return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
@@ -1076,19 +1085,13 @@ function publicWorkerLiveQueryDeliveryRouteErrorToHttpError(
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
+  if (error instanceof DeliveryWakeRouteValidationError) {
+    return publicDeliveryWakeRouteErrorToHttpError(error);
+  }
+  if (error instanceof LiveQueryDeliveryRouteValidationError) {
+    return publicLiveQueryDeliveryRouteErrorToHttpError(error);
+  }
   return publicLiveQueryDeliveryRouteErrorToHttpError(error);
-}
-
-async function routeWakeDelivery(
-  request: Request,
-  env: Env,
-  deploymentId: string,
-): Promise<Response> {
-  return await Effect.runPromise(
-    routePublicDeliveryWake(request, env, deploymentId).pipe(
-      Effect.mapError(publicWorkerDeliveryWakeRouteErrorToHttpError),
-    ),
-  );
 }
 
 const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
@@ -1108,17 +1111,3 @@ const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
     });
   },
 );
-
-function publicWorkerDeliveryWakeRouteErrorToHttpError(
-  error: Parameters<typeof publicDeliveryWakeRouteErrorToHttpError>[0]
-    | PublicWorkerDispatchError
-    | PublicLiveQueryDeliveryAuthorizationError,
-): HttpError {
-  if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
-    return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
-  }
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  return publicDeliveryWakeRouteErrorToHttpError(error);
-}

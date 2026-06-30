@@ -163,8 +163,29 @@ describe("public Worker route dispatch errors", () => {
     const sources = [
       "registry-deployments",
       "deployment-active-read",
-      "connection-sync",
       "deployment-scheduler",
+    ] as const;
+
+    for (const source of sources) {
+      const error = publicWorkerDispatchError(source, new Error(`${source} failed.`));
+
+      expect(error).toMatchObject({
+        source,
+        status: 500,
+        message: `${source} failed.`,
+      });
+      expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
+        status: 500,
+        message: `${source} failed.`,
+      });
+    }
+  });
+
+  it("covers public sync dispatch sources", () => {
+    const sources = [
+      "connection-sync",
+      "live-query-delivery",
+      "delivery-wake",
     ] as const;
 
     for (const source of sources) {
