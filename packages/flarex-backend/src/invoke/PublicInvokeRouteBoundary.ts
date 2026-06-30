@@ -48,7 +48,7 @@ export function decodePublicInvokeRouteRequest(
   request: Request,
 ): Effect.Effect<PublicInvokeRequestBody, RequestJsonError | InvokeProtocolValidationError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parsePublicInvokeRouteRequestEffect),
+    Effect.flatMap(decodePublicInvokeRoutePayload),
   );
 }
 
@@ -66,6 +66,12 @@ export function parsePublicInvokeRouteRequest(
 }
 
 export function parsePublicInvokeRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<PublicInvokeRequestBody, InvokeProtocolValidationError> {
+  return decodePublicInvokeRoutePayload(value);
+}
+
+export function decodePublicInvokeRoutePayload(
   value: unknown,
 ): Effect.Effect<PublicInvokeRequestBody, InvokeProtocolValidationError> {
   return decodePublicInvokePayload(value);

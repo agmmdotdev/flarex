@@ -1,5 +1,49 @@
 # Dynamic Worker Execution
 
+## Invoke Route Decoder Ownership
+
+Previous completed checkpoint: `0620909 Own execution route decoders`.
+
+What changed:
+
+- Public invoke route payloads now expose a decode-named Effect boundary.
+- Artifact runtime invoke route payloads now expose a decode-named Effect
+  boundary.
+- Migrated request decoders call `decode*RoutePayload(...)` functions directly
+  instead of parse-named Effect wrappers.
+- Parse-named throwing helpers and parse-named Effect wrappers remain as
+  compatibility APIs for older callers and direct compatibility tests.
+- Focused route-boundary tests now exercise the decode-named Effect payload
+  boundaries for success and typed protocol/payload failure channels.
+
+Why it changed:
+
+Public invoke and artifact-runtime invoke are the two dynamic-worker entry
+points that hand user/runtime request bodies into the execution path. The
+Effect migration quality bar asks migrated transport boundaries to prefer
+decode-named Effect APIs and keep parser wrappers behind compatibility
+surfaces. This checkpoint makes that ownership explicit before deeper invoke
+service/domain conversion.
+
+Known limitations:
+
+- Invoke execution, active deployment lookup, artifact materialization, service
+  binding runtime behavior, transaction/session behavior, and PartitionDO
+  SQL/OCC are unchanged.
+- Protocol schemas, executor-http, DeploymentDO, SchedulerDO, DeliveryDO,
+  ConnectionDO, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Route Decoder Ownership
 
 Previous completed checkpoint: `a6cc8c6 Map public deployment errors at worker edge`.

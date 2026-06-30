@@ -36,7 +36,7 @@ export function decodeExecutionArtifactInvokePayload(
   request: Request,
 ): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokeRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseExecutionArtifactInvokePayloadEffect),
+    Effect.flatMap(decodeExecutionArtifactInvokeRoutePayload),
   );
 }
 
@@ -54,6 +54,12 @@ export function parseExecutionArtifactInvokePayload(
 }
 
 export function parseExecutionArtifactInvokePayloadEffect(
+  value: unknown,
+): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
+  return decodeExecutionArtifactInvokeRoutePayload(value);
+}
+
+export function decodeExecutionArtifactInvokeRoutePayload(
   value: unknown,
 ): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
   return decodeExecutionArtifactInvokePayloadBody(value);

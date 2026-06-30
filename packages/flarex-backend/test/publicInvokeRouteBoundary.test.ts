@@ -4,6 +4,7 @@ import { InvokeProtocolValidationError } from "flarex-protocol/invoke";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicInvokeRouteRequest,
+  decodePublicInvokeRoutePayload,
   invokeRequestFromPublicInvokeBodyEffect,
   MissingInvokeDeploymentError,
   MissingInvokePartitionKeyError,
@@ -40,6 +41,17 @@ describe("public invoke route boundary", () => {
       deploymentId: "deployment-b",
       path: "users:list",
       args: {},
+      kind: "query",
+    });
+    await expect(Effect.runPromise(decodePublicInvokeRoutePayload({
+      deploymentId: "deployment-c",
+      path: "users:get",
+      args: { id: "1:user" },
+      kind: "query",
+    }))).resolves.toEqual({
+      deploymentId: "deployment-c",
+      path: "users:get",
+      args: { id: "1:user" },
       kind: "query",
     });
   });
@@ -100,6 +112,8 @@ describe("public invoke route boundary", () => {
     await expect(Effect.runPromise(decodePublicInvokeRouteRequest(jsonRequest({
       kind: "action",
     })))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicInvokeRoutePayload(null)))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
     await expect(Effect.runPromise(parsePublicInvokeRouteRequestEffect(null)))
       .rejects.toBeInstanceOf(InvokeProtocolValidationError);
   });

@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Execution route decoder ownership.
+- Previous completed checkpoint: Invoke route decoder ownership.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Execution route decoder ownership checkpoint:
+Next recommended checkpoint after the Invoke route decoder ownership checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,21 @@ Next recommended checkpoint after the Execution route decoder ownership checkpoi
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 247 slice:
+
+1. Add decode-named Effect route payload boundaries for public invoke payloads
+   and artifact runtime invoke payloads.
+2. Move migrated public invoke and artifact runtime request decoders to call
+   those `decode*RoutePayload(...)` functions directly while retaining
+   parse-named Effect wrappers only as compatibility APIs.
+3. Preserve public Worker invoke routing, artifact runtime fetch behavior,
+   request JSON failure mapping, protocol/payload validation mapping,
+   active-deployment/invoke request construction, PartitionDO SQL/OCC,
+   protocol schemas, executor-http, and `ValidatorJson` behavior unchanged.
+4. Extend focused invoke and artifact runtime route-boundary tests so typed
+   success and typed failure assertions exercise the decode-named Effect
+   boundaries while compatibility wrappers remain covered.
 
 Completed Goal 246 slice:
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionArtifactInvokePayload,
+  decodeExecutionArtifactInvokeRoutePayload,
   ExecutionArtifactInvokePayloadError,
   executionArtifactInvokeRouteErrorToHttpError,
   parseExecutionArtifactInvokePayload,
@@ -17,6 +18,8 @@ describe("artifact runtime route boundary", () => {
     await expect(readExecutionArtifactInvokePayload(jsonRequest(payload)))
       .resolves.toEqual(payload);
     await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest(payload))))
+      .resolves.toEqual(payload);
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokeRoutePayload(payload)))
       .resolves.toEqual(payload);
     expect(parseExecutionArtifactInvokePayload(payload)).toEqual(payload);
     await expect(Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(payload)))
@@ -45,6 +48,8 @@ describe("artifact runtime route boundary", () => {
       deploymentId: "deployment-a",
       ref: { artifactId: "artifact-a" },
     })))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokeRoutePayload(null)))
+      .rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
     await expect(Effect.runPromise(parseExecutionArtifactInvokePayloadEffect(null)))
       .rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
   });
