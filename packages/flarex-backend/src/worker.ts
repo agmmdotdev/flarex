@@ -52,6 +52,12 @@ import {
   PublicWorkerDispatchError,
 } from "./worker/PublicRouteDispatchError";
 import {
+  dispatchDeploymentSchedulerEffect,
+  dispatchRegistryDeploymentsEffect,
+  readDeploymentActiveEffect,
+  syncPublicConnectionEffect,
+} from "./worker/PublicPassThroughDispatchBoundary";
+import {
   deploymentPushActionFromPath,
   MissingDeploymentPushIdError,
   MissingPublicDeploymentIdError,
@@ -249,21 +255,15 @@ const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
 
 const routeRegistryDeployments = Effect.fn("Worker.routeRegistryDeployments")(
   function* (request: Request, env: Env) {
-    return yield* Effect.tryPromise({
-      try: () => env.REGISTRY.getByName("registry:v1").fetch(request),
-      catch: error => publicWorkerDispatchError("registry-deployments", error),
-    });
+    return yield* dispatchRegistryDeploymentsEffect(env.REGISTRY.getByName("registry:v1"), request);
   },
 );
 
 const routeDeploymentActiveRead = Effect.fn("Worker.routeDeploymentActiveRead")(
   function* (env: Env, deploymentId: string) {
-    return yield* Effect.tryPromise({
-      try: () => env.DEPLOYMENTS
-        .getByName(deploymentObjectName(deploymentId))
-        .fetch(deploymentInternalUrl(DeploymentRoute.activeDeployment)),
-      catch: error => publicWorkerDispatchError("deployment-active-read", error),
-    });
+    return yield* readDeploymentActiveEffect(
+      env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId)),
+    );
   },
 );
 
@@ -274,26 +274,21 @@ const routeConnectionSync = Effect.fn("Worker.routeConnectionSync")(
     deploymentId: string,
     connectionName: string,
   ) {
-    return yield* Effect.tryPromise({
-      try: () => {
-        const headers = new Headers(request.headers);
-        headers.set("x-flarex-deployment", deploymentId);
-        headers.set("x-flarex-connection", connectionName);
-        return env.CONNECTIONS
-          .getByName(connectionName)
-          .fetch(new Request(request, { headers }));
-      },
-      catch: error => publicWorkerDispatchError("connection-sync", error),
-    });
+    return yield* syncPublicConnectionEffect(
+      env.CONNECTIONS.getByName(connectionName),
+      request,
+      deploymentId,
+      connectionName,
+    );
   },
 );
 
 const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
   function* (request: Request, env: Env, deploymentId: string) {
-    return yield* Effect.tryPromise({
-      try: () => env.SCHEDULERS.getByName(schedulerObjectName(deploymentId)).fetch(request),
-      catch: error => publicWorkerDispatchError("deployment-scheduler", error),
-    });
+    return yield* dispatchDeploymentSchedulerEffect(
+      env.SCHEDULERS.getByName(schedulerObjectName(deploymentId)),
+      request,
+    );
   },
 );
 

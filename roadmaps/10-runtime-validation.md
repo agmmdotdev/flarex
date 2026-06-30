@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Public Worker Pass-Through Dispatch Boundary
+
+Previous completed checkpoint: `b8fc23d Type public scheduler dispatch boundary`.
+
+What changed:
+
+- Top-level public Worker pass-through dispatch now runs through named Effect
+  boundaries in `worker/PublicPassThroughDispatchBoundary.ts`.
+- Registry deployments, active deployment reads, connection sync, and
+  deployment scheduler forwarding keep route/object selection in `worker.ts`
+  but move their external fetch failure mapping to the new boundary.
+- Dispatch failures stay typed as `PublicWorkerDispatchError` values from
+  `registry-deployments`, `deployment-active-read`, `connection-sync`, and
+  `deployment-scheduler`.
+- Direct tests cover request forwarding, active deployment URL forwarding,
+  connection sync header injection, and typed failure mapping for all four
+  pass-through operations.
+
+Why it changed:
+
+After extracting public scheduler, partition, execution, and deployment push
+dispatch families, the Worker still had a small group of top-level pass-through
+fetches with inline `Effect.tryPromise(...)` wrappers. This checkpoint moves
+those remaining pass-through integrations into named Effect functions so the
+Worker route keeps route selection and adapter mapping while dispatch failures
+are emitted at their source.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's public Worker facade dispatch.
+
+How Flarex differs from Convex:
+
+- Flarex routes public API calls through a Worker facade before forwarding to
+  RegistryDO, DeploymentDO, ConnectionDO, and SchedulerDO instances. Connection
+  sync injects deployment and connection headers before handing the request to
+  ConnectionDO.
+
+Known limitations:
+
+- The pass-through targets are still explicit interfaces instead of Effect
+  services/layers.
+- RegistryDO, DeploymentDO, ConnectionDO, SchedulerDO, live sync behavior,
+  protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicPassThroughDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/registryDO.test.ts packages/flarex-backend/test/push.test.ts -t "creates and lists deployments|reads active deployment and push status through public routes" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "reruns a subscribed query when a partition commit overlaps its read set" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Scheduler Dispatch Boundary
 
 Previous completed checkpoint: `038f350 Type public partition dispatch boundary`.

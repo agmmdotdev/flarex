@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public scheduler dispatch boundary.
+- Previous completed checkpoint: Public Worker pass-through dispatch boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public scheduler dispatch boundary checkpoint:
+Next recommended checkpoint after the Public Worker pass-through dispatch boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,30 @@ Next recommended checkpoint after the Public scheduler dispatch boundary checkpo
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 222 slice:
+
+1. Extract top-level public Worker pass-through dispatch into
+   `dispatchRegistryDeploymentsEffect(...)`,
+   `readDeploymentActiveEffect(...)`, `syncPublicConnectionEffect(...)`, and
+   `dispatchDeploymentSchedulerEffect(...)`, named Effect boundaries under
+   `worker/PublicPassThroughDispatchBoundary.ts`.
+2. Keep route selection and Durable Object name selection in `worker.ts`, while
+   moving RegistryDO, DeploymentDO active-read, ConnectionDO sync, and
+   deployment SchedulerDO fetch dispatch out of inline Worker helpers.
+3. Preserve pass-through dispatch failures as `PublicWorkerDispatchError`
+   values from `registry-deployments`, `deployment-active-read`,
+   `connection-sync`, and `deployment-scheduler`.
+4. Preserve exact request forwarding for registry and deployment scheduler,
+   exact active deployment internal URL, and connection sync header injection
+   for `x-flarex-deployment` and `x-flarex-connection`.
+5. Keep RegistryDO, DeploymentDO, ConnectionDO, SchedulerDO, protocol schemas,
+   public response bodies, live sync behavior, and `ValidatorJson` unchanged.
+6. Add direct Effect boundary coverage for all four pass-through dispatch
+   success paths and typed failure mappings.
+7. Validate focused pass-through/registry/active-deployment/sync coverage,
+   backend typecheck/build, protocol build/test, and only the EffectTS quality
+   checker reviewer.
 
 Completed Goal 221 slice:
 
