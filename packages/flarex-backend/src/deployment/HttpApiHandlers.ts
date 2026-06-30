@@ -21,6 +21,7 @@ import {
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "./Errors";
 import { DeploymentService, type StartAnalyzedPushInput } from "./Service";
@@ -111,7 +112,7 @@ export function mapDeploymentReadFailure<A>(
 }
 
 export function mapDeploymentStartFailure<A>(
-  effect: Effect.Effect<A, DeploymentSqlError | DeploymentValidationError>,
+  effect: Effect.Effect<A, DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError>,
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
     Effect.catch((error) =>
@@ -123,7 +124,11 @@ export function mapDeploymentStartFailure<A>(
 export function mapDeploymentFinishFailure<A>(
   effect: Effect.Effect<
     A,
-    DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+    | DeploymentArtifactRefError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError
   >,
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
@@ -136,7 +141,11 @@ export function mapDeploymentFinishFailure<A>(
 export function mapDeploymentAbandonFailure<A>(
   effect: Effect.Effect<
     A,
-    DeploymentPushInvalidStateError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+    | DeploymentPushInvalidStateError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError
   >,
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(
@@ -170,7 +179,7 @@ export function deploymentReadFailureToResponse(
 }
 
 export function deploymentStartFailureToResponse(
-  error: DeploymentSqlError | DeploymentValidationError,
+  error: DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError,
 ): DeploymentStartErrorResponse {
   if (error instanceof DeploymentValidationError) {
     return new DeploymentBadRequestErrorResponse({ error: error.message });
@@ -183,6 +192,7 @@ export function deploymentFinishFailureToResponse(
     | DeploymentArtifactRefError
     | DeploymentPushNotFoundError
     | DeploymentSqlError
+    | DeploymentStoredPushMissingError
     | DeploymentValidationError,
 ): DeploymentFinishErrorResponse {
   if (error instanceof DeploymentValidationError) {
@@ -202,6 +212,7 @@ export function deploymentAbandonFailureToResponse(
     | DeploymentPushInvalidStateError
     | DeploymentPushNotFoundError
     | DeploymentSqlError
+    | DeploymentStoredPushMissingError
     | DeploymentValidationError,
 ): DeploymentAbandonErrorResponse {
   if (error instanceof DeploymentPushNotFoundError) {

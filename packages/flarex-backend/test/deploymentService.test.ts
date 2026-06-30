@@ -7,6 +7,7 @@ import {
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "../src/deployment/Errors";
 import {
@@ -313,6 +314,45 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
+  it("reports missing stored start-push writes as typed store failures", async () => {
+    const transaction = transactionRecorder();
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([]),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.startAnalyzedPush({
+            pushId: "missing-start-write",
+            now: 1_950_000,
+            sourcePackage: sourcePackage(),
+            diagnostics: [],
+            error: "analysis failed",
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentStoredPushMissingError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentStoredPushMissingError)) {
+        throw new Error("Expected DeploymentStoredPushMissingError.");
+      }
+      expect(error).toMatchObject({
+        operation: "startPush",
+        pushId: "missing-start-write",
+        stage: "stored",
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("finishes analyzed pushes with controlled clock and artifact refs", async () => {
     const preflight = analyzedPushStatus("push-finish");
     const finished: FinishPushResponse = {
@@ -466,14 +506,12 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
   });
 
-  it("reports missing prevalidated finish writes as storage failures", async () => {
-    const storage = {
-      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
-    } as DeploymentTransactionStorage;
+  it("reports missing prevalidated finish writes as typed store failures", async () => {
+    const transaction = transactionRecorder();
     const sql = sqlWithPushes([]);
     const runtime = ManagedRuntime.make(
       DeploymentPushStore.layer(
-        storage,
+        transaction.storage,
         sql,
       ),
     );
@@ -487,19 +525,58 @@ describe("DeploymentService", () => {
             executionArtifactRef: executionArtifactRef(),
           }),
         ).pipe(
-          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+          Effect.catchTag("DeploymentStoredPushMissingError", error => Effect.succeed(error)),
         ),
       );
 
-      if (!(error instanceof DeploymentSqlError)) {
-        throw new Error("Expected DeploymentSqlError.");
+      if (!(error instanceof DeploymentStoredPushMissingError)) {
+        throw new Error("Expected DeploymentStoredPushMissingError.");
       }
-      expect(error).toBeInstanceOf(DeploymentSqlError);
-      expect(error.operation).toBe("finishPush");
-      expect(error.cause).toBeInstanceOf(Error);
-      expect((error.cause as Error).message).toBe(
-        "Prevalidated finish push missing-prevalidated-finish disappeared.",
+      expect(error).toMatchObject({
+        operation: "finishPush",
+        pushId: "missing-prevalidated-finish",
+        stage: "prevalidated",
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("reports missing activated finish writes as typed store failures", async () => {
+    const status = analyzedPushStatus("missing-activated-finish");
+    const transaction = transactionRecorder();
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([status], { deleteActivatedPush: true }),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: status.pushId,
+            now: 2_360_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentStoredPushMissingError", error => Effect.succeed(error)),
+        ),
       );
+
+      if (!(error instanceof DeploymentStoredPushMissingError)) {
+        throw new Error("Expected DeploymentStoredPushMissingError.");
+      }
+      expect(error).toMatchObject({
+        operation: "finishPush",
+        pushId: status.pushId,
+        stage: "activated",
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
     } finally {
       await runtime.dispose();
     }
@@ -1503,6 +1580,43 @@ describe("DeploymentService", () => {
     }
   });
 
+  it("reports missing abandon writes as typed store failures", async () => {
+    const transaction = transactionRecorder();
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([]),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.abandonPush({
+            pushId: "missing-abandon-write",
+            now: 3_150_000,
+            reason: "typecheck failed",
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentStoredPushMissingError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentStoredPushMissingError)) {
+        throw new Error("Expected DeploymentStoredPushMissingError.");
+      }
+      expect(error).toMatchObject({
+        operation: "abandonPush",
+        pushId: "missing-abandon-write",
+        stage: "abandoned",
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("reports invalid active deployment metadata as typed storage metadata failure", async () => {
     const status = analyzedPushStatus("push-active-metadata");
     const storage = {
@@ -1578,12 +1692,15 @@ interface DeploymentTestStore {
   >;
   startAnalyzedPush?(
     input: StartAnalyzedPushStoreInput,
-  ): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentValidationError>;
+  ): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError>;
   finishPush?(input: FinishPushStoreInput): Effect.Effect<
     FinishPushResponse,
-    DeploymentSqlError | DeploymentValidationError
+    DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError
   >;
-  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<PushStatus, DeploymentSqlError | DeploymentValidationError>;
+  abandonPush?(input: AbandonPushStoreInput): Effect.Effect<
+    PushStatus,
+    DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError
+  >;
 }
 
 interface DeploymentTestLayerOptions {
@@ -1655,6 +1772,30 @@ function deploymentTestLayer(options: DeploymentTestLayerOptions) {
   );
 }
 
+function transactionRecorder(): {
+  readonly storage: DeploymentTransactionStorage;
+  committed: boolean;
+  rejected: boolean;
+} {
+  const recorder = {
+    committed: false,
+    rejected: false,
+    storage: {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => {
+        try {
+          const value = await callback();
+          recorder.committed = true;
+          return value;
+        } catch (error) {
+          recorder.rejected = true;
+          throw error;
+        }
+      },
+    } as DeploymentTransactionStorage,
+  };
+  return recorder;
+}
+
 function testStore(store: DeploymentTestStore): Required<DeploymentTestStore> {
   return {
     getPush: store.getPush ?? (() => Effect.succeed(null)),
@@ -1701,6 +1842,7 @@ function sqlWithPushes(
   options: {
     readonly metadata?: Map<string, string>;
     readonly onExec?: (query: string) => void;
+    readonly deleteActivatedPush?: boolean;
   } = {},
 ): DeploymentSqlStorage {
   return sqlWithPushRows(pushes.map(pushStatusRow), options);
@@ -1711,6 +1853,7 @@ function sqlWithPushRows(
   options: {
     readonly metadata?: Map<string, string>;
     readonly onExec?: (query: string) => void;
+    readonly deleteActivatedPush?: boolean;
   } = {},
 ): DeploymentSqlStorage {
   const rows = new Map(pushRows.map(row => [row.push_id, row]));
@@ -1729,6 +1872,10 @@ function sqlWithPushRows(
         if (typeof pushId === "string" && typeof updatedAt === "number") {
           const row = rows.get(pushId);
           if (row === undefined) return { toArray: () => [] };
+          if (options.deleteActivatedPush === true) {
+            rows.delete(pushId);
+            return { toArray: () => [] };
+          }
           rows.set(pushId, { ...row, state: "activated", updated_at: updatedAt });
         }
       }

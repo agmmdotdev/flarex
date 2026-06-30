@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Executor HTTP authorization route boundary.
+- Previous completed checkpoint: Deployment stored push write boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Executor HTTP authorization route boundary checkpoint:
+Next recommended checkpoint after the Deployment stored push write boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the Executor HTTP authorization route boundary
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 215 slice:
+
+1. Add `DeploymentStoredPushMissingError` for deployment store transaction
+   paths where a post-write row read unexpectedly returns no push.
+2. Change start-push, finish-push, and abandon-push store writes to reject the
+   transaction callback with typed missing-row errors, then preserve those
+   errors through the `Effect.tryPromise(...)` catch path instead of throwing
+   plain `Error`.
+3. Thread the typed store-write failure through `DeploymentPushStore`,
+   `DeploymentService`, generated deployment HttpApi handlers, and the
+   compatibility HTTP mapper while preserving the existing external
+   `Deployment storage error.` response shape.
+4. Add focused store coverage for missing start writes, prevalidated finish
+   reads, activated finish reads, and abandon writes.
+5. Keep DeploymentDO routing, public Worker forwarding, SQL statement shapes,
+   deployment validation, protocol schemas, `ValidatorJson`, and PartitionDO
+   SQL/OCC unchanged.
+6. Validate deployment service/store coverage, backend typecheck/build,
+   protocol build, and only the EffectTS quality checker reviewer.
 
 Completed Goal 214 slice:
 

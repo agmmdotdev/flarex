@@ -14,6 +14,7 @@ import {
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "./Errors";
 
@@ -33,15 +34,23 @@ export interface DeploymentServiceApi {
   >;
   startAnalyzedPush(input: StartAnalyzedPushInput): Effect.Effect<
     PushStatus,
-    DeploymentSqlError | DeploymentValidationError
+    DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError
   >;
   finishPush(pushId: string): Effect.Effect<
     FinishPushResponse,
-    DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+    | DeploymentArtifactRefError
+    | DeploymentPushNotFoundError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError
   >;
   abandonPush(pushId: string, request: AbandonPushRequest): Effect.Effect<
     PushStatus,
-    DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | DeploymentValidationError
+    | DeploymentPushNotFoundError
+    | DeploymentPushInvalidStateError
+    | DeploymentSqlError
+    | DeploymentStoredPushMissingError
+    | DeploymentValidationError
   >;
 }
 
@@ -87,7 +96,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
       const startAnalyzedPush = Effect.fn("DeploymentService.startAnalyzedPush")(
         function* (
           input: StartAnalyzedPushInput,
-        ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentValidationError> {
+        ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError> {
           const now = yield* clock.currentTimeMillis;
           const pushId = yield* ids.pushId;
           if ("analysis" in input) {
@@ -115,7 +124,11 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           pushId: string,
         ): Effect.fn.Return<
           FinishPushResponse,
-          DeploymentArtifactRefError | DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+          | DeploymentArtifactRefError
+          | DeploymentPushNotFoundError
+          | DeploymentSqlError
+          | DeploymentStoredPushMissingError
+          | DeploymentValidationError
         > {
           const preflight = yield* store.getPush(pushId);
           if (preflight === null) {
@@ -137,7 +150,11 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           request: AbandonPushRequest,
         ): Effect.fn.Return<
           PushStatus,
-          DeploymentPushNotFoundError | DeploymentPushInvalidStateError | DeploymentSqlError | DeploymentValidationError
+          | DeploymentPushNotFoundError
+          | DeploymentPushInvalidStateError
+          | DeploymentSqlError
+          | DeploymentStoredPushMissingError
+          | DeploymentValidationError
         > {
           const status = yield* store.getPush(pushId);
           if (status === null) {

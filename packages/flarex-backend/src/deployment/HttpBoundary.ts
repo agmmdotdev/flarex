@@ -5,6 +5,7 @@ import {
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "./Errors";
 import type { DeploymentSqlError } from "./Store";
@@ -16,6 +17,7 @@ export type DeploymentServiceFailure =
   | DeploymentArtifactRefError
   | DeploymentPushInvalidStateError
   | DeploymentPushNotFoundError
+  | DeploymentStoredPushMissingError
   | DeploymentValidationError
   | DeploymentSqlError;
 
@@ -37,6 +39,9 @@ export function deploymentFailureToHttpError(error: DeploymentServiceFailure): H
   }
   if (error instanceof DeploymentValidationError) {
     return new HttpError(400, error.message);
+  }
+  if (error instanceof DeploymentStoredPushMissingError) {
+    return new HttpError(500, "Deployment storage error.");
   }
   return new HttpError(500, "Deployment storage error.");
 }

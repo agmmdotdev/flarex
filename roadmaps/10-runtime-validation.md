@@ -1,5 +1,60 @@
 # Runtime Validation
 
+## Deployment Stored Push Write Boundary
+
+Previous completed checkpoint: `1dbc98c Type executor HTTP authorization boundary`.
+
+What changed:
+
+- Deployment store writes now model missing post-write push rows with
+  `DeploymentStoredPushMissingError`.
+- Start-push, finish-push, and abandon-push transaction callbacks reject with
+  typed missing-row errors, and the store preserves them through the
+  `Effect.tryPromise(...)` catch path.
+- Deployment service, generated HttpApi handlers, and compatibility HTTP
+  mapping now accept the typed store-write failure while preserving the
+  external `Deployment storage error.` response.
+- Focused store tests cover missing start writes, missing prevalidated finish
+  reads, missing activated finish reads, and missing abandon writes.
+
+Why it changed:
+
+The deployment validation batch moved stored push row decoding into typed
+Effect failures, but transaction-local write verification still used plain
+`Error` throws for expected storage consistency failures. This checkpoint keeps
+those failures typed at the store boundary while still aborting the transaction
+and preserving response contracts.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex deployment-store Effect error
+  plumbing.
+
+How Flarex differs from Convex:
+
+- Flarex deployment pushes are stored in a Cloudflare Durable Object SQLite
+  database, then exposed through generated HttpApi handlers and Worker
+  forwarding. The migration has to preserve existing DO response contracts
+  while moving store consistency failures into typed Effect channels.
+
+Known limitations:
+
+- Durable Object transaction execution still uses the platform
+  `storage.transaction(...)` promise API behind `Effect.tryPromise(...)`.
+- Deployment schema/function activation SQL, public Worker forwarding,
+  PartitionDO SQL/OCC, protocol schemas, executor-http, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Edge
 
 Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.

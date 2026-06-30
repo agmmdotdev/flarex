@@ -39,6 +39,21 @@ export class DeploymentActiveDeploymentInvalidError extends Schema.TaggedErrorCl
   },
 ) {}
 
+const DeploymentStoredPushOperation = Schema.Union([
+  Schema.Literal("startPush"),
+  Schema.Literal("finishPush"),
+  Schema.Literal("abandonPush"),
+]);
+
+export class DeploymentStoredPushMissingError extends Schema.TaggedErrorClass<DeploymentStoredPushMissingError>()(
+  "DeploymentStoredPushMissingError",
+  {
+    operation: DeploymentStoredPushOperation,
+    pushId: Schema.String,
+    stage: Schema.String,
+  },
+) {}
+
 export class DeploymentValidationError extends Schema.TaggedErrorClass<DeploymentValidationError>()(
   "DeploymentValidationError",
   {
