@@ -1,10 +1,19 @@
 import type { BackendExecutionArtifactStore } from "./artifactStore.ts";
 import {
-  decodeExecutionArtifactInvokePayload,
   ExecutionArtifactInvokePayloadError,
   executionArtifactInvokeRouteErrorToHttpError,
-  type ExecutionArtifactInvokeRouteError,
 } from "./artifactRuntime/RouteBoundary.ts";
+import {
+  ExecutionArtifactRuntimeAuthorizationError,
+  ExecutionArtifactRuntimeHeaderError,
+  ExecutionArtifactRuntimeRouteNotFoundError,
+  routeExecutionArtifactRuntimeInvoke,
+  type ExecutionArtifactRuntimeRouteError,
+} from "./artifactRuntime/RuntimeRoute.ts";
+import {
+  ExecutionArtifactRuntimeMissingSourcePackageError,
+  ExecutionArtifactRuntimeOperationError,
+} from "./artifactRuntime/Errors.ts";
 import { Data, Effect } from "effect";
 import { HttpError, readResponseJsonOrNullEffect, RequestJsonError } from "./http.ts";
 import type {
@@ -54,25 +63,10 @@ export interface ExecutionArtifactMaterializer {
   materialize(payload: MaterializedExecutionArtifactPayload): Promise<MaterializedExecutionArtifact>;
 }
 
-export class ExecutionArtifactRuntimeMissingSourcePackageError extends Data.TaggedError(
-  "ExecutionArtifactRuntimeMissingSourcePackageError",
-)<{
-  readonly message: string;
-}> {}
-
-export class ExecutionArtifactRuntimeOperationError extends Data.TaggedError(
-  "ExecutionArtifactRuntimeOperationError",
-)<{
-  readonly operation:
-    | "normalizeRequest"
-    | "loadSourcePackage"
-    | "materialize"
-    | "invoke"
-    | "runtimeFetch";
-  readonly status: number;
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
+export {
+  ExecutionArtifactRuntimeMissingSourcePackageError,
+  ExecutionArtifactRuntimeOperationError,
+};
 
 type ExecutionArtifactRuntimeHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
@@ -87,11 +81,6 @@ export class ServiceBindingExecutionArtifactRuntimeResponseError extends Data.Ta
 export type ServiceBindingExecutionArtifactRuntimeError =
   | ExecutionArtifactRuntimeOperationError
   | ServiceBindingExecutionArtifactRuntimeResponseError;
-
-type ExecutionArtifactRuntimeError =
-  | ExecutionArtifactInvokeRouteError
-  | ExecutionArtifactRuntimeMissingSourcePackageError
-  | ExecutionArtifactRuntimeOperationError;
 
 export class CachedExecutionArtifactMaterializer {
   private readonly materializer: ExecutionArtifactMaterializer;
@@ -159,44 +148,6 @@ export function createExecutionArtifactRuntimeService(options: {
   return Object.assign(fetch, {
     dispose: () => cache.clear(),
     cacheSize: () => cache.size(),
-  });
-}
-
-const routeExecutionArtifactRuntimeInvoke = Effect.fn("ExecutionArtifactRuntime.routeInvoke")(
-  function* (
-    input: RequestInfo | URL,
-    init: RequestInit | undefined,
-    options: {
-      readonly store?: BackendExecutionArtifactStore;
-      readonly capabilityToken?: string;
-    },
-    cache: CachedExecutionArtifactMaterializer,
-  ) {
-    const request = yield* normalizeRuntimeRequestEffect(input, init);
-    if (new URL(request.url).pathname !== "/invoke" || request.method !== "POST") {
-      return Response.json({ error: "Not found." }, { status: 404 });
-    }
-    const unauthorized = authorizeRuntimeRequest(request, options.capabilityToken);
-    if (unauthorized !== null) return unauthorized;
-
-    const payload = yield* decodeExecutionArtifactInvokePayload(request);
-    const headerError = validateArtifactHeaders(request, payload);
-    if (headerError !== null) return headerError;
-
-    const materializedPayload = yield* resolveSourcePackageEffect(payload, options.store);
-    const artifact = yield* getMaterializedArtifactEffect(cache, materializedPayload);
-    const response = yield* invokeMaterializedArtifactEffect(artifact, materializedPayload);
-    return Response.json(response);
-  },
-);
-
-function normalizeRuntimeRequestEffect(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Effect.Effect<Request, ExecutionArtifactRuntimeOperationError> {
-  return Effect.tryPromise({
-    try: () => normalizeRuntimeRequest(input, init),
-    catch: cause => executionArtifactRuntimeOperationError("normalizeRequest", cause),
   });
 }
 
@@ -360,70 +311,6 @@ function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
   return new HttpError(error.status, error.message);
 }
 
-function authorizeRuntimeRequest(request: Request, capabilityToken: string | undefined): Response | null {
-  if (capabilityToken === undefined) return null;
-  const expected = `Bearer ${capabilityToken}`;
-  if (request.headers.get("authorization") === expected) return null;
-  return Response.json({ error: "Unauthorized execution artifact runtime request." }, { status: 401 });
-}
-
-function validateArtifactHeaders(
-  request: Request,
-  payload: ExecutionArtifactInvokePayload,
-): Response | null {
-  if (request.headers.get("x-flarex-artifact-id") !== payload.ref.artifactId) {
-    return Response.json({ error: "Execution artifact ID header mismatch." }, { status: 400 });
-  }
-  if (request.headers.get("x-flarex-source-package-hash") !== payload.ref.sourcePackageHash) {
-    return Response.json({ error: "Execution artifact source package hash header mismatch." }, { status: 400 });
-  }
-  return null;
-}
-
-function resolveSourcePackageEffect(
-  payload: ExecutionArtifactInvokePayload,
-  store: BackendExecutionArtifactStore | undefined,
-): Effect.Effect<
-  MaterializedExecutionArtifactPayload,
-  ExecutionArtifactRuntimeMissingSourcePackageError | ExecutionArtifactRuntimeOperationError
-> {
-  if (payload.sourcePackage !== undefined) {
-    return Effect.succeed(payload as MaterializedExecutionArtifactPayload);
-  }
-  if (store === undefined) {
-    return Effect.fail(new ExecutionArtifactRuntimeMissingSourcePackageError({
-      message: "Execution artifact invoke payload missing sourcePackage.",
-    }));
-  }
-  return Effect.tryPromise({
-    try: async () => ({
-      ...payload,
-      sourcePackage: await store.get(payload.ref),
-    }),
-    catch: cause => executionArtifactRuntimeOperationError("loadSourcePackage", cause),
-  });
-}
-
-function getMaterializedArtifactEffect(
-  cache: CachedExecutionArtifactMaterializer,
-  payload: MaterializedExecutionArtifactPayload,
-): Effect.Effect<MaterializedExecutionArtifact, ExecutionArtifactRuntimeOperationError> {
-  return Effect.tryPromise({
-    try: () => cache.get(payload),
-    catch: cause => executionArtifactRuntimeOperationError("materialize", cause),
-  });
-}
-
-function invokeMaterializedArtifactEffect(
-  artifact: MaterializedExecutionArtifact,
-  payload: MaterializedExecutionArtifactPayload,
-): Effect.Effect<InvokeResponse, ExecutionArtifactRuntimeOperationError> {
-  return Effect.tryPromise({
-    try: () => artifact.invoke(payload),
-    catch: cause => executionArtifactRuntimeOperationError("invoke", cause),
-  });
-}
-
 function executionArtifactRuntimeOperationError(
   operation: ExecutionArtifactRuntimeOperationError["operation"],
   cause: unknown,
@@ -436,13 +323,20 @@ function executionArtifactRuntimeOperationError(
   });
 }
 
-function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeError): Response {
+function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRouteError): Response {
   if (error instanceof RequestJsonError || error instanceof ExecutionArtifactInvokePayloadError) {
     const httpError = executionArtifactInvokeRouteErrorToHttpError(error);
     return Response.json({ error: httpError.message }, { status: httpError.status });
   }
   if (error instanceof ExecutionArtifactRuntimeMissingSourcePackageError) {
     return Response.json({ error: error.message }, { status: 400 });
+  }
+  if (
+    error instanceof ExecutionArtifactRuntimeRouteNotFoundError ||
+    error instanceof ExecutionArtifactRuntimeAuthorizationError ||
+    error instanceof ExecutionArtifactRuntimeHeaderError
+  ) {
+    return Response.json({ error: error.message }, { status: error.status });
   }
   return Response.json({ error: error.message }, { status: error.status });
 }
@@ -452,46 +346,4 @@ function errorStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;
   return typeof status === "number" && Number.isInteger(status) ? status : undefined;
-}
-
-async function normalizeRuntimeRequest(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Request> {
-  if (isRequestLike(input) && !(input instanceof Request)) {
-    return requestFromRequestLike(input);
-  }
-  if (init !== undefined || typeof input === "string" || input instanceof URL || input instanceof Request) {
-    return new Request(input, init);
-  }
-  return new Request(input, init);
-}
-
-type RequestLike = {
-  url: string;
-  method: string;
-  headers: HeadersInit;
-  text(): Promise<string>;
-};
-
-function isRequestLike(value: unknown): value is RequestLike {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<RequestLike>;
-  return (
-    typeof candidate.url === "string" &&
-    typeof candidate.method === "string" &&
-    candidate.headers !== undefined &&
-    typeof candidate.text === "function"
-  );
-}
-
-async function requestFromRequestLike(request: RequestLike): Promise<Request> {
-  const init: RequestInit = {
-    method: request.method,
-    headers: request.headers,
-    ...(request.method === "GET" || request.method === "HEAD"
-      ? {}
-      : { body: await request.text() }),
-  };
-  return new Request(request.url, init);
 }

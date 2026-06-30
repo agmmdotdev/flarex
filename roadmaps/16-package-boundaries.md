@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Artifact Runtime Invoke Route Edge
+
+Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.
+
+What changed:
+
+- `packages/flarex-backend/src/artifactRuntime/RuntimeRoute.ts` now owns
+  typed route errors for runtime not-found, authorization, and artifact header
+  mismatch failures without exporting them through `flarex-backend/artifact-runtime`.
+- The artifact runtime route boundary still owns malformed JSON and invoke
+  payload validation through `artifactRuntime/RouteBoundary.ts`.
+- `createExecutionArtifactRuntimeService(...)` is the adapter that maps both
+  route-boundary and runtime service failures to HTTP JSON responses.
+
+Boundary decision:
+
+Runtime capability-token and artifact-header checks belong to the artifact
+runtime service boundary. They are not public invoke protocol fields and should
+not leak into deployment or Worker routing modules.
+
+Convex source files inspected:
+
+- None for this checkpoint. This boundary is specific to Flarex's
+  Cloudflare-compatible dynamic artifact runtime.
+
+How Flarex differs from Convex:
+
+- Flarex can load and execute deployment artifacts through a runtime service
+  that may receive source packages inline or fetch them from backend storage.
+  The route boundary therefore protects artifact identity before materializer
+  execution.
+
+Known limitations:
+
+- Full materializer dependency layering is still future work.
+- Worker public invoke routing, deployment storage, executor-http, protocol
+  packages, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Runtime Lookup Boundary
 
 Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.

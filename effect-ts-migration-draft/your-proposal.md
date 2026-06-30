@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.
-- Active checkpoint: Invoke runtime lookup boundary.
+- Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.
+- Active checkpoint: Artifact runtime invoke route edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the invoke runtime lookup checkpoint:
+Next recommended checkpoint after the artifact runtime invoke route edge checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
@@ -59,7 +59,25 @@ Next recommended checkpoint after the invoke runtime lookup checkpoint:
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 192 slice:
+Current Goal 193 slice:
+
+1. Convert artifact-runtime route-local not-found, authorization, header
+   mismatch, and missing source-package failures into typed Effect errors.
+2. Keep internal `routeExecutionArtifactRuntimeInvoke(...)` as the named
+   Effect-returning route service and make `createExecutionArtifactRuntimeService(...)`
+   the public adapter that maps route/runtime failures to HTTP JSON responses.
+3. Preserve malformed JSON and invalid payload failures as existing
+   `RequestJsonError` / `ExecutionArtifactInvokePayloadError` route-boundary
+   failures.
+4. Preserve service-binding runtime fetch/load/response failures and materializer
+   invocation failures as existing typed runtime operation failures.
+5. Keep deployment invoke lookup, Worker public invoke routing, deployment push
+   routes, ExecutionDO, ConnectionDO, SchedulerDO, PartitionDO SQL/OCC behavior,
+   executor-http, protocol schemas, and `ValidatorJson` unchanged.
+6. Validate typed route failures directly and prove the runtime service adapter
+   still returns the same `404`, `401`, and `400` JSON responses.
+
+Completed Goal 192 slice:
 
 1. Add typed `InvokeActiveDeploymentLoadError` and
    `InvokeKindValidationError` failures for remaining invoke runtime lookup

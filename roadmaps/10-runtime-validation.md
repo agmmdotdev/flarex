@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Artifact Runtime Invoke Route Edge
+
+Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.
+
+What changed:
+
+- Artifact runtime route not-found, authorization, and artifact header
+  mismatch failures now use typed route errors instead of returning `Response`
+  objects from inside route flow.
+- Missing source-package, malformed JSON, invalid payload, materializer, and
+  runtime operation failures stay typed until the runtime service adapter maps
+  them to HTTP JSON.
+- Direct tests cover typed route failures, while existing service tests prove
+  the adapter preserves response status/body behavior.
+
+Why it changed:
+
+The artifact runtime route already used Effect for payload decode, source
+package resolution, cache materialization, and invocation. Route-local guard
+failures were the remaining response-shaped branch inside the route pipeline.
+This checkpoint keeps those failures in the Effect error channel and leaves
+HTTP conversion at `createExecutionArtifactRuntimeService(...)`.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's dynamic-worker artifact runtime
+  adapter boundary.
+
+How Flarex differs from Convex:
+
+- Flarex may execute built artifacts through a Cloudflare service binding or
+  local runtime service. The route edge must validate runtime capability and
+  artifact headers before materializing code, while preserving the same Worker
+  response contract.
+
+Known limitations:
+
+- Materializer and runtime invocation internals still use promise-based
+  adapters behind typed `Effect.tryPromise(...)` boundaries.
+- PartitionDO SQL/OCC behavior, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Runtime Lookup Boundary
 
 Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.

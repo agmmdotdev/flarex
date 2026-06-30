@@ -1,5 +1,43 @@
 # Dynamic Worker Execution
 
+## Artifact Runtime Invoke Route Edge
+
+Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.
+
+What changed:
+
+- Artifact runtime route guards now emit typed errors for non-`POST /invoke`
+  requests, unauthorized requests, and artifact header mismatches.
+- The route service continues to decode payloads, resolve source packages,
+  materialize artifacts, and invoke artifacts through typed Effect boundaries.
+- Runtime service `fetch(...)` remains the HTTP adapter that converts typed
+  route/runtime failures to the preserved JSON response shapes.
+
+Why it changed:
+
+Dynamic worker execution should keep runtime authorization and artifact
+identity checks in the same typed route pipeline as payload decoding and
+materialization. Returning `Response` from those guards hid route failures
+inside business flow instead of leaving conversion to the adapter edge.
+
+Known limitations:
+
+- Artifact materialization still delegates to promise-based runtime
+  implementations.
+- This checkpoint does not change service-binding payload construction or
+  Worker public invoke dispatch.
+- PartitionDO SQL/OCC behavior is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/artifactRuntime.test.ts packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts packages/flarex-backend/test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Invoke Runtime Lookup Boundary
 
 Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.

@@ -5,12 +5,19 @@ import {
   CachedExecutionArtifactMaterializer,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
+  ExecutionArtifactRuntimeMissingSourcePackageError,
   invokeServiceBindingExecutionArtifactRuntime,
   ServiceBindingExecutionArtifactRuntime,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
   type MaterializedExecutionArtifactPayload,
 } from "../src/artifactRuntime";
+import {
+  ExecutionArtifactRuntimeAuthorizationError,
+  ExecutionArtifactRuntimeHeaderError,
+  ExecutionArtifactRuntimeRouteNotFoundError,
+  routeExecutionArtifactRuntimeInvoke,
+} from "../src/artifactRuntime/RuntimeRoute";
 import type {
   ActiveDeploymentStatus,
   InvokeRequest,
@@ -497,6 +504,74 @@ describe("backend execution artifact runtime", () => {
     expect(materializedSources).toEqual([payload.sourcePackage]);
   });
 
+  it("exposes typed runtime route failures before adapter response mapping", async () => {
+    const payload = testPayload();
+    const cache = new CachedExecutionArtifactMaterializer({
+      materialize: async () => {
+        throw new Error("materializer should not run for route failures");
+      },
+    });
+
+    await expect(Effect.runPromise(routeExecutionArtifactRuntimeInvoke(
+      "https://runtime.test/unknown",
+      { method: "POST" },
+      { capabilityToken: "runtime-secret" },
+      cache,
+    ))).rejects.toBeInstanceOf(ExecutionArtifactRuntimeRouteNotFoundError);
+
+    await expect(Effect.runPromise(routeExecutionArtifactRuntimeInvoke(
+      "https://runtime.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-artifact-id": payload.ref.artifactId,
+          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+        },
+        body: JSON.stringify(payload),
+      },
+      { capabilityToken: "runtime-secret" },
+      cache,
+    ))).rejects.toBeInstanceOf(ExecutionArtifactRuntimeAuthorizationError);
+
+    await expect(Effect.runPromise(routeExecutionArtifactRuntimeInvoke(
+      "https://runtime.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer runtime-secret",
+          "x-flarex-artifact-id": "artifact_ffffffffffffffffffffffffffffffff",
+          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+        },
+        body: JSON.stringify(payload),
+      },
+      { capabilityToken: "runtime-secret" },
+      cache,
+    ))).rejects.toMatchObject({
+      _tag: "ExecutionArtifactRuntimeHeaderError",
+      header: "x-flarex-artifact-id",
+      message: "Execution artifact ID header mismatch.",
+    } satisfies Partial<ExecutionArtifactRuntimeHeaderError>);
+
+    const { sourcePackage: _sourcePackage, ...payloadWithoutSource } = payload;
+    await expect(Effect.runPromise(routeExecutionArtifactRuntimeInvoke(
+      "https://runtime.test/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer runtime-secret",
+          "x-flarex-artifact-id": payload.ref.artifactId,
+          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
+        },
+        body: JSON.stringify(payloadWithoutSource),
+      },
+      { capabilityToken: "runtime-secret" },
+      cache,
+    ))).rejects.toBeInstanceOf(ExecutionArtifactRuntimeMissingSourcePackageError);
+  });
+
   it("rejects runtime-store mode without a store when sourcePackage is omitted", async () => {
     const payload = testPayload();
     const { sourcePackage: _sourcePackage, ...payloadWithoutSource } = payload;
@@ -612,6 +687,14 @@ describe("backend execution artifact runtime", () => {
       },
     });
 
+    const notFound = await fetch("https://runtime.test/unknown", {
+      method: "POST",
+    });
+    expect(notFound.status).toBe(404);
+    await expect(notFound.json()).resolves.toEqual({
+      error: "Not found.",
+    });
+
     const unauthorized = await fetch("https://runtime.test/invoke", {
       method: "POST",
       headers: {
@@ -622,6 +705,9 @@ describe("backend execution artifact runtime", () => {
       body: JSON.stringify(payload),
     });
     expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toEqual({
+      error: "Unauthorized execution artifact runtime request.",
+    });
 
     const mismatched = await fetch("https://runtime.test/invoke", {
       method: "POST",
@@ -636,6 +722,21 @@ describe("backend execution artifact runtime", () => {
     expect(mismatched.status).toBe(400);
     await expect(mismatched.json()).resolves.toEqual({
       error: "Execution artifact ID header mismatch.",
+    });
+
+    const hashMismatched = await fetch("https://runtime.test/invoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer runtime-secret",
+        "x-flarex-artifact-id": payload.ref.artifactId,
+        "x-flarex-source-package-hash": "b".repeat(64),
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(hashMismatched.status).toBe(400);
+    await expect(hashMismatched.json()).resolves.toEqual({
+      error: "Execution artifact source package hash header mismatch.",
     });
   });
 
