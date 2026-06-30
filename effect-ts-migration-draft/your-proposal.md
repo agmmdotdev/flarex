@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: PartitionDO route adapter typed recovery.
+- Previous completed checkpoint: Shared ValidatorJson Effect boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the PartitionDO route adapter typed recovery checkpoint:
+Next recommended checkpoint after the Shared ValidatorJson Effect boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,23 @@ Next recommended checkpoint after the PartitionDO route adapter typed recovery c
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 243 slice:
+
+1. Add shared `validateJsonValueEffect(...)` in `validation.ts` so
+   `ValidatorJson` value validation can expose typed `BackendValidationError`
+   failures through an Effect boundary.
+2. Migrate invoke argument, document, and return validation to the shared
+   Effect boundary while preserving their existing `Invoke*ValidationError`
+   domain errors.
+3. Migrate ExecutionDO start argument validation to the shared Effect boundary
+   while preserving existing `ExecutionSessionError` argument-validation
+   behavior.
+4. Keep `validateJsonValue(...)`, `BackendValidationError`, parser
+   compatibility wrappers, PartitionDO SQL/OCC validation, protocol schemas,
+   executor-http, and `ValidatorJson` semantics unchanged.
+5. Add direct Effect-boundary coverage for JSON value validation failures and
+   validate focused validation/invoke/execution coverage plus broad gates.
 
 Completed Goal 242 slice:
 

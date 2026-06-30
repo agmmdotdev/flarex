@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Json, ValidatorJson } from "./types";
 
 export type BackendValidationOptions = {
@@ -96,6 +97,27 @@ export function validateJsonValue(
       throw new BackendValidationError("Value does not match any union member.", path);
   }
 }
+
+export const validateJsonValueEffect = Effect.fn("Validation.validateJsonValue")(
+  function* (
+    validator: ValidatorJson,
+    value: Json,
+    path = "$",
+    options: BackendValidationOptions = {},
+  ): Effect.fn.Return<void, BackendValidationError> {
+    return yield* Effect.suspend(() => {
+      try {
+        validateJsonValue(validator, value, path, options);
+        return Effect.void;
+      } catch (error) {
+        if (error instanceof BackendValidationError) {
+          return Effect.fail(error);
+        }
+        return Effect.die(error);
+      }
+    });
+  },
+);
 
 export function assertValidatorJson(value: Json | undefined | null, path: string): ValidatorJson | null {
   const result = parseValidatorJson(value, path);

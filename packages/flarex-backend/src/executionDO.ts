@@ -54,7 +54,7 @@ import type {
   InvokeResponse,
   Json,
 } from "./types";
-import { BackendValidationError, validateJsonValue } from "./validation";
+import { validateJsonValueEffect } from "./validation";
 
 type ExecutionSession = {
   deploymentId: string;
@@ -113,22 +113,18 @@ export class ExecutionDO extends DurableObject<Env> {
       }
       yield* requireExecutionKindMatch("start", request.kind, metadata.kind);
 
-      yield* Effect.try({
-        try: () => {
-          if (metadata.args !== undefined && metadata.args !== null) {
-            validateJsonValue(metadata.args, request.args, "$args", {
-              validateId: idValidatorForSchema(schema),
-            });
-          }
-        },
-        catch: error =>
-          error instanceof BackendValidationError
-            ? executionSessionError("start", {
-                _tag: "ArgumentValidation",
-                message: error.message,
-              })
-            : executionRouteOperationError("start", error),
-      });
+      if (metadata.args !== undefined && metadata.args !== null) {
+        yield* validateJsonValueEffect(metadata.args, request.args, "$args", {
+          validateId: idValidatorForSchema(schema),
+        }).pipe(
+          Effect.mapError(error =>
+            executionSessionError("start", {
+              _tag: "ArgumentValidation",
+              message: error.message,
+            })
+          ),
+        );
+      }
       const scope = yield* Effect.try({
         try: () => resolveFunctionExecutionScope(
           metadata.partition,

@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Shared ValidatorJson Effect Boundary
+
+Previous completed checkpoint: `e1c52d8` Use typed partition route recovery.
+
+What changed:
+
+- `validation.ts` now exposes `validateJsonValueEffect(...)`, a shared
+  Effect boundary for `ValidatorJson` value validation failures.
+- Invoke argument, document, and return validation now use the shared Effect
+  boundary and preserve their existing `Invoke*ValidationError` domain errors.
+- ExecutionDO start argument validation now uses the shared Effect boundary
+  and preserves existing `ExecutionSessionError` argument-validation behavior.
+
+Boundary decision:
+
+`ValidatorJson` remains the source of truth for user document/function
+validation. The new Effect helper wraps that existing validator once and lets
+callers map `BackendValidationError` into their local domain errors without
+duplicating try/catch blocks.
+
+Known limitations:
+
+- This checkpoint does not replace `ValidatorJson`, change validation
+  semantics, migrate PartitionDO SQL/OCC validation, alter protocol schemas, or
+  change executor-http behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/validation.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## PartitionDO Route Adapter Typed Recovery
 
 Previous completed checkpoint: `1d81071` Use tagged artifact runtime recovery.

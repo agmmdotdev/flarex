@@ -30,7 +30,7 @@ import type {
   SchemaTable,
   ValidatorJson,
 } from "./types";
-import { BackendValidationError, validateJsonValue } from "./validation";
+import { BackendValidationError, validateJsonValueEffect } from "./validation";
 
 type InvokeEnv = Pick<Env, "DEPLOYMENTS" | "PARTITIONS">;
 
@@ -362,17 +362,14 @@ export const validateInvokeArgumentsEffect = Effect.fn(
   schema: DeploymentSchema,
 ): Effect.fn.Return<void, InvokeArgumentValidationError> {
   if (validator === undefined || validator === null) return;
-  return yield* Effect.suspend(() => {
-    try {
-      validateJsonValue(validator, value, "$args", { validateId: idValidatorForSchema(schema) });
-      return Effect.void;
-    } catch (error) {
-      if (error instanceof BackendValidationError) {
-        return Effect.fail(new InvokeArgumentValidationError({ message: error.message }));
-      }
-      return Effect.die(error);
-    }
-  });
+  return yield* validateJsonValueEffect(
+    validator,
+    value,
+    "$args",
+    { validateId: idValidatorForSchema(schema) },
+  ).pipe(
+    Effect.mapError(error => new InvokeArgumentValidationError({ message: error.message })),
+  );
 });
 
 export function resolveFunctionExecutionScope(
@@ -1047,18 +1044,15 @@ export const validateDocumentEffect = Effect.fn("Invoke.validateDocument")(funct
 ): Effect.fn.Return<void, InvokeDocumentValidationError> {
   if (table.validator === undefined || table.validator === null) return;
   const validator = table.validator;
-  return yield* Effect.suspend(() => {
-    try {
-      const options = schema === undefined ? {} : { validateId: idValidatorForSchema(schema) };
-      validateJsonValue(validator, value, `$document(${table.name})`, options);
-      return Effect.void;
-    } catch (error) {
-      if (error instanceof BackendValidationError) {
-        return Effect.fail(new InvokeDocumentValidationError({ message: error.message }));
-      }
-      return Effect.die(error);
-    }
-  });
+  const options = schema === undefined ? {} : { validateId: idValidatorForSchema(schema) };
+  return yield* validateJsonValueEffect(
+    validator,
+    value,
+    `$document(${table.name})`,
+    options,
+  ).pipe(
+    Effect.mapError(error => new InvokeDocumentValidationError({ message: error.message })),
+  );
 });
 
 function validateDocumentPlacement(
@@ -1126,17 +1120,14 @@ export const validateReturnEffect = Effect.fn("Invoke.validateReturn")(function*
   schema: DeploymentSchema,
 ): Effect.fn.Return<void, InvokeReturnValidationError> {
   if (validator === undefined || validator === null) return;
-  return yield* Effect.suspend(() => {
-    try {
-      validateJsonValue(validator, value, "$return", { validateId: idValidatorForSchema(schema) });
-      return Effect.void;
-    } catch (error) {
-      if (error instanceof BackendValidationError) {
-        return Effect.fail(new InvokeReturnValidationError({ message: error.message }));
-      }
-      return Effect.die(error);
-    }
-  });
+  return yield* validateJsonValueEffect(
+    validator,
+    value,
+    "$return",
+    { validateId: idValidatorForSchema(schema) },
+  ).pipe(
+    Effect.mapError(error => new InvokeReturnValidationError({ message: error.message })),
+  );
 });
 
 export function invokeValidationErrorToHttpError(error: InvokeValidationError): HttpError {

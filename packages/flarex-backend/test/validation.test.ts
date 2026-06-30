@@ -1,8 +1,10 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   assertValidatorJson,
   BackendValidationError,
   parseValidatorJson,
+  validateJsonValueEffect,
 } from "../src/validation";
 
 describe("backend validator metadata parsing", () => {
@@ -55,5 +57,16 @@ describe("backend validator metadata parsing", () => {
     expect(() => assertValidatorJson(rawValidator, "$validator")).toThrow(
       "$validator.value.body.fieldType: Validator is required.",
     );
+  });
+
+  it("exposes JSON value validation failures through an Effect boundary", async () => {
+    await expect(Effect.runPromise(validateJsonValueEffect(
+      { type: "object", value: { name: { fieldType: { type: "string" }, optional: false } } },
+      {},
+      "$args",
+    ))).rejects.toMatchObject({
+      path: "$args.name",
+      message: "$args.name: Required field is missing.",
+    });
   });
 });
