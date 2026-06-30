@@ -2,19 +2,28 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import {
   executeInvoke,
+  InvokeActiveDeploymentLoadError,
   InvokeArgumentValidationError,
   InvokeDocumentIdParseError,
   InvokeDocumentPlacementError,
   InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
+  InvokeKindValidationError,
   InvokePartitionValidationError,
   InvokeQueryPlanningError,
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
   findQueryIndexEffect,
+  invokeActiveDeploymentLoadErrorToHttpError,
+  invokeRuntimeErrorToHttpError,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
+  loadActiveDeploymentEffect,
+  loadActiveFunctionMetadata,
+  loadActiveFunctionMetadataEffect,
   partitionKeyFromArgsEffect,
+  parseInvokeKind,
+  parseInvokeKindEffect,
   queryIndexBoundsEffect,
   requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
@@ -58,6 +67,74 @@ afterAll(async () => {
 });
 
 describe("executeInvoke", () => {
+  it("reports active deployment load failures as typed Effect failures before adapter mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(
+      loadActiveDeploymentEffect(env, "typed-missing-active-deployment"),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeActiveDeploymentLoadError);
+    expect(failure).toMatchObject({
+      _tag: "InvokeActiveDeploymentLoadError",
+      deploymentId: "typed-missing-active-deployment",
+      status: 404,
+      message: "Failed to load active deployment typed-missing-active-deployment.",
+    });
+    expect(invokeActiveDeploymentLoadErrorToHttpError(failure)).toMatchObject({
+      status: 404,
+      message: "Failed to load active deployment typed-missing-active-deployment.",
+    });
+    await expect(loadActiveDeployment(env, "typed-missing-active-deployment"))
+      .rejects.toMatchObject({
+        status: 404,
+        message: "Failed to load active deployment typed-missing-active-deployment.",
+      });
+  });
+
+  it("reports active function metadata lookup failures as typed Effect failures", async () => {
+    await putFunctions("typed-active-metadata-deployment", { functions: [] });
+
+    const failure = await Effect.runPromise(Effect.flip(
+      loadActiveFunctionMetadataEffect(
+        env,
+        "typed-active-metadata-deployment",
+        "missing:function",
+      ),
+    ));
+
+    expect(failure).toMatchObject({
+      _tag: "InvokeActiveFunctionMetadataNotFoundError",
+      path: "missing:function",
+    });
+    expect(invokeRuntimeErrorToHttpError(failure)).toMatchObject({
+      status: 404,
+      message: "Unknown active Flarex function metadata: missing:function",
+    });
+    await expect(loadActiveFunctionMetadata(
+      env,
+      "typed-active-metadata-deployment",
+      "missing:function",
+    )).rejects.toMatchObject({
+      status: 404,
+      message: "Unknown active Flarex function metadata: missing:function",
+    });
+  });
+
+  it("reports invalid invoke kind parsing as a typed Effect failure", async () => {
+    await expect(Effect.runPromise(parseInvokeKindEffect("action")))
+      .rejects.toBeInstanceOf(InvokeKindValidationError);
+
+    const failure = await Effect.runPromise(Effect.flip(parseInvokeKindEffect("action")));
+    expect(failure).toMatchObject({
+      _tag: "InvokeKindValidationError",
+      message: "Invoke kind must be query or mutation.",
+    });
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "Invoke kind must be query or mutation.",
+    });
+    expect(() => parseInvokeKind("action")).toThrow("Invoke kind must be query or mutation.");
+  });
+
   it("reports invoke argument validation as a typed Effect failure before adapter mapping", async () => {
     await putSchema("typed-argument-validation-deployment", {
       version: 1,

@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## Invoke Runtime Lookup Boundary
+
+Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.
+
+What changed:
+
+- Active deployment load failures now use typed
+  `InvokeActiveDeploymentLoadError` values.
+- Active function metadata lookup and invoke kind parsing now expose
+  Effect-returning helpers before compatibility mapping.
+- The public Worker artifact-runtime invoke branch loads active deployment
+  through the typed helper before adapting failures to the existing response
+  shape.
+
+Why it changed:
+
+Invoke validation already had typed argument, return, document, partition, and
+query-planning failures, but runtime lookup helpers still threw
+adapter-shaped `HttpError` values. This checkpoint moves those lookup failures
+into typed Effect channels while preserving the existing Promise/sync helper
+APIs for older call sites.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex invoke runtime lookup plumbing.
+
+How Flarex differs from Convex:
+
+- Flarex loads active deployment metadata through a DeploymentDO HTTP boundary
+  before local invoke or artifact-runtime dispatch. That Cloudflare boundary
+  needs typed failure handling before Worker adapters map to HTTP.
+
+Known limitations:
+
+- `executeInvoke(...)` remains a Promise compatibility helper; a later slice
+  can expose the full invoke execution flow as an Effect-returning service.
+- ConnectionDO and ExecutionDO still consume compatibility wrappers for their
+  current adapter shapes.
+- PartitionDO SQL/OCC behavior, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "active deployment load|active function metadata|invalid invoke kind" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Live Query Delivery Target Validation Boundary
 
 Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.

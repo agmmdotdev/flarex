@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.
-- Active checkpoint: Live query delivery target service boundary.
+- Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.
+- Active checkpoint: Invoke runtime lookup boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the live query delivery target checkpoint:
+Next recommended checkpoint after the invoke runtime lookup checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
@@ -59,7 +59,28 @@ Next recommended checkpoint after the live query delivery target checkpoint:
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
 
-Current Goal 191 slice:
+Current Goal 192 slice:
+
+1. Add typed `InvokeActiveDeploymentLoadError` and
+   `InvokeKindValidationError` failures for remaining invoke runtime lookup
+   and kind parsing failures.
+2. Add `loadActiveDeploymentEffect(...)`,
+   `loadActiveFunctionMetadataEffect(...)`, and `parseInvokeKindEffect(...)`
+   so active deployment, active metadata, and kind parsing failures are
+   available as typed Effect channels.
+3. Keep `loadActiveDeployment(...)`, `loadActiveFunctionMetadata(...)`, and
+   `parseInvokeKind(...)` as compatibility wrappers that map typed failures to
+   the same `HttpError` status/message behavior.
+4. Route the public Worker artifact-runtime invoke branch through the typed
+   active-deployment load helper instead of throwing `HttpError` from the
+   lookup source.
+5. Keep direct invoke execution, ExecutionDO session behavior, ConnectionDO
+   sync behavior, PartitionDO SQL/OCC behavior, executor-http, protocol
+   schemas, and `ValidatorJson` untouched.
+6. Validate typed invoke runtime lookup failures directly and prove the
+   compatibility wrappers preserve existing adapter responses.
+
+Completed Goal 191 slice:
 
 1. Add typed `LiveQueryDeliveryTargetError` failures for post-decode live-query
    delivery deployment/connection target validation.

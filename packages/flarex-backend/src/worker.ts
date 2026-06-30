@@ -69,7 +69,9 @@ import { ExecutionDO } from "./executionDO";
 import {
   executeInvoke,
   invokeErrorResponse,
-  loadActiveDeployment,
+  InvokeActiveDeploymentLoadError,
+  invokeActiveDeploymentLoadErrorToHttpError,
+  loadActiveDeploymentEffect,
   type BackendFunctionRegistry,
 } from "./invoke";
 import {
@@ -855,11 +857,9 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
+      const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
       const result = yield* Effect.tryPromise({
-        try: async () => {
-          const activeDeployment = await loadActiveDeployment(env, deploymentId);
-          return await artifactRuntime.invoke(activeDeployment, invokeRequest);
-        },
+        try: () => artifactRuntime.invoke(activeDeployment, invokeRequest),
         catch: error => publicWorkerDispatchError("invoke-execute", error),
       });
       return json(result);
@@ -888,8 +888,14 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
 );
 
 function publicWorkerInvokeRouteErrorToResponse(
-  error: Parameters<typeof publicInvokeRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+  error:
+    | Parameters<typeof publicInvokeRouteErrorToHttpError>[0]
+    | InvokeActiveDeploymentLoadError
+    | PublicWorkerDispatchError,
 ): Response {
+  if (error instanceof InvokeActiveDeploymentLoadError) {
+    return invokeErrorResponse(invokeActiveDeploymentLoadErrorToHttpError(error));
+  }
   if (error instanceof PublicWorkerDispatchError) {
     return invokeErrorResponse(publicWorkerDispatchErrorToAdapterError(error));
   }

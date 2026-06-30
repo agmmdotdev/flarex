@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Invoke Runtime Lookup Boundary
+
+Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.
+
+What changed:
+
+- `packages/flarex-backend/src/invoke.ts` now owns typed active deployment
+  load, active metadata lookup, and invoke kind parsing helpers.
+- Compatibility wrappers remain in `invoke.ts`, but the source failures are
+  available as typed Effect errors before HTTP conversion.
+- Worker artifact-runtime invoke routing consumes the typed active deployment
+  lookup boundary directly.
+
+Boundary decision:
+
+Active deployment lookup is an invoke runtime boundary, not a public invoke
+request schema and not a deployment service/storage concern. Keeping the typed
+lookup helpers in `invoke.ts` matches the existing invoke validation errors
+for function metadata, arguments, returns, documents, partitions, and query
+planning.
+
+Convex source files inspected:
+
+- None for this checkpoint. This boundary is specific to Flarex's
+  Cloudflare-backed active deployment lookup.
+
+How Flarex differs from Convex:
+
+- Flarex dispatches invoke work from Worker/ConnectionDO/ExecutionDO surfaces
+  and loads deployment metadata over Durable Object/Worker boundaries. The
+  typed helper keeps that lookup error local to backend runtime code instead
+  of leaking it into protocol packages.
+
+Known limitations:
+
+- Full `executeInvoke(...)` Effect service extraction is still future work.
+- PartitionDO SQL/OCC behavior, executor-http, protocol packages, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "active deployment load|active function metadata|invalid invoke kind" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Live Query Delivery Target Boundary
 
 Previous completed checkpoint: `2165c08 Type scheduler runtime failures`.

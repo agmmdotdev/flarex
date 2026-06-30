@@ -121,6 +121,19 @@ export class InvokeQueryPlanningError
     readonly message: string;
   }> {}
 
+export class InvokeActiveDeploymentLoadError
+  extends Data.TaggedError("InvokeActiveDeploymentLoadError")<{
+    readonly deploymentId: string;
+    readonly status: number;
+    readonly message: string;
+    readonly cause: unknown;
+  }> {}
+
+export class InvokeKindValidationError
+  extends Data.TaggedError("InvokeKindValidationError")<{
+    readonly message: string;
+  }> {}
+
 export type InvokeFunctionValidationError =
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokeArgumentValidationError
@@ -151,7 +164,12 @@ export type InvokeValidationError =
   | InvokeDocumentValidationFailure
   | InvokePartitionValidationFailure
   | InvokeQueryPlanningFailure
-  | InvokeReturnValidationFailure;
+  | InvokeReturnValidationFailure
+  | InvokeKindValidationError;
+
+export type InvokeRuntimeError =
+  | InvokeActiveDeploymentLoadError
+  | InvokeActiveFunctionMetadataNotFoundError;
 
 export type BackendQueryCtx = {
   db: BackendDatabaseReader;
@@ -867,26 +885,66 @@ export async function loadActiveDeployment(
   env: InvokeEnv,
   deploymentId: string,
 ): Promise<ActiveDeploymentStatus> {
-  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
-  const response = await deployment.fetch(`https://flarex.internal${DeploymentRoute.activeDeployment}`);
-  if (!response.ok) {
-    throw new HttpError(response.status, `Failed to load active deployment ${deploymentId}.`);
-  }
-  return response.json() as Promise<ActiveDeploymentStatus>;
+  return await Effect.runPromise(
+    loadActiveDeploymentEffect(env, deploymentId).pipe(
+      Effect.mapError(invokeActiveDeploymentLoadErrorToHttpError),
+    ),
+  );
 }
+
+export const loadActiveDeploymentEffect = Effect.fn(
+  "Invoke.loadActiveDeployment",
+)(function* (
+  env: InvokeEnv,
+  deploymentId: string,
+): Effect.fn.Return<ActiveDeploymentStatus, InvokeActiveDeploymentLoadError> {
+  const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
+  const response = yield* Effect.tryPromise({
+    try: () => deployment.fetch(`https://flarex.internal${DeploymentRoute.activeDeployment}`),
+    catch: cause => activeDeploymentLoadError(deploymentId, 500, cause),
+  });
+  if (!response.ok) {
+    return yield* Effect.fail(activeDeploymentLoadError(
+      deploymentId,
+      response.status,
+      undefined,
+    ));
+  }
+  return yield* Effect.tryPromise({
+    try: () => response.json() as Promise<ActiveDeploymentStatus>,
+    catch: cause => activeDeploymentLoadError(deploymentId, 500, cause),
+  });
+});
 
 export async function loadActiveFunctionMetadata(
   env: InvokeEnv,
   deploymentId: string,
   path: string,
 ): Promise<{ deployment: ActiveDeploymentStatus; metadata: DeploymentFunctionMetadata }> {
-  const deployment = await loadActiveDeployment(env, deploymentId);
+  return await Effect.runPromise(
+    loadActiveFunctionMetadataEffect(env, deploymentId, path).pipe(
+      Effect.mapError(invokeRuntimeErrorToHttpError),
+    ),
+  );
+}
+
+export const loadActiveFunctionMetadataEffect = Effect.fn(
+  "Invoke.loadActiveFunctionMetadata",
+)(function* (
+  env: InvokeEnv,
+  deploymentId: string,
+  path: string,
+): Effect.fn.Return<
+  { deployment: ActiveDeploymentStatus; metadata: DeploymentFunctionMetadata },
+  InvokeRuntimeError
+> {
+  const deployment = yield* loadActiveDeploymentEffect(env, deploymentId);
   const metadata = deployment.analysis.functions.functions.find(candidate => candidate.path === path);
   if (metadata === undefined) {
-    throw new HttpError(404, `Unknown active Flarex function metadata: ${path}`);
+    return yield* Effect.fail(new InvokeActiveFunctionMetadataNotFoundError({ path }));
   }
   return { deployment, metadata };
-}
+});
 
 export function isInvokableKind(kind: DeploymentFunctionKind): kind is BackendFunctionKind {
   return kind === "query" || kind === "mutation";
@@ -1133,7 +1191,23 @@ export function invokeValidationErrorToHttpError(error: InvokeValidationError): 
   if (error instanceof InvokeQueryPlanningError) {
     return new HttpError(400, error.message);
   }
+  if (error instanceof InvokeKindValidationError) {
+    return new HttpError(400, error.message);
+  }
   return new HttpError(400, `ReturnValidationError: ${error.message}`);
+}
+
+export function invokeActiveDeploymentLoadErrorToHttpError(
+  error: InvokeActiveDeploymentLoadError,
+): HttpError {
+  return new HttpError(error.status, error.message);
+}
+
+export function invokeRuntimeErrorToHttpError(error: InvokeRuntimeError): HttpError {
+  if (error instanceof InvokeActiveDeploymentLoadError) {
+    return invokeActiveDeploymentLoadErrorToHttpError(error);
+  }
+  return invokeValidationErrorToHttpError(error);
 }
 
 export function idValidatorForSchema(schema: DeploymentSchema) {
@@ -1162,7 +1236,32 @@ export function idValidatorForSchema(schema: DeploymentSchema) {
 }
 
 export function parseInvokeKind(value: unknown): BackendFunctionKind | undefined {
+  return Effect.runSync(
+    parseInvokeKindEffect(value).pipe(
+      Effect.mapError(invokeValidationErrorToHttpError),
+    ),
+  );
+}
+
+export const parseInvokeKindEffect = Effect.fn("Invoke.parseInvokeKind")(function* (
+  value: unknown,
+): Effect.fn.Return<BackendFunctionKind | undefined, InvokeKindValidationError> {
   if (value === undefined) return undefined;
   if (value === "query" || value === "mutation") return value;
-  throw new HttpError(400, "Invoke kind must be query or mutation.");
+  return yield* Effect.fail(new InvokeKindValidationError({
+    message: "Invoke kind must be query or mutation.",
+  }));
+});
+
+function activeDeploymentLoadError(
+  deploymentId: string,
+  status: number,
+  cause: unknown,
+): InvokeActiveDeploymentLoadError {
+  return new InvokeActiveDeploymentLoadError({
+    deploymentId,
+    status,
+    message: `Failed to load active deployment ${deploymentId}.`,
+    cause,
+  });
 }

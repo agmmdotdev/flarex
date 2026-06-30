@@ -1,5 +1,41 @@
 # Dynamic Worker Execution
 
+## Invoke Runtime Lookup Boundary
+
+Previous completed checkpoint: `ddc6b56 Type live query delivery targets`.
+
+What changed:
+
+- Added typed invoke runtime lookup failures for active deployment loading and
+  active function metadata misses.
+- Added an Effect-returning invoke kind parser while preserving the old
+  `parseInvokeKind(...)` compatibility behavior.
+- Public Worker artifact-runtime invoke dispatch now uses the typed active
+  deployment lookup helper.
+
+Why it changed:
+
+The invoke runtime already had typed validation for most post-decode function
+execution checks. Active deployment lookup, active metadata lookup, and invoke
+kind parsing were the remaining non-Partition invoke failures still emitted as
+`HttpError` at the source.
+
+Known limitations:
+
+- This checkpoint does not convert the full `executeInvoke(...)` transaction
+  flow to Effect.
+- PartitionDO SQL/OCC behavior is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "active deployment load|active function metadata|invalid invoke kind" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## ExecutionDO Session Effect Boundary
 
 Previous completed checkpoint: `8447a2f Type connection fanout payloads`.
