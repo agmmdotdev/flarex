@@ -4,15 +4,16 @@ import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
 import { verifyStoredPushArtifactEffect } from "../src/deployment/PublicFinishArtifactBoundary";
 import type { PushSourcePackage, PushStatus } from "../src/types";
+import { publicWorkerDispatchError } from "../src/worker/PublicRouteDispatchError";
 
 describe("public finish artifact boundary", () => {
   it("skips artifact preflight when durable artifact storage is not configured", async () => {
     let fetchCalled = false;
 
-    await expect(Effect.runPromise(verifyStoredPushArtifactEffect(undefined, async () => {
+    await expect(Effect.runPromise(verifyStoredPushArtifactEffect(undefined, Effect.sync(() => {
       fetchCalled = true;
       return Response.json(analyzedPushStatus());
-    }))).resolves.toBeUndefined();
+    })))).resolves.toBeUndefined();
     expect(fetchCalled).toBe(false);
   });
 
@@ -21,11 +22,11 @@ describe("public finish artifact boundary", () => {
 
     await expect(Effect.runPromise(verifyStoredPushArtifactEffect(
       store,
-      async () => Response.json({ error: "Unknown push." }, { status: 404 }),
+      Effect.succeed(Response.json({ error: "Unknown push." }, { status: 404 })),
     ))).resolves.toBeUndefined();
     await expect(Effect.runPromise(verifyStoredPushArtifactEffect(
       store,
-      async () => Response.json({ ...analyzedPushStatus(), state: "failed" }),
+      Effect.succeed(Response.json({ ...analyzedPushStatus(), state: "failed" })),
     ))).resolves.toBeUndefined();
   });
 
@@ -36,7 +37,7 @@ describe("public finish artifact boundary", () => {
 
     const response = await Effect.runPromise(verifyStoredPushArtifactEffect(
       artifactStore({ available: false }),
-      async () => Response.json(status),
+      Effect.succeed(Response.json(status)),
     ));
 
     expect(response?.status).toBe(409);
@@ -51,9 +52,10 @@ describe("public finish artifact boundary", () => {
   it("keeps fetch and push-status JSON failures in the dispatch error channel", async () => {
     const fetchFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
       artifactStore({ available: true }),
-      async () => {
-        throw new Error("deployment unavailable");
-      },
+      Effect.fail(publicWorkerDispatchError(
+        "deployment-finish-push-artifact",
+        new Error("deployment unavailable"),
+      )),
     )));
     expect(fetchFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",
@@ -64,7 +66,7 @@ describe("public finish artifact boundary", () => {
 
     const jsonFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
       artifactStore({ available: true }),
-      async () => new Response("{", { status: 200 }),
+      Effect.succeed(new Response("{", { status: 200 })),
     )));
     expect(jsonFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",
@@ -74,7 +76,7 @@ describe("public finish artifact boundary", () => {
 
     const semanticFailure = await Effect.runPromise(Effect.flip(verifyStoredPushArtifactEffect(
       artifactStore({ available: true }),
-      async () => Response.json(null),
+      Effect.succeed(Response.json(null)),
     )));
     expect(semanticFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",

@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public Worker pass-through dispatch boundary.
+- Previous completed checkpoint: Public deployment push dispatch boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public Worker pass-through dispatch boundary checkpoint:
+Next recommended checkpoint after the Public deployment push dispatch boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,36 @@ Next recommended checkpoint after the Public Worker pass-through dispatch bounda
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 223 slice:
+
+1. Extract public deployment push Worker forwarding into
+   `readDeploymentPushEffect(...)`,
+   `readDeploymentPushForFinishArtifactEffect(...)`,
+   `abandonDeploymentPushEffect(...)`, `finishDeploymentPushEffect(...)`,
+   `startDeploymentPushEffect(...)`, and
+   `startAnalyzedDeploymentPushEffect(...)`, named Effect boundaries under
+   `deployment/PublicPushDispatchBoundary.ts`.
+2. Keep route/path parsing, request decoders, source-only analyzer work,
+   artifact persistence, finish artifact preflight, and HTTP adapter mapping in
+   their existing boundaries while moving DeploymentDO fetch forwarding out of
+   `worker.ts`.
+3. Preserve dispatch failures as `PublicWorkerDispatchError` values from
+   `deployment-read-push`, `deployment-finish-push-artifact`,
+   `deployment-abandon-push`, `deployment-finish-push`,
+   `deployment-start-push`, and `deployment-start-analyzed-push`.
+4. Preserve exact internal URLs, push id encoding, HTTP methods, JSON content
+   headers, and forwarded payloads for public push read, finish-artifact
+   preflight read, abandon, finish, source-only start, and analyzed-start.
+5. Keep DeploymentDO service/store behavior, analyzer response handling,
+   artifact persistence and availability semantics, protocol schemas, public
+   response bodies, and `ValidatorJson` unchanged.
+6. Add direct Effect boundary coverage for public deployment push forwarding
+   success paths and typed failure mappings, plus artifact-preflight coverage
+   for the new Effect-shaped read dependency.
+7. Validate focused deployment-push-dispatch/public-push coverage, backend
+   typecheck/build, protocol build/test, and only the EffectTS quality checker
+   reviewer.
 
 Completed Goal 222 slice:
 

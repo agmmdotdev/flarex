@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Public Deployment Push Dispatch Boundary
+
+Previous completed checkpoint: `dd78214 Type public worker pass-through dispatch boundary`.
+
+What changed:
+
+- Public deployment push read, finish-artifact preflight read, abandon, finish,
+  source-only start, and analyzed-start forwarding now run through named Effect
+  boundaries in `deployment/PublicPushDispatchBoundary.ts`.
+- Route/path parsing, request decoding, source-only analyzer execution, artifact
+  persistence, finish artifact preflight, and HTTP adapter mapping remain in
+  their existing Worker or deployment boundaries.
+- Deployment push dispatch failures stay typed as `PublicWorkerDispatchError`
+  values from `deployment-read-push`, `deployment-finish-push-artifact`,
+  `deployment-abandon-push`, `deployment-finish-push`,
+  `deployment-start-push`, and `deployment-start-analyzed-push`.
+- Direct tests cover internal URL construction, push id encoding, HTTP methods,
+  JSON headers, forwarded payloads, and typed failure mapping for the public
+  deployment push dispatch family.
+
+Why it changed:
+
+Public deployment push routes already had typed request decoding and analyzer or
+artifact boundaries, but Worker-to-DeploymentDO forwarding still had inline
+`Effect.tryPromise(...)` wrappers or raw fetch callbacks. This checkpoint moves
+that forwarding into named Effect functions while preserving the existing route
+adapter and finish artifact preflight behavior.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's public deployment push facade
+  dispatch.
+
+How Flarex differs from Convex:
+
+- Flarex public push lifecycle forwards Worker routes to DeploymentDO while
+  source-package analysis and artifact availability preflight remain Worker-side
+  responsibilities before activation.
+
+Known limitations:
+
+- The dispatch target is still an explicit interface instead of an Effect
+  service/layer.
+- DeploymentDO service/store behavior, analyzer behavior, artifact persistence,
+  protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushDispatchBoundary.test.ts packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|reads active deployment and push status through public routes|preserves analyzer codegen analysis through source-only push activation|requires durable artifact storage before public finish" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Worker Pass-Through Dispatch Boundary
 
 Previous completed checkpoint: `b8fc23d Type public scheduler dispatch boundary`.

@@ -2,8 +2,6 @@ import { Effect } from "effect";
 import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
-  DeploymentRoute,
-  type DeploymentRoutePath,
 } from "flarex-protocol/deployment";
 import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
 import {
@@ -82,6 +80,14 @@ import {
   parsePublicStartPushRequestEffect,
   publicDeploymentRouteErrorToHttpError,
 } from "./deployment/PublicPushRouteBoundary";
+import {
+  abandonDeploymentPushEffect,
+  finishDeploymentPushEffect,
+  readDeploymentPushEffect,
+  readDeploymentPushForFinishArtifactEffect,
+  startAnalyzedDeploymentPushEffect,
+  startDeploymentPushEffect,
+} from "./deployment/PublicPushDispatchBoundary";
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
 import { errorResponse, HttpError, json } from "./http";
@@ -508,10 +514,7 @@ const routeDeploymentReadPush = Effect.fn("Worker.routeDeploymentReadPush")(
     deployment: DurableObjectStub,
     pushId: string,
   ) {
-    return yield* Effect.tryPromise({
-      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
-      catch: error => publicWorkerDispatchError("deployment-read-push", error),
-    });
+    return yield* readDeploymentPushEffect(deployment, pushId);
   },
 );
 
@@ -522,14 +525,7 @@ const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush"
     pushId: string,
   ) {
     const body = yield* decodePublicAbandonPushRequest(request);
-    return yield* Effect.tryPromise({
-      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-      catch: error => publicWorkerDispatchError("deployment-abandon-push", error),
-    });
+    return yield* abandonDeploymentPushEffect(deployment, pushId, body);
   },
 );
 
@@ -543,18 +539,11 @@ const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
     const rawBody = yield* decodePublicFinishPushJson(request);
     const missingArtifact = yield* verifyStoredPushArtifactEffect(
       artifactStoreFromEnv(env),
-      () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
+      readDeploymentPushForFinishArtifactEffect(deployment, pushId),
     );
     if (missingArtifact !== undefined) return missingArtifact;
     const body = yield* parsePublicFinishPushRequestEffect(rawBody);
-    return yield* Effect.tryPromise({
-      try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-      catch: error => publicWorkerDispatchError("deployment-finish-push", error),
-    });
+    return yield* finishDeploymentPushEffect(deployment, pushId, body);
   },
 );
 
@@ -579,14 +568,7 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
     const body = yield* parsePublicStartPushRequestEffect(rawBody);
     const analyzed = yield* analyzeSourcePackageEffect(analyzer, deploymentId, body);
     yield* persistAnalyzedSourcePackageEffect(artifactStoreFromEnv(env), analyzed);
-    return yield* Effect.tryPromise({
-      try: () => deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(analyzed),
-      }),
-      catch: error => publicWorkerDispatchError("deployment-start-push", error),
-    });
+    return yield* startDeploymentPushEffect(deployment, analyzed);
   },
 );
 
@@ -596,14 +578,7 @@ const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyz
     deployment: DurableObjectStub,
   ) {
     const body = yield* decodePublicAnalyzedStartPushRequest(request);
-    return yield* Effect.tryPromise({
-      try: () => deployment.fetch(deploymentInternalUrl(DeploymentRoute.startAnalyzedPush), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-      catch: error => publicWorkerDispatchError("deployment-start-analyzed-push", error),
-    });
+    return yield* startAnalyzedDeploymentPushEffect(deployment, body);
   },
 );
 
@@ -620,22 +595,6 @@ function publicDeploymentWorkerRouteErrorToHttpError(
     return publicRoutePathErrorToHttpError(error);
   }
   return publicDeploymentRouteErrorToHttpError(error);
-}
-
-type DeploymentInternalPath =
-  | DeploymentRoutePath
-  | `${typeof DeploymentRoute.push}/${string}`
-  | `${typeof DeploymentRoute.push}/${string}/${DeploymentPushAction}`;
-
-function deploymentInternalUrl(path: DeploymentInternalPath): string {
-  return `https://flarex.internal${path}`;
-}
-
-function deploymentPushPath(pushId: string, action?: DeploymentPushAction): DeploymentInternalPath {
-  const pushPath: `${typeof DeploymentRoute.push}/${string}` = `${DeploymentRoute.push}/${encodeURIComponent(pushId)}`;
-  if (action === undefined) return pushPath;
-  const actionPath: `${typeof DeploymentRoute.push}/${string}/${DeploymentPushAction}` = `${pushPath}/${action}`;
-  return actionPath;
 }
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {

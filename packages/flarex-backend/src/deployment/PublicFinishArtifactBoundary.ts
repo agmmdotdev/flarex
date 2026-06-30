@@ -14,14 +14,11 @@ export const verifyStoredPushArtifactEffect = Effect.fn(
   "Worker.verifyStoredPushArtifact",
 )(function* (
   artifactStore: BackendExecutionArtifactStore | undefined,
-  fetchPush: () => Promise<Response>,
+  fetchPush: Effect.Effect<Response, PublicWorkerDispatchError>,
 ): Effect.fn.Return<Response | undefined, PublicWorkerDispatchError> {
   if (artifactStore === undefined) return undefined;
 
-  const response = yield* Effect.tryPromise({
-    try: fetchPush,
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  });
+  const response = yield* fetchPush;
   if (!response.ok) return undefined;
 
   const status = yield* Effect.tryPromise({
