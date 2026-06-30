@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
-- Active checkpoint: SchedulerDO executor response service boundary.
+- Previous completed checkpoint: `9f8e11a Type scheduler response failures`.
+- Active checkpoint: SchedulerDO runtime consistency error boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -44,7 +44,7 @@ Required direction for the next phase:
    and typed failure channels directly, then separately assert the preserved
    HTTP response mapping at the adapter edge.
 
-Next recommended checkpoint after the executor-http body decoder checkpoints:
+Next recommended checkpoint after the scheduler runtime consistency checkpoint:
 
 1. Audit the remaining `Effect.promise(...)` route, response, and runtime
    service hotspots and choose the next coherent group instead of one helper
@@ -58,6 +58,25 @@ Next recommended checkpoint after the executor-http body decoder checkpoints:
    mapping tests.
 5. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Current Goal 190 slice:
+
+1. Add `scheduler/RuntimeError.ts` with typed
+   `SchedulerContinuationCursorError` and
+   `SchedulerConnectionTargetError` failures for SchedulerDO runtime
+   consistency checks.
+2. Route delivery scan continuation cursor mismatches, expired connection scan
+   continuation cursor mismatches, and invalid dead-letter reconnect targets
+   through typed scheduler runtime failures instead of raw `HttpError` throws
+   inside service logic.
+3. Map those runtime failures only at the SchedulerDO adapter edge while
+   preserving the existing `502` status and JSON error bodies.
+4. Keep scheduler request decoders, pending-state decoders, executor response
+   decoders, retry/alarm scheduling, DeliveryDO, ConnectionDO, PartitionDO
+   SQL/OCC behavior, executor-http, protocol schemas, and `ValidatorJson`
+   untouched.
+5. Validate typed runtime-error mapping directly and prove all three public
+   scheduler paths preserve their existing 502 response bodies.
 
 Completed Goal 189 slice:
 

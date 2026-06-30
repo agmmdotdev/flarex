@@ -1200,6 +1200,59 @@ describe("sync protocol", () => {
     await expect(skipped.json()).resolves.toEqual({ skipped: true });
   });
 
+  it("maps expired connection scan continuation cursor inconsistencies to scheduler 502 responses", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/expired-connection-deployments") {
+              return Response.json({
+                deployments: [],
+                nextCursor: null,
+                hasMore: true,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-connections/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expiredAt: "2026-06-23T00:02:00.000Z",
+          limit: 1,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Expired connection deployment scan returned hasMore without nextCursor.",
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/expired-connection-deployments",
+        body: {
+          expiredAt: "2026-06-23T00:02:00.000Z",
+          limit: 1,
+        },
+      },
+    ]);
+  });
+
   it("keeps expired connection cleanup continuation when a deployment cleanup fails", async () => {
     const executorRequests: Array<{ path: string; body: unknown }> = [];
     const harness = await createSyncHarness(
@@ -4107,6 +4160,53 @@ describe("sync protocol", () => {
     await expect(cleared.json()).resolves.toEqual({ skipped: true });
   });
 
+  it("maps delivery scan continuation cursor inconsistencies to scheduler 502 responses", async () => {
+    const executorRequests: Array<{ path: string; body: unknown }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({ path: url.pathname, body });
+            if (url.pathname === "/maintenance/live-queries/pending-deployments") {
+              return Response.json({
+                deployments: [],
+                nextCursor: null,
+                hasMore: true,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Pending delivery deployment scan returned hasMore without nextCursor.",
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/pending-deployments",
+        body: { limit: 1 },
+      },
+    ]);
+  });
+
   it("rejects malformed live query delivery reconcile JSON at the scheduler route boundary", async () => {
     const executorRequests: unknown[] = [];
     const harness = await createSyncHarness(
@@ -5724,6 +5824,84 @@ describe("sync protocol", () => {
           deploymentId,
           projectId: "project_sync",
           connectionId,
+        },
+      },
+    ]);
+  });
+
+  it("maps invalid live query dead-letter reconnect targets to scheduler 502 responses", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_LIVE_QUERY_DELIVERY_TOKEN: "delivery-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/dead-letter-stuck") {
+              return Response.json({
+                scanned: [],
+                deadLettered: [],
+                reconnectConnectionIds: ["invalid-connection"],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+
+    const response = await harness.mf.dispatchFetch(
+      "http://flarex.test/scheduler/live-query-deliveries/dead-letter",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer delivery-secret",
+        },
+        body: JSON.stringify({
+          olderThan: "2026-06-22T00:00:00.000Z",
+          deadLetteredAt: "2026-06-22T00:01:00.000Z",
+          minAttempts: 3,
+          limit: 10,
+          maxBatches: 1,
+          reason: "test invalid reconnect target",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid live query connection id invalid-connection.",
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/dead-letter-stuck",
+        authorization: "Bearer executor-secret",
+        body: {
+          minAttempts: 3,
+          limit: 10,
+          reason: "test invalid reconnect target",
+          olderThan: "2026-06-22T00:00:00.000Z",
+          deadLetteredAt: "2026-06-22T00:01:00.000Z",
         },
       },
     ]);

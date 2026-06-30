@@ -29,6 +29,13 @@ import {
   type SchedulerRouteOperation,
 } from "./scheduler/RouteOperationError";
 import {
+  invalidSchedulerConnectionTarget,
+  isSchedulerRuntimeError,
+  missingSchedulerContinuationCursor,
+  schedulerRuntimeErrorToHttpError,
+  type SchedulerRuntimeError,
+} from "./scheduler/RuntimeError";
+import {
   continuationNextRunAtFromStorage,
   pendingConnectionCleanupFromStorage,
   pendingDeliveryReconcileFromStorage,
@@ -403,10 +410,7 @@ export class SchedulerDO extends DurableObject<Env> {
       return;
     }
     if (result.nextCursor === null) {
-      throw new HttpError(
-        502,
-        "Pending delivery deployment scan returned hasMore without nextCursor.",
-      );
+      throw missingSchedulerContinuationCursor("delivery-reconcile");
     }
     const nextRunAt = new Date(
       Date.now() + CONTINUE_DELIVERY_RECONCILE_ALARM_DELAY_MS,
@@ -602,10 +606,7 @@ export class SchedulerDO extends DurableObject<Env> {
       return;
     }
     if (result.nextCursor === null) {
-      throw new HttpError(
-        502,
-        "Expired connection deployment scan returned hasMore without nextCursor.",
-      );
+      throw missingSchedulerContinuationCursor("connection-cleanup");
     }
     const nextRunAt = new Date(
       Date.now() + CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS,
@@ -1167,6 +1168,7 @@ function routeSchedulerJsonResult<A extends object>(
   | SchedulerPendingStateError
   | SchedulerResponseError
   | SchedulerResponsePayloadError
+  | SchedulerRuntimeError
 > {
   return Effect.tryPromise({
     try: execute,
@@ -1174,6 +1176,7 @@ function routeSchedulerJsonResult<A extends object>(
       error instanceof SchedulerPendingStateError
         || error instanceof SchedulerResponseError
         || error instanceof SchedulerResponsePayloadError
+        || isSchedulerRuntimeError(error)
         ? error
         : schedulerRouteOperationError(operation, error),
   }).pipe(
@@ -1186,6 +1189,7 @@ type SchedulerInternalRouteError =
   | SchedulerPendingStateError
   | SchedulerResponseError
   | SchedulerResponsePayloadError
+  | SchedulerRuntimeError
   | SchedulerRouteOperationError;
 
 function runSchedulerRoute(
@@ -1214,6 +1218,9 @@ function schedulerInternalRouteErrorToHttpError(
   }
   if (error instanceof SchedulerResponsePayloadError) {
     return schedulerResponsePayloadErrorToHttpError(error);
+  }
+  if (isSchedulerRuntimeError(error)) {
+    return schedulerRuntimeErrorToHttpError(error);
   }
   return schedulerRouteErrorToHttpError(error);
 }
@@ -1332,6 +1339,7 @@ function schedulerServiceFailureStatus(error: unknown): number {
   if (error instanceof HttpError) return error.status;
   if (error instanceof SchedulerResponseError) return 502;
   if (error instanceof SchedulerResponsePayloadError) return error.status;
+  if (isSchedulerRuntimeError(error)) return 502;
   return 500;
 }
 
@@ -1481,5 +1489,5 @@ function isHttpStatus(value: unknown): value is number {
 
 function validateConnectionId(connectionId: string): void {
   if (connectionId.startsWith("connection:")) return;
-  throw new HttpError(502, `Invalid live query connection id ${connectionId}.`);
+  throw invalidSchedulerConnectionTarget(connectionId);
 }

@@ -1,5 +1,57 @@
 # Sync And Subscriptions
 
+## SchedulerDO Runtime Consistency Error Boundary
+
+Previous completed checkpoint: `9f8e11a Type scheduler response failures`.
+
+What changed:
+
+- Added typed scheduler runtime failures for continuation cursor consistency
+  and dead-letter reconnect target validation.
+- Delivery reconcile and expired connection cleanup scans now emit typed
+  `SchedulerContinuationCursorError` failures when an executor scan reports
+  `hasMore` without `nextCursor`.
+- Dead-letter force-reconnect fanout now emits
+  `SchedulerConnectionTargetError` for invalid connection ids before the
+  SchedulerDO adapter maps it to the preserved 502 response.
+
+Why it changed:
+
+SchedulerDO had already moved request, pending-state, and executor response
+failures into typed boundaries, but a few local runtime consistency checks
+still threw `HttpError` directly from service logic. This checkpoint removes
+those remaining adapter-shaped scheduler failures without changing
+continuation persistence, retry/alarm behavior, executor calls, or fanout
+semantics.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific scheduler runtime
+  consistency handling.
+
+How Flarex differs from Convex:
+
+- Flarex must validate scheduler continuation cursors and Cloudflare Durable
+  Object connection names because batched maintenance spans executor HTTP
+  calls, SchedulerDO storage, alarms, and per-connection Durable Objects.
+
+Known limitations:
+
+- Full SchedulerDO orchestration is still async-method based; this checkpoint
+  only moves local scheduler consistency failures into typed runtime errors.
+- PartitionDO SQL/OCC logic is unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continuation cursor inconsistencies|invalid live query dead-letter reconnect targets" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Executor Response Service Boundary
 
 Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
@@ -37,10 +89,8 @@ How Flarex differs from Convex:
 
 Known limitations:
 
-- `validateConnectionId(...)` and continuation consistency checks still have
-  adapter-shaped compatibility errors.
-- Full SchedulerDO orchestration is still async-method based; this checkpoint
-  only removes early HTTP mapping from executor response helpers.
+- SchedulerDO orchestration is still async-method based; this checkpoint only
+  removes early HTTP mapping from executor response helpers.
 
 Verification:
 

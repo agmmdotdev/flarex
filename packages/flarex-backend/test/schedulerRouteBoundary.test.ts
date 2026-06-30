@@ -36,6 +36,11 @@ import {
   schedulerRouteOperationError,
   schedulerRouteOperationErrorToHttpError,
 } from "../src/scheduler/RouteOperationError";
+import {
+  SchedulerConnectionTargetError,
+  SchedulerContinuationCursorError,
+  schedulerRuntimeErrorToHttpError,
+} from "../src/scheduler/RuntimeError";
 import type { Env } from "../src/types";
 
 describe("scheduler route boundary", () => {
@@ -514,6 +519,28 @@ describe("scheduler route boundary", () => {
     )).toMatchObject({
       status: 500,
       message: "pending rerun limit must be a positive integer.",
+    });
+  });
+
+  it("maps scheduler runtime consistency errors at the adapter boundary", () => {
+    expect(schedulerRuntimeErrorToHttpError(
+      new SchedulerContinuationCursorError({
+        operation: "delivery-reconcile",
+        message: "Pending delivery deployment scan returned hasMore without nextCursor.",
+      }),
+    )).toMatchObject({
+      status: 502,
+      message: "Pending delivery deployment scan returned hasMore without nextCursor.",
+    });
+
+    expect(schedulerRuntimeErrorToHttpError(
+      new SchedulerConnectionTargetError({
+        connectionId: "invalid-connection",
+        message: "Invalid live query connection id invalid-connection.",
+      }),
+    )).toMatchObject({
+      status: 502,
+      message: "Invalid live query connection id invalid-connection.",
     });
   });
 

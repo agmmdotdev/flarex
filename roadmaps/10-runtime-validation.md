@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## SchedulerDO Runtime Consistency Validation Boundary
+
+Previous completed checkpoint: `9f8e11a Type scheduler response failures`.
+
+What changed:
+
+- SchedulerDO continuation cursor consistency checks now use typed
+  `SchedulerContinuationCursorError` failures.
+- Invalid dead-letter reconnect target ids now use typed
+  `SchedulerConnectionTargetError` failures.
+- The Durable Object adapter maps both runtime failure types to the preserved
+  502-compatible HTTP responses.
+
+Why it changed:
+
+These are runtime-domain consistency checks, not HTTP request parsing concerns.
+Keeping them typed lets SchedulerDO preserve one adapter mapper while avoiding
+new `HttpError` dependencies in scheduler service logic.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare scheduler runtime validation.
+
+How Flarex differs from Convex:
+
+- Flarex schedules live-query maintenance across Durable Object storage,
+  alarms, executor service calls, and connection Durable Objects, so it needs
+  local runtime consistency validation around continuation cursors and
+  connection target names.
+
+Known limitations:
+
+- SchedulerDO methods still use compatibility async orchestration rather than
+  a fully Effect-native service.
+- PartitionDO SQL/OCC behavior, protocol schemas, executor-http, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continuation cursor inconsistencies|invalid live query dead-letter reconnect targets" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## SchedulerDO Executor Response Typed Boundary
 
 Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
@@ -37,8 +85,6 @@ Known limitations:
 
 - SchedulerDO methods still use `Effect.runPromise` bridges around individual
   executor calls rather than a fully Effect-native service.
-- Continuation consistency errors and force-reconnect connection id validation
-  remain separate migration surfaces.
 
 Verification:
 

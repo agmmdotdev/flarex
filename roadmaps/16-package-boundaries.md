@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Scheduler Runtime Error Boundary
+
+Previous completed checkpoint: `9f8e11a Type scheduler response failures`.
+
+What changed:
+
+- `packages/flarex-backend/src/scheduler/RuntimeError.ts` now owns typed
+  SchedulerDO runtime consistency failures.
+- Continuation cursor mismatches and invalid force-reconnect target ids no
+  longer depend on `HttpError` in SchedulerDO service logic.
+- `SchedulerDO` remains the adapter that maps those typed runtime failures to
+  the existing HTTP response contract.
+
+Boundary decision:
+
+Scheduler runtime consistency checks are backend runtime concerns, not public
+protocol contracts and not executor response payload contracts. Keeping them in
+the backend scheduler package preserves the Cloudflare-specific ownership while
+removing adapter-shaped errors from the orchestration path.
+
+Convex source files inspected:
+
+- None for this checkpoint. The boundary is specific to Flarex's SchedulerDO
+  continuation and connection-target model.
+
+How Flarex differs from Convex:
+
+- Flarex uses Durable Object names for live-query connection fanout and stores
+  scheduler continuation cursors in DO storage, so these checks sit at the
+  scheduler runtime boundary.
+
+Known limitations:
+
+- Full SchedulerDO service extraction is still future work.
+- PartitionDO SQL/OCC behavior, executor-http, protocol packages, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "continuation cursor inconsistencies|invalid live query dead-letter reconnect targets" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Scheduler Executor Response Boundary
 
 Previous completed checkpoint: `7c66a94 Type scheduler pending state`.
@@ -34,10 +82,9 @@ How Flarex differs from Convex:
 
 Known limitations:
 
-- SchedulerDO still has compatibility `HttpError` usage for force-reconnect
-  connection id validation and continuation consistency checks.
 - A later service extraction can move more SchedulerDO orchestration into
-  Effect-native helpers once the remaining adapter-shaped failures are typed.
+  Effect-native helpers once the remaining scheduler adapter-shaped failures
+  are typed.
 
 Verification:
 
