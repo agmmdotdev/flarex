@@ -1,5 +1,60 @@
 # Sync And Subscriptions
 
+## SchedulerDO Maintenance Route Effect Boundary
+
+Previous completed checkpoint: `c5da9c5` Type execution JSON route boundary.
+
+What changed:
+
+- SchedulerDO now routes live-query maintenance endpoints through
+  `Effect.fn("SchedulerDO.route")`.
+- Delivery reconcile, connection reconcile, dead-letter deliveries, cleanup
+  connections, rerun subscriptions, continue deliveries, continue reruns, and
+  continue connection cleanup share one Durable Object dispatcher and the
+  existing `runSchedulerRoute(...)` adapter edge.
+- Each branch continues to use its existing typed request decoder, pending-state
+  decoder, executor-maintenance boundary, delivery-wake boundary,
+  force-reconnect boundary, runtime consistency errors, and route-operation
+  mapping.
+
+Why it changed:
+
+SchedulerDO already had typed Effect route helpers for each maintenance branch,
+but `fetch()` still selected every internal path separately. This checkpoint
+groups those related maintenance routes behind one named Effect boundary while
+leaving the maintenance algorithms and continuation state unchanged.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific live-query maintenance
+  adapter wiring.
+
+How Flarex differs from Convex:
+
+- Flarex uses a Cloudflare Durable Object scheduler to scan executor
+  maintenance routes, wake DeliveryDO, reconnect ConnectionDO, and resume
+  bounded continuations. This checkpoint keeps that Cloudflare route ownership
+  explicit while moving path selection into the typed Effect adapter shape.
+
+Known limitations:
+
+- SchedulerDO delivery scans, connection cleanup scans, rerun scans,
+  dead-letter scans, retry/alarm scheduling, in-flight coalescing, continuation
+  storage, DeliveryDO, ConnectionDO, and executor calls are unchanged.
+- PartitionDO SQL/OCC behavior, public Worker scheduler routing,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/schedulerRouteBoundary.test.ts packages/flarex-backend/test/schedulerMaintenanceBoundary.test.ts packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "routes expired live query connection cleanup through SchedulerDO|reports malformed executor cleanup payloads through SchedulerDO|reconciles expired live query connection deployment scans through SchedulerDO|reconciles lost live query wake notifications through SchedulerDO|dead-letters stuck live query deliveries and reconnects affected connections|maps invalid live query dead-letter reconnect targets to scheduler 502 responses|rejects malformed live query dead-letter JSON|rejects invalid live query dead-letter envelopes at the public scheduler boundary|triggers stale live query reruns and fans out changed results" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## DeliveryDO JSON Route Effect Boundary
 
 Previous completed checkpoint: `1ab1b0d` Type connection JSON route boundary.

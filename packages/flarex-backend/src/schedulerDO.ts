@@ -81,7 +81,10 @@ import {
   type PendingDeploymentCursor,
   type PendingDeploymentsResult,
 } from "./scheduler/Responses";
-import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "./schedulerRoutes";
+import {
+  LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
+  type LiveQuerySchedulerInternalPath,
+} from "./schedulerRoutes";
 import type { DeliveryDrainFailureResult } from "./deliveryDO";
 import type { Env } from "./types";
 
@@ -212,84 +215,19 @@ export class SchedulerDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries &&
-        request.method === "POST"
-      ) {
+      if (request.method === "POST" && isLiveQuerySchedulerInternalPath(url.pathname)) {
         return await runSchedulerRoute(
-          routeSchedulerDeliveryReconcile(request, body =>
-            this.reconcileLiveQueryDeliveriesEffect(body),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerConnectionReconcile(request, body =>
-            this.reconcileLiveQueryConnectionsEffect(body),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerDeadLetterDeliveries(request, body =>
-            this.deadLetterLiveQueryDeliveriesEffect(body),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerCleanupConnections(request, this.env, body =>
-            this.cleanupLiveQueryConnectionsEffect(body),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerRerunSubscriptions(request, body =>
-            this.rerunLiveQuerySubscriptionsEffect(body),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueDeliveries &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerContinueDeliveries(() =>
-            this.continuePendingLiveQueryDeliveryReconcileEffect(),
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueReruns &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerContinueReruns(() =>
-            this.continuePendingLiveQueryRerunEffect()
-          ),
-        );
-      }
-      if (
-        url.pathname === LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueConnectionCleanup &&
-        request.method === "POST"
-      ) {
-        return await runSchedulerRoute(
-          routeSchedulerContinueConnectionCleanup(() =>
-            this.continuePendingLiveQueryConnectionCleanupEffect(),
-          ),
+          routeSchedulerDurableObject(request, url.pathname, this.env, {
+            reconcileDeliveries: body => this.reconcileLiveQueryDeliveriesEffect(body),
+            reconcileConnections: body => this.reconcileLiveQueryConnectionsEffect(body),
+            deadLetterDeliveries: body => this.deadLetterLiveQueryDeliveriesEffect(body),
+            cleanupConnections: body => this.cleanupLiveQueryConnectionsEffect(body),
+            rerunSubscriptions: body => this.rerunLiveQuerySubscriptionsEffect(body),
+            continueDeliveries: () => this.continuePendingLiveQueryDeliveryReconcileEffect(),
+            continueReruns: () => this.continuePendingLiveQueryRerunEffect(),
+            continueConnectionCleanup: () =>
+              this.continuePendingLiveQueryConnectionCleanupEffect(),
+          }),
         );
       }
       return json({ service: "flarex-scheduler", status: "ok" });
@@ -1186,6 +1124,73 @@ export class SchedulerDO extends DurableObject<Env> {
     return fetch(request);
   }
 }
+
+interface SchedulerRouteHandlers {
+  reconcileDeliveries(
+    body: SchedulerDeliveryReconcileRequest,
+  ): Effect.Effect<ReconcileResult, SchedulerDeliveryReconcileError>;
+  reconcileConnections(
+    body: SchedulerConnectionReconcileRequest,
+  ): Effect.Effect<ReconcileConnectionCleanupResult, SchedulerConnectionCleanupError>;
+  deadLetterDeliveries(
+    body: SchedulerDeadLetterDeliveriesRequest,
+  ): Effect.Effect<DeadLetterResult, SchedulerDeadLetterError>;
+  cleanupConnections(
+    body: SchedulerCleanupConnectionsRequest,
+  ): Effect.Effect<CleanupLiveQueryConnectionsResult, SchedulerMaintenanceBoundaryError>;
+  rerunSubscriptions(
+    body: SchedulerRerunSubscriptionsRequest,
+  ): Effect.Effect<RerunResult, SchedulerRerunError>;
+  continueDeliveries(): Effect.Effect<
+    ReconcileResult | { skipped: true },
+    SchedulerDeliveryReconcileError
+  >;
+  continueReruns(): Effect.Effect<
+    RerunResult | { skipped: true },
+    SchedulerRerunError
+  >;
+  continueConnectionCleanup(): Effect.Effect<
+    ReconcileConnectionCleanupResult | { skipped: true },
+    SchedulerConnectionCleanupError
+  >;
+}
+
+function isLiveQuerySchedulerInternalPath(
+  pathname: string,
+): pathname is LiveQuerySchedulerInternalPath {
+  return (Object.values(LIVE_QUERY_SCHEDULER_INTERNAL_PATHS) as readonly string[])
+    .includes(pathname);
+}
+
+const routeSchedulerDurableObject = Effect.fn("SchedulerDO.route")(
+  function* (
+    request: Request,
+    pathname: LiveQuerySchedulerInternalPath,
+    env: Env,
+    handlers: SchedulerRouteHandlers,
+  ): Effect.fn.Return<Response, SchedulerInternalRouteError> {
+    switch (pathname) {
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileDeliveries:
+        return yield* routeSchedulerDeliveryReconcile(request, handlers.reconcileDeliveries);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.reconcileConnections:
+        return yield* routeSchedulerConnectionReconcile(request, handlers.reconcileConnections);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.deadLetterDeliveries:
+        return yield* routeSchedulerDeadLetterDeliveries(request, handlers.deadLetterDeliveries);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections:
+        return yield* routeSchedulerCleanupConnections(request, env, handlers.cleanupConnections);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions:
+        return yield* routeSchedulerRerunSubscriptions(request, handlers.rerunSubscriptions);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueDeliveries:
+        return yield* routeSchedulerContinueDeliveries(handlers.continueDeliveries);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueReruns:
+        return yield* routeSchedulerContinueReruns(handlers.continueReruns);
+      case LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.continueConnectionCleanup:
+        return yield* routeSchedulerContinueConnectionCleanup(
+          handlers.continueConnectionCleanup,
+        );
+    }
+  },
+);
 
 const routeSchedulerDeliveryReconcile = Effect.fn("SchedulerDO.routeDeliveryReconcile")(
   function* (

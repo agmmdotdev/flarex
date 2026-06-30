@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: ExecutionDO JSON route boundary.
+- Previous completed checkpoint: SchedulerDO maintenance route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the ExecutionDO JSON route boundary checkpoint:
+Next recommended checkpoint after the SchedulerDO maintenance route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the ExecutionDO JSON route boundary checkpoint
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 212 slice:
+
+1. Convert SchedulerDO's live-query maintenance route dispatch to a named
+   `Effect.fn("SchedulerDO.route")` boundary.
+2. Route delivery reconcile, connection reconcile, dead-letter deliveries,
+   cleanup connections, rerun subscriptions, continue deliveries, continue
+   reruns, and continue connection cleanup through one typed Durable Object
+   dispatcher and the existing scheduler adapter runner.
+3. Preserve typed request decoders, pending-state decode failures, executor
+   maintenance failures, delivery wake failures, force-reconnect failures,
+   runtime consistency failures, route-operation mapping, continuation
+   response bodies, and health response behavior.
+4. Keep SchedulerDO scans, retry/alarm scheduling, in-flight coalescing,
+   continuation storage, DeliveryDO, ConnectionDO, PartitionDO SQL/OCC, public
+   Worker scheduler routing, executor-http, protocol schemas, and
+   `ValidatorJson` unchanged.
+5. Validate direct scheduler route-boundary coverage, representative sync
+   scheduler maintenance behavior, backend typecheck/build, protocol build, and
+   only the EffectTS quality checker reviewer.
 
 Completed Goal 211 slice:
 
