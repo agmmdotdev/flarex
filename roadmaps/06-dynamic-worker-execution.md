@@ -1,5 +1,49 @@
 # Dynamic Worker Execution
 
+## Public Worker Execution Route Effect Boundary
+
+Previous completed checkpoint: `59d6f74 Type public deployment push route`.
+
+What changed:
+
+- Public Worker execution routing now runs through
+  `Effect.fn("Worker.routeExecution")` with a single `Effect.runPromise(...)`
+  adapter edge.
+- Start, syscall, finish, and abort branches reuse the existing typed
+  start/action decoders and Worker dispatch errors without nested runtime
+  boundaries inside the execution router.
+- Missing execution session ids, missing actions, malformed JSON, protocol
+  validation, dispatch failures, and unknown-action 404 responses keep their
+  existing HTTP response shapes.
+
+Why it changed:
+
+The public execution route already had typed request/path boundaries, but the
+router still ran path/start/action branches through separate runtime edges.
+This checkpoint makes execution routing match the current migration shape:
+typed failures flow through one route service and one adapter-level HTTP mapper.
+
+Known limitations:
+
+- ExecutionDO session lifecycle, transaction behavior, and PartitionDO SQL/OCC
+  are unchanged.
+- This checkpoint does not convert executor-http execution routes or the
+  internal ExecutionDO fetch adapter.
+- Public deployment push, invoke, scheduler, sync, delivery, generated HttpApi
+  routes, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "execution start boundary|execution syscall bodies|execution finish bodies" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts -t "keeps execution abort as a bodyless control message" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Edge
 
 Previous completed checkpoint: `551a8b3 Type invoke runtime lookups`.

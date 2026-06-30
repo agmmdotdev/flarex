@@ -27,10 +27,12 @@ import {
 import { DeploymentDO } from "./deploymentDO";
 import {
   decodePublicExecutionActionRequest,
+  MissingExecutionActionError,
+  MissingExecutionSessionIdError,
   publicExecutionRoutePathErrorToHttpError,
   publicExecutionRoutePathFromPartsEffect,
-  publicExecutionActionRouteErrorToHttpError,
   type PublicExecutionAction,
+  type PublicExecutionRoutePathError,
 } from "./execution/ActionRouteBoundary";
 import {
   decodePublicExecutionStartRouteRequest,
@@ -764,33 +766,56 @@ async function routeExecution(
   deploymentId: string,
   parts: string[],
 ): Promise<Response> {
-  if (parts[0] === "start" && request.method === "POST") {
-    const sessionId = crypto.randomUUID();
-    const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
-    return await Effect.runPromise(
-      routePublicExecutionStart(request, execution, deploymentId, sessionId).pipe(
-        Effect.mapError(publicWorkerExecutionStartRouteErrorToHttpError),
-      ),
-    );
-  }
-
-  const publicAction = await Effect.runPromise(
-    publicExecutionRoutePathFromPartsEffect(parts).pipe(
-      Effect.mapError(publicExecutionRoutePathErrorToHttpError),
+  return await Effect.runPromise(
+    routeExecutionEffect(request, env, deploymentId, parts).pipe(
+      Effect.mapError(publicWorkerExecutionRouteErrorToHttpError),
     ),
   );
-  if (publicAction.matched && request.method === "POST") {
-    const execution = env.EXECUTIONS.getByName(
-      executionObjectName(deploymentId, publicAction.sessionId),
-    );
-    return await Effect.runPromise(
-      routePublicExecutionAction(request, execution, publicAction.action).pipe(
-        Effect.mapError(publicWorkerExecutionActionRouteErrorToHttpError),
-      ),
-    );
-  }
+}
 
-  return json({ error: "Execution route not found." }, { status: 404 });
+type PublicWorkerExecutionRouteError =
+  | Parameters<typeof executionStartRouteErrorToHttpError>[0]
+  | PublicExecutionRoutePathError
+  | PublicWorkerDispatchError;
+
+const routeExecutionEffect = Effect.fn("Worker.routeExecution")(
+  function* (
+    request: Request,
+    env: Env,
+    deploymentId: string,
+    parts: readonly string[],
+  ): Effect.fn.Return<Response, PublicWorkerExecutionRouteError> {
+    if (parts[0] === "start" && request.method === "POST") {
+      const sessionId = crypto.randomUUID();
+      const execution = env.EXECUTIONS.getByName(executionObjectName(deploymentId, sessionId));
+      return yield* routePublicExecutionStart(request, execution, deploymentId, sessionId);
+    }
+
+    const publicAction = yield* publicExecutionRoutePathFromPartsEffect(parts);
+    if (publicAction.matched && request.method === "POST") {
+      const execution = env.EXECUTIONS.getByName(
+        executionObjectName(deploymentId, publicAction.sessionId),
+      );
+      return yield* routePublicExecutionAction(request, execution, publicAction.action);
+    }
+
+    return json({ error: "Execution route not found." }, { status: 404 });
+  },
+);
+
+function publicWorkerExecutionRouteErrorToHttpError(
+  error: PublicWorkerExecutionRouteError,
+): HttpError {
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
+  }
+  if (
+    error instanceof MissingExecutionSessionIdError ||
+    error instanceof MissingExecutionActionError
+  ) {
+    return publicExecutionRoutePathErrorToHttpError(error);
+  }
+  return executionStartRouteErrorToHttpError(error);
 }
 
 const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
@@ -818,15 +843,6 @@ const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
   },
 );
 
-function publicWorkerExecutionStartRouteErrorToHttpError(
-  error: Parameters<typeof executionStartRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  return executionStartRouteErrorToHttpError(error);
-}
-
 const routePublicExecutionAction = Effect.fn("Worker.routePublicExecutionAction")(
   function* (request: Request, execution: DurableObjectStub, action: PublicExecutionAction) {
     const body = yield* decodePublicExecutionActionRequest(request, action);
@@ -841,15 +857,6 @@ const routePublicExecutionAction = Effect.fn("Worker.routePublicExecutionAction"
     });
   },
 );
-
-function publicWorkerExecutionActionRouteErrorToHttpError(
-  error: Parameters<typeof publicExecutionActionRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  return publicExecutionActionRouteErrorToHttpError(error);
-}
 
 const routeInvoke = Effect.fn("Worker.routeInvoke")(
   function* (

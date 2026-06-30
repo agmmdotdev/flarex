@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: public Worker deployment push route boundary.
+- Previous completed checkpoint: public Worker execution route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker deployment push route boundary checkpoint:
+Next recommended checkpoint after the public Worker execution route boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the public Worker deployment push route bounda
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 202 slice:
+
+1. Convert the public Worker execution router to a named
+   `Effect.fn("Worker.routeExecution")` orchestration boundary.
+2. Route start, syscall, finish, and abort branches through the existing
+   Effect-returning start/action helpers without nested `Effect.runPromise(...)`
+   calls inside the execution router.
+3. Preserve execution session id generation, ExecutionDO session naming,
+   start-response decoration, missing session id, missing action, unknown
+   action, malformed JSON, protocol validation, dispatch failures,
+   response bodies/statuses, protocol schemas, and `ValidatorJson` unchanged.
+4. Keep ExecutionDO session lifecycle, transaction behavior, PartitionDO
+   SQL/OCC, public deployment push, public invoke, scheduler, sync, delivery,
+   executor-http, and generated HttpApi routes unchanged.
+5. Validate execution route-boundary tests, representative ExecutionDO public
+   start/syscall/finish/abort behavior, backend typecheck/build, protocol
+   build, and only the EffectTS quality checker reviewer.
 
 Completed Goal 201 slice:
 
