@@ -1,5 +1,60 @@
 # Sync And Subscriptions
 
+## ConnectionDO JSON Route Effect Boundary
+
+Previous completed checkpoint: `bbf4ea8` Type deployment store active
+validation.
+
+What changed:
+
+- ConnectionDO now routes its JSON internal endpoints through
+  `Effect.fn("ConnectionDO.route")`.
+- `/invalidate` and `/deliver/live-query` share one route adapter runner while
+  continuing to use their existing typed body decoders and operation-failure
+  mapping.
+- Only the two JSON paths enter the route Effect, so WebSocket upgrades,
+  heartbeat, force-reconnect, and health behavior remain owned by the existing
+  imperative branches.
+
+Why it changed:
+
+Connection route body parsing had already moved to typed Effect decoders, but
+ConnectionDO `fetch()` still selected each JSON route and ran each branch
+through a local adapter call. This checkpoint groups those related JSON routes
+behind one named Effect boundary without touching the WebSocket lifecycle.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare Durable Object adapter wiring
+  around Flarex's sync connection routes.
+
+How Flarex differs from Convex:
+
+- Flarex hosts live sync sessions in Cloudflare Durable Objects and receives
+  internal invalidation/delivery calls over DO `fetch()` routes. This
+  checkpoint keeps that DO route shape explicit while moving route validation
+  failures into typed Effect channels.
+
+Known limitations:
+
+- WebSocket message handling, heartbeat lease refresh, force-reconnect, and
+  executor subscription cleanup remain promise-based methods.
+- The JSON dispatcher intentionally does not own the full ConnectionDO
+  `fetch()` lifecycle yet.
+- DeliveryDO, SchedulerDO, PartitionDO SQL/OCC behavior, public Worker
+  routing, executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/sync.test.ts -t "rejects malformed invalidation JSON at the connection route boundary|rejects invalid invalidation envelopes at the connection route boundary|delivers materialized live query changes to active WebSocket connections|rejects malformed live query delivery JSON at the connection route boundary|rejects invalid live query delivery envelopes at the connection route boundary|refreshes executor connection leases from ConnectionDO heartbeat|records WebSocket query subscriptions through the configured executor|removes executor subscriptions for the whole connection when a WebSocket closes" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Scheduler Route Effect Boundary
 
 Previous completed checkpoint: `3744729` Type public partition route boundary.

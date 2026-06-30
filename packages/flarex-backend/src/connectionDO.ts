@@ -93,17 +93,11 @@ export class ConnectionDO extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/invalidate" && request.method === "POST") {
-      return runConnectionRoute(
-        routeConnectionInvalidation(request, queryId => this.invalidate(queryId)),
-      );
-    }
-    if (url.pathname === "/deliver/live-query" && request.method === "POST") {
-      return runConnectionRoute(
-        routeConnectionLiveQueryDelivery(request, deliveries =>
-          this.deliverLiveQueryChanges(deliveries),
-        ),
-      );
+    if (request.method === "POST" && isConnectionJsonRoutePath(url.pathname)) {
+      return runConnectionRoute(routeConnectionDurableObject(request, url.pathname, {
+        invalidate: queryId => this.invalidate(queryId),
+        deliverLiveQuery: deliveries => this.deliverLiveQueryChanges(deliveries),
+      }));
     }
     if (url.pathname === "/force-reconnect" && request.method === "POST") {
       return this.forceReconnect();
@@ -667,6 +661,37 @@ export class ConnectionDO extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + CONNECTION_HEARTBEAT_INTERVAL_MS);
   }
 }
+
+interface ConnectionRouteHandlers {
+  invalidate(queryId: QueryId): Promise<Response>;
+  deliverLiveQuery(deliveries: LiveQueryDeliveryChange[]): Promise<Response>;
+}
+
+const CONNECTION_JSON_ROUTE_PATHS = [
+  "/invalidate",
+  "/deliver/live-query",
+] as const;
+
+type ConnectionJsonRoutePath = typeof CONNECTION_JSON_ROUTE_PATHS[number];
+
+function isConnectionJsonRoutePath(pathname: string): pathname is ConnectionJsonRoutePath {
+  return (CONNECTION_JSON_ROUTE_PATHS as readonly string[]).includes(pathname);
+}
+
+const routeConnectionDurableObject = Effect.fn("ConnectionDO.route")(
+  function* (
+    request: Request,
+    pathname: ConnectionJsonRoutePath,
+    handlers: ConnectionRouteHandlers,
+  ): Effect.fn.Return<Response, ConnectionInternalRouteError> {
+    switch (pathname) {
+      case "/invalidate":
+        return yield* routeConnectionInvalidation(request, handlers.invalidate);
+      case "/deliver/live-query":
+        return yield* routeConnectionLiveQueryDelivery(request, handlers.deliverLiveQuery);
+    }
+  },
+);
 
 const routeConnectionInvalidation = Effect.fn("ConnectionDO.routeInvalidation")(
   function* (
