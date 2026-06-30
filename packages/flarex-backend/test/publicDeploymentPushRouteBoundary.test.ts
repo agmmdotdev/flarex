@@ -4,11 +4,15 @@ import { DeploymentProtocolValidationError } from "flarex-protocol/deployment";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicAbandonPushRequest,
+  decodePublicAbandonPushRoutePayload,
   decodePublicAnalyzedStartPushRequest,
+  decodePublicAnalyzedStartPushRoutePayload,
   decodePublicFinishPushRequest,
   decodePublicFinishPushJson,
+  decodePublicFinishPushRoutePayload,
   decodePublicStartPushRequest,
   decodePublicStartPushJson,
+  decodePublicStartPushRoutePayload,
   deploymentProtocolValidationErrorResponse,
   publicDeploymentRouteErrorToHttpError,
   parsePublicAbandonPushRequest,
@@ -47,12 +51,18 @@ describe("public deployment push route boundary", () => {
       .resolves
       .toEqual(body);
     expect(parsePublicStartPushRequest(body)).toEqual(body);
+    await expect(Effect.runPromise(decodePublicStartPushRoutePayload(body)))
+      .resolves
+      .toEqual(body);
     await expect(Effect.runPromise(parsePublicStartPushRequestEffect(body)))
       .resolves
       .toEqual(body);
     expect(() => parsePublicStartPushRequest({}))
       .toThrow("Start push request must include sourcePackage.");
     await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest({}))))
+      .rejects
+      .toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicStartPushRoutePayload({})))
       .rejects
       .toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parsePublicStartPushRequestEffect({})))
@@ -68,6 +78,9 @@ describe("public deployment push route boundary", () => {
       .resolves
       .toEqual(analyzedStartBody);
     expect(parsePublicAnalyzedStartPushRequest(analyzedStartBody)).toEqual(analyzedStartBody);
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRoutePayload(analyzedStartBody)))
+      .resolves
+      .toEqual(analyzedStartBody);
     await expect(Effect.runPromise(parsePublicAnalyzedStartPushRequestEffect(analyzedStartBody)))
       .resolves
       .toEqual(analyzedStartBody);
@@ -78,6 +91,9 @@ describe("public deployment push route boundary", () => {
     await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(jsonRequest({
       error: "missing source package",
     })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRoutePayload({
+      error: "missing source package",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parsePublicAnalyzedStartPushRequestEffect({
       error: "missing source package",
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
@@ -97,6 +113,9 @@ describe("public deployment push route boundary", () => {
       activate: false,
     })))).resolves.toEqual({ activate: false });
     expect(parsePublicFinishPushRequest({ activate: false })).toEqual({ activate: false });
+    await expect(Effect.runPromise(decodePublicFinishPushRoutePayload({
+      activate: true,
+    }))).resolves.toEqual({ activate: true });
     await expect(Effect.runPromise(parsePublicFinishPushRequestEffect({
       activate: true,
     }))).resolves.toEqual({ activate: true });
@@ -107,6 +126,9 @@ describe("public deployment push route boundary", () => {
       reason: "typed boundary",
     })))).resolves.toEqual({ reason: "typed boundary" });
     expect(parsePublicAbandonPushRequest({ reason: "pure parser" })).toEqual({ reason: "pure parser" });
+    await expect(Effect.runPromise(decodePublicAbandonPushRoutePayload({
+      reason: "typed parser",
+    }))).resolves.toEqual({ reason: "typed parser" });
     await expect(Effect.runPromise(parsePublicAbandonPushRequestEffect({
       reason: "typed parser",
     }))).resolves.toEqual({ reason: "typed parser" });
@@ -117,6 +139,9 @@ describe("public deployment push route boundary", () => {
     await expect(Effect.runPromise(decodePublicFinishPushRequest(jsonRequest({
       activate: "yes",
     })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicFinishPushRoutePayload({
+      activate: "yes",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parsePublicFinishPushRequestEffect({
       activate: "yes",
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
@@ -126,6 +151,9 @@ describe("public deployment push route boundary", () => {
     await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest({
       reason: 123,
     })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicAbandonPushRoutePayload({
+      reason: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parsePublicAbandonPushRequestEffect({
       reason: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);

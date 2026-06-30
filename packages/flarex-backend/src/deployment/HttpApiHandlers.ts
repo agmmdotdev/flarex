@@ -32,6 +32,7 @@ import {
   analyzedStartPushRequest,
   startAnalyzedPushInput,
 } from "./Validation";
+import { decodeDeploymentAnalyzedStartPushPayload } from "./Requests";
 
 export type DeploymentReadErrorResponse =
   | DeploymentNotFoundErrorResponse
@@ -315,7 +316,7 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
   StartAnalyzedPushInput,
   DeploymentProtocolValidationError | DeploymentValidationError
 > {
-  const protocolPayload = yield* decodeStartAnalyzedPushHandlerPayload(payload);
+  const protocolPayload = yield* decodeDeploymentAnalyzedStartPushPayload(payload);
   const request = yield* decodeAnalyzedStartPushRequest(protocolPayload);
   return yield* decodeStartAnalyzedPushInput(request);
 });
@@ -324,21 +325,6 @@ export function startAnalyzedPushHandlerInputFromPayload(
   payload: AnalyzedStartPushRequest,
 ): StartAnalyzedPushInput {
   return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
-}
-
-function decodeStartAnalyzedPushHandlerPayload(
-  payload: AnalyzedStartPushRequest,
-): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parseAnalyzedStartPushRequest(payload));
-    } catch (cause) {
-      if (cause instanceof DeploymentProtocolValidationError) {
-        return Effect.fail(cause);
-      }
-      return Effect.die(cause);
-    }
-  });
 }
 
 const parsePushStatusForHttpApi = responseParser(

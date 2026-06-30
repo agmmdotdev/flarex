@@ -7,7 +7,6 @@ import {
 } from "flarex-protocol/deployment";
 import {
   json,
-  readJson,
   readJsonEffect,
   RequestJsonError,
   requestJsonErrorToHttpError,
@@ -42,7 +41,7 @@ export async function readPublicStartPushRequest(
 export function decodePublicStartPushRequest(
   request: Request,
 ): Effect.Effect<StartPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodePublicDeploymentRouteRequest(request, parsePublicStartPushRequestEffect);
+  return decodePublicDeploymentRouteRequest(request, decodePublicStartPushRoutePayload);
 }
 
 export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
@@ -50,6 +49,12 @@ export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
 }
 
 export function parsePublicStartPushRequestEffect(
+  body: unknown,
+): Effect.Effect<StartPushRequest, DeploymentProtocolValidationError> {
+  return decodePublicStartPushRoutePayload(body);
+}
+
+export function decodePublicStartPushRoutePayload(
   body: unknown,
 ): Effect.Effect<StartPushRequest, DeploymentProtocolValidationError> {
   return decodePublicStartPushPayload(body);
@@ -64,7 +69,7 @@ export async function readPublicAnalyzedStartPushRequest(
 export function decodePublicAnalyzedStartPushRequest(
   request: Request,
 ): Effect.Effect<AnalyzedStartPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodePublicDeploymentRouteRequest(request, parsePublicAnalyzedStartPushRequestEffect);
+  return decodePublicDeploymentRouteRequest(request, decodePublicAnalyzedStartPushRoutePayload);
 }
 
 export function parsePublicAnalyzedStartPushRequest(
@@ -74,6 +79,12 @@ export function parsePublicAnalyzedStartPushRequest(
 }
 
 export function parsePublicAnalyzedStartPushRequestEffect(
+  body: unknown,
+): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
+  return decodePublicAnalyzedStartPushRoutePayload(body);
+}
+
+export function decodePublicAnalyzedStartPushRoutePayload(
   body: unknown,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
   return decodePublicAnalyzedStartPushPayload(body);
@@ -88,7 +99,7 @@ export async function readPublicFinishPushRequest(
 export function decodePublicFinishPushRequest(
   request: Request,
 ): Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodePublicDeploymentRouteRequest(request, parsePublicFinishPushRequestEffect);
+  return decodePublicDeploymentRouteRequest(request, decodePublicFinishPushRoutePayload);
 }
 
 export async function readPublicFinishPushJson(request: Request): Promise<unknown> {
@@ -108,6 +119,12 @@ export function parsePublicFinishPushRequest(
 export function parsePublicFinishPushRequestEffect(
   body: unknown,
 ): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
+  return decodePublicFinishPushRoutePayload(body);
+}
+
+export function decodePublicFinishPushRoutePayload(
+  body: unknown,
+): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
   return decodePublicFinishPushPayload(body);
 }
 
@@ -120,7 +137,7 @@ export async function readPublicAbandonPushRequest(
 export function decodePublicAbandonPushRequest(
   request: Request,
 ): Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodePublicDeploymentRouteRequest(request, parsePublicAbandonPushRequestEffect);
+  return decodePublicDeploymentRouteRequest(request, decodePublicAbandonPushRoutePayload);
 }
 
 export function parsePublicAbandonPushRequest(
@@ -130,6 +147,12 @@ export function parsePublicAbandonPushRequest(
 }
 
 export function parsePublicAbandonPushRequestEffect(
+  body: unknown,
+): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
+  return decodePublicAbandonPushRoutePayload(body);
+}
+
+export function decodePublicAbandonPushRoutePayload(
   body: unknown,
 ): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
   return decodePublicAbandonPushPayload(body);

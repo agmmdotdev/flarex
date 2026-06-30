@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Shared ValidatorJson Effect boundary.
-- Active checkpoint: choose the next backend Worker/DO route/service group.
+- Previous completed checkpoint: Deployment route decoder ownership.
+- Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Shared ValidatorJson Effect boundary checkpoint:
+Next recommended checkpoint after the Deployment route decoder ownership checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,22 @@ Next recommended checkpoint after the Shared ValidatorJson Effect boundary check
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 244 slice:
+
+1. Add decode-named Effect payload boundaries for DeploymentDO HttpApi route
+   payloads and public deployment push route payloads.
+2. Move migrated request decoders to call those `decode*RoutePayload(...)`
+   functions directly while retaining parse-named Effect wrappers only as
+   compatibility APIs.
+3. Reuse the shared deployment protocol decoder in the generated HttpApi
+   analyzed-start handler instead of keeping a local parser `try/catch`.
+4. Preserve existing request JSON, protocol validation, generated handler,
+   public Worker, DeploymentService/Store, SQL/OCC, executor-http, and
+   `ValidatorJson` behavior unchanged.
+5. Extend route-boundary tests so typed success and failure assertions exercise
+   the decode-named Effect boundaries while compatibility wrappers remain
+   covered.
 
 Completed Goal 243 slice:
 

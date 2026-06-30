@@ -10,8 +10,11 @@ import { RequestJsonError } from "../src/http";
 import {
   decodeDeploymentApiRequestForRoute,
   decodeDeploymentAnalyzedStartPushRouteRequest,
+  decodeDeploymentAnalyzedStartPushRoutePayload,
   decodeDeploymentAbandonPushRouteRequest,
+  decodeDeploymentAbandonPushRoutePayload,
   decodeDeploymentFinishPushRouteRequest,
+  decodeDeploymentFinishPushRoutePayload,
   deploymentApiRequestForRoute,
   parseDeploymentAnalyzedStartPushRouteRequest,
   parseDeploymentAnalyzedStartPushRouteRequestEffect,
@@ -84,6 +87,11 @@ describe("deploymentApiRequestForRoute", () => {
       analysis: body.analysis,
       diagnostics: body.diagnostics,
     });
+    await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRoutePayload(body))).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: body.analysis,
+      diagnostics: body.diagnostics,
+    });
     await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect(body))).resolves.toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
@@ -130,6 +138,9 @@ describe("deploymentApiRequestForRoute", () => {
     expect(parseDeploymentFinishPushRouteRequest({
       activate: true,
     })).toEqual({ activate: true });
+    await expect(Effect.runPromise(decodeDeploymentFinishPushRoutePayload({
+      activate: false,
+    }))).resolves.toEqual({ activate: false });
     await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
       activate: false,
     }))).resolves.toEqual({ activate: false });
@@ -172,6 +183,9 @@ describe("deploymentApiRequestForRoute", () => {
     expect(parseDeploymentAbandonPushRouteRequest({
       reason: "pure parser reason",
     })).toEqual({ reason: "pure parser reason" });
+    await expect(Effect.runPromise(decodeDeploymentAbandonPushRoutePayload({
+      reason: "effect parser reason",
+    }))).resolves.toEqual({ reason: "effect parser reason" });
     await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
       reason: "effect parser reason",
     }))).resolves.toEqual({ reason: "effect parser reason" });
@@ -217,6 +231,9 @@ describe("deploymentApiRequestForRoute", () => {
         body: { sourcePackage: 123 },
       },
     )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRoutePayload({
+      sourcePackage: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect({
       sourcePackage: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
@@ -269,6 +286,9 @@ describe("deploymentApiRequestForRoute", () => {
         body: { activate: "yes" },
       },
     )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentFinishPushRoutePayload({
+      activate: "yes",
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
       activate: "yes",
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
@@ -313,6 +333,9 @@ describe("deploymentApiRequestForRoute", () => {
         body: { reason: 123 },
       },
     )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentAbandonPushRoutePayload({
+      reason: 123,
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
       reason: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);

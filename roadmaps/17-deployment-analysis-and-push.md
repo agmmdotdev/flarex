@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Deployment Route Decoder Ownership
+
+Previous completed checkpoint: `fd9498f Share validator effect boundary`.
+
+What changed:
+
+- DeploymentDO HttpApi route payloads now expose decode-named Effect
+  boundaries for analyzed-start, finish, and abandon payload validation.
+- Public deployment push route payloads now expose decode-named Effect
+  boundaries for start, analyzed-start, finish, and abandon payload validation.
+- Migrated request decoders call those `decode*RoutePayload(...)` functions
+  directly; parse-named Effect wrappers remain only for compatibility.
+- The generated Deployment HttpApi analyzed-start handler now reuses the shared
+  deployment protocol decoder instead of carrying a local parser `try/catch`.
+
+Why it changed:
+
+The Effect migration quality bar now requires migrated paths to prefer typed
+`decode*` Effect boundaries and keep throwing or parse-named helpers behind
+compatibility wrappers. This checkpoint removes a duplicated protocol parser
+boundary and makes route decoder ownership explicit before the next fuller
+route/service conversion.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Cloudflare deployment route
+  adapter boundary.
+
+How Flarex differs from Convex:
+
+- Flarex normalizes public Worker and DeploymentDO push requests through
+  Cloudflare Request/HttpApi adapters before calling deployment service code.
+  Convex does not have this generated HttpApi plus Durable Object forwarding
+  shape.
+
+Known limitations:
+
+- Compatibility parse wrappers remain for older call sites and existing tests.
+- DeploymentService/Store behavior, SQL/OCC behavior, analyzer behavior,
+  artifact persistence, protocol schemas, executor-http, PartitionDO, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Generated Handler Tagged Failure Recovery
 
 Previous completed checkpoint: `5446548 Share registry request validation`.

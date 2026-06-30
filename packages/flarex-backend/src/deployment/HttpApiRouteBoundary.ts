@@ -69,7 +69,7 @@ export async function readDeploymentAnalyzedStartPushRouteRequest(
 export function decodeDeploymentAnalyzedStartPushRouteRequest(
   request: Request,
 ): Effect.Effect<AnalyzedStartPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodeDeploymentRouteRequest(request, parseDeploymentAnalyzedStartPushRouteRequestEffect);
+  return decodeDeploymentRouteRequest(request, decodeDeploymentAnalyzedStartPushRoutePayload);
 }
 
 export function parseDeploymentAnalyzedStartPushRouteRequest(
@@ -79,6 +79,12 @@ export function parseDeploymentAnalyzedStartPushRouteRequest(
 }
 
 export function parseDeploymentAnalyzedStartPushRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
+  return decodeDeploymentAnalyzedStartPushRoutePayload(value);
+}
+
+export function decodeDeploymentAnalyzedStartPushRoutePayload(
   value: unknown,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
   return decodeDeploymentAnalyzedStartPushPayload(value);
@@ -93,7 +99,7 @@ export async function readDeploymentFinishPushRouteRequest(
 export function decodeDeploymentFinishPushRouteRequest(
   request: Request,
 ): Effect.Effect<FinishPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodeDeploymentRouteRequest(request, parseDeploymentFinishPushRouteRequestEffect);
+  return decodeDeploymentRouteRequest(request, decodeDeploymentFinishPushRoutePayload);
 }
 
 export function parseDeploymentFinishPushRouteRequest(
@@ -103,6 +109,12 @@ export function parseDeploymentFinishPushRouteRequest(
 }
 
 export function parseDeploymentFinishPushRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
+  return decodeDeploymentFinishPushRoutePayload(value);
+}
+
+export function decodeDeploymentFinishPushRoutePayload(
   value: unknown,
 ): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
   return decodeDeploymentFinishPushPayload(value);
@@ -126,7 +138,7 @@ export async function readDeploymentAbandonPushRouteRequest(
 export function decodeDeploymentAbandonPushRouteRequest(
   request: Request,
 ): Effect.Effect<AbandonPushRequest, RequestJsonError | DeploymentProtocolValidationError> {
-  return decodeDeploymentRouteRequest(request, parseDeploymentAbandonPushRouteRequestEffect);
+  return decodeDeploymentRouteRequest(request, decodeDeploymentAbandonPushRoutePayload);
 }
 
 export function parseDeploymentAbandonPushRouteRequest(
@@ -136,6 +148,12 @@ export function parseDeploymentAbandonPushRouteRequest(
 }
 
 export function parseDeploymentAbandonPushRouteRequestEffect(
+  value: unknown,
+): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
+  return decodeDeploymentAbandonPushRoutePayload(value);
+}
+
+export function decodeDeploymentAbandonPushRoutePayload(
   value: unknown,
 ): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
   return decodeDeploymentAbandonPushPayload(value);
