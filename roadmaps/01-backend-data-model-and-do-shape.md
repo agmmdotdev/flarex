@@ -1,5 +1,54 @@
 # Backend Data Model And Durable Object Shape
 
+## Partition Route Payload Validation Boundary
+
+Previous completed checkpoint: `f77949c` Share scheduler maintenance payload
+validation.
+
+What changed:
+
+- Partition route request payload validation now lives in the shared
+  `partition/Requests.ts` source boundary.
+- Schema-cache, public schema-cache wrapping, commit, subscription
+  registration, subscription target, and connection unregister request shapes
+  now emit `PartitionRoutePayloadError` from named Effect decoders at the
+  payload source.
+- Internal PartitionDO routes and public Worker schema-cache routes continue to
+  share the same request validation path, while malformed JSON remains
+  `RequestJsonError`.
+- Partition route adapters still map typed payload failures to the same HTTP
+  400 response shape at the adapter edge.
+
+Why it changed:
+
+Partition route validation had already moved to typed Effect decoders, but the
+payload validation and route error tag still lived in `partition/RouteBoundary`.
+This checkpoint moves the payload ownership to the Partition request source
+boundary while keeping route files responsible for JSON reads and HTTP
+conversion.
+
+Preserved behavior:
+
+- PartitionDO SQL/OCC, idempotency, schema-cache persistence, document writes,
+  index reads, and subscription invalidation are unchanged.
+- Public Worker schema-cache routing still keeps the route `partitionKey`
+  authoritative over any body field.
+- `ValidatorJson`, protocol schemas, deployment routes, invoke routes,
+  scheduler routes, execution routes, delivery routes, and executor-http routes
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/transaction.test.ts packages/flarex-backend/test/partitionDO.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Partition Route Effect Boundary
 
 Previous completed checkpoint: `083fae0` Route public execution through Effect.

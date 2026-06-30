@@ -15,9 +15,39 @@ import {
   readPartitionSchemaCacheRequest,
   readPartitionSubscriptionRegistrationRequest,
 } from "../src/partition/RouteBoundary";
+import {
+  decodePartitionCommitPayload,
+  decodePartitionConnectionUnregisterPayload,
+  decodePartitionSchemaCachePayload,
+  decodePartitionSubscriptionRegistrationPayload,
+  decodePartitionSubscriptionTargetPayload,
+  PartitionRoutePayloadError,
+} from "../src/partition/Requests";
 import type { DeploymentSchema } from "../src/types";
 
 describe("partition route boundary", () => {
+  it("decodes partition route payloads through shared typed boundaries", async () => {
+    await expect(Effect.runPromise(decodePartitionSchemaCachePayload({
+      partitionKey: "user:ada",
+      version: 1,
+      tables: [],
+      indexes: [],
+    }))).resolves.toEqual({
+      partitionKey: "user:ada",
+      version: 1,
+      tables: [],
+      indexes: [],
+    });
+
+    await expect(Effect.runPromise(decodePartitionCommitPayload({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    }))).resolves.toEqual({
+      beginTs: 3,
+      writes: [{ tableId: 1, value: { name: "Ada" } }],
+    });
+  });
+
   it("decodes schema-cache requests", async () => {
     const schema: DeploymentSchema = {
       version: 1,
@@ -143,7 +173,7 @@ describe("partition route boundary", () => {
       beginTs: 1,
       writes: [{ tableId: "1", value: null }],
     }))).rejects.toMatchObject({
-      _tag: "PartitionRouteValidationError",
+      _tag: "PartitionRoutePayloadError",
       message: "writes[0].tableId must be an integer.",
     });
   });
@@ -164,6 +194,43 @@ describe("partition route boundary", () => {
         message: "writes[0].tableId must be an integer.",
       });
     }
+  });
+
+  it("exposes shared typed partition payload failures before HTTP mapping", async () => {
+    const commitFailure = await Effect.runPromise(Effect.flip(decodePartitionCommitPayload({
+      beginTs: 1,
+      writes: [{ tableId: "1", value: null }],
+    })));
+
+    expect(commitFailure).toBeInstanceOf(PartitionRoutePayloadError);
+    expect(commitFailure).toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "writes[0].tableId must be an integer.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodePartitionSubscriptionRegistrationPayload({
+      connectionName: "connection-a",
+      queryId: 7,
+      readSet: null,
+    })))).resolves.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "readSet must be an object.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodePartitionSubscriptionTargetPayload({
+      connectionName: "connection-a",
+      queryId: 7.5,
+    })))).resolves.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "queryId must be an integer.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(decodePartitionConnectionUnregisterPayload({
+      connectionName: "",
+    })))).resolves.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "connectionName must be a non-empty string.",
+    });
   });
 
   it("maps invalid commit read sets to 400", () => {

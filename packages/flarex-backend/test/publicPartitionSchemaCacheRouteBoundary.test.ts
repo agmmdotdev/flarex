@@ -8,9 +8,29 @@ import {
   publicPartitionSchemaCacheRouteErrorToHttpError,
   readPublicPartitionSchemaCacheRequest,
 } from "../src/partition/PublicSchemaCacheRouteBoundary";
+import {
+  decodePublicPartitionSchemaCachePayload,
+  PartitionRoutePayloadError,
+} from "../src/partition/Requests";
 import type { DeploymentSchema } from "../src/types";
 
 describe("public partition schema-cache route boundary", () => {
+  it("wraps public schema-cache payloads through the shared source boundary", async () => {
+    const schema: DeploymentSchema = {
+      version: 1,
+      tables: [],
+      indexes: [],
+    };
+
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCachePayload(
+      schema,
+      "user:ada",
+    ))).resolves.toEqual({
+      partitionKey: "user:ada",
+      schema,
+    });
+  });
+
   it("wraps schema-cache requests with the route partition key", async () => {
     const schema: DeploymentSchema = {
       version: 1,
@@ -68,7 +88,7 @@ describe("public partition schema-cache route boundary", () => {
       "schema",
       "user:ada",
     ))).rejects.toMatchObject({
-      _tag: "PartitionRouteValidationError",
+      _tag: "PartitionRoutePayloadError",
       message: "schema-cache request body must be an object.",
     });
   });
@@ -86,6 +106,19 @@ describe("public partition schema-cache route boundary", () => {
         message: "schema-cache request body must be an object.",
       });
     }
+  });
+
+  it("exposes shared typed public schema-cache payload failures before HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(decodePublicPartitionSchemaCachePayload(
+      "schema",
+      "user:ada",
+    )));
+
+    expect(failure).toBeInstanceOf(PartitionRoutePayloadError);
+    expect(failure).toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "schema-cache request body must be an object.",
+    });
   });
 
   it("preserves malformed JSON as the shared JSON body error", async () => {

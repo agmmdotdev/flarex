@@ -1,7 +1,5 @@
 import { Effect } from "effect";
 import {
-  parsePartitionSchemaCacheRequest,
-  parsePartitionSchemaCacheRequestEffect,
   partitionRouteErrorToHttpError,
   type PartitionRouteError,
   type PartitionSchemaCacheRequest,
@@ -10,7 +8,7 @@ import {
   HttpError,
   readJsonEffect,
 } from "../http";
-import type { DeploymentSchema } from "../types";
+import { decodePublicPartitionSchemaCachePayload } from "./Requests";
 
 export async function readPublicPartitionSchemaCacheRequest(
   request: Request,
@@ -34,17 +32,16 @@ export function parsePublicPartitionSchemaCacheRequest(
   value: unknown,
   partitionKey: string,
 ): PartitionSchemaCacheRequest {
-  parsePartitionSchemaCacheRequest(value);
-  return { partitionKey, schema: value as Partial<DeploymentSchema> };
+  return Effect.runSync(parsePublicPartitionSchemaCacheRequestEffect(value, partitionKey).pipe(
+    Effect.mapError(publicPartitionSchemaCacheRouteErrorToHttpError),
+  ));
 }
 
 export function parsePublicPartitionSchemaCacheRequestEffect(
   value: unknown,
   partitionKey: string,
 ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
-  return parsePartitionSchemaCacheRequestEffect(value).pipe(
-    Effect.as({ partitionKey, schema: value as Partial<DeploymentSchema> }),
-  );
+  return decodePublicPartitionSchemaCachePayload(value, partitionKey);
 }
 
 export function publicPartitionSchemaCacheRouteErrorToHttpError(

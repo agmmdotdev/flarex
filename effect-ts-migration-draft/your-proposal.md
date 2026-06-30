@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Scheduler maintenance payload validation boundary.
+- Previous completed checkpoint: Partition route payload validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Scheduler maintenance payload validation boundary checkpoint:
+Next recommended checkpoint after the Partition route payload validation boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,28 @@ Next recommended checkpoint after the Scheduler maintenance payload validation b
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 230 slice:
+
+1. Move Partition route request payload validation into the shared
+   `partition/Requests.ts` source boundary with `PartitionRoutePayloadError`.
+2. Cover schema-cache, public schema-cache wrapping, commit, subscription
+   registration, subscription target, and connection unregister request shapes
+   with named Effect decoders at the payload source.
+3. Keep internal PartitionDO routes and public Worker schema-cache routes on the
+   same shared payload decoders while preserving malformed JSON as
+   `RequestJsonError`.
+4. Preserve adapter-edge HTTP 400 mapping through
+   `partitionRouteErrorToHttpError(...)` and
+   `publicPartitionSchemaCacheRouteErrorToHttpError(...)`.
+5. Keep PartitionDO SQL/OCC, idempotency, schema-cache persistence, document
+   writes, index reads, subscription invalidation, executor-http, protocol
+   schemas, and `ValidatorJson` unchanged.
+6. Add direct shared decoder coverage plus internal and public route-boundary
+   coverage for typed payload failures and preserved HTTP mapping.
+7. Validate focused partition route/source tests, PartitionDO/transaction
+   behavior tests, backend typecheck/build, protocol build/test, and only the
+   EffectTS quality checker reviewer.
 
 Completed Goal 229 slice:
 
