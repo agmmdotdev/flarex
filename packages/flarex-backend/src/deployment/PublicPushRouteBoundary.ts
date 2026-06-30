@@ -1,10 +1,6 @@
 import { Effect } from "effect";
 import {
   DeploymentProtocolValidationError,
-  parseAbandonPushRequest,
-  parseAnalyzedStartPushRequest,
-  parseFinishPushRequest,
-  parseStartPushRequest,
   type AbandonPushRequest,
   type AnalyzedStartPushRequest,
   type FinishPushRequest,
@@ -18,6 +14,16 @@ import {
   type HttpError,
 } from "../http";
 import type { StartPushRequest } from "../types";
+import {
+  decodePublicAbandonPushPayload,
+  decodePublicAnalyzedStartPushPayload,
+  decodePublicFinishPushPayload,
+  decodePublicStartPushPayload,
+  parsePublicAbandonPushPayload,
+  parsePublicAnalyzedStartPushPayload,
+  parsePublicFinishPushPayload,
+  parsePublicStartPushPayload,
+} from "./Requests";
 
 export async function readPublicStartPushJson(request: Request): Promise<unknown> {
   return await runPublicDeploymentJsonRequest(decodePublicStartPushJson(request));
@@ -40,27 +46,13 @@ export function decodePublicStartPushRequest(
 }
 
 export function parsePublicStartPushRequest(body: unknown): StartPushRequest {
-  const request = parseStartPushRequest(body);
-  return {
-    sourcePackage: {
-      modules: request.sourcePackage.modules.map(module => ({
-        path: module.path,
-        environment: module.environment,
-        sha256: module.sha256,
-        ...(module.source === undefined ? {} : { source: module.source }),
-        ...(module.sourceMap === undefined ? {} : { sourceMap: module.sourceMap }),
-      })),
-      functions: [...request.sourcePackage.functions],
-      ...(request.sourcePackage.schema === undefined ? {} : { schema: request.sourcePackage.schema }),
-      execution: request.sourcePackage.execution,
-    },
-  };
+  return parsePublicStartPushPayload(body);
 }
 
 export function parsePublicStartPushRequestEffect(
   body: unknown,
 ): Effect.Effect<StartPushRequest, DeploymentProtocolValidationError> {
-  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicStartPushRequest);
+  return decodePublicStartPushPayload(body);
 }
 
 export async function readPublicAnalyzedStartPushRequest(
@@ -78,13 +70,13 @@ export function decodePublicAnalyzedStartPushRequest(
 export function parsePublicAnalyzedStartPushRequest(
   body: unknown,
 ): AnalyzedStartPushRequest {
-  return parseAnalyzedStartPushRequest(body);
+  return parsePublicAnalyzedStartPushPayload(body);
 }
 
 export function parsePublicAnalyzedStartPushRequestEffect(
   body: unknown,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicAnalyzedStartPushRequest);
+  return decodePublicAnalyzedStartPushPayload(body);
 }
 
 export async function readPublicFinishPushRequest(
@@ -110,13 +102,13 @@ export function decodePublicFinishPushJson(request: Request): Effect.Effect<unkn
 export function parsePublicFinishPushRequest(
   body: unknown,
 ): FinishPushRequest {
-  return parseFinishPushRequest(body);
+  return parsePublicFinishPushPayload(body);
 }
 
 export function parsePublicFinishPushRequestEffect(
   body: unknown,
 ): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
-  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicFinishPushRequest);
+  return decodePublicFinishPushPayload(body);
 }
 
 export async function readPublicAbandonPushRequest(
@@ -134,13 +126,13 @@ export function decodePublicAbandonPushRequest(
 export function parsePublicAbandonPushRequest(
   body: unknown,
 ): AbandonPushRequest {
-  return parseAbandonPushRequest(body);
+  return parsePublicAbandonPushPayload(body);
 }
 
 export function parsePublicAbandonPushRequestEffect(
   body: unknown,
 ): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
-  return parsePublicDeploymentProtocolRequestEffect(body, parsePublicAbandonPushRequest);
+  return decodePublicAbandonPushPayload(body);
 }
 
 async function runPublicDeploymentRouteRequest<A>(
@@ -170,22 +162,6 @@ function decodePublicDeploymentRouteRequest<A>(
   return readJsonEffect(request).pipe(
     Effect.flatMap(parse),
   );
-}
-
-function parsePublicDeploymentProtocolRequestEffect<A>(
-  body: unknown,
-  parse: (body: unknown) => A,
-): Effect.Effect<A, DeploymentProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parse(body));
-    } catch (error) {
-      if (error instanceof DeploymentProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
 }
 
 export function publicDeploymentRouteErrorToHttpError(

@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## Deployment Push Request Payload Source Boundary
+
+Previous completed checkpoint: `55c5287` Share public invoke request validation.
+
+What changed:
+
+- `packages/flarex-backend/src/deployment/Requests.ts` now owns internal
+  DeploymentDO analyzed-start, finish, and abandon push payload decoding.
+- The same source boundary owns public Worker source-only start,
+  analyzed-start, finish, and abandon push payload decoding, including backend
+  `StartPushRequest` source-package normalization.
+- `HttpApiRouteBoundary.ts` and `PublicPushRouteBoundary.ts` delegate protocol
+  parsing to the shared source boundary while keeping compatibility read/parse
+  exports and adapter-level HTTP mapping.
+- Tests cover the source decoders directly, including typed
+  `DeploymentProtocolValidationError` failures before HTTP mapping.
+
+Boundary decision:
+
+Deployment push payload shape validation is now source-owned by
+`deployment/Requests.ts`. Route boundary modules own JSON body reading,
+compatibility throwing wrappers, route matching/reconstruction, and adapter
+mapping. Deployment services and stores still own push orchestration,
+persistence, activation, abandon behavior, artifact preflight, and validation
+beyond the protocol payload shape.
+
+Known limitations:
+
+- Public source-only start and finish routes intentionally keep raw JSON reads
+  in `PublicPushRouteBoundary.ts` because the Worker must run analyzer/artifact
+  preflight before protocol parsing in those paths.
+- Deployment service/store errors, artifact runtime dispatch, executor-http,
+  protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentRequests.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts -t "rejects malformed source-only push bodies when analyzer forwarding is configured|rejects malformed finish request bodies|requires durable artifact storage before public finish" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Request Payload Source Boundary
 
 Previous completed checkpoint: `5d4192e` Share execution route payload validation.

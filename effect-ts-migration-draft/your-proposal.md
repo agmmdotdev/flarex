@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public invoke request validation source boundary.
+- Previous completed checkpoint: Deployment push request validation source boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Public invoke request validation source boundary checkpoint:
+Next recommended checkpoint after the Deployment push request validation source boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,29 @@ Next recommended checkpoint after the Public invoke request validation source bo
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 233 slice:
+
+1. Move internal DeploymentDO analyzed-start, finish, and abandon push payload
+   decoding into the shared `deployment/Requests.ts` source boundary.
+2. Move public Worker source-only start, analyzed-start, finish, and abandon
+   push payload decoding into the same source boundary, including backend
+   `StartPushRequest` source-package normalization.
+3. Keep deployment protocol parser failures typed as
+   `DeploymentProtocolValidationError` until the route/Worker adapter maps
+   them to the existing response behavior.
+4. Preserve public Worker preflight ordering for source-only start and finish:
+   raw JSON is still read before analyzer/artifact preflight, and protocol
+   parsing still happens only after those checks.
+5. Keep `HttpApiRouteBoundary.ts` and `PublicPushRouteBoundary.ts` as
+   compatibility adapters with stable read/parse exports and route error
+   mappers.
+6. Keep deployment service/store behavior, artifact persistence/preflight,
+   DeploymentDO generated handler routing, public Worker dispatch, executor-http,
+   protocol schemas, and `ValidatorJson` unchanged.
+7. Add direct shared decoder coverage for internal/public push payloads,
+   backend source-package normalization, and typed protocol failures before
+   HTTP mapping.
 
 Completed Goal 232 slice:
 

@@ -6,9 +6,6 @@ import {
   DeploymentProtocolValidationError,
   DeploymentRoute,
   type FinishPushRequest,
-  parseAbandonPushRequest,
-  parseAnalyzedStartPushRequest,
-  parseFinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
   readJsonEffect,
@@ -16,6 +13,14 @@ import {
   requestJsonErrorToHttpError,
   type HttpError,
 } from "../http";
+import {
+  decodeDeploymentAbandonPushPayload,
+  decodeDeploymentAnalyzedStartPushPayload,
+  decodeDeploymentFinishPushPayload,
+  parseDeploymentAbandonPushPayload,
+  parseDeploymentAnalyzedStartPushPayload,
+  parseDeploymentFinishPushPayload,
+} from "./Requests";
 
 const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(?:/([^/]+))?$`);
 
@@ -70,13 +75,13 @@ export function decodeDeploymentAnalyzedStartPushRouteRequest(
 export function parseDeploymentAnalyzedStartPushRouteRequest(
   value: unknown,
 ): AnalyzedStartPushRequest {
-  return parseAnalyzedStartPushRequest(value);
+  return parseDeploymentAnalyzedStartPushPayload(value);
 }
 
 export function parseDeploymentAnalyzedStartPushRouteRequestEffect(
   value: unknown,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  return parseDeploymentProtocolRequestEffect(value, parseDeploymentAnalyzedStartPushRouteRequest);
+  return decodeDeploymentAnalyzedStartPushPayload(value);
 }
 
 export async function readDeploymentFinishPushRouteRequest(
@@ -94,13 +99,13 @@ export function decodeDeploymentFinishPushRouteRequest(
 export function parseDeploymentFinishPushRouteRequest(
   value: unknown,
 ): FinishPushRequest {
-  return parseFinishPushRequest(value);
+  return parseDeploymentFinishPushPayload(value);
 }
 
 export function parseDeploymentFinishPushRouteRequestEffect(
   value: unknown,
 ): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
-  return parseDeploymentProtocolRequestEffect(value, parseDeploymentFinishPushRouteRequest);
+  return decodeDeploymentFinishPushPayload(value);
 }
 
 export function deploymentRouteErrorToHttpError(
@@ -127,13 +132,13 @@ export function decodeDeploymentAbandonPushRouteRequest(
 export function parseDeploymentAbandonPushRouteRequest(
   value: unknown,
 ): AbandonPushRequest {
-  return parseAbandonPushRequest(value);
+  return parseDeploymentAbandonPushPayload(value);
 }
 
 export function parseDeploymentAbandonPushRouteRequestEffect(
   value: unknown,
 ): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
-  return parseDeploymentProtocolRequestEffect(value, parseDeploymentAbandonPushRouteRequest);
+  return decodeDeploymentAbandonPushPayload(value);
 }
 
 async function runDeploymentRouteRequest<A>(
@@ -153,22 +158,6 @@ function decodeDeploymentRouteRequest<A>(
   return readJsonEffect(request).pipe(
     Effect.flatMap(parse),
   );
-}
-
-function parseDeploymentProtocolRequestEffect<A>(
-  value: unknown,
-  parse: (value: unknown) => A,
-): Effect.Effect<A, DeploymentProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parse(value));
-    } catch (error) {
-      if (error instanceof DeploymentProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
 }
 
 function jsonRequest(url: URL, body: unknown): Request {
