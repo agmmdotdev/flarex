@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicDeliveryWakeRequest,
+  decodePublicDeliveryWakeRoutePayload,
   parsePublicDeliveryWakeRequest,
   parsePublicDeliveryWakeRequestEffect,
   publicDeliveryWakeRouteErrorToHttpError,
@@ -22,6 +23,24 @@ describe("public delivery wake route boundary", () => {
     }, "route-deployment"))).resolves.toEqual({
       deploymentId: "route-deployment",
       limit: 10,
+    });
+  });
+
+  it("decodes public delivery wake route payloads through a named Effect boundary", async () => {
+    await expect(Effect.runPromise(decodePublicDeliveryWakeRoutePayload({
+      deploymentId: "body-deployment",
+      limit: 5,
+      ignored: true,
+    }, "route-deployment"))).resolves.toEqual({
+      deploymentId: "route-deployment",
+      limit: 5,
+    });
+
+    await expect(Effect.runPromise(decodePublicDeliveryWakeRoutePayload({
+      limit: 0,
+    }, "route-deployment"))).rejects.toMatchObject({
+      _tag: "DeliveryWakePayloadError",
+      message: "limit must be a positive integer.",
     });
   });
 

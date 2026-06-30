@@ -8,7 +8,10 @@ import {
   HttpError,
   readJsonEffect,
 } from "../http";
-import { decodePublicDeliveryWakePayload } from "./WakeRequest";
+import {
+  decodePublicDeliveryWakePayload,
+  type DeliveryWakePayloadError,
+} from "./WakeRequest";
 
 export async function readPublicDeliveryWakeRequest(
   request: Request,
@@ -24,7 +27,7 @@ export function decodePublicDeliveryWakeRequest(
   deploymentId: string,
 ): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(value => parsePublicDeliveryWakeRequestEffect(value, deploymentId)),
+    Effect.flatMap(value => decodePublicDeliveryWakeRoutePayload(value, deploymentId)),
   );
 }
 
@@ -40,7 +43,14 @@ export function parsePublicDeliveryWakeRequest(
 export function parsePublicDeliveryWakeRequestEffect(
   value: unknown,
   deploymentId: string,
-): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteError> {
+): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
+  return decodePublicDeliveryWakeRoutePayload(value, deploymentId);
+}
+
+export function decodePublicDeliveryWakeRoutePayload(
+  value: unknown,
+  deploymentId: string,
+): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
   return decodePublicDeliveryWakePayload(value, deploymentId);
 }
 

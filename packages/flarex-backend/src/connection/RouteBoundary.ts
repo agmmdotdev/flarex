@@ -40,7 +40,7 @@ export function decodeConnectionInvalidationRequest(
   request: Request,
 ): Effect.Effect<QueryId, ConnectionRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseConnectionInvalidationRequestEffect),
+    Effect.flatMap(decodeConnectionInvalidationRoutePayload),
   );
 }
 
@@ -58,6 +58,12 @@ export function parseConnectionInvalidationRequest(value: unknown): QueryId {
 export function parseConnectionInvalidationRequestEffect(
   value: unknown,
 ): Effect.Effect<QueryId, ConnectionRouteValidationError> {
+  return decodeConnectionInvalidationRoutePayload(value);
+}
+
+export function decodeConnectionInvalidationRoutePayload(
+  value: unknown,
+): Effect.Effect<QueryId, ConnectionRouteValidationError> {
   return decodeConnectionInvalidationPayload(value);
 }
 
@@ -71,7 +77,7 @@ export function decodeConnectionLiveQueryDeliveryRequest(
   request: Request,
 ): Effect.Effect<LiveQueryDeliveryChange[], ConnectionRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseConnectionLiveQueryDeliveryRequestEffect),
+    Effect.flatMap(decodeConnectionLiveQueryDeliveryRoutePayload),
   );
 }
 
@@ -84,6 +90,12 @@ export function parseConnectionLiveQueryDeliveryRequest(
 }
 
 export function parseConnectionLiveQueryDeliveryRequestEffect(
+  value: unknown,
+): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+  return decodeConnectionLiveQueryDeliveryRoutePayload(value);
+}
+
+export function decodeConnectionLiveQueryDeliveryRoutePayload(
   value: unknown,
 ): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
   return decodeConnectionLiveQueryDeliveryPayload(value);

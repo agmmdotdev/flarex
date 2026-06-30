@@ -26,7 +26,7 @@ export function decodePublicLiveQueryDeliveryRequest(
   request: Request,
 ): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parsePublicLiveQueryDeliveryRequestEffect),
+    Effect.flatMap(decodePublicLiveQueryDeliveryRoutePayload),
   );
 }
 
@@ -39,6 +39,12 @@ export function parsePublicLiveQueryDeliveryRequest(
 }
 
 export function parsePublicLiveQueryDeliveryRequestEffect(
+  value: unknown,
+): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+  return decodePublicLiveQueryDeliveryRoutePayload(value);
+}
+
+export function decodePublicLiveQueryDeliveryRoutePayload(
   value: unknown,
 ): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
   return decodeLiveQueryDeliveryChangesFromBody(value);

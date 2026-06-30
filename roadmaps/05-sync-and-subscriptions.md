@@ -1,5 +1,60 @@
 # Sync And Subscriptions
 
+## Delivery And Connection Route Decoder Ownership
+
+Previous completed checkpoint: `ea9c8ca` Own invoke route decoders.
+
+What changed:
+
+- DeliveryDO wake, public wake-delivery, public live-query delivery,
+  ConnectionDO invalidation, and ConnectionDO live-query delivery routes now
+  expose decode-named route payload boundaries.
+- Request decoders call `decode*RoutePayload(...)` functions directly after the
+  shared JSON body Effect boundary succeeds.
+- Parse-named Effect helpers remain as compatibility wrappers, but newly
+  migrated request paths prefer the decode-named route payload functions.
+- Typed payload failures still propagate unchanged until the existing delivery,
+  public sync, or ConnectionDO route adapter maps them to HTTP responses.
+
+Why it changed:
+
+The wake and live-query routes already shared typed payload source decoders, but
+request decoders still flowed through parse-named compatibility helpers. This
+checkpoint makes the route payload ownership explicit across the related
+DeliveryDO, public Worker sync callback, and ConnectionDO route family while
+preserving existing HTTP mapping behavior.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Cloudflare-specific route adapter wiring
+  around Flarex live-query sync and delivery callbacks.
+
+How Flarex differs from Convex:
+
+- Flarex uses Cloudflare Worker and Durable Object routes to wake delivery
+  drains, fan out materialized live-query changes, and invalidate active
+  WebSocket queries. This checkpoint keeps that Cloudflare routing shape while
+  tightening the Effect request decoder boundary.
+
+Known limitations:
+
+- DeliveryDO drain semantics, ConnectionDO WebSocket state, SchedulerDO
+  maintenance behavior, PartitionDO SQL/OCC, executor-http, protocol schemas,
+  and `ValidatorJson` are unchanged.
+- These route payload functions still delegate to the existing manual payload
+  decoders; the payload shapes are not moved into the protocol package yet.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deliveryRouteBoundary.test.ts packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts packages/flarex-backend/test/connectionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Scheduler Maintenance Payload Validation Boundary
 
 Previous completed checkpoint: `d4e5712` Share delivery wake payload validation.

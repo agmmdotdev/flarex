@@ -4,6 +4,7 @@ import { RequestJsonError } from "../src/http";
 import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
+  decodePublicLiveQueryDeliveryRoutePayload,
   parsePublicLiveQueryDeliveryRequest,
   parsePublicLiveQueryDeliveryRequestEffect,
   publicLiveQueryDeliveryRouteErrorToHttpError,
@@ -11,6 +12,34 @@ import {
 } from "../src/liveQueryDelivery/RouteBoundary";
 
 describe("public live query delivery route boundary", () => {
+  it("decodes public live query delivery route payloads through a named Effect boundary", async () => {
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRoutePayload({
+      deliveries: [
+        {
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-a:session-a",
+          queryId: 3,
+          functionPath: "users:get",
+          argsJson: {},
+          resultJson: { ok: true },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    }))).resolves.toMatchObject([
+      {
+        kind: "updated",
+        queryId: 3,
+      },
+    ]);
+
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRoutePayload({})))
+      .rejects.toMatchObject({
+        _tag: "LiveQueryDeliveryChangePayloadError",
+        message: "Live query delivery body must be an object with a deliveries array.",
+      });
+  });
+
   it("decodes updated and failed delivery requests", async () => {
     await expect(readPublicLiveQueryDeliveryRequest(jsonRequest({
       deliveries: [

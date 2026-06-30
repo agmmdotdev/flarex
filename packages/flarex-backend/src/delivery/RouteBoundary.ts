@@ -25,7 +25,7 @@ export function decodeDeliveryWakeRequest(
   request: Request,
 ): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteError> {
   return readJsonEffect(request).pipe(
-    Effect.flatMap(parseDeliveryWakeRequestEffect),
+    Effect.flatMap(decodeDeliveryWakeRoutePayload),
   );
 }
 
@@ -36,6 +36,12 @@ export function parseDeliveryWakeRequest(value: unknown): DeliveryWakeRequest {
 }
 
 export function parseDeliveryWakeRequestEffect(
+  value: unknown,
+): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
+  return decodeDeliveryWakeRoutePayload(value);
+}
+
+export function decodeDeliveryWakeRoutePayload(
   value: unknown,
 ): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
   return decodeDeliveryWakePayload(value);

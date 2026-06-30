@@ -6,7 +6,9 @@ import {
   connectionRouteErrorToHttpError,
   ConnectionRouteValidationError,
   decodeConnectionInvalidationRequest,
+  decodeConnectionInvalidationRoutePayload,
   decodeConnectionLiveQueryDeliveryRequest,
+  decodeConnectionLiveQueryDeliveryRoutePayload,
   parseConnectionInvalidationRequest,
   parseConnectionInvalidationRequestEffect,
   parseConnectionLiveQueryDeliveryRequest,
@@ -21,6 +23,17 @@ import {
 } from "../src/connection/RouteOperationError";
 
 describe("connection route boundary", () => {
+  it("decodes connection invalidation route payloads through a named Effect boundary", async () => {
+    await expect(Effect.runPromise(decodeConnectionInvalidationRoutePayload({ queryId: 42 })))
+      .resolves.toBe(42);
+
+    await expect(Effect.runPromise(decodeConnectionInvalidationRoutePayload({ queryId: "42" })))
+      .rejects.toMatchObject({
+        _tag: "ConnectionRouteValidationError",
+        message: "Invalidation queryId must be an integer.",
+      });
+  });
+
   it("decodes invalidation requests", async () => {
     await expect(readConnectionInvalidationRequest(jsonRequest({ queryId: 42 })))
       .resolves.toBe(42);
@@ -47,6 +60,26 @@ describe("connection route boundary", () => {
   });
 
   it("decodes live query delivery requests", async () => {
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryRoutePayload({
+      deliveries: [
+        {
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-a:session-a",
+          queryId: 3,
+          functionPath: "users:get",
+          argsJson: {},
+          resultJson: { ok: true },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    }))).resolves.toMatchObject([
+      {
+        kind: "updated",
+        queryId: 3,
+      },
+    ]);
+
     await expect(readConnectionLiveQueryDeliveryRequest(jsonRequest({
       deliveries: [
         {
@@ -94,7 +127,14 @@ describe("connection route boundary", () => {
     ]);
   });
 
-  it("maps invalid live query delivery bodies to 400", () => {
+  it("maps invalid live query delivery bodies to 400", async () => {
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryRoutePayload({
+      deliveries: [{ queryId: 1 }],
+    }))).rejects.toMatchObject({
+      _tag: "LiveQueryDeliveryChangePayloadError",
+      message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+
     expect(() => parseConnectionLiveQueryDeliveryRequest(null))
       .toThrow(HttpError);
     try {
