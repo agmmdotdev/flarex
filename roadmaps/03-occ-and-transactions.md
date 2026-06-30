@@ -1,5 +1,44 @@
 # OCC And Transactions
 
+## Public Worker Partition Route Effect Boundary
+
+Previous completed checkpoint: `b351f13` Type public execution route
+boundary.
+
+What changed:
+
+- Public Worker partition routing now runs through
+  `Effect.fn("Worker.routePartition")` with a single `Effect.runPromise(...)`
+  adapter edge.
+- Begin, commit, schema-cache, document-read, and index-read branches reuse
+  the existing typed forwarding helpers instead of running branch-local
+  runtime boundaries.
+- Commit and schema-cache body failures remain typed `PartitionRouteError`
+  values until the Worker adapter maps them to the preserved HTTP response.
+- Public dispatch-source coverage now includes partition commit and
+  schema-cache forwarding failures alongside begin/document/index.
+
+What did not change:
+
+- PartitionDO SQL/OCC behavior, idempotency replay, document/index storage,
+  subscription invalidation, schema-cache semantics, and transaction response
+  shapes are unchanged.
+- Public partition-key parsing still happens at the existing public path
+  boundary before the partition router is called.
+- Public deployment push, invoke, execution, scheduler, sync, delivery,
+  executor-http, generated HttpApi routes, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionRouteBoundary.test.ts packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts packages/flarex-backend/test/publicWorkerRouteDispatchError.test.ts packages/flarex-backend/test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Partition Response Effect Boundary
 
 Previous completed checkpoint: `e726ae8` Type dev backend responses with

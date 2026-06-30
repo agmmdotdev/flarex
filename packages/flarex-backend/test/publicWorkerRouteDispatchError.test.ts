@@ -113,6 +113,8 @@ describe("public Worker route dispatch errors", () => {
     const sources = [
       "invoke-execute",
       "partition-begin",
+      "partition-commit",
+      "partition-schema-cache",
       "partition-document-read",
       "partition-index-read",
     ] as const;

@@ -98,7 +98,6 @@ import {
 } from "./partition/RouteBoundary";
 import {
   decodePublicPartitionSchemaCacheRequest,
-  publicPartitionSchemaCacheRouteErrorToHttpError,
 } from "./partition/PublicSchemaCacheRouteBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
@@ -937,47 +936,48 @@ async function routePartition(
   parts: string[],
   originalUrl: URL,
 ): Promise<Response> {
-  const partition = env.PARTITIONS.getByName(partitionObjectName(deploymentId, partitionKey));
-  const action = parts[0];
-
-  if (action === "begin" && request.method === "POST") {
-    return await Effect.runPromise(
-      routePublicPartitionBegin(partition).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      ),
-    );
-  }
-  if (action === "commit" && request.method === "POST") {
-    return await Effect.runPromise(
-      routePublicPartitionCommit(request, partition).pipe(
-        Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (action === "schema-cache" && request.method === "PUT") {
-    return await Effect.runPromise(
-      routePublicPartitionSchemaCache(request, partition, partitionKey).pipe(
-        Effect.mapError(publicWorkerPartitionSchemaCacheRouteErrorToHttpError),
-      ),
-    );
-  }
-  if (action === "document" && request.method === "GET") {
-    return await Effect.runPromise(
-      routePublicPartitionDocumentRead(partition, originalUrl.searchParams).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      ),
-    );
-  }
-  if (action === "index" && request.method === "GET") {
-    return await Effect.runPromise(
-      routePublicPartitionIndexRead(partition, originalUrl.searchParams).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      ),
-    );
-  }
-
-  return json({ error: "Partition route not found." }, { status: 404 });
+  return await Effect.runPromise(
+    routePartitionEffect(request, env, deploymentId, partitionKey, parts, originalUrl).pipe(
+      Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
+    ),
+  );
 }
+
+type PublicWorkerPartitionRouteError =
+  | Parameters<typeof partitionRouteErrorToHttpError>[0]
+  | PublicWorkerDispatchError;
+
+const routePartitionEffect = Effect.fn("Worker.routePartition")(
+  function* (
+    request: Request,
+    env: Env,
+    deploymentId: string,
+    partitionKey: string,
+    parts: readonly string[],
+    originalUrl: URL,
+  ): Effect.fn.Return<Response, PublicWorkerPartitionRouteError> {
+    const partition = env.PARTITIONS.getByName(partitionObjectName(deploymentId, partitionKey));
+    const action = parts[0];
+
+    if (action === "begin" && request.method === "POST") {
+      return yield* routePublicPartitionBegin(partition);
+    }
+    if (action === "commit" && request.method === "POST") {
+      return yield* routePublicPartitionCommit(request, partition);
+    }
+    if (action === "schema-cache" && request.method === "PUT") {
+      return yield* routePublicPartitionSchemaCache(request, partition, partitionKey);
+    }
+    if (action === "document" && request.method === "GET") {
+      return yield* routePublicPartitionDocumentRead(partition, originalUrl.searchParams);
+    }
+    if (action === "index" && request.method === "GET") {
+      return yield* routePublicPartitionIndexRead(partition, originalUrl.searchParams);
+    }
+
+    return json({ error: "Partition route not found." }, { status: 404 });
+  },
+);
 
 const routePublicPartitionBegin = Effect.fn("Worker.routePublicPartitionBegin")(
   function* (partition: DurableObjectStub) {
@@ -1003,7 +1003,7 @@ const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit"
 );
 
 function publicWorkerPartitionRouteErrorToHttpError(
-  error: Parameters<typeof partitionRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
+  error: PublicWorkerPartitionRouteError,
 ): HttpError {
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
@@ -1028,15 +1028,6 @@ const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSc
     });
   },
 );
-
-function publicWorkerPartitionSchemaCacheRouteErrorToHttpError(
-  error: Parameters<typeof publicPartitionSchemaCacheRouteErrorToHttpError>[0] | PublicWorkerDispatchError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  return publicPartitionSchemaCacheRouteErrorToHttpError(error);
-}
 
 const routePublicPartitionDocumentRead = Effect.fn("Worker.routePublicPartitionDocumentRead")(
   function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
