@@ -1,5 +1,62 @@
 # Runtime Validation
 
+## Public Partition Dispatch Boundary
+
+Previous completed checkpoint: `e12faea Type public execution dispatch boundary`.
+
+What changed:
+
+- Public partition begin, commit, schema-cache, document-read, and index-read
+  Durable Object dispatch now run through named Effect boundaries in
+  `partition/PublicDispatchBoundary.ts`.
+- Public partition commit and schema-cache request decoding remain in the
+  existing typed route boundaries.
+- Partition dispatch failures stay typed as `PublicWorkerDispatchError` values
+  from `partition-begin`, `partition-commit`, `partition-schema-cache`,
+  `partition-document-read`, and `partition-index-read`.
+- Direct tests cover each forwarded URL/method/body shape plus typed dispatch
+  failure mapping for all five public partition operations.
+
+Why it changed:
+
+The public partition route had typed request decoding for commit and
+schema-cache, but Worker-to-PartitionDO dispatch still lived inline in
+`worker.ts`. This checkpoint moves the dispatch family into named Effect
+functions so public partition integration failures are emitted at the source
+while the Worker route stays focused on path selection, request decoding, and
+one HTTP mapping edge.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's Worker-to-PartitionDO public
+  dispatch boundary.
+
+How Flarex differs from Convex:
+
+- Flarex routes public partition operations through a Worker facade before
+  forwarding to a partition Durable Object. Partition-local SQL/OCC semantics
+  remain owned by PartitionDO.
+
+Known limitations:
+
+- The dispatch target is still passed as an explicit interface instead of an
+  Effect service/layer.
+- PartitionDO SQL/OCC behavior, transaction semantics, route validation,
+  protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicPartitionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/transaction.test.ts -t "rejects invalid public partition commit envelopes|rejects malformed public partition schema-cache JSON|rejects non-object public partition schema-cache JSON|commits through the public partition route boundary" --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/partitionFlow.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Execution Dispatch Boundary
 
 Previous completed checkpoint: `2c3b3cd Type public start artifact persistence boundary`.

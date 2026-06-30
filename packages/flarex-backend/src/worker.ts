@@ -112,6 +112,13 @@ import {
 import {
   decodePublicPartitionSchemaCacheRequest,
 } from "./partition/PublicSchemaCacheRouteBoundary";
+import {
+  beginPublicPartitionEffect,
+  cachePublicPartitionSchemaEffect,
+  commitPublicPartitionEffect,
+  readPublicPartitionDocumentEffect,
+  readPublicPartitionIndexEffect,
+} from "./partition/PublicDispatchBoundary";
 import { PartitionDO } from "./partitionDO";
 import { RegistryDO } from "./registryDO";
 import {
@@ -860,24 +867,14 @@ const routePartitionEffect = Effect.fn("Worker.routePartition")(
 
 const routePublicPartitionBegin = Effect.fn("Worker.routePublicPartitionBegin")(
   function* (partition: DurableObjectStub) {
-    return yield* Effect.tryPromise({
-      try: () => partition.fetch("https://flarex.internal/begin", { method: "POST" }),
-      catch: error => publicWorkerDispatchError("partition-begin", error),
-    });
+    return yield* beginPublicPartitionEffect(partition);
   },
 );
 
 const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit")(
   function* (request: Request, partition: DurableObjectStub) {
     const commit = yield* decodePartitionCommitRequest(request);
-    return yield* Effect.tryPromise({
-      try: () => partition.fetch("https://flarex.internal/commit", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(commit),
-      }),
-      catch: error => publicWorkerDispatchError("partition-commit", error),
-    });
+    return yield* commitPublicPartitionEffect(partition, commit);
   },
 );
 
@@ -897,32 +894,19 @@ const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSc
     partitionKey: string,
   ) {
     const schemaCache = yield* decodePublicPartitionSchemaCacheRequest(request, partitionKey);
-    return yield* Effect.tryPromise({
-      try: () => partition.fetch("https://flarex.internal/schema-cache", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(schemaCache),
-      }),
-      catch: error => publicWorkerDispatchError("partition-schema-cache", error),
-    });
+    return yield* cachePublicPartitionSchemaEffect(partition, schemaCache);
   },
 );
 
 const routePublicPartitionDocumentRead = Effect.fn("Worker.routePublicPartitionDocumentRead")(
   function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
-    return yield* Effect.tryPromise({
-      try: () => partition.fetch(`https://flarex.internal/document?${searchParams}`),
-      catch: error => publicWorkerDispatchError("partition-document-read", error),
-    });
+    return yield* readPublicPartitionDocumentEffect(partition, searchParams);
   },
 );
 
 const routePublicPartitionIndexRead = Effect.fn("Worker.routePublicPartitionIndexRead")(
   function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
-    return yield* Effect.tryPromise({
-      try: () => partition.fetch(`https://flarex.internal/index?${searchParams}`),
-      catch: error => publicWorkerDispatchError("partition-index-read", error),
-    });
+    return yield* readPublicPartitionIndexEffect(partition, searchParams);
   },
 );
 
