@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: public Worker top-level route boundary.
+- Previous completed checkpoint: deployment push store active validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker top-level route boundary checkpoint:
+Next recommended checkpoint after the deployment push store active validation boundary checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the public Worker top-level route boundary che
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 208 slice:
+
+1. Move `DeploymentPushStore.getPush(...)` and active deployment metadata
+   reads onto the typed deployment validation path for stored push rows.
+2. Decode stored push rows with `decodePushStatusFromRow(...)` in the store
+   Effect channel, preserving `DeploymentValidationError` separately from
+   `DeploymentSqlError`.
+3. Decode active execution artifact refs through a named
+   `Effect.fn("DeploymentPushStore.parseExecutionArtifactRef")` helper and
+   keep malformed active metadata as typed
+   `DeploymentActiveDeploymentInvalidError`.
+4. Keep transaction-local push rechecks, schema/function activation writes,
+   SQL query/update shapes, DeploymentDO generated HttpApi routes, public
+   Worker forwarding, protocol schemas, and `ValidatorJson` unchanged.
+5. Validate direct deployment validation/service coverage, active metadata
+   failure coverage, backend typecheck/build, protocol build, and only the
+   EffectTS quality checker reviewer.
 
 Completed Goal 207 slice:
 

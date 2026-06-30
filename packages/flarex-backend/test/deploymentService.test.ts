@@ -1535,6 +1535,39 @@ describe("DeploymentService", () => {
       await runtime.dispose();
     }
   });
+
+  it("reports malformed active execution artifact refs as typed active deployment failures", async () => {
+    const status = analyzedPushStatus("push-active-artifact-ref");
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const metadata = new Map<string, string>([
+      ["active_push_id", status.pushId],
+      ["active_activated_at", "3300000"],
+      ["active_execution_artifact_ref", JSON.stringify({ ...executionArtifactRef(), artifactId: "bad-ref" })],
+    ]);
+    const sql = sqlWithPushes([status], { metadata });
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store => store.getActiveDeployment()).pipe(
+          Effect.catchTag("DeploymentActiveDeploymentInvalidError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(error instanceof DeploymentActiveDeploymentInvalidError)) {
+        throw new Error("Expected DeploymentActiveDeploymentInvalidError.");
+      }
+      expect(error.message).toBe("Stored execution artifact reference has an invalid artifact ID.");
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });
 
 interface DeploymentTestStore {

@@ -1,5 +1,64 @@
 # Deployment Analysis And Push
 
+## Deployment Push Store Active Validation Boundary
+
+Previous completed checkpoint: `3f4b4c6` Type public Worker route boundary.
+
+What changed:
+
+- `DeploymentPushStore.getPush(...)` now reads the SQL row separately from
+  deployment validation and decodes the stored row through
+  `decodePushStatusFromRow(...)` in the Effect channel.
+- Active deployment reads now reuse that typed push-row decode path instead
+  of catching thrown compatibility validation failures inside one broad SQL
+  `try` block.
+- Active execution artifact refs now decode through
+  `Effect.fn("DeploymentPushStore.parseExecutionArtifactRef")`, preserving
+  malformed active metadata as `DeploymentActiveDeploymentInvalidError`.
+- Added direct store coverage for malformed active execution artifact refs.
+
+Why it changed:
+
+The deployment validation module already exposes Effect-returning decoders,
+but the store read path still mixed SQL access, stored row normalization, and
+active metadata parsing inside broad exception mapping. This checkpoint moves
+the read/active validation boundary closer to the target Effect shape while
+preserving transaction-local compatibility behavior for the SQL mutation
+callbacks.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex deployment push-store boundary
+  cleanup around persisted Cloudflare Durable Object metadata.
+
+How Flarex differs from Convex:
+
+- Flarex stores deployment push and active metadata in Durable Object SQLite
+  rows plus `meta` records. This checkpoint keeps that Cloudflare-specific
+  storage shape but separates stored-data validation failures from SQL
+  operation failures.
+
+Known limitations:
+
+- Transaction-local start/finish/abandon row rechecks still use compatibility
+  validation wrappers inside the SQL transaction callback.
+- Schema/function activation writes still validate through compatibility
+  wrappers while the transaction-service extraction remains deferred.
+- DeploymentDO generated HttpApi routes, public Worker forwarding,
+  protocol schemas, executor-http, PartitionDO SQL/OCC behavior, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Public Worker Deployment Push Route Boundary
 
 Previous completed checkpoint: `8b3c939 Type generated HttpApi DO adapters`.
