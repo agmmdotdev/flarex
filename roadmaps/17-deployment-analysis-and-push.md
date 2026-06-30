@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment Generated Handler Tagged Failure Recovery
+
+Previous completed checkpoint: `5446548 Share registry request validation`.
+
+What changed:
+
+- Generated Deployment HttpApi read, start, finish, and abandon handler failure
+  recovery now uses `Effect.catchTags(...)` instead of broad catch-all
+  recovery.
+- The existing typed deployment/protocol/storage/domain errors still map to the
+  same declared generated-handler response classes at the HttpApi adapter edge.
+- Tests now exercise the Effect failure channel directly for tag-specific
+  generated-handler recovery.
+
+Why it changed:
+
+The Effect migration quality bar asks recovery logic to branch on typed tags
+where possible. Deployment generated handlers already had typed failure unions;
+this checkpoint makes that recovery explicit without changing service/store
+behavior or SQL semantics.
+
+Convex source files inspected:
+
+- None for this checkpoint. This is Flarex's generated HttpApi adapter failure
+  recovery boundary.
+
+How Flarex differs from Convex:
+
+- Flarex maps typed deployment service failures into Effect HttpApi response
+  classes inside the Worker/Durable Object adapter. Convex does not have this
+  Cloudflare-specific generated HttpApi adapter layer.
+
+Known limitations:
+
+- The preserved `deploymentHttpErrorTo*Response(...)` compatibility helpers
+  remain for legacy explicit `HttpError` status mapping tests.
+- DeploymentService/Store orchestration, SQL behavior, request payload
+  decoders, public Worker routes, protocol schemas, PartitionDO, executor-http,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Activation Metadata Write Boundary
 
 Previous completed checkpoint: `43efc4e Preserve deployment HttpApi protocol validation errors`.

@@ -105,9 +105,18 @@ export function mapDeploymentReadFailure<A>(
   >,
 ): Effect.Effect<A, DeploymentReadErrorResponse> {
   return effect.pipe(
-    Effect.catch((error) =>
-      Effect.fail(deploymentReadFailureToResponse(error))
-    ),
+    Effect.catchTags({
+      DeploymentActiveDeploymentInvalidError: error =>
+        Effect.fail(deploymentReadFailureToResponse(error)),
+      DeploymentActiveDeploymentNotFoundError: error =>
+        Effect.fail(deploymentReadFailureToResponse(error)),
+      DeploymentPushNotFoundError: error =>
+        Effect.fail(deploymentReadFailureToResponse(error)),
+      DeploymentValidationError: error =>
+        Effect.fail(deploymentReadFailureToResponse(error)),
+      DeploymentSqlError: error =>
+        Effect.fail(deploymentReadFailureToResponse(error)),
+    }),
   );
 }
 
@@ -121,9 +130,16 @@ export function mapDeploymentStartFailure<A>(
   >,
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
-    Effect.catch((error) =>
-      Effect.fail(deploymentStartFailureToResponse(error))
-    ),
+    Effect.catchTags({
+      DeploymentProtocolValidationError: error =>
+        Effect.fail(deploymentStartFailureToResponse(error)),
+      DeploymentSqlError: error =>
+        Effect.fail(deploymentStartFailureToResponse(error)),
+      DeploymentStoredPushMissingError: error =>
+        Effect.fail(deploymentStartFailureToResponse(error)),
+      DeploymentValidationError: error =>
+        Effect.fail(deploymentStartFailureToResponse(error)),
+    }),
   );
 }
 
@@ -138,9 +154,18 @@ export function mapDeploymentFinishFailure<A>(
   >,
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
-    Effect.catch((error) =>
-      Effect.fail(deploymentFinishFailureToResponse(error))
-    ),
+    Effect.catchTags({
+      DeploymentArtifactRefError: error =>
+        Effect.fail(deploymentFinishFailureToResponse(error)),
+      DeploymentPushNotFoundError: error =>
+        Effect.fail(deploymentFinishFailureToResponse(error)),
+      DeploymentSqlError: error =>
+        Effect.fail(deploymentFinishFailureToResponse(error)),
+      DeploymentStoredPushMissingError: error =>
+        Effect.fail(deploymentFinishFailureToResponse(error)),
+      DeploymentValidationError: error =>
+        Effect.fail(deploymentFinishFailureToResponse(error)),
+    }),
   );
 }
 
@@ -155,9 +180,18 @@ export function mapDeploymentAbandonFailure<A>(
   >,
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(
-    Effect.catch((error) =>
-      Effect.fail(deploymentAbandonFailureToResponse(error))
-    ),
+    Effect.catchTags({
+      DeploymentPushInvalidStateError: error =>
+        Effect.fail(deploymentAbandonFailureToResponse(error)),
+      DeploymentPushNotFoundError: error =>
+        Effect.fail(deploymentAbandonFailureToResponse(error)),
+      DeploymentSqlError: error =>
+        Effect.fail(deploymentAbandonFailureToResponse(error)),
+      DeploymentStoredPushMissingError: error =>
+        Effect.fail(deploymentAbandonFailureToResponse(error)),
+      DeploymentValidationError: error =>
+        Effect.fail(deploymentAbandonFailureToResponse(error)),
+    }),
   );
 }
 

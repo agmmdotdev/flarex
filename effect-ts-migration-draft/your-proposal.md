@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Registry request validation source boundary.
+- Previous completed checkpoint: Deployment generated-handler tag-specific failure recovery.
 - Active checkpoint: choose the next backend Worker/DO route/service group.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Registry request validation source boundary checkpoint:
+Next recommended checkpoint after the Deployment generated-handler tag-specific failure recovery checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,23 @@ Next recommended checkpoint after the Registry request validation source boundar
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 237 slice:
+
+1. Route generated Deployment HttpApi read, start, finish, and abandon handler
+   service-failure recovery through `Effect.catchTags(...)` instead of broad
+   catch-all recovery.
+2. Keep typed deployment/protocol/storage/domain errors emitted at their
+   source boundaries and map them only to declared generated-handler response
+   classes at the HttpApi adapter edge.
+3. Preserve `DeploymentBadRequestErrorResponse`,
+   `DeploymentNotFoundErrorResponse`, `DeploymentConflictErrorResponse`, and
+   `DeploymentStorageErrorResponse` status/body behavior.
+4. Keep DeploymentService/Store orchestration, SQL behavior, request payload
+   decoders, public Worker routes, protocol schemas, PartitionDO,
+   executor-http, and `ValidatorJson` unchanged.
+5. Add direct failure-channel coverage for tag-specific generated-handler
+   recovery, alongside existing pure response-helper and web-handler coverage.
 
 Completed Goal 236 slice:
 

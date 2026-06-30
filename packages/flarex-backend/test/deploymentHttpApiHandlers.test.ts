@@ -21,6 +21,10 @@ import {
   deploymentHttpErrorToFinishResponse,
   deploymentHttpErrorToReadResponse,
   deploymentHttpErrorToStartResponse,
+  mapDeploymentAbandonFailure,
+  mapDeploymentFinishFailure,
+  mapDeploymentReadFailure,
+  mapDeploymentStartFailure,
   deploymentReadFailureToResponse,
   deploymentStartFailureToResponse,
   DeploymentApiHandlers,
@@ -333,6 +337,28 @@ describe("DeploymentApiHandlers", () => {
       DeploymentStorageErrorResponse,
       "Deployment artifact error: artifact hash failed",
     );
+  });
+
+  it("maps typed generated-handler failure channels by tag", async () => {
+    await expect(Effect.runPromise(mapDeploymentReadFailure(Effect.fail(
+      new DeploymentActiveDeploymentNotFoundError(),
+    )))).rejects.toBeInstanceOf(DeploymentNotFoundErrorResponse);
+
+    await expect(Effect.runPromise(mapDeploymentStartFailure(Effect.fail(
+      new DeploymentValidationError({ message: "Deployment analysis must be an object." }),
+    )))).rejects.toBeInstanceOf(DeploymentBadRequestErrorResponse);
+
+    await expect(Effect.runPromise(mapDeploymentFinishFailure(Effect.fail(
+      new DeploymentPushNotFoundError({ pushId: "push-finish-missing" }),
+    )))).rejects.toBeInstanceOf(DeploymentNotFoundErrorResponse);
+
+    await expect(Effect.runPromise(mapDeploymentAbandonFailure(Effect.fail(
+      new DeploymentPushInvalidStateError({
+        action: "abandon",
+        pushId: "push-active",
+        state: "activated",
+      }),
+    )))).rejects.toBeInstanceOf(DeploymentConflictErrorResponse);
   });
 
   it("maps preserved HttpError statuses to DeploymentApi response classes", () => {
