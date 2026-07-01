@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Public Invoke Route Adapter Split
+
+Previous completed checkpoint: `4f36d96` Type execution route boundaries.
+
+What changed:
+
+- `invoke/PublicInvokeRouteBoundary.ts` owns typed public invoke request/payload
+  decoding only; it no longer exports `HttpError` mapping helpers.
+- `worker.ts` owns public invoke route decode and missing-input mapping to the
+  preserved `HttpError` compatibility response.
+- `invoke.ts` keeps active deployment loading as a typed Effect integration
+  boundary via `InvokeActiveDeploymentLoadError`.
+- Existing `executeInvokeEffect(...)` and `loadActiveDeploymentEffect(...)`
+  typed failure channels remain unchanged for service/runtime behavior.
+
+Boundary decision:
+
+Public invoke route boundary modules are transport-input boundaries, not HTTP
+response adapters. Worker is the public invoke adapter edge. `invoke.ts` owns
+typed invoke runtime and validation failures; compatibility conversion remains
+outside the route decoder.
+
+Known limitations:
+
+- `invoke.ts` still exports compatibility Promise helpers and adapter mappers
+  for legacy callers. Final migration phases own reducing those remaining
+  compatibility surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/invokeRequests.test.ts test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Route Adapter Split
 
 Previous completed checkpoint: `7737cd0` Type project required parameters.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `7737cd0` Type project required parameters.
-- Active checkpoint: R-2 invoke route boundary, migrating `invoke/PublicInvokeRouteBoundary.ts` and `invoke.ts` to typed public invoke route input, tagged active-deployment load failures, and one response adapter.
+- Previous completed checkpoint: `4f36d96` Type execution route boundaries.
+- Active checkpoint: R-3 partition route boundaries, migrating `partition/RouteBoundary.ts`, `partition/PublicSchemaCacheRouteBoundary.ts`, and `partition/PublicDispatchBoundary.ts` to typed route inputs and no untyped body casts at the route boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,26 +52,45 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-1 execution route boundaries:
+Next recommended checkpoint after R-2 invoke route boundary:
 
-1. Migrate the invoke route boundary in `invoke/PublicInvokeRouteBoundary.ts`
-   and `invoke.ts` to typed public invoke route input.
-2. Keep active deployment load failures tagged until the invoke response
-   adapter maps them.
-3. Preserve the existing invoke response body/status exactly through typed
-   boundary tests and public invoke route tests.
+1. Migrate partition route boundaries in `partition/RouteBoundary.ts`,
+   `partition/PublicSchemaCacheRouteBoundary.ts`, and
+   `partition/PublicDispatchBoundary.ts`.
+2. Decode begin, commit, document read, index read, and schema-cache route
+   inputs through typed Effect boundaries.
+3. Remove untyped body casts at the partition route boundary while preserving
+   existing OCC, SQL, and response body/status behavior.
 4. Continue avoiding deployment storage, artifact materializer/cache,
-   source-package behavior, executor-http, PartitionDO SQL/OCC, and
+   source-package behavior, executor-http, unrelated ExecutionDO internals, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 347 slice:
+Current Goal 348 slice:
 
-1. Convert public invoke route input/body handling to typed Effect decoders.
-2. Keep active-deployment load failures tagged until the public invoke adapter
-   maps them to the preserved HTTP response.
-3. Preserve public invoke request/response status and body behavior.
-4. Keep execution, deployment storage, artifact materializer/cache,
+1. Convert partition begin/commit/read/index/schema-cache route input handling
+   to typed Effect decoders.
+2. Keep PartitionDO SQL/OCC behavior unchanged while route decoding becomes
+   typed.
+3. Preserve public partition response body/status behavior through partition
+   boundary and flow tests.
+4. Keep invoke, execution, deployment storage, artifact materializer/cache,
+   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+   unchanged unless R-3 owns that boundary directly.
+
+Completed Goal 347 slice:
+
+1. Convert public invoke route request/payload handling to named
+   `Effect.fn(...)` decoders.
+2. Remove `HttpError` mapping from `invoke/PublicInvokeRouteBoundary.ts`; keep
+   public invoke route decode and missing-field errors typed until Worker maps
+   them at the public invoke adapter edge.
+3. Preserve active-deployment load failures as `InvokeActiveDeploymentLoadError`
+   from `invoke.ts` until Worker/invoke compatibility mapping converts them.
+4. Preserve public invoke request/response status and body behavior through
+   typed boundary tests plus public Worker invoke response tests in
+   `invoke.test.ts`.
+5. Keep execution, deployment storage, artifact materializer/cache,
    PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
    and `ValidatorJson` unchanged unless R-2 owns that boundary directly.
 

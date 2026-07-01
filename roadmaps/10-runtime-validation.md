@@ -1,5 +1,37 @@
 # Runtime Validation
 
+## Public Invoke Route Adapter Split
+
+Previous completed checkpoint: `4f36d96` Type execution route boundaries.
+
+What changed:
+
+- `invoke/PublicInvokeRouteBoundary.ts` now exposes named `Effect.fn(...)`
+  request and payload decoders for public invoke bodies.
+- Public invoke route decode failures and missing invoke input failures remain
+  typed until `worker.ts` maps them at the public invoke adapter edge.
+- `invoke.ts` continues to expose `InvokeActiveDeploymentLoadError` from
+  `loadActiveDeploymentEffect(...)`, and Worker/invoke compatibility mapping
+  preserves the existing HTTP response behavior.
+- Public invoke route-boundary tests now cover typed decode and missing-input
+  channels directly; public Worker response mapping remains covered in
+  `test/invoke.test.ts`.
+
+Why it changed:
+
+R-2 moves public invoke route-input validation to the same typed boundary shape
+as the execution routes, while keeping `HttpError` conversion at the Worker
+adapter edge.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/invokeRequests.test.ts test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Route Adapter Split
 
 Previous completed checkpoint: `7737cd0` Type project required parameters.

@@ -217,7 +217,7 @@ The Effect migration is complete only when all of these are true:
 - [x] R-1. Execution route boundaries:
   `StartRouteBoundary.ts`, `ActionRouteBoundary.ts`,
   `FinishRouteBoundary.ts`, `SyscallRouteBoundary.ts`.
-  - Completed by: this R-1 checkpoint commit.
+  - Completed by: `4f36d96` Type execution route boundaries.
   - Goal: typed route-input decoders and adapter-only `HttpError`.
   - Focus tests:
     `test/executionStartRouteBoundary.test.ts`,
@@ -225,8 +225,9 @@ The Effect migration is complete only when all of these are true:
     `test/executionFinishRouteBoundary.test.ts`,
     `test/executionSyscallRouteBoundary.test.ts`,
     `test/executionDO.test.ts`.
-- [ ] R-2. Invoke route boundary:
+- [x] R-2. Invoke route boundary:
   `invoke/PublicInvokeRouteBoundary.ts` and `invoke.ts`.
+  - Completed by: this R-2 checkpoint commit.
   - Goal: typed public invoke route input, active deployment load failures as
     tagged errors, one response adapter.
   - Focus tests:
@@ -419,10 +420,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with R-2:
+Start with R-3:
 
-Migrate the invoke route boundary in `invoke/PublicInvokeRouteBoundary.ts` and
-`invoke.ts` to typed public invoke route input, active deployment load failures
-as tagged errors, and one response adapter; update
+Migrate partition route boundaries in `partition/RouteBoundary.ts`,
+`partition/PublicSchemaCacheRouteBoundary.ts`, and
+`partition/PublicDispatchBoundary.ts` to typed begin/commit/read/index/schema
+cache route inputs and remove untyped body casts at the route boundary; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `R-2`, then commit.
+run only the EffectTS quality checker, tick `R-3`, then commit.

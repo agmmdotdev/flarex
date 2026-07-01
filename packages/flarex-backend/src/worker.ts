@@ -133,7 +133,7 @@ import {
   MissingInvokePartitionKeyError,
   MissingInvokePathError,
   publicInvokeDeploymentIdEffect,
-  publicInvokeRouteErrorToHttpError,
+  type PublicInvokeRouteError,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
   LiveQueryDeliveryChangePayloadError,
@@ -373,7 +373,10 @@ type PublicWorkerDeploymentPushRouteError =
   | MissingDeploymentPushIdError;
 
 type PublicWorkerInvokeRouteError =
-  | Parameters<typeof publicInvokeRouteErrorToHttpError>[0]
+  | PublicInvokeRouteError
+  | MissingInvokeDeploymentError
+  | MissingInvokePathError
+  | MissingInvokePartitionKeyError
   | InvokeActiveDeploymentLoadError
   | InvokeExecutionError
   | PublicWorkerDispatchError;
@@ -844,6 +847,28 @@ function publicWorkerInvokeRouteErrorToAdapterError(
     return publicWorkerDispatchErrorToAdapterError(error);
   }
   return publicInvokeRouteErrorToHttpError(error);
+}
+
+function publicInvokeRouteErrorToHttpError(
+  error:
+    | PublicInvokeRouteError
+    | MissingInvokeDeploymentError
+    | MissingInvokePathError
+    | MissingInvokePartitionKeyError,
+): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof MissingInvokeDeploymentError) {
+    return new HttpError(400, "Missing deployment id.");
+  }
+  if (error instanceof MissingInvokePathError) {
+    return new HttpError(400, "Missing function path.");
+  }
+  if (error instanceof MissingInvokePartitionKeyError) {
+    return new HttpError(400, "Missing partition key.");
+  }
+  return new HttpError(400, error.message);
 }
 
 function isInvokeExecutionError(error: unknown): error is InvokeExecutionError {

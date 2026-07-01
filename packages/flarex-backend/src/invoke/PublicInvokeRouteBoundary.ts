@@ -3,12 +3,7 @@ import {
   InvokeProtocolValidationError,
   type PublicInvokeRequestBody,
 } from "flarex-protocol/invoke";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import {
   decodePublicInvokePayload,
   invokeRequestFromPublicInvokeBodyEffect,
@@ -28,47 +23,22 @@ export {
 
 export type PublicInvokeRouteError =
   | RequestJsonError
-  | InvokeProtocolValidationError
-  | MissingInvokeDeploymentError
-  | MissingInvokePathError
-  | MissingInvokePartitionKeyError;
+  | InvokeProtocolValidationError;
 
-export function decodePublicInvokeRouteRequest(
+export const decodePublicInvokeRouteRequest = Effect.fn(
+  "PublicInvokeRouteBoundary.decodeRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PublicInvokeRequestBody, RequestJsonError | InvokeProtocolValidationError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PublicInvokeRequestBody, PublicInvokeRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePublicInvokeRoutePayload),
   );
-}
+});
 
-export function decodePublicInvokeRoutePayload(
-  value: unknown,
-): Effect.Effect<PublicInvokeRequestBody, InvokeProtocolValidationError> {
-  return decodePublicInvokePayload(value);
-}
-
-export function publicInvokeRouteErrorToHttpError(
-  error: PublicInvokeRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof MissingInvokeDeploymentError) {
-    return new HttpError(400, "Missing deployment id.");
-  }
-  if (error instanceof MissingInvokePathError) {
-    return new HttpError(400, "Missing function path.");
-  }
-  if (error instanceof MissingInvokePartitionKeyError) {
-    return new HttpError(400, "Missing partition key.");
-  }
-  return new HttpError(400, error.message);
-}
-
-export const publicInvokeRouteErrorToHttpErrorEffect = Effect.fn(
-  "PublicInvokeRouteBoundary.publicInvokeRouteErrorToHttpError",
+export const decodePublicInvokeRoutePayload = Effect.fn(
+  "PublicInvokeRouteBoundary.decodePayload",
 )(function* (
-  error: PublicInvokeRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(publicInvokeRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<PublicInvokeRequestBody, InvokeProtocolValidationError> {
+  return yield* decodePublicInvokePayload(value);
 });
