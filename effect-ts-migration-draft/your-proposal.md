@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: O-2 ExecutionDO runtime boundary in this checkpoint commit.
-- Active checkpoint: O-3 DeliveryDO and SchedulerDO runtime boundaries, keeping alarm and `waitUntil` bridge effects documented while moving pending-state and remote-call failures to typed errors.
+- Previous completed checkpoint: O-3 DeliveryDO and SchedulerDO runtime boundaries in this checkpoint commit.
+- Active checkpoint: O-4 RegistryDO direct handler confirmation, checking that registry direct handlers no longer depend on request compatibility and updating docs/tests if already complete.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,27 +52,37 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after O-2 ExecutionDO runtime boundary:
+Next recommended checkpoint after O-3 DeliveryDO and SchedulerDO runtime boundaries:
 
-1. Continue into O-3 by auditing DeliveryDO and SchedulerDO runtime/pending
-   state/remote-call failure paths.
-2. Keep Durable Object alarm and `waitUntil` bridges explicit and documented,
-   without adding nested request runtime boundaries.
-3. Move owned pending-state and remote-call failures to tagged errors emitted
-   at source boundaries and mapped at the DO adapter edges.
-4. Continue avoiding ExecutionDO, ConnectionDO websocket/session behavior,
-   PartitionDO SQL/OCC, deployment storage, artifact materializer/cache,
-   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
-   unless O-3 owns that boundary directly.
+1. Audit RegistryDO route handling and registry boundary/handler tests against
+   O-4: direct handlers should no longer depend on request compatibility.
+2. If already complete, update the checklist/proposal/roadmaps and add or
+   adjust tests only where coverage is missing.
+3. If incomplete, remove the remaining request compatibility dependency while
+   preserving registry create/list/update behavior and response shapes.
+4. Continue avoiding DeliveryDO/SchedulerDO runtime loops, ExecutionDO,
+   ConnectionDO websocket/session behavior, PartitionDO SQL/OCC, deployment
+   storage, artifact materializer/cache, executor-http, protocol parser
+   compatibility wrappers, and `ValidatorJson` unless O-4 owns that boundary
+   directly.
 
-Current Goal 354 slice:
+Current Goal 355 slice:
+
+1. Audit `RegistryDO`, `registry/*`, and registry tests for request
+   compatibility dependence.
+2. Confirm or complete direct handler dispatch for registry routes.
+3. Update docs/tests to lock the current boundary.
+4. Preserve registry response behavior through focused registry tests before
+   ticking O-4.
+
+Completed Goal 354 slice:
 
 1. Audit `DeliveryDO` and `SchedulerDO` alarm/waitUntil paths, pending-state
    continuation, and remote-call failures.
-2. Convert owned pending-state and remote-call failures to tagged errors at
-   source boundaries.
-3. Keep alarm and waitUntil bridges documented and keep response mapping at DO
-   adapter edges.
+2. Convert the owned alarm continuation bridges to named Effect runtime edges
+   that recover typed continuation failures only after retry state is persisted.
+3. Keep pending-state and remote-call failures typed in their existing boundary
+   modules and keep response mapping at DO route adapter edges.
 4. Preserve DeliveryDO and scheduler boundary/maintenance behavior through
    focused tests before ticking O-3.
 

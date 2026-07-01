@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Delivery And Scheduler Alarm Runtime Bridges
+
+Previous completed checkpoint: `79767e3` Type execution session failures.
+
+What changed:
+
+- `DeliveryDO.alarm(...)` now enters a named
+  `DeliveryDO.runAlarmContinuation` Effect bridge instead of using an ad hoc
+  `try/catch`.
+- `SchedulerDO.alarm(...)` now enters a named
+  `SchedulerDO.runAlarmContinuations` Effect bridge instead of raw
+  `Promise.allSettled(...)`.
+- `SchedulerDO.fetch(...)` no longer has a broad adapter `try/catch`; typed
+  route, pending-state, runtime, maintenance, wake, and reconnect failures flow
+  through `runSchedulerRoute(...)`.
+- Alarm bridge effects explicitly swallow typed continuation failures only
+  after continuation effects persist retry state.
+
+Why it changed:
+
+O-3 makes the Durable Object alarm bridges explicit runtime edges while
+preserving best-effort continuation behavior. Pending-state and remote-call
+failures remain typed in the delivery/scheduler boundary modules and are mapped
+to HTTP responses at the DO route adapters.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryDO.test.ts test/schedulerRouteBoundary.test.ts test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerForceReconnectBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "continues DeliveryDO draining from pending alarm state|continues pending live query delivery scans from alarms|continues stale live query reruns from pending alarm state|continues expired live query connection cleanup scans from stored cursors" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## ExecutionDO Session Runtime Boundary
 
 Previous completed checkpoint: `0817c0f` Type connection websocket messages.

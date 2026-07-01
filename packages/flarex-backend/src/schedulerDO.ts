@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { errorResponse, HttpError, json } from "./http";
+import { HttpError, json } from "./http";
 import { deliveryObjectName } from "./routing";
 import { Effect } from "effect";
 import {
@@ -213,45 +213,41 @@ export class SchedulerDO extends DurableObject<Env> {
     | undefined;
 
   async fetch(request: Request): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      if (request.method === "POST" && isLiveQuerySchedulerInternalPath(url.pathname)) {
-        return await runSchedulerRoute(
-          routeSchedulerDurableObject(request, url.pathname, this.env, {
-            reconcileDeliveries: body => this.reconcileLiveQueryDeliveriesEffect(body),
-            reconcileConnections: body => this.reconcileLiveQueryConnectionsEffect(body),
-            deadLetterDeliveries: body => this.deadLetterLiveQueryDeliveriesEffect(body),
-            cleanupConnections: body => this.cleanupLiveQueryConnectionsEffect(body),
-            rerunSubscriptions: body => this.rerunLiveQuerySubscriptionsEffect(body),
-            continueDeliveries: () => this.continuePendingLiveQueryDeliveryReconcileEffect(),
-            continueReruns: () => this.continuePendingLiveQueryRerunEffect(),
-            continueConnectionCleanup: () =>
-              this.continuePendingLiveQueryConnectionCleanupEffect(),
-          }),
-        );
-      }
-      return json({ service: "flarex-scheduler", status: "ok" });
-    } catch (error) {
-      return errorResponse(error);
+    const url = new URL(request.url);
+    if (request.method === "POST" && isLiveQuerySchedulerInternalPath(url.pathname)) {
+      return runSchedulerRoute(
+        routeSchedulerDurableObject(request, url.pathname, this.env, {
+          reconcileDeliveries: body => this.reconcileLiveQueryDeliveriesEffect(body),
+          reconcileConnections: body => this.reconcileLiveQueryConnectionsEffect(body),
+          deadLetterDeliveries: body => this.deadLetterLiveQueryDeliveriesEffect(body),
+          cleanupConnections: body => this.cleanupLiveQueryConnectionsEffect(body),
+          rerunSubscriptions: body => this.rerunLiveQuerySubscriptionsEffect(body),
+          continueDeliveries: () => this.continuePendingLiveQueryDeliveryReconcileEffect(),
+          continueReruns: () => this.continuePendingLiveQueryRerunEffect(),
+          continueConnectionCleanup: () =>
+            this.continuePendingLiveQueryConnectionCleanupEffect(),
+        }),
+      );
     }
+    return json({ service: "flarex-scheduler", status: "ok" });
   }
 
   async alarm(): Promise<void> {
     const now = Date.now();
-    await Promise.allSettled([
-      Effect.runPromise(this.continuePendingLiveQueryDeliveryReconcileEffect({
+    await Effect.runPromise(runSchedulerAlarmContinuations({
+      continueDeliveries: this.continuePendingLiveQueryDeliveryReconcileEffect({
         respectNextRunAt: true,
         now,
-      })),
-      Effect.runPromise(this.continuePendingLiveQueryRerunEffect({
+      }),
+      continueReruns: this.continuePendingLiveQueryRerunEffect({
         respectNextRunAt: true,
         now,
-      })),
-      Effect.runPromise(this.continuePendingLiveQueryConnectionCleanupEffect({
+      }),
+      continueConnectionCleanup: this.continuePendingLiveQueryConnectionCleanupEffect({
         respectNextRunAt: true,
         now,
-      })),
-    ]);
+      }),
+    }));
   }
 
   private reconcileLiveQueryDeliveriesEffect(
@@ -1284,6 +1280,41 @@ const routeSchedulerContinueReruns = Effect.fn("SchedulerDO.routeContinueReruns"
     return yield* routeSchedulerEffectJsonResult(continueReruns);
   },
 );
+
+const runSchedulerAlarmContinuations = Effect.fn(
+  "SchedulerDO.runAlarmContinuations",
+)(function* (
+  continuations: {
+    readonly continueDeliveries: Effect.Effect<
+      ReconcileResult | { skipped: true },
+      SchedulerDeliveryReconcileError
+    >;
+    readonly continueReruns: Effect.Effect<
+      RerunResult | { skipped: true },
+      SchedulerRerunError
+    >;
+    readonly continueConnectionCleanup: Effect.Effect<
+      ReconcileConnectionCleanupResult | { skipped: true },
+      SchedulerConnectionCleanupError
+    >;
+  },
+): Effect.fn.Return<void> {
+  // Alarm continuations are best-effort bridge effects: each continuation
+  // persists retry state before failing, and the alarm must still attempt the
+  // remaining continuation families.
+  yield* continuations.continueDeliveries.pipe(
+    Effect.catch(() => Effect.void),
+    Effect.asVoid,
+  );
+  yield* continuations.continueReruns.pipe(
+    Effect.catch(() => Effect.void),
+    Effect.asVoid,
+  );
+  yield* continuations.continueConnectionCleanup.pipe(
+    Effect.catch(() => Effect.void),
+    Effect.asVoid,
+  );
+});
 
 const runDeadLetterLiveQueryDeliveriesEffect = Effect.fn(
   "SchedulerDO.deadLetterLiveQueryDeliveries",

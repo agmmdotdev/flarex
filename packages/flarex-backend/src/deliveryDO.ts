@@ -112,11 +112,9 @@ export class DeliveryDO extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    try {
-      await Effect.runPromise(this.continuePendingDrainEffect());
-    } catch {
-      // Retry state is persisted by continuePendingDrainEffect().
-    }
+    await Effect.runPromise(
+      runDeliveryAlarmContinuation(() => this.continuePendingDrainEffect()),
+    );
   }
 
   private continuePendingDrainEffect(): Effect.Effect<
@@ -569,6 +567,22 @@ function runDeliveryRoute(
     ),
   );
 }
+
+const runDeliveryAlarmContinuation = Effect.fn(
+  "DeliveryDO.runAlarmContinuation",
+)(function* (
+  continuePendingDrain: () => Effect.Effect<
+    DeliveryDrainResult | { skipped: true },
+    DeliveryPendingDrainStateError | DeliveryDrainFailureError | DeliveryRouteOperationError
+  >,
+): Effect.fn.Return<void> {
+  // The alarm bridge intentionally observes and swallows typed continuation
+  // failures after continuePendingDrainEffect persists retry state.
+  return yield* continuePendingDrain().pipe(
+    Effect.catch(() => Effect.void),
+    Effect.asVoid,
+  );
+});
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;

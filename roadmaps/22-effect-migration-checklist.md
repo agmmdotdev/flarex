@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: O-2 ExecutionDO runtime boundary in this
-  checkpoint commit.
+- Previous completed checkpoint: O-3 DeliveryDO and SchedulerDO runtime
+  boundaries in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -312,8 +312,9 @@ The Effect migration is complete only when all of these are true:
     `test/executionDO.test.ts`,
     `test/executionSessionError.test.ts`,
     `test/invoke.test.ts`.
-- [ ] O-3. DeliveryDO and SchedulerDO: keep alarm/waitUntil bridge effects
+- [x] O-3. DeliveryDO and SchedulerDO: keep alarm/waitUntil bridge effects
   documented, move pending-state and remote-call failures to typed errors.
+  - Completed by: this O-3 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/deliveryDO.ts`,
     `packages/flarex-backend/src/schedulerDO.ts`,
@@ -321,7 +322,11 @@ The Effect migration is complete only when all of these are true:
     `packages/flarex-backend/src/scheduler/*`.
   - Focus tests:
     `test/deliveryDO.test.ts`,
-    scheduler boundary/maintenance tests.
+    `test/schedulerRouteBoundary.test.ts`,
+    `test/schedulerMaintenanceBoundary.test.ts`,
+    `test/schedulerDeliveryWakeBoundary.test.ts`,
+    `test/schedulerForceReconnectBoundary.test.ts`,
+    selected `test/sync.test.ts` alarm continuation cases.
 - [ ] O-4. RegistryDO: confirm registry direct handlers no longer depend on
   request compatibility and update docs/tests if already complete.
   - Files:
@@ -435,10 +440,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with O-3:
+Start with O-4:
 
-Tighten `DeliveryDO` and `SchedulerDO` runtime boundaries: keep alarm and
-`waitUntil` bridge effects documented, move pending-state and remote-call
-failures to typed errors, update `effect-ts-migration-draft/your-proposal.md`
-and relevant roadmaps, validate, run only the EffectTS quality checker, tick
-`O-3`, then commit.
+Confirm `RegistryDO` direct handlers no longer depend on request compatibility
+and update docs/tests if already complete; update
+`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
+run only the EffectTS quality checker if Effect code changes, tick `O-4`, then
+commit.

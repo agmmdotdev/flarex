@@ -1,5 +1,48 @@
 # Package Boundaries
 
+## Delivery And Scheduler Alarm Runtime Bridges
+
+Previous completed checkpoint: `79767e3` Type execution session failures.
+
+What changed:
+
+- `DeliveryDO` owns a named alarm continuation bridge that calls the existing
+  typed pending-drain continuation effect and recovers at the alarm edge.
+- `SchedulerDO` owns a named alarm continuation bridge that runs delivery
+  reconcile, rerun, and connection-cleanup continuation effects with
+  branch-local recovery.
+- `SchedulerDO.fetch(...)` relies on `scheduler/InternalRouteBoundary.ts` for
+  route-error response mapping instead of broad `errorResponse(...)` fallback.
+- `delivery/PendingDrainState.ts`, `scheduler/PendingState.ts`,
+  `scheduler/MaintenanceBoundary.ts`, `scheduler/DeliveryWakeBoundary.ts`, and
+  `scheduler/ForceReconnectBoundary.ts` remain the source modules for typed
+  pending-state and remote-call failures.
+
+Boundary decision:
+
+Durable Object alarm methods are runtime bridge edges. The bridge should
+document and localize best-effort failure swallowing, while pending-state,
+executor maintenance, delivery wake, and force-reconnect failures stay typed in
+their boundary modules and map to HTTP only at the DO route adapters.
+
+Known limitations:
+
+- This checkpoint does not change delivery drain semantics, scheduler
+  continuation algorithms, retry delay policy, executor response schemas,
+  PartitionDO SQL/OCC, deployment storage, executor-http, or `ValidatorJson`.
+- Delivery failure reporting remains a diagnostic best-effort path that logs
+  report failures and does not affect drain retry semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryDO.test.ts test/schedulerRouteBoundary.test.ts test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerForceReconnectBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "continues DeliveryDO draining from pending alarm state|continues pending live query delivery scans from alarms|continues stale live query reruns from pending alarm state|continues expired live query connection cleanup scans from stored cursors" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## ExecutionDO Session Runtime Boundary
 
 Previous completed checkpoint: `0817c0f` Type connection websocket messages.
