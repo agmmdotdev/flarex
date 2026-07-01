@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Registry Route-Service Adapter Effects
+
+Previous completed checkpoint: `ae593cd` Type internal execution route
+adapters.
+
+What changed:
+
+- Registry route JSON/protocol failures now have an explicit
+  `RegistryRouteError` alias.
+- Registry route compatibility readers now recover through the named
+  `registryRouteErrorToHttpErrorEffect(...)` adapter while preserving the
+  existing malformed-JSON and protocol-failure compatibility behavior.
+- RegistryDO internal route recovery now uses the named
+  `registryInternalRouteErrorToResponseEffect(...)` adapter for the Durable
+  Object HTTP response edge.
+- Focused tests cover named route adapter mapping and named internal response
+  mapping directly.
+
+Why it changed:
+
+RegistryDO is the original schema-first service proof for this migration. The
+route layer already had typed JSON/protocol decoders and an Effect service
+behind generated HttpApi handlers, but its compatibility readers and DO
+response recovery still used inline conversions. Naming those adapters keeps
+the Registry path aligned with the newer route-service checkpoints.
+
+Known limitations:
+
+- This checkpoint does not change generated Registry HttpApi handlers,
+  RegistryService/store behavior, SQL schema, public Worker pass-through
+  routing, DeploymentService/store behavior, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryHttpBoundary.test.ts test/registryRequests.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Internal Execution Route-Service Adapter Effects
 
 Previous completed checkpoint: `268ba42` Type artifact runtime route adapters.

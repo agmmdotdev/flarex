@@ -12,10 +12,12 @@ import {
 } from "../http";
 import { decodeRegistryCreateDeploymentPayload } from "./Requests";
 
+export type RegistryRouteError = RequestJsonError | ProtocolValidationError;
+
 export async function registryApiRequestForRoute(request: Request): Promise<Request | null> {
   return await Effect.runPromise(
     decodeRegistryApiRequestForRoute(request).pipe(
-      Effect.mapError(registryRouteErrorToHttpError),
+      Effect.catch(registryRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -39,27 +41,35 @@ export async function readRegistryCreateDeploymentRouteRequest(
 ): Promise<CreateDeploymentRequest> {
   return await Effect.runPromise(
     decodeRegistryCreateDeploymentRouteRequest(request).pipe(
-      Effect.mapError(registryRouteErrorToHttpError),
+      Effect.catch(registryRouteErrorToHttpErrorEffect),
     ),
   );
 }
 
 export function decodeRegistryCreateDeploymentRouteRequest(
   request: Request,
-): Effect.Effect<CreateDeploymentRequest, RequestJsonError | ProtocolValidationError> {
+): Effect.Effect<CreateDeploymentRequest, RegistryRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodeRegistryCreateDeploymentPayload),
   );
 }
 
 export function registryRouteErrorToHttpError(
-  error: RequestJsonError | ProtocolValidationError,
+  error: RegistryRouteError,
 ): HttpError | ProtocolValidationError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
   return error;
 }
+
+export const registryRouteErrorToHttpErrorEffect = Effect.fn(
+  "RegistryHttpApiRouteBoundary.registryRouteErrorToHttpError",
+)(function* (
+  error: RegistryRouteError,
+): Effect.fn.Return<never, HttpError | ProtocolValidationError> {
+  return yield* Effect.fail(registryRouteErrorToHttpError(error));
+});
 
 function jsonRequest(url: URL, body: unknown): Request {
   return new Request(url.toString(), {

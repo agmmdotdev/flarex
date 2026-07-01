@@ -3,10 +3,11 @@ import {
   ProtocolValidationError,
   RegistryRoute,
 } from "flarex-protocol/registry";
-import { errorResponse, HttpError, json, RequestJsonError } from "../http";
+import { errorResponse, HttpError, json } from "../http";
 import {
   decodeRegistryApiRequestForRoute,
   registryRouteErrorToHttpError,
+  type RegistryRouteError,
 } from "./HttpApiRouteBoundary";
 
 export class RegistryRouteOperationError extends Data.TaggedError(
@@ -19,8 +20,7 @@ export class RegistryRouteOperationError extends Data.TaggedError(
 }> {}
 
 export type RegistryInternalRouteError =
-  | RequestJsonError
-  | ProtocolValidationError
+  | RegistryRouteError
   | RegistryRouteOperationError;
 
 export const routeRegistryDurableObject = Effect.fn("RegistryDO.route")(
@@ -51,14 +51,7 @@ export function runRegistryDurableObjectRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: error =>
-          Effect.succeed(registryInternalRouteErrorToResponse(error)),
-        ProtocolValidationError: error =>
-          Effect.succeed(registryInternalRouteErrorToResponse(error)),
-        RegistryRouteOperationError: error =>
-          Effect.succeed(registryInternalRouteErrorToResponse(error)),
-      }),
+      Effect.catch(registryInternalRouteErrorToResponseEffect),
     ),
   );
 }
@@ -75,6 +68,14 @@ export function registryInternalRouteErrorToResponse(
   }
   return errorResponse(httpError);
 }
+
+export const registryInternalRouteErrorToResponseEffect = Effect.fn(
+  "RegistryInternalRouteBoundary.registryInternalRouteErrorToResponse",
+)(function* (
+  error: RegistryInternalRouteError,
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(registryInternalRouteErrorToResponse(error));
+});
 
 function registryRouteOperationError(
   operation: RegistryRouteOperationError["operation"],

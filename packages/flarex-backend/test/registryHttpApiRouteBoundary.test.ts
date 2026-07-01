@@ -7,8 +7,11 @@ import {
   decodeRegistryCreateDeploymentRouteRequest,
   readRegistryCreateDeploymentRouteRequest,
   registryApiRequestForRoute,
+  registryRouteErrorToHttpErrorEffect,
 } from "../src/registry/HttpApiRouteBoundary";
 import {
+  registryInternalRouteErrorToResponseEffect,
+  RegistryRouteOperationError,
   routeRegistryDurableObject,
   runRegistryDurableObjectRoute,
 } from "../src/registry/InternalRouteBoundary";
@@ -103,6 +106,28 @@ describe("registry HttpApi route boundary", () => {
     await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(jsonRequest({
       deploymentId: 123,
     })))).rejects.toBeInstanceOf(ProtocolValidationError);
+  });
+
+  it("maps Registry route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      registryRouteErrorToHttpErrorEffect(jsonError),
+    ))).resolves.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ProtocolValidationError({
+      schema: "CreateDeploymentRequest",
+      message: "Create deployment request must include optional string deploymentId and slug fields.",
+      cause: null,
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      registryRouteErrorToHttpErrorEffect(protocolError),
+    ))).resolves.toBe(protocolError);
   });
 
   it("leaves fallback routes on the existing plain RegistryDO responses", async () => {
@@ -202,6 +227,33 @@ describe("registry HttpApi route boundary", () => {
     expect(notFound.status).toBe(404);
     await expect(notFound.json()).resolves.toEqual({
       error: "Not found.",
+    });
+  });
+
+  it("maps RegistryDO route failures through a named response adapter effect", async () => {
+    const protocolResponse = await Effect.runPromise(registryInternalRouteErrorToResponseEffect(
+      new ProtocolValidationError({
+        schema: "RegistryGeneratedResponse",
+        message: "Generated registry response failed validation.",
+        cause: null,
+      }),
+    ));
+    expect(protocolResponse.status).toBe(400);
+    await expect(protocolResponse.json()).resolves.toEqual({
+      error: "Generated registry response failed validation.",
+    });
+
+    const operationResponse = await Effect.runPromise(registryInternalRouteErrorToResponseEffect(
+      new RegistryRouteOperationError({
+        operation: "http-api",
+        status: 503,
+        message: "Registry handler unavailable.",
+        cause: new Error("Registry handler unavailable."),
+      }),
+    ));
+    expect(operationResponse.status).toBe(503);
+    await expect(operationResponse.json()).resolves.toEqual({
+      error: "Registry handler unavailable.",
     });
   });
 });

@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Registry Route-Service Adapter Effects
+
+Previous completed checkpoint: `ae593cd` Type internal execution route
+adapters.
+
+What changed:
+
+- `registry/HttpApiRouteBoundary.ts` now exposes a named route adapter effect
+  for Registry JSON/protocol failures.
+- `registry/InternalRouteBoundary.ts` now exposes a named response adapter
+  effect for RegistryDO route, protocol, and generated-handler operation
+  failures.
+- Tests assert those adapter effects directly while preserving existing
+  RegistryDO and generated HttpApi behavior.
+
+Boundary decision:
+
+Registry request decoding belongs to `registry/HttpApiRouteBoundary.ts`.
+Generated HttpApi response shaping remains in `registry/HttpApiHandlers.ts`.
+Registry service behavior remains behind `RegistryService` and `RegistryStore`.
+HTTP response conversion for RegistryDO fallback and generated-handler failures
+belongs to `registry/InternalRouteBoundary.ts`, not protocol schemas, store
+code, deployment code, PartitionDO, executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No generated Registry HttpApi handler, RegistryService/store, SQL schema,
+  public Worker pass-through route, service binding configuration,
+  executor-http, or SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryHttpBoundary.test.ts test/registryRequests.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Internal Execution Route-Service Adapter Effects
 
 Previous completed checkpoint: `268ba42` Type artifact runtime route adapters.
