@@ -8,10 +8,10 @@ import {
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
+  HttpError,
   readJsonEffect,
   RequestJsonError,
   requestJsonErrorToHttpError,
-  type HttpError,
 } from "../http";
 import {
   decodeDeploymentAbandonPushPayload,
@@ -122,11 +122,11 @@ export function decodeDeploymentFinishPushRoutePayload(
 
 export function deploymentRouteErrorToHttpError(
   error: RequestJsonError | DeploymentProtocolValidationError,
-): HttpError | DeploymentProtocolValidationError {
+): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
-  return error;
+  return new HttpError(400, error.message);
 }
 
 export async function readDeploymentAbandonPushRouteRequest(

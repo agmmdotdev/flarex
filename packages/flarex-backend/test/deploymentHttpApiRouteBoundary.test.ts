@@ -191,7 +191,7 @@ describe("deploymentApiRequestForRoute", () => {
     }))).resolves.toEqual({ reason: "effect parser reason" });
   });
 
-  it("preserves compatibility parser failures before generated handler routing", async () => {
+  it("maps compatibility parser failures before generated handler routing", async () => {
     await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
       method: "POST",
       body: "{",
@@ -216,7 +216,10 @@ describe("deploymentApiRequestForRoute", () => {
     await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
       method: "POST",
       body: { sourcePackage: 123 },
-    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    }))).rejects.toMatchObject({
+      status: 400,
+      message: "A push without analysis must include an error message.",
+    });
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
       DeploymentRoute.startAnalyzedPush,
       {
@@ -270,6 +273,7 @@ describe("deploymentApiRequestForRoute", () => {
         body: { activate: "yes" },
       },
     ))).rejects.toMatchObject({
+      status: 400,
       message: "Finish push activate flag must be a boolean.",
     });
     await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
@@ -300,6 +304,7 @@ describe("deploymentApiRequestForRoute", () => {
         body: { reason: 123 },
       },
     ))).rejects.toMatchObject({
+      status: 400,
       message: "Abandon push reason must be a string.",
     });
     await expect(deploymentApiRequestForRoute(jsonRequest(

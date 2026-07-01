@@ -13,7 +13,6 @@ import {
   decodePublicStartPushRequest,
   decodePublicStartPushJson,
   decodePublicStartPushRoutePayload,
-  deploymentProtocolValidationErrorResponse,
   publicDeploymentRouteErrorToHttpError,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
@@ -232,25 +231,20 @@ describe("public deployment push route boundary", () => {
     })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps deployment protocol parser failures to the existing 400 error envelope", async () => {
-    let failure: unknown;
-    try {
-      await readPublicAbandonPushRequest(jsonRequest(null));
-    } catch (error) {
-      failure = error;
-    }
+  it("maps deployment protocol parser failures to the existing 400 HttpError envelope", async () => {
+    await expect(readPublicAbandonPushRequest(jsonRequest(null)))
+      .rejects
+      .toMatchObject({
+        status: 400,
+        message: "Abandon push request must be an object.",
+      } satisfies Partial<HttpError>);
 
-    expect(failure).toBeInstanceOf(DeploymentProtocolValidationError);
-    const response = deploymentProtocolValidationErrorResponse(failure);
-    expect(response?.status).toBe(400);
-    await expect(response?.json()).resolves.toEqual({
-      error: "Abandon push request must be an object.",
-    });
-
-    expect(deploymentProtocolValidationErrorResponse(new Error("not protocol"))).toBeUndefined();
+    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest(null))))
+      .rejects
+      .toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("maps typed public route JSON errors while preserving protocol errors for the worker adapter", () => {
+  it("maps typed public route errors to HttpError at the adapter edge", () => {
     const jsonError = new RequestJsonError({
       message: "Request body must be JSON.",
       cause: new SyntaxError("Unexpected end of JSON input"),
@@ -265,7 +259,10 @@ describe("public deployment push route boundary", () => {
       message: "Abandon push request must be an object.",
       cause: null,
     });
-    expect(publicDeploymentRouteErrorToHttpError(protocolError)).toBe(protocolError);
+    expect(publicDeploymentRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: "Abandon push request must be an object.",
+    } satisfies Partial<HttpError>);
   });
 });
 

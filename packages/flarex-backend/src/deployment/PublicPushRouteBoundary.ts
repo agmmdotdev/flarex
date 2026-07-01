@@ -6,11 +6,10 @@ import {
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
-  json,
+  HttpError,
   readJsonEffect,
   RequestJsonError,
   requestJsonErrorToHttpError,
-  type HttpError,
 } from "../http";
 import type { StartPushRequest } from "../types";
 import {
@@ -189,18 +188,9 @@ function decodePublicDeploymentRouteRequest<A>(
 
 export function publicDeploymentRouteErrorToHttpError(
   error: RequestJsonError | DeploymentProtocolValidationError,
-): HttpError | DeploymentProtocolValidationError {
+): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
-  return error;
-}
-
-export function deploymentProtocolValidationErrorResponse(
-  error: unknown,
-): Response | undefined {
-  if (!(error instanceof DeploymentProtocolValidationError)) {
-    return undefined;
-  }
-  return json({ error: error.message }, { status: 400 });
+  return new HttpError(400, error.message);
 }

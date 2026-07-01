@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import {
-  DeploymentProtocolValidationError,
   DeploymentPushAction,
 } from "flarex-protocol/deployment";
 import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
@@ -592,11 +591,7 @@ function publicDeploymentWorkerRouteErrorToHttpError(
   if (error instanceof MissingDeploymentPushIdError) {
     return publicRoutePathErrorToHttpError(error);
   }
-  const routeError = publicDeploymentRouteErrorToHttpError(error);
-  if (routeError instanceof DeploymentProtocolValidationError) {
-    return new HttpError(400, routeError.message);
-  }
-  return routeError;
+  return publicDeploymentRouteErrorToHttpError(error);
 }
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {

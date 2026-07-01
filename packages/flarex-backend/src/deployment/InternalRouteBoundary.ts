@@ -69,11 +69,7 @@ export function deploymentInternalRouteErrorToResponse(
   if (error instanceof DeploymentRouteOperationError) {
     return errorResponse(new HttpError(error.status, error.message));
   }
-  const httpError = deploymentRouteErrorToHttpError(error);
-  if (httpError instanceof DeploymentProtocolValidationError) {
-    return json({ error: httpError.message }, { status: 400 });
-  }
-  return errorResponse(httpError);
+  return errorResponse(deploymentRouteErrorToHttpError(error));
 }
 
 function deploymentRouteOperationError(

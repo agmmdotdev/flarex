@@ -1,5 +1,41 @@
 # Deployment Analysis And Push
 
+## Deployment Route Adapter HTTP Error Boundary
+
+Previous completed checkpoint: `d497276` Validate deployment HttpApi responses with protocol effects.
+
+What changed:
+
+- Public deployment start, analyzed-start, finish, and abandon route
+  compatibility helpers now convert protocol validation failures to 400
+  `HttpError` values at the route adapter edge.
+- Generated DeploymentDO route request forwarding now does the same for
+  analyzed-start, finish, and abandon request bodies before passing canonical
+  requests to the generated DeploymentApi handler.
+- Direct route Effect decoders still expose typed
+  `DeploymentProtocolValidationError` for route/service composition and direct
+  tests.
+
+Why it changed:
+
+Deployment push route validation should remain typed while composing Effect
+pipelines, but public and Durable Object adapters should not leak protocol
+errors after invoking an HTTP mapper. This keeps user-visible 400 behavior
+stable while making the route adapter boundary explicit.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, analyzer behavior, artifact storage, storage schema,
+  DeploymentDO service behavior, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment HttpApi Response Protocol Effect Boundary
 
 Previous completed checkpoint: `a661a14` Validate registry HttpApi responses with Effect.

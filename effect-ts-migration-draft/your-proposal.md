@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment HttpApi response protocol Effect boundary.
+- Previous completed checkpoint: Deployment route adapter HTTP error boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,19 +48,40 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment HttpApi response protocol Effect boundary:
+Next recommended checkpoint after the deployment route adapter HTTP error boundary:
 
-1. Prefer a fuller deployment route/service slice now that request, domain
-   validation, and generated HttpApi response boundaries have Effect decoders.
-   Good candidates are public deployment push route JSON/body reading or
-   DeploymentDO push lifecycle service extraction, provided the slice keeps
-   HTTP conversion at one adapter edge.
+1. Prefer DeploymentDO push lifecycle service extraction now that deployment
+   request, domain validation, generated HttpApi response, and public/DO route
+   adapter error boundaries have typed Effect decoders and one HTTP conversion
+   edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 274 slice:
+
+1. Close the deployment public push and generated DeploymentDO route adapter
+   leak where `publicDeploymentRouteErrorToHttpError(...)` and
+   `deploymentRouteErrorToHttpError(...)` could return a protocol validation
+   error instead of an adapter `HttpError`.
+2. Keep direct Effect decoder functions returning typed
+   `DeploymentProtocolValidationError`, while promise compatibility helpers
+   and Worker/DO route adapters now convert route JSON/protocol failures to
+   400 `HttpError` at the adapter edge.
+3. Remove the separate public
+   `deploymentProtocolValidationErrorResponse(...)` helper and simplify the
+   Worker/internal deployment route mappers so HTTP conversion happens in the
+   route error mapper.
+4. Preserve public deployment push routing, generated DeploymentApi request
+   forwarding, DeploymentDO fallback health/not-found behavior, deployment
+   service/store behavior, push lifecycle, PartitionDO SQL/OCC, executor-http,
+   and `ValidatorJson` unchanged.
+5. Update public and generated deployment route-boundary tests to distinguish
+   typed Effect decoder failures from adapter-level `HttpError` compatibility
+   failures.
 
 Completed Goal 273 slice:
 

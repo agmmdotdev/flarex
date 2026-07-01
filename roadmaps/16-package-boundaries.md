@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Deployment Route Adapter HTTP Error Boundary
+
+Previous completed checkpoint: `d497276` Validate deployment HttpApi responses with protocol effects.
+
+What changed:
+
+- `deployment/PublicPushRouteBoundary.ts` and
+  `deployment/HttpApiRouteBoundary.ts` now keep typed Effect decoder exports
+  separate from adapter-level `HttpError` compatibility helpers.
+- Public Worker deployment route mapping no longer needs to special-case
+  `DeploymentProtocolValidationError` after calling
+  `publicDeploymentRouteErrorToHttpError(...)`.
+- DeploymentDO internal route response mapping now delegates protocol and JSON
+  request failures to `deploymentRouteErrorToHttpError(...)` for one HTTP
+  conversion path.
+
+Boundary decision:
+
+Protocol packages own deployment transport validation and emit
+`DeploymentProtocolValidationError`. Route boundary modules own request JSON
+reading and compatibility HTTP conversion. Worker and Durable Object adapters
+own the single runtime edge and response emission.
+
+Known limitations:
+
+- This checkpoint does not change deployment protocol schemas, DeploymentDO
+  lifecycle logic, deployment storage, push service behavior, PartitionDO
+  SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment HttpApi Response Protocol Effect Boundary
 
 Previous completed checkpoint: `a661a14` Validate registry HttpApi responses with Effect.
