@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `4f36d96` Type execution route boundaries.
-- Active checkpoint: R-3 partition route boundaries, migrating `partition/RouteBoundary.ts`, `partition/PublicSchemaCacheRouteBoundary.ts`, and `partition/PublicDispatchBoundary.ts` to typed route inputs and no untyped body casts at the route boundary.
+- Previous completed checkpoint: R-3 partition route boundaries in this checkpoint commit.
+- Active checkpoint: R-4 scheduler route boundaries, migrating `scheduler/RouteBoundary.ts`, `scheduler/PublicRouteBoundary.ts`, and `scheduler/InternalRouteBoundary.ts` to typed scheduler route inputs with one internal/public response adapter.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,29 +52,43 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-2 invoke route boundary:
+Next recommended checkpoint after R-3 partition route boundaries:
 
-1. Migrate partition route boundaries in `partition/RouteBoundary.ts`,
-   `partition/PublicSchemaCacheRouteBoundary.ts`, and
-   `partition/PublicDispatchBoundary.ts`.
-2. Decode begin, commit, document read, index read, and schema-cache route
-   inputs through typed Effect boundaries.
-3. Remove untyped body casts at the partition route boundary while preserving
-   existing OCC, SQL, and response body/status behavior.
+1. Migrate scheduler route boundaries in `scheduler/RouteBoundary.ts`,
+   `scheduler/PublicRouteBoundary.ts`, and
+   `scheduler/InternalRouteBoundary.ts`.
+2. Decode scheduler public and internal route inputs through typed Effect
+   boundaries.
+3. Keep scheduler route error channels typed until one internal/public response
+   adapter maps them to HTTP responses.
 4. Continue avoiding deployment storage, artifact materializer/cache,
    source-package behavior, executor-http, unrelated ExecutionDO internals, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 348 slice:
+Current Goal 349 slice:
+
+1. Convert scheduler public/internal route request handling to named
+   `Effect.fn(...)` decoders.
+2. Remove route-boundary `HttpError` ownership where R-4 can move it to the
+   SchedulerDO or Worker adapter edge without changing response behavior.
+3. Preserve scheduler dispatch, cleanup, push, and public route status/body
+   behavior through focused boundary and dispatch tests.
+4. Keep partition storage, deployment storage, artifact materializer/cache,
+   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+   unchanged unless R-4 owns that boundary directly.
+
+Completed Goal 348 slice:
 
 1. Convert partition begin/commit/read/index/schema-cache route input handling
    to typed Effect decoders.
-2. Keep PartitionDO SQL/OCC behavior unchanged while route decoding becomes
+2. Remove `HttpError` mapping from partition route boundary modules; keep
+   Worker and PartitionDO as the route-error response adapter edges.
+3. Keep PartitionDO SQL/OCC behavior unchanged while route decoding becomes
    typed.
-3. Preserve public partition response body/status behavior through partition
-   boundary and flow tests.
-4. Keep invoke, execution, deployment storage, artifact materializer/cache,
+4. Preserve public partition response body/status behavior through partition
+   boundary, public dispatch, flow, OCC, and transaction adapter tests.
+5. Keep invoke, execution, deployment storage, artifact materializer/cache,
    executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
    unchanged unless R-3 owns that boundary directly.
 

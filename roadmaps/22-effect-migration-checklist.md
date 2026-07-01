@@ -12,7 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `33054dd` Propagate public worker route errors.
+- Previous completed checkpoint: R-3 partition route boundaries in this
+  checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -227,25 +228,28 @@ The Effect migration is complete only when all of these are true:
     `test/executionDO.test.ts`.
 - [x] R-2. Invoke route boundary:
   `invoke/PublicInvokeRouteBoundary.ts` and `invoke.ts`.
-  - Completed by: this R-2 checkpoint commit.
+  - Completed by: `737e075` Type public invoke boundary.
   - Goal: typed public invoke route input, active deployment load failures as
     tagged errors, one response adapter.
   - Focus tests:
     `test/publicInvokeRouteBoundary.test.ts`,
     `test/invokeRequests.test.ts`,
     `test/invoke.test.ts`.
-- [ ] R-3. Partition route boundaries:
+- [x] R-3. Partition route boundaries:
   `partition/RouteBoundary.ts`,
   `partition/PublicSchemaCacheRouteBoundary.ts`,
   `partition/PublicDispatchBoundary.ts`.
+  - Completed by: this R-3 checkpoint commit.
   - Goal: typed begin/commit/read/index/schema-cache route inputs and no
-    untyped body casts at the route boundary.
+    untyped body casts at the route boundary; Worker and PartitionDO own the
+    HTTP response adapter mapping.
   - Focus tests:
     `test/partitionRouteBoundary.test.ts`,
     `test/publicPartitionSchemaCacheRouteBoundary.test.ts`,
     `test/publicPartitionDispatchBoundary.test.ts`,
     `test/partitionFlow.test.ts`,
-    `test/occ.test.ts`.
+    `test/occ.test.ts`,
+    `test/transaction.test.ts`.
 - [ ] R-4. Scheduler route boundaries:
   `scheduler/RouteBoundary.ts`, `scheduler/PublicRouteBoundary.ts`,
   `scheduler/InternalRouteBoundary.ts`.
@@ -420,11 +424,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with R-3:
+Start with R-4:
 
-Migrate partition route boundaries in `partition/RouteBoundary.ts`,
-`partition/PublicSchemaCacheRouteBoundary.ts`, and
-`partition/PublicDispatchBoundary.ts` to typed begin/commit/read/index/schema
-cache route inputs and remove untyped body casts at the route boundary; update
+Migrate scheduler route boundaries in `scheduler/RouteBoundary.ts`,
+`scheduler/PublicRouteBoundary.ts`, and `scheduler/InternalRouteBoundary.ts` to
+typed scheduler route inputs with one internal/public response adapter; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `R-3`, then commit.
+run only the EffectTS quality checker, tick `R-4`, then commit.

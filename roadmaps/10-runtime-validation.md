@@ -1,5 +1,36 @@
 # Runtime Validation
 
+## Partition Route Adapter Split
+
+Previous completed checkpoint: `737e075` Type public invoke boundary.
+
+What changed:
+
+- `partition/RouteBoundary.ts` now exposes named `Effect.fn(...)` decoders for
+  schema-cache, commit, subscription, connection unregister, document-read
+  query params, and index-read query params.
+- `partition/PublicSchemaCacheRouteBoundary.ts` is a typed public schema-cache
+  decoder only and no longer exports HTTP mapping helpers.
+- Public partition document/index dispatch now receives typed read inputs and
+  serializes them for Durable Object forwarding.
+- Worker and PartitionDO own partition route decode-error mapping at their
+  adapter edges.
+
+Why it changed:
+
+R-3 removes HTTP mapping from partition route boundary modules and makes read
+and index route parameters explicit typed inputs, while leaving PartitionDO
+SQL/OCC behavior unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/publicPartitionDispatchBoundary.test.ts test/partitionFlow.test.ts test/occ.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke Route Adapter Split
 
 Previous completed checkpoint: `4f36d96` Type execution route boundaries.

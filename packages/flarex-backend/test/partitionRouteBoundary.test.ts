@@ -1,19 +1,18 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { RequestJsonError } from "../src/http";
 import {
   decodePartitionCommitRoutePayload,
   decodePartitionCommitRequest,
   decodePartitionConnectionUnregisterRoutePayload,
   decodePartitionConnectionUnregisterRequest,
+  decodePartitionDocumentReadSearchParams,
+  decodePartitionIndexReadSearchParams,
   decodePartitionSchemaCacheRoutePayload,
   decodePartitionSchemaCacheRequest,
   decodePartitionSubscriptionRegistrationRoutePayload,
   decodePartitionSubscriptionRegistrationRequest,
   decodePartitionSubscriptionTargetRoutePayload,
   decodePartitionSubscriptionTargetRequest,
-  partitionRouteErrorToHttpError,
-  partitionRouteErrorToHttpErrorEffect,
 } from "../src/partition/RouteBoundary";
 import {
   decodePartitionCommitPayload,
@@ -140,12 +139,9 @@ describe("partition route boundary", () => {
   });
 
   it("maps invalid schema-cache envelopes to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionSchemaCacheRoutePayload("schema"),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+    await expect(Effect.runPromise(decodePartitionSchemaCacheRoutePayload("schema")))
+      .rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "schema-cache request body must be an object.",
     });
   });
@@ -208,15 +204,11 @@ describe("partition route boundary", () => {
   });
 
   it("maps invalid commit envelopes to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionCommitRoutePayload({
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
         beginTs: 1,
         writes: [{ tableId: "1", value: null }],
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "writes[0].tableId must be an integer.",
     });
   });
@@ -228,48 +220,6 @@ describe("partition route boundary", () => {
     }))).rejects.toMatchObject({
       _tag: "PartitionRoutePayloadError",
       message: "writes[0].tableId must be an integer.",
-    });
-  });
-
-  it("maps partition route validation errors to HttpError", async () => {
-    try {
-      await Effect.runPromise(decodePartitionCommitRoutePayload({
-        beginTs: 1,
-        writes: [{ tableId: "1", value: null }],
-      }));
-      throw new Error("Expected decodePartitionCommitRoutePayload to fail.");
-    } catch (error) {
-      const httpError = partitionRouteErrorToHttpError(
-        error as Parameters<typeof partitionRouteErrorToHttpError>[0],
-      );
-      expect(httpError).toMatchObject({
-        status: 400,
-        message: "writes[0].tableId must be an integer.",
-      });
-    }
-  });
-
-  it("maps partition route errors through the named Effect adapter", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("bad json"),
-    });
-    const validationError = new PartitionRoutePayloadError({
-      message: "writes must be an array.",
-    });
-
-    await expect(Effect.runPromise(
-      partitionRouteErrorToHttpErrorEffect(jsonError),
-    )).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    await expect(Effect.runPromise(
-      partitionRouteErrorToHttpErrorEffect(validationError),
-    )).rejects.toMatchObject({
-      status: 400,
-      message: "writes must be an array.",
     });
   });
 
@@ -311,33 +261,25 @@ describe("partition route boundary", () => {
   });
 
   it("maps invalid commit read sets to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionCommitRoutePayload({
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
         beginTs: 1,
         readSet: {
           documents: [{ tableId: 1, id: "" }],
         },
         writes: [],
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "readSet.documents[0].id must be a non-empty string.",
     });
   });
 
   it("maps invalid commit write values to 400", async () => {
     const value = { invalid: Number.POSITIVE_INFINITY };
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionCommitRoutePayload({
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
         beginTs: 1,
         writes: [{ tableId: 1, value }],
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "writes[0].value must be a JSON value.",
     });
   });
@@ -409,43 +351,31 @@ describe("partition route boundary", () => {
   });
 
   it("maps invalid subscription registration envelopes to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionSubscriptionRegistrationRoutePayload({
+    await expect(Effect.runPromise(decodePartitionSubscriptionRegistrationRoutePayload({
         connectionName: "connection-a",
         queryId: 7,
         readSet: null,
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "readSet must be an object.",
     });
   });
 
   it("maps invalid subscription target envelopes to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionSubscriptionTargetRoutePayload({
+    await expect(Effect.runPromise(decodePartitionSubscriptionTargetRoutePayload({
         connectionName: "connection-a",
         queryId: 7.5,
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "queryId must be an integer.",
     });
   });
 
   it("maps invalid connection unregister envelopes to 400", async () => {
-    const error = await Effect.runPromise(Effect.flip(
-      decodePartitionConnectionUnregisterRoutePayload({
+    await expect(Effect.runPromise(decodePartitionConnectionUnregisterRoutePayload({
         connectionName: "",
-      }),
-    ));
-
-    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
-      status: 400,
+      }))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
       message: "connectionName must be a non-empty string.",
     });
   });
@@ -461,6 +391,64 @@ describe("partition route boundary", () => {
     )))).rejects.toMatchObject({
       _tag: "RequestJsonError",
       message: "Request body must be JSON.",
+    });
+  });
+
+  it("decodes document and index read query params through typed route boundaries", async () => {
+    await expect(Effect.runPromise(decodePartitionDocumentReadSearchParams(
+      new URLSearchParams({ tableId: "1", id: "1:ada", at: "7" }),
+    ))).resolves.toEqual({
+      tableId: 1,
+      id: "1:ada",
+      at: 7,
+    });
+
+    await expect(Effect.runPromise(decodePartitionIndexReadSearchParams(
+      new URLSearchParams({
+        indexId: "3",
+        at: "7",
+        lower: "a",
+        upper: "z",
+        limit: "10",
+        cursor: "next",
+        order: "desc",
+      }),
+    ))).resolves.toEqual({
+      indexId: 3,
+      at: 7,
+      lower: "a",
+      upper: "z",
+      limit: 10,
+      cursor: "next",
+      order: "desc",
+    });
+
+    await expect(Effect.runPromise(decodePartitionDocumentReadSearchParams(
+      new URLSearchParams({ tableId: "bad", id: "1:ada" }),
+    ))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "tableId and id are required.",
+    });
+
+    await expect(Effect.runPromise(decodePartitionDocumentReadSearchParams(
+      new URLSearchParams({ id: "1:ada" }),
+    ))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "tableId and id are required.",
+    });
+
+    await expect(Effect.runPromise(decodePartitionIndexReadSearchParams(
+      new URLSearchParams(),
+    ))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "indexId is required.",
+    });
+
+    await expect(Effect.runPromise(decodePartitionIndexReadSearchParams(
+      new URLSearchParams({ indexId: "3", limit: "bad" }),
+    ))).rejects.toMatchObject({
+      _tag: "PartitionRoutePayloadError",
+      message: "limit must be an integer.",
     });
   });
 });

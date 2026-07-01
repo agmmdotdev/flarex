@@ -184,6 +184,24 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("maps invalid partition read query params at the Durable Object adapter edge", async () => {
+    const partition = env.PARTITIONS.getByName(
+      partitionObjectName("read-query-boundary-deployment", "user:ada"),
+    );
+
+    const documentResponse = await partition.fetch("https://flarex.internal/document?id=1%3Aada");
+    expect(documentResponse.status).toBe(400);
+    await expect(documentResponse.json()).resolves.toEqual({
+      error: "tableId and id are required.",
+    });
+
+    const indexResponse = await partition.fetch("https://flarex.internal/index");
+    expect(indexResponse.status).toBe(400);
+    await expect(indexResponse.json()).resolves.toEqual({
+      error: "indexId is required.",
+    });
+  });
+
   it("rejects invalid public partition commit envelopes at the route boundary", async () => {
     const response = await harness.mf.dispatchFetch(
       "http://flarex.test/deployments/commit-public-boundary/partitions/user%3Aada/commit",
@@ -232,6 +250,24 @@ describe("SingleShardTransaction", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: "schema-cache request body must be an object.",
+    });
+  });
+
+  it("maps invalid public partition read query params at the Worker adapter edge", async () => {
+    const documentResponse = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/read-query-public-boundary/partitions/user%3Aada/document?id=1%3Aada",
+    );
+    expect(documentResponse.status).toBe(400);
+    await expect(documentResponse.json()).resolves.toEqual({
+      error: "tableId and id are required.",
+    });
+
+    const indexResponse = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/read-query-public-boundary/partitions/user%3Aada/index",
+    );
+    expect(indexResponse.status).toBe(400);
+    await expect(indexResponse.json()).resolves.toEqual({
+      error: "indexId is required.",
     });
   });
 

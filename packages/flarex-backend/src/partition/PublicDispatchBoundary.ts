@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import type {
   PartitionCommitRequest,
+  PartitionDocumentReadRequest,
+  PartitionIndexReadRequest,
   PartitionSchemaCacheRequest,
 } from "./RouteBoundary";
 import {
@@ -59,8 +61,9 @@ export const readPublicPartitionDocumentEffect = Effect.fn(
   "Worker.readPublicPartitionDocument",
 )(function* (
   partition: PublicPartitionDispatchTarget,
-  searchParams: URLSearchParams,
+  read: PartitionDocumentReadRequest,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
+  const searchParams = partitionDocumentReadSearchParams(read);
   return yield* Effect.tryPromise({
     try: () => partition.fetch(`https://flarex.internal/document?${searchParams}`),
     catch: error => publicWorkerDispatchError("partition-document-read", error),
@@ -71,10 +74,31 @@ export const readPublicPartitionIndexEffect = Effect.fn(
   "Worker.readPublicPartitionIndex",
 )(function* (
   partition: PublicPartitionDispatchTarget,
-  searchParams: URLSearchParams,
+  read: PartitionIndexReadRequest,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
+  const searchParams = partitionIndexReadSearchParams(read);
   return yield* Effect.tryPromise({
     try: () => partition.fetch(`https://flarex.internal/index?${searchParams}`),
     catch: error => publicWorkerDispatchError("partition-index-read", error),
   });
 });
+
+function partitionDocumentReadSearchParams(read: PartitionDocumentReadRequest): URLSearchParams {
+  return new URLSearchParams({
+    tableId: String(read.tableId),
+    id: read.id,
+    ...(read.at === undefined ? {} : { at: String(read.at) }),
+  });
+}
+
+function partitionIndexReadSearchParams(read: PartitionIndexReadRequest): URLSearchParams {
+  return new URLSearchParams({
+    indexId: String(read.indexId),
+    ...(read.at === undefined ? {} : { at: String(read.at) }),
+    ...(read.lower === undefined ? {} : { lower: read.lower }),
+    ...(read.upper === undefined ? {} : { upper: read.upper }),
+    ...(read.limit === undefined ? {} : { limit: String(read.limit) }),
+    ...(read.cursor === undefined ? {} : { cursor: read.cursor }),
+    ...(read.order === undefined ? {} : { order: read.order }),
+  });
+}

@@ -1,42 +1,28 @@
 import { Effect } from "effect";
 import {
-  partitionRouteErrorToHttpError,
   type PartitionRouteError,
   type PartitionSchemaCacheRequest,
   type PartitionRoutePayloadError,
 } from "./RouteBoundary";
-import {
-  HttpError,
-  readJsonEffect,
-} from "../http";
+import { readJsonEffect } from "../http";
 import { decodePublicPartitionSchemaCachePayload } from "./Requests";
 
-export function decodePublicPartitionSchemaCacheRequest(
+export const decodePublicPartitionSchemaCacheRequest = Effect.fn(
+  "PublicSchemaCacheRouteBoundary.decodeRequest",
+)(function* (
   request: Request,
   partitionKey: string,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey)),
   );
-}
+});
 
-export function decodePublicPartitionSchemaCacheRoutePayload(
+export const decodePublicPartitionSchemaCacheRoutePayload = Effect.fn(
+  "PublicSchemaCacheRouteBoundary.decodePayload",
+)(function* (
   value: unknown,
   partitionKey: string,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return decodePublicPartitionSchemaCachePayload(value, partitionKey);
-}
-
-export function publicPartitionSchemaCacheRouteErrorToHttpError(
-  error: PartitionRouteError,
-): HttpError {
-  return partitionRouteErrorToHttpError(error);
-}
-
-export const publicPartitionSchemaCacheRouteErrorToHttpErrorEffect = Effect.fn(
-  "PublicSchemaCacheRouteBoundary.publicPartitionSchemaCacheRouteErrorToHttpError",
-)(function* (
-  error: PartitionRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(publicPartitionSchemaCacheRouteErrorToHttpError(error));
+): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
+  return yield* decodePublicPartitionSchemaCachePayload(value, partitionKey);
 });

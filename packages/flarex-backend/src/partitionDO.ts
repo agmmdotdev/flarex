@@ -6,13 +6,16 @@ import { findReadSetConflict, isOccConflict } from "./occ";
 import {
   decodePartitionCommitRequest,
   decodePartitionConnectionUnregisterRequest,
+  decodePartitionDocumentReadSearchParams,
+  decodePartitionIndexReadSearchParams,
   decodePartitionSchemaCacheRequest,
   decodePartitionSubscriptionRegistrationRequest,
   decodePartitionSubscriptionTargetRequest,
   PartitionRoutePayloadError,
-  partitionRouteErrorToHttpError,
   type PartitionRouteError,
   type PartitionConnectionUnregisterRequest,
+  type PartitionDocumentReadRequest,
+  type PartitionIndexReadRequest,
   type PartitionSchemaCacheRequest,
   type PartitionSubscriptionRegistrationRequest,
   type PartitionSubscriptionTargetRequest,
@@ -1042,16 +1045,20 @@ function routePartitionDocumentRead(
   url: URL,
   currentTs: PartitionRouteHandlers["currentTs"],
   readDocument: PartitionRouteHandlers["readDocument"],
+): Effect.Effect<Response, PartitionRoutePayloadError | PartitionRouteOperationError> {
+  return decodePartitionDocumentReadSearchParams(url.searchParams).pipe(
+    Effect.flatMap(read => routePartitionDocumentReadInput(read, currentTs, readDocument)),
+  );
+}
+
+function routePartitionDocumentReadInput(
+  read: PartitionDocumentReadRequest,
+  currentTs: PartitionRouteHandlers["currentTs"],
+  readDocument: PartitionRouteHandlers["readDocument"],
 ): Effect.Effect<Response, PartitionRouteOperationError> {
-  const tableId = Number(url.searchParams.get("tableId"));
-  const id = url.searchParams.get("id");
-  const at = Number(url.searchParams.get("at") ?? currentTs());
-  if (!Number.isInteger(tableId) || !id) {
-    return Effect.succeed(json({ error: "tableId and id are required." }, { status: 400 }));
-  }
   return routePartitionJsonResult(
     "document-read",
-    () => readDocument(tableId, id, at),
+    () => readDocument(read.tableId, read.id, read.at ?? currentTs()),
   );
 }
 
@@ -1059,26 +1066,27 @@ function routePartitionIndexRead(
   url: URL,
   currentTs: PartitionRouteHandlers["currentTs"],
   readIndex: PartitionRouteHandlers["readIndex"],
+): Effect.Effect<Response, PartitionRoutePayloadError | PartitionRouteOperationError> {
+  return decodePartitionIndexReadSearchParams(url.searchParams).pipe(
+    Effect.flatMap(read => routePartitionIndexReadInput(read, currentTs, readIndex)),
+  );
+}
+
+function routePartitionIndexReadInput(
+  read: PartitionIndexReadRequest,
+  currentTs: PartitionRouteHandlers["currentTs"],
+  readIndex: PartitionRouteHandlers["readIndex"],
 ): Effect.Effect<Response, PartitionRouteOperationError> {
-  const indexId = Number(url.searchParams.get("indexId"));
-  if (!Number.isInteger(indexId)) {
-    return Effect.succeed(json({ error: "indexId is required." }, { status: 400 }));
-  }
-  const at = Number(url.searchParams.get("at") ?? currentTs());
-  const lower = url.searchParams.get("lower") ?? undefined;
-  const upper = url.searchParams.get("upper") ?? undefined;
-  const cursor = url.searchParams.get("cursor") ?? undefined;
-  const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
   return routePartitionJsonResult(
     "index-read",
     () => readIndex(
-      indexId,
-      at,
-      lower,
-      upper,
-      Number(url.searchParams.get("limit") ?? 100),
-      cursor,
-      order,
+      read.indexId,
+      read.at ?? currentTs(),
+      read.lower,
+      read.upper,
+      read.limit ?? 100,
+      read.cursor,
+      read.order ?? "asc",
     ),
   );
 }
@@ -1230,6 +1238,13 @@ function partitionInternalRouteErrorToResponse(error: PartitionInternalRouteErro
     return errorResponse(new HttpError(error.status, error.message));
   }
   return errorResponse(partitionRouteErrorToHttpError(error));
+}
+
+function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return new HttpError(400, error.message);
+  }
+  return new HttpError(400, error.message);
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {

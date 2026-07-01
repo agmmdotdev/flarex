@@ -1,10 +1,5 @@
 import { Effect } from "effect";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import {
   decodePartitionCommitPayload,
   decodePartitionConnectionUnregisterPayload,
@@ -30,87 +25,188 @@ export {
 
 export type PartitionRouteError = RequestJsonError | PartitionRoutePayloadError;
 
-export function decodePartitionSchemaCacheRequest(
+export type PartitionDocumentReadRequest = {
+  readonly tableId: number;
+  readonly id: string;
+  readonly at?: number;
+};
+
+export type PartitionIndexReadRequest = {
+  readonly indexId: number;
+  readonly at?: number;
+  readonly lower?: string;
+  readonly upper?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly order?: "asc" | "desc";
+};
+
+export const decodePartitionSchemaCacheRequest = Effect.fn(
+  "PartitionRouteBoundary.decodeSchemaCacheRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePartitionSchemaCacheRoutePayload),
   );
-}
+});
 
-export function decodePartitionSchemaCacheRoutePayload(
+export const decodePartitionSchemaCacheRoutePayload = Effect.fn(
+  "PartitionRouteBoundary.decodeSchemaCachePayload",
+)(function* (
   value: unknown,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return decodePartitionSchemaCachePayload(value);
-}
+): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
+  return yield* decodePartitionSchemaCachePayload(value);
+});
 
-export function decodePartitionCommitRequest(
+export const decodePartitionCommitRequest = Effect.fn(
+  "PartitionRouteBoundary.decodeCommitRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PartitionCommitRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionCommitRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePartitionCommitRoutePayload),
   );
-}
+});
 
-export function decodePartitionCommitRoutePayload(
+export const decodePartitionCommitRoutePayload = Effect.fn(
+  "PartitionRouteBoundary.decodeCommitPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<PartitionCommitRequest, PartitionRoutePayloadError> {
-  return decodePartitionCommitPayload(value);
-}
+): Effect.fn.Return<PartitionCommitRequest, PartitionRoutePayloadError> {
+  return yield* decodePartitionCommitPayload(value);
+});
 
-export function decodePartitionSubscriptionRegistrationRequest(
+export const decodePartitionSubscriptionRegistrationRequest = Effect.fn(
+  "PartitionRouteBoundary.decodeSubscriptionRegistrationRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionSubscriptionRegistrationRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePartitionSubscriptionRegistrationRoutePayload),
   );
-}
+});
 
-export function decodePartitionSubscriptionRegistrationRoutePayload(
+export const decodePartitionSubscriptionRegistrationRoutePayload = Effect.fn(
+  "PartitionRouteBoundary.decodeSubscriptionRegistrationPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
-  return decodePartitionSubscriptionRegistrationPayload(value);
-}
+): Effect.fn.Return<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
+  return yield* decodePartitionSubscriptionRegistrationPayload(value);
+});
 
-export function decodePartitionSubscriptionTargetRequest(
+export const decodePartitionSubscriptionTargetRequest = Effect.fn(
+  "PartitionRouteBoundary.decodeSubscriptionTargetRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionSubscriptionTargetRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePartitionSubscriptionTargetRoutePayload),
   );
-}
+});
 
-export function decodePartitionSubscriptionTargetRoutePayload(
+export const decodePartitionSubscriptionTargetRoutePayload = Effect.fn(
+  "PartitionRouteBoundary.decodeSubscriptionTargetPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
-  return decodePartitionSubscriptionTargetPayload(value);
-}
+): Effect.fn.Return<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
+  return yield* decodePartitionSubscriptionTargetPayload(value);
+});
 
-export function decodePartitionConnectionUnregisterRequest(
+export const decodePartitionConnectionUnregisterRequest = Effect.fn(
+  "PartitionRouteBoundary.decodeConnectionUnregisterRequest",
+)(function* (
   request: Request,
-): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<PartitionConnectionUnregisterRequest, PartitionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodePartitionConnectionUnregisterRoutePayload),
   );
-}
-
-export function decodePartitionConnectionUnregisterRoutePayload(
-  value: unknown,
-): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
-  return decodePartitionConnectionUnregisterPayload(value);
-}
-
-export function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const partitionRouteErrorToHttpErrorEffect = Effect.fn(
-  "PartitionRouteBoundary.partitionRouteErrorToHttpError",
-)(function* (
-  error: PartitionRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(partitionRouteErrorToHttpError(error));
 });
+
+export const decodePartitionConnectionUnregisterRoutePayload = Effect.fn(
+  "PartitionRouteBoundary.decodeConnectionUnregisterPayload",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
+  return yield* decodePartitionConnectionUnregisterPayload(value);
+});
+
+export const decodePartitionDocumentReadSearchParams = Effect.fn(
+  "PartitionRouteBoundary.decodeDocumentReadSearchParams",
+)(function* (
+  searchParams: URLSearchParams,
+): Effect.fn.Return<PartitionDocumentReadRequest, PartitionRoutePayloadError> {
+  const tableId = requiredIntegerSearchParam(searchParams, "tableId", "tableId and id are required.");
+  const id = searchParams.get("id");
+  if (tableId._tag === "Failure" || !id) {
+    return yield* Effect.fail(new PartitionRoutePayloadError({
+      message: "tableId and id are required.",
+    }));
+  }
+  const at = optionalIntegerSearchParam(searchParams, "at");
+  if (at._tag === "Failure") return yield* Effect.fail(at.error);
+  return {
+    tableId: tableId.value,
+    id,
+    ...(at.value === undefined ? {} : { at: at.value }),
+  };
+});
+
+export const decodePartitionIndexReadSearchParams = Effect.fn(
+  "PartitionRouteBoundary.decodeIndexReadSearchParams",
+)(function* (
+  searchParams: URLSearchParams,
+): Effect.fn.Return<PartitionIndexReadRequest, PartitionRoutePayloadError> {
+  const indexId = requiredIntegerSearchParam(searchParams, "indexId", "indexId is required.");
+  if (indexId._tag === "Failure") return yield* Effect.fail(indexId.error);
+  const at = optionalIntegerSearchParam(searchParams, "at");
+  if (at._tag === "Failure") return yield* Effect.fail(at.error);
+  const limit = optionalIntegerSearchParam(searchParams, "limit");
+  if (limit._tag === "Failure") return yield* Effect.fail(limit.error);
+  const order = searchParams.get("order") === "desc" ? "desc" : undefined;
+  return {
+    indexId: indexId.value,
+    ...(at.value === undefined ? {} : { at: at.value }),
+    ...(searchParams.get("lower") === null ? {} : { lower: searchParams.get("lower")! }),
+    ...(searchParams.get("upper") === null ? {} : { upper: searchParams.get("upper")! }),
+    ...(limit.value === undefined ? {} : { limit: limit.value }),
+    ...(searchParams.get("cursor") === null ? {} : { cursor: searchParams.get("cursor")! }),
+    ...(order === undefined ? {} : { order }),
+  };
+});
+
+type SearchParamIntegerResult =
+  | { readonly _tag: "Success"; readonly value: number | undefined }
+  | { readonly _tag: "Failure"; readonly error: PartitionRoutePayloadError };
+
+type RequiredSearchParamIntegerResult =
+  | { readonly _tag: "Success"; readonly value: number }
+  | { readonly _tag: "Failure"; readonly error: PartitionRoutePayloadError };
+
+function requiredIntegerSearchParam(
+  searchParams: URLSearchParams,
+  name: string,
+  message: string,
+): RequiredSearchParamIntegerResult {
+  const value = searchParams.get(name);
+  if (value === null || value === "") {
+    return { _tag: "Failure", error: new PartitionRoutePayloadError({ message }) };
+  }
+  const number = Number(value);
+  if (Number.isInteger(number)) return { _tag: "Success", value: number };
+  return { _tag: "Failure", error: new PartitionRoutePayloadError({ message }) };
+}
+
+function optionalIntegerSearchParam(
+  searchParams: URLSearchParams,
+  name: string,
+): SearchParamIntegerResult {
+  const value = searchParams.get(name);
+  if (value === null) return { _tag: "Success", value: undefined };
+  const number = Number(value);
+  if (Number.isInteger(number)) return { _tag: "Success", value: number };
+  return {
+    _tag: "Failure",
+    error: new PartitionRoutePayloadError({ message: `${name} must be an integer.` }),
+  };
+}

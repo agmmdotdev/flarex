@@ -150,9 +150,10 @@ import {
 } from "./liveQueryDelivery/RouteBoundary";
 import {
   decodePartitionCommitRequest,
+  decodePartitionDocumentReadSearchParams,
+  decodePartitionIndexReadSearchParams,
   PartitionRoutePayloadError,
-  partitionRouteErrorToHttpError,
-  partitionRouteErrorToHttpErrorEffect,
+  type PartitionRouteError,
 } from "./partition/RouteBoundary";
 import {
   decodePublicPartitionSchemaCacheRequest,
@@ -509,6 +510,13 @@ function publicExecutionRoutePathErrorToHttpError(
     return new HttpError(400, "Missing execution action.");
   }
   return new HttpError(500, "Unexpected public execution route path error.");
+}
+
+function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return new HttpError(400, error.message);
 }
 
 function isPublicWorkerInvokeRouteError(
@@ -917,7 +925,7 @@ function artifactRuntimeFromEnv(
 }
 
 type PublicWorkerPartitionRouteError =
-  | Parameters<typeof partitionRouteErrorToHttpError>[0]
+  | PartitionRouteError
   | PublicWorkerDispatchError;
 
 const routePartitionEffect = Effect.fn("Worker.routePartition")(
@@ -978,13 +986,15 @@ const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSc
 
 const routePublicPartitionDocumentRead = Effect.fn("Worker.routePublicPartitionDocumentRead")(
   function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
-    return yield* readPublicPartitionDocumentEffect(partition, searchParams);
+    const read = yield* decodePartitionDocumentReadSearchParams(searchParams);
+    return yield* readPublicPartitionDocumentEffect(partition, read);
   },
 );
 
 const routePublicPartitionIndexRead = Effect.fn("Worker.routePublicPartitionIndexRead")(
   function* (partition: DurableObjectStub, searchParams: URLSearchParams) {
-    return yield* readPublicPartitionIndexEffect(partition, searchParams);
+    const read = yield* decodePartitionIndexReadSearchParams(searchParams);
+    return yield* readPublicPartitionIndexEffect(partition, read);
   },
 );
 

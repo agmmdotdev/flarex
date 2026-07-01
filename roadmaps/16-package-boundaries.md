@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Partition Route Adapter Split
+
+Previous completed checkpoint: `737e075` Type public invoke boundary.
+
+What changed:
+
+- `partition/RouteBoundary.ts` owns typed partition request and query-param
+  decoding only; it no longer exports `HttpError` mapping helpers.
+- `partition/PublicSchemaCacheRouteBoundary.ts` no longer re-exports partition
+  HTTP mapping.
+- `partition/PublicDispatchBoundary.ts` accepts typed document/index read
+  inputs instead of raw `URLSearchParams`.
+- Worker and PartitionDO keep partition route error to response conversion at
+  their adapter edges.
+
+Boundary decision:
+
+Partition route boundary modules are transport-input boundaries. Worker is the
+public partition adapter edge, and PartitionDO is the internal partition adapter
+edge. PartitionDO storage, SQL, OCC, and row decoding remain outside this R-3
+route-input slice.
+
+Known limitations:
+
+- PartitionDO still contains domain/storage `HttpError` throws and row-level
+  JSON casts. Those are reserved for object/storage phases such as O-2/S-1 and
+  are not part of this route-boundary checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/publicPartitionDispatchBoundary.test.ts test/partitionFlow.test.ts test/occ.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke Route Adapter Split
 
 Previous completed checkpoint: `4f36d96` Type execution route boundaries.

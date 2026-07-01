@@ -107,11 +107,11 @@ describe("public partition dispatch boundary", () => {
 
     await expect(Effect.runPromise(readPublicPartitionDocumentEffect(
       partition,
-      new URLSearchParams({ tableId: "1", id: "1:ada", at: "2" }),
+      { tableId: 1, id: "1:ada", at: 2 },
     ))).resolves.toBeInstanceOf(Response);
     await expect(Effect.runPromise(readPublicPartitionIndexEffect(
       partition,
-      new URLSearchParams({ indexId: "3", lower: "a", upper: "z" }),
+      { indexId: 3, lower: "a", upper: "z" },
     ))).resolves.toBeInstanceOf(Response);
 
     expect(requests).toEqual([
@@ -131,7 +131,7 @@ describe("public partition dispatch boundary", () => {
 
     const documentFailure = await Effect.runPromise(Effect.flip(readPublicPartitionDocumentEffect(
       failingPartitionTarget("document unavailable"),
-      new URLSearchParams(),
+      { tableId: 1, id: "1:ada" },
     )));
     expect(documentFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",
@@ -142,7 +142,7 @@ describe("public partition dispatch boundary", () => {
 
     const indexFailure = await Effect.runPromise(Effect.flip(readPublicPartitionIndexEffect(
       failingPartitionTarget("index unavailable"),
-      new URLSearchParams(),
+      { indexId: 3 },
     )));
     expect(indexFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",
