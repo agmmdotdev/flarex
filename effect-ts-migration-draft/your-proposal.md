@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `4ad8613` Type deployment validation surface.
-- Active checkpoint: validate and review the deployment HttpApi route-boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `5fc55a7` Type deployment HttpApi route boundary.
+- Active checkpoint: validate and review the internal execution route-boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment HttpApi route-boundary effects:
+Next recommended checkpoint after the internal execution route-boundary effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,29 @@ Next recommended checkpoint after the deployment HttpApi route-boundary effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 308 slice:
+
+1. Remove the Promise-returning `readExecutionStartRequest(...)`,
+   `readExecutionSyscallRequest(...)`, and `readExecutionFinishRequest(...)`
+   wrappers from the internal execution route boundaries.
+2. Remove public throwing `parseExecutionStartRouteRequest(...)`,
+   `parseExecutionSyscallRouteRequest(...)`, and
+   `parseExecutionFinishRouteRequest(...)` compatibility wrappers.
+3. Remove public `parseExecution*RouteRequestEffect(...)` aliases that only
+   forwarded to the route payload decoders.
+4. Keep `executionDO.ts` on `decodeExecutionStartRouteRequest(...)`,
+   `decodeExecutionSyscallRouteRequest(...)`, and
+   `decodeExecutionFinishRouteRequest(...)`.
+5. Keep public execution start decoding on
+   `decodePublicExecutionStartRouteRequest(...)` /
+   `decodePublicExecutionStartRoutePayload(...)`.
+6. Update internal execution route-boundary tests to assert typed
+   `RequestJsonError` and `ExecutionProtocolValidationError` channels
+   directly, then separately assert existing adapter HTTP mapping.
+7. Leave ExecutionDO session routing/runtime behavior, syscall handling,
+   finish semantics, public execution dispatch, PartitionDO SQL/OCC,
+   executor-http, deployment behavior, and `ValidatorJson` unchanged.
 
 Completed Goal 307 slice:
 

@@ -13,36 +13,12 @@ import {
 
 export type ExecutionSyscallRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export async function readExecutionSyscallRequest(
-  request: Request,
-): Promise<ExecutionSyscallRequest> {
-  return await Effect.runPromise(
-    decodeExecutionSyscallRouteRequest(request).pipe(
-      Effect.catch(executionSyscallRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodeExecutionSyscallRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionSyscallRequest, ExecutionSyscallRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionSyscallRoutePayload),
   );
-}
-
-export function parseExecutionSyscallRouteRequest(
-  value: unknown,
-): ExecutionSyscallRequest {
-  return Effect.runSync(parseExecutionSyscallRouteRequestEffect(value).pipe(
-    Effect.catch(executionSyscallRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseExecutionSyscallRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionSyscallRoutePayload(value);
 }
 
 export function decodeExecutionSyscallRoutePayload(

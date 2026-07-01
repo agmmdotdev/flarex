@@ -13,36 +13,12 @@ import {
 
 export type ExecutionFinishRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export async function readExecutionFinishRequest(
-  request: Request,
-): Promise<ExecutionFinishRequest> {
-  return await Effect.runPromise(
-    decodeExecutionFinishRouteRequest(request).pipe(
-      Effect.catch(executionFinishRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodeExecutionFinishRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionFinishRequest, ExecutionFinishRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionFinishRoutePayload),
   );
-}
-
-export function parseExecutionFinishRouteRequest(
-  value: unknown,
-): ExecutionFinishRequest {
-  return Effect.runSync(parseExecutionFinishRouteRequestEffect(value).pipe(
-    Effect.catch(executionFinishRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseExecutionFinishRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<ExecutionFinishRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionFinishRoutePayload(value);
 }
 
 export function decodeExecutionFinishRoutePayload(

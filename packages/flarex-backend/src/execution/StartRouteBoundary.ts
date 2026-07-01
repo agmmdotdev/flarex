@@ -14,16 +14,6 @@ import {
 
 export type ExecutionStartRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export async function readExecutionStartRequest(
-  request: Request,
-): Promise<ExecutionStartRequest> {
-  return await Effect.runPromise(
-    decodeExecutionStartRouteRequest(request).pipe(
-      Effect.catch(executionStartRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodeExecutionStartRouteRequest(
   request: Request,
 ): Effect.Effect<ExecutionStartRequest, ExecutionStartRouteError> {
@@ -46,20 +36,6 @@ export function decodePublicExecutionStartRoutePayload(
   deploymentId: string,
 ): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
   return decodePublicExecutionStartPayload(value, deploymentId);
-}
-
-export function parseExecutionStartRouteRequest(
-  value: unknown,
-): ExecutionStartRequest {
-  return Effect.runSync(parseExecutionStartRouteRequestEffect(value).pipe(
-    Effect.catch(executionStartRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseExecutionStartRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionStartRoutePayload(value);
 }
 
 export function decodeExecutionStartRoutePayload(

@@ -1,5 +1,67 @@
 # Package Boundaries
 
+## Internal Execution Route Boundary Effects
+
+Previous completed checkpoint: `5fc55a7` Type deployment HttpApi route
+boundary.
+
+What changed:
+
+- `execution/StartRouteBoundary.ts` no longer exports
+  `readExecutionStartRequest(...)`, `parseExecutionStartRouteRequest(...)`, or
+  `parseExecutionStartRouteRequestEffect(...)`.
+- `execution/SyscallRouteBoundary.ts` no longer exports
+  `readExecutionSyscallRequest(...)`,
+  `parseExecutionSyscallRouteRequest(...)`, or
+  `parseExecutionSyscallRouteRequestEffect(...)`.
+- `execution/FinishRouteBoundary.ts` no longer exports
+  `readExecutionFinishRequest(...)`, `parseExecutionFinishRouteRequest(...)`,
+  or `parseExecutionFinishRouteRequestEffect(...)`.
+- The internal execution route boundary now exposes Effect-returning request
+  decoders, payload decoders, and named route HTTP adapters.
+- Tests now exercise typed decoder success/failure channels directly and keep
+  HTTP mapping assertions at the named adapter edges.
+
+Boundary decision:
+
+Internal ExecutionDO request decoding belongs in the execution route-boundary
+modules as Effect-returning decoders. ExecutionDO remains the runtime owner for
+session routing, start/syscall/finish orchestration, and response envelopes.
+HTTP conversion for route decode failures remains at
+`executionStartRouteErrorToHttpErrorEffect(...)`,
+`executionSyscallRouteErrorToHttpErrorEffect(...)`, and
+`executionFinishRouteErrorToHttpErrorEffect(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's ExecutionDO adapter boundary around existing execution protocol
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare Durable Object execution session
+  route split. Flarex keeps that split explicit while keeping request/body
+  validation typed until the adapter edge.
+
+Known limitations:
+
+- No ExecutionDO session routing/runtime behavior, syscall handling, finish
+  semantics, public execution dispatch, PartitionDO SQL/OCC behavior,
+  executor-http route, deployment behavior, or `ValidatorJson` boundary
+  changed.
+- Lower-level execution payload parser compatibility wrappers remain for now.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionRequests.test.ts test/executionDO.test.ts test/executionRouteOperationError.test.ts test/executionSessionError.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment HttpApi Route Boundary Effects
 
 Previous completed checkpoint: `4ad8613` Type deployment validation surface.
