@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Invoke active deployment response decoder boundary.
-- Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
+- Previous completed checkpoint: Invoke transaction operation Effect boundary.
+- Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect body decoding, service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the invoke active deployment response decoder checkpoint:
+Next recommended checkpoint after the invoke transaction operation Effect boundary:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,37 @@ Next recommended checkpoint after the invoke active deployment response decoder 
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 266 slice:
+
+1. Add Effect-native transaction operation helpers to `SingleShardTransaction`
+   for begin, schema sync, document reads, indexed queries, staged writes,
+   patch/delete, and commit while preserving the existing promise methods as
+   compatibility adapters.
+2. Move `executeInvokeEffect(...)` ensure-schema, begin, commit, and
+   handler database transaction internals onto those typed transaction helpers,
+   keeping partition response and transaction invariant failures typed until
+   the invoke operation/adapter mapping edge.
+3. Keep handler-facing `readerFor(...)` and `writerFor(...)` promise-based for
+   backend author compatibility while widening the shared invoke transaction
+   runner to accept Effect-native transaction operations.
+4. Preserve synchronous handler throw capture in `invokeExecutionOperation(...)`
+   while allowing the same operation wrapper to run Effect-native transaction
+   operations.
+5. Teach ExecutionDO syscall transaction adapters to accept the widened invoke
+   transaction runner and move ExecutionDO start/finish transaction work to
+   Effect-native helpers, preserving typed partition response failures through
+   route operation adapter mapping.
+6. Add direct typed coverage for transaction invariant failures, invoke
+   commit/OCC partition failures, and handler staging failures before adapter
+   mapping, plus compatibility assertions for the preserved promise adapter
+   behavior.
+7. Name the reusable transaction Effect operations with
+   `Effect.fn("SingleShardTransaction.*")` so trace labels match the migration
+   quality bar.
+8. Leave public invoke request decoding, PartitionDO SQL/OCC logic,
+   deployment storage, executor-http, and
+   `ValidatorJson` semantics unchanged.
 
 Completed Goal 265 slice:
 

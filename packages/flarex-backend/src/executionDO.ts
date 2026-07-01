@@ -51,6 +51,7 @@ import {
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
   isInvokableKind,
+  type InvokeTransactionOperation,
   loadActiveFunctionMetadataEffect,
   patchDocumentEffect,
   queryDocumentsEffect,
@@ -60,7 +61,7 @@ import {
   validateInvokeArgumentsEffect,
   validateReturnEffect,
 } from "./invoke";
-import { SingleShardTransaction } from "./transaction";
+import { SingleShardTransaction, type TransactionOperationError } from "./transaction";
 import type {
   BackendFunctionKind,
   DeploymentFunctionMetadata,
@@ -146,7 +147,7 @@ export class ExecutionDO extends DurableObject<Env> {
         schema,
       );
 
-      yield* routeExecutionOperation("start", () => SingleShardTransaction.ensureSchema(
+      yield* routeExecutionOperation("start", () => SingleShardTransaction.ensureSchemaEffect(
         self.env,
         request.deploymentId,
         scope.partitionKey,
@@ -160,7 +161,7 @@ export class ExecutionDO extends DurableObject<Env> {
             },
           }
         : {};
-      const tx = yield* routeExecutionOperation("start", () => SingleShardTransaction.begin(
+      const tx = yield* routeExecutionOperation("start", () => SingleShardTransaction.beginEffect(
         self.env,
         request.deploymentId,
         scope.partitionKey,
@@ -187,8 +188,8 @@ export class ExecutionDO extends DurableObject<Env> {
     const self = this;
     return Effect.gen(function* () {
       const session = yield* self.requireSession("syscall");
-      const runSyscallTransaction = <A>(execute: () => Promise<A>) =>
-        routeExecutionOperation("syscall", execute);
+      const runSyscallTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
+        routeExecutionOperation("syscall", () => executionTransactionOperationResult(operation));
       if (request.op === "get") {
         return yield* getDocumentEffect(
           session.tx,
@@ -271,7 +272,7 @@ export class ExecutionDO extends DurableObject<Env> {
         }
 
         const commit = yield* routeExecutionOperation("finish", () =>
-          session.tx.commit({
+          session.tx.commitEffect({
             source: `invoke:${session.path}`,
             ...(session.idempotencyKey === undefined
               ? {}
@@ -379,12 +380,30 @@ function routeExecutionJsonResult<A extends Json | object>(
 
 function routeExecutionOperation<A>(
   operation: ExecutionRouteOperation,
-  execute: () => Promise<A>,
+  execute: () => Promise<A> | Effect.Effect<A, TransactionOperationError>,
 ): Effect.Effect<A, ExecutionRouteOperationError> {
-  return Effect.tryPromise({
+  return Effect.try({
     try: execute,
     catch: error => executionRouteOperationError(operation, error),
-  });
+  }).pipe(
+    Effect.flatMap(result => {
+      if (Effect.isEffect(result)) {
+        return result.pipe(
+          Effect.mapError(error => executionRouteOperationError(operation, error)),
+        );
+      }
+      return Effect.tryPromise({
+        try: () => result,
+        catch: error => executionRouteOperationError(operation, error),
+      });
+    }),
+  );
+}
+
+function executionTransactionOperationResult<A>(
+  operation: InvokeTransactionOperation<A>,
+): Promise<A> | Effect.Effect<A, TransactionOperationError> {
+  return Effect.isEffect(operation) ? operation : operation();
 }
 
 type ExecutionServiceError =

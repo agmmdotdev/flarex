@@ -1,5 +1,52 @@
 # Dynamic Worker Execution
 
+## Invoke Transaction Operation Effect Boundary
+
+Previous completed checkpoint: `eaf6596` Type invoke active deployment response.
+
+What changed:
+
+- `SingleShardTransaction` now exposes Effect-native helpers for begin,
+  schema sync, document reads, indexed queries, staged writes, patch/delete,
+  and commit.
+- `executeInvokeEffect(...)` now calls Effect transaction helpers for
+  ensure-schema, begin, handler database internals, and commit instead of
+  wrapping those operations through promise-only transaction methods.
+- Commit-stage partition failures, including OCC conflicts, and handler
+  transaction invariant failures remain typed until the invoke
+  operation/adaptor mapping edge.
+- ExecutionDO start, syscall, and finish adapters now use Effect-native
+  transaction operations and preserve partition response failures at their
+  adapter edge.
+- Reusable transaction Effect operations are named with
+  `Effect.fn("SingleShardTransaction.*")`.
+- Handler-facing `readerFor(...)` and `writerFor(...)` stay promise-based
+  compatibility APIs for backend function authors.
+
+Why it changed:
+
+Dynamic-worker invoke execution should not convert partition operation
+failures through promise compatibility before the invoke service boundary has a
+chance to classify them. This checkpoint moves the transaction service surface
+toward Effect while preserving the public handler API and existing PartitionDO
+SQL/OCC behavior.
+
+Known limitations:
+
+- Handler author APIs still return promises for compatibility, but their
+  transaction internals now run through the typed Effect transaction helpers.
+- Public invoke request decoding, ExecutionDO session routing, PartitionDO
+  SQL/OCC logic, deployment storage, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Invoke Active Deployment Response Decoder Boundary
 
 Previous completed checkpoint: `c1a75bd` Type deployment response decoders.

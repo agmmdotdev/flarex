@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Invoke Transaction Operation Effect Boundary
+
+Previous completed checkpoint: `eaf6596` Type invoke active deployment response.
+
+What changed:
+
+- Transaction begin/schema/read/query/write/commit operations now have
+  Effect-returning helpers with typed partition fetch, partition response, and
+  transaction invariant failures.
+- Promise methods on `SingleShardTransaction` remain compatibility adapters
+  over those helpers.
+- `executeInvokeEffect(...)` now uses Effect transaction helpers for
+  ensure-schema, begin, handler database internals, and commit so transaction
+  failures stay typed until the invoke adapter maps them.
+- ExecutionDO start, syscall, and finish transaction adapters use Effect-native
+  transaction operations and preserve typed partition response failures at the
+  route adapter edge.
+- Reusable transaction Effect operations are named with
+  `Effect.fn("SingleShardTransaction.*")` for traceable operation boundaries.
+
+Why it changed:
+
+The invoke runtime had an Effect service boundary, but its transaction calls
+still crossed a promise adapter before returning to the typed invoke error
+channel. Runtime validation needs partition response failures and local
+transaction invariants to stay explicit until one adapter mapping edge.
+
+Known limitations:
+
+- Handler-facing database APIs remain promise-compatible for backend function
+  authors, but their migrated internals now run Effect-native transaction
+  operations.
+- This checkpoint does not change public request body decoding, PartitionDO
+  SQL/OCC logic, deployment validation, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Invoke Active Deployment Response Decoder Boundary
 
 Previous completed checkpoint: `c1a75bd` Type deployment response decoders.

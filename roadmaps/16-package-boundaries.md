@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Invoke Transaction Operation Effect Boundary
+
+Previous completed checkpoint: `eaf6596` Type invoke active deployment response.
+
+What changed:
+
+- The transaction package now owns Effect-native operation helpers and keeps
+  its legacy promise methods as adapters.
+- Invoke owns the mapping from typed transaction operation failures into
+  `InvokeExecutionOperationError`, then the existing invoke adapter owns final
+  HTTP/partition request mapping.
+- Handler-facing database APIs remain a promise boundary for backend function
+  authors, while shared invoke/ExecutionDO validation helpers accept
+  Effect-native transaction operations internally.
+- ExecutionDO owns start/syscall/finish operation classification over
+  Effect-native transaction calls, rather than crossing transaction promise
+  compatibility wrappers before route error mapping.
+
+Boundary decision:
+
+`SingleShardTransaction` owns partition fetch/response decoding and local
+transaction invariants. Invoke owns execution operation classification
+(`ensure-schema`, `begin`, `handler`, `commit`). ExecutionDO owns syscall route
+operation classification. Worker and compatibility adapters own the final
+conversion to `HttpError` or `PartitionRequestError`.
+
+Known limitations:
+
+- This checkpoint does not migrate handler author APIs to Effect services.
+- Public invoke request decoding, ExecutionDO sessions, PartitionDO SQL/OCC
+  logic, deployment storage, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000
+node --max-old-space-size=4096 ../../node_modules/vitest/vitest.mjs run test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Invoke Active Deployment Response Decoder Boundary
 
 Previous completed checkpoint: `c1a75bd` Type deployment response decoders.

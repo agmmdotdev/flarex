@@ -1,6 +1,12 @@
 import { Data } from "effect";
 import { HttpError } from "../http";
-import { PartitionRequestError } from "../transaction";
+import {
+  PartitionFetchError,
+  PartitionRequestError,
+  PartitionResponseError,
+  TransactionInvariantError,
+  type TransactionOperationError,
+} from "../transaction";
 
 export type ExecutionRouteOperation =
   | "start"
@@ -20,6 +26,14 @@ export function executionRouteOperationError(
   operation: ExecutionRouteOperation,
   cause: unknown,
 ): ExecutionRouteOperationError {
+  if (isTransactionOperationError(cause)) {
+    return new ExecutionRouteOperationError({
+      operation,
+      status: cause instanceof PartitionResponseError ? cause.status : 500,
+      message: transactionOperationErrorMessage(cause),
+      cause,
+    });
+  }
   if (cause instanceof HttpError) {
     return new ExecutionRouteOperationError({
       operation,
@@ -48,5 +62,21 @@ export function executionRouteOperationErrorToAdapterError(
   if (error.cause instanceof PartitionRequestError) {
     return error.cause;
   }
+  if (error.cause instanceof PartitionResponseError) {
+    return new PartitionRequestError(error.cause.status, error.cause.body);
+  }
   return executionRouteOperationErrorToHttpError(error);
+}
+
+function isTransactionOperationError(cause: unknown): cause is TransactionOperationError {
+  return cause instanceof PartitionFetchError ||
+    cause instanceof PartitionResponseError ||
+    cause instanceof TransactionInvariantError;
+}
+
+function transactionOperationErrorMessage(error: TransactionOperationError): string {
+  if (error instanceof PartitionResponseError) {
+    return `Partition request failed with status ${error.status}.`;
+  }
+  return error.message;
 }

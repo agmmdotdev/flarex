@@ -12,7 +12,11 @@ import { encodeFlarexId, isFlarexIdForTable, parseFlarexId } from "./ids";
 import { deploymentObjectName } from "./routing";
 import {
   PartitionRequestError,
+  PartitionFetchError,
+  PartitionResponseError,
   SingleShardTransaction,
+  TransactionInvariantError,
+  type TransactionOperationError,
 } from "./transaction";
 import type {
   ActiveDeploymentStatus,
@@ -313,7 +317,7 @@ export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
     schema,
   );
   yield* invokeExecutionOperation("ensure-schema", () =>
-    SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema)
+    SingleShardTransaction.ensureSchemaEffect(env, deploymentId, scope.partitionKey, schema)
   );
   const createRootOptions = scope.kind === "partitionCreateRoot"
     ? {
@@ -324,7 +328,7 @@ export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
       }
     : {};
   const tx = yield* invokeExecutionOperation("begin", () =>
-    SingleShardTransaction.begin(env, deploymentId, scope.partitionKey, createRootOptions)
+    SingleShardTransaction.beginEffect(env, deploymentId, scope.partitionKey, createRootOptions)
   );
   const value = yield* invokeExecutionOperation("handler", () =>
     Promise.resolve(
@@ -339,7 +343,7 @@ export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
     return { value, readSet: tx.currentReadSet(), readTs: tx.beginTs };
   }
 
-  const commit = yield* invokeExecutionOperation("commit", () => commitMutation(tx, request));
+  const commit = yield* invokeExecutionOperation("commit", () => commitMutationEffect(tx, request));
   return {
     value,
     committedTs: commit.committedTs,
@@ -349,12 +353,24 @@ export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
 
 function invokeExecutionOperation<A>(
   operation: InvokeExecutionOperation,
-  execute: () => Promise<A>,
+  execute: () => Promise<A> | Effect.Effect<A, TransactionOperationError>,
 ): Effect.Effect<A, InvokeExecutionOperationError | InvokeValidationError> {
-  return Effect.tryPromise({
+  return Effect.try({
     try: execute,
     catch: cause => invokeExecutionOperationError(operation, cause),
-  });
+  }).pipe(
+    Effect.flatMap(operationResult => {
+      if (Effect.isEffect(operationResult)) {
+        return operationResult.pipe(
+          Effect.mapError(cause => invokeExecutionOperationError(operation, cause)),
+        );
+      }
+      return Effect.tryPromise({
+        try: () => operationResult,
+        catch: cause => invokeExecutionOperationError(operation, cause),
+      });
+    }),
+  );
 }
 
 function invokeExecutionOperationError(
@@ -363,6 +379,14 @@ function invokeExecutionOperationError(
 ): InvokeExecutionOperationError | InvokeValidationError {
   if (cause instanceof InvokeDatabaseOperationFailure) {
     return cause.error;
+  }
+  if (isTransactionOperationError(cause)) {
+    return new InvokeExecutionOperationError({
+      operation,
+      status: cause instanceof PartitionResponseError ? cause.status : 500,
+      message: transactionOperationErrorMessage(cause),
+      cause,
+    });
   }
   if (cause instanceof HttpError) {
     return new InvokeExecutionOperationError({
@@ -386,6 +410,19 @@ function invokeExecutionOperationError(
     message: cause instanceof Error ? cause.message : String(cause),
     cause,
   });
+}
+
+function isTransactionOperationError(cause: unknown): cause is TransactionOperationError {
+  return cause instanceof PartitionFetchError ||
+    cause instanceof PartitionResponseError ||
+    cause instanceof TransactionInvariantError;
+}
+
+function transactionOperationErrorMessage(error: TransactionOperationError): string {
+  if (error instanceof PartitionResponseError) {
+    return `Partition request failed with status ${error.status}.`;
+  }
+  return error.message;
 }
 
 class InvokeDatabaseOperationFailure extends Error {
@@ -433,6 +470,9 @@ export function invokeExecutionOperationErrorToAdapterError(
 ): HttpError | PartitionRequestError {
   if (error.cause instanceof PartitionRequestError) {
     return error.cause;
+  }
+  if (error.cause instanceof PartitionResponseError) {
+    return new PartitionRequestError(error.cause.status, error.cause.body);
   }
   return new HttpError(error.status, error.message);
 }
@@ -753,21 +793,37 @@ export function invokeErrorResponse(error: unknown): Response {
 }
 
 export function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseReader {
-  const runTransaction = <A>(execute: () => Promise<A>) =>
-    invokeExecutionOperation("handler", execute);
+  const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
+    invokeExecutionOperation("handler", () => invokeTransactionOperationResult(operation));
   return {
     get: id => invokeDatabaseOperation(getDocumentEffect(tx, schema, id, runTransaction)),
     query: table => backendQuery(tx, schema, table),
     queryIndex: async options => {
-      const documents = await tx.queryIndex(options);
+      const documents = await invokeDatabaseOperation(runTransaction(tx.queryIndexEffect(options)));
       return documents.map(document => documentValue(document.id, document.value));
     },
   };
 }
 
-type InvokeTransactionRunner<E> = <A>(
-  execute: () => Promise<A>,
+export type InvokeTransactionOperation<A> =
+  | (() => Promise<A>)
+  | Effect.Effect<A, TransactionOperationError>;
+
+export type InvokeTransactionRunner<E> = <A>(
+  operation: InvokeTransactionOperation<A>,
 ) => Effect.Effect<A, E>;
+
+export function invokeTransactionOperationToPromise<A>(
+  operation: InvokeTransactionOperation<A>,
+): Promise<A> {
+  return Effect.isEffect(operation) ? Effect.runPromise(operation) : operation();
+}
+
+function invokeTransactionOperationResult<A>(
+  operation: InvokeTransactionOperation<A>,
+): Promise<A> | Effect.Effect<A, TransactionOperationError> {
+  return Effect.isEffect(operation) ? operation : operation();
+}
 
 type ExecutionQueryRequest = Extract<ExecutionSyscallRequest, { op: "query" }>["request"];
 
@@ -781,7 +837,7 @@ export const getDocumentEffect = Effect.fn("Invoke.getDocument")(function* <E>(
   InvokeDocumentIdParseError | InvokeDocumentTableNotFoundError | InvokeDocumentPlacementError | E
 > {
   const metadata = yield* tableFromDocumentIdEffect(id, schema);
-  const document = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  const document = yield* runTransaction(tx.getEffect(metadata.tableId, id));
   if (document !== null) {
     yield* validateDocumentPlacementEffect(metadata, document.value, tx.partitionKey);
   }
@@ -802,8 +858,8 @@ function backendQuery(
     queryLimit?: number,
     queryCursor?: string,
   ): Promise<{ page: Json[]; isDone: boolean; continueCursor: string }> => {
-    const runTransaction = <A>(operation: () => Promise<A>) =>
-      invokeExecutionOperation("handler", operation);
+    const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
+      invokeExecutionOperation("handler", () => invokeTransactionOperationResult(operation));
     const resolvedLimit = queryLimit ?? limit;
     const resolvedCursor = queryCursor ?? cursor;
     return invokeDatabaseOperation(queryDocumentsEffect(
@@ -855,14 +911,14 @@ export const queryDocumentsEffect = Effect.fn("Invoke.queryDocuments")(function*
   const expressions = request.range?.expressions ?? [];
   yield* validateQueryPlacementEffect(table, expressions, tx.partitionKey);
   const bounds = yield* queryIndexBoundsEffect(request.table, index, metadata, expressions);
-  const result = yield* runTransaction(() =>
-    tx.queryIndexPage({
+  const result = yield* runTransaction(
+    tx.queryIndexPageEffect({
       indexId: metadata.indexId,
       ...bounds,
       ...(request.limit === undefined ? {} : { limit: request.limit }),
       ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
       ...(request.order === undefined ? {} : { order: request.order }),
-    })
+    }),
   );
   const page: Json[] = [];
   for (const document of result.documents) {
@@ -1037,8 +1093,8 @@ export const validateQueryPlacementEffect = Effect.fn(
 });
 
 export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {
-  const runTransaction = <A>(execute: () => Promise<A>) =>
-    invokeExecutionOperation("handler", execute);
+  const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
+    invokeExecutionOperation("handler", () => invokeTransactionOperationResult(operation));
   return {
     ...readerFor(tx, schema),
     insert: (table, value, id) =>
@@ -1073,7 +1129,7 @@ export const insertDocumentEffect = Effect.fn("Invoke.insertDocument")(function*
   if (id !== undefined) {
     yield* validateDocumentIdTableEffect(id, metadata.tableId);
   }
-  return yield* runTransaction(async () => tx.insert(metadata.tableId, value, id));
+  return yield* runTransaction(tx.insertEffect(metadata.tableId, value, id));
 });
 
 export const replaceDocumentEffect = Effect.fn("Invoke.replaceDocument")(function* <E>(
@@ -1093,7 +1149,7 @@ export const replaceDocumentEffect = Effect.fn("Invoke.replaceDocument")(functio
   const metadata = yield* tableFromDocumentIdEffect(id, schema);
   yield* validateDocumentEffect(metadata, value, schema);
   yield* validateDocumentPlacementEffect(metadata, value, tx.partitionKey);
-  yield* runTransaction(async () => tx.replace(metadata.tableId, id, value));
+  yield* runTransaction(tx.replaceEffect(metadata.tableId, id, value));
 });
 
 export const patchDocumentEffect = Effect.fn("Invoke.patchDocument")(function* <E>(
@@ -1112,14 +1168,14 @@ export const patchDocumentEffect = Effect.fn("Invoke.patchDocument")(function* <
   | E
 > {
   const metadata = yield* tableFromDocumentIdEffect(id, schema);
-  const current = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  const current = yield* runTransaction(tx.getEffect(metadata.tableId, id));
   if (current === null) {
     return yield* Effect.fail(new InvokeDocumentNotFoundError({ id }));
   }
   const next = { ...(current.value as Record<string, Json>), ...value };
   yield* validateDocumentEffect(metadata, next, schema);
   yield* validateDocumentPlacementEffect(metadata, next, tx.partitionKey);
-  yield* runTransaction(() => tx.patch(metadata.tableId, id, value));
+  yield* runTransaction(tx.patchEffect(metadata.tableId, id, value));
 });
 
 export const deleteDocumentEffect = Effect.fn("Invoke.deleteDocument")(function* <E>(
@@ -1132,18 +1188,18 @@ export const deleteDocumentEffect = Effect.fn("Invoke.deleteDocument")(function*
   InvokeDocumentIdParseError | InvokeDocumentTableNotFoundError | InvokeDocumentPlacementError | E
 > {
   const metadata = yield* tableFromDocumentIdEffect(id, schema);
-  const current = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  const current = yield* runTransaction(tx.getEffect(metadata.tableId, id));
   if (current !== null) {
     yield* validateDocumentPlacementEffect(metadata, current.value, tx.partitionKey);
   }
-  yield* runTransaction(async () => tx.delete(metadata.tableId, id));
+  yield* runTransaction(tx.deleteEffect(metadata.tableId, id));
 });
 
-function commitMutation(
+function commitMutationEffect(
   tx: SingleShardTransaction,
   request: InvokeRequest,
-): Promise<CommitResponse> {
-  return tx.commit({
+): Effect.Effect<CommitResponse, TransactionOperationError> {
+  return tx.commitEffect({
     source: `invoke:${request.path}`,
     ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
   });

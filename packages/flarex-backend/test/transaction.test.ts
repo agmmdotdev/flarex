@@ -36,6 +36,28 @@ describe("SingleShardTransaction", () => {
     });
   });
 
+  it("exposes transaction operations as typed Effect helpers before Promise adapter mapping", async () => {
+    const tx = await Effect.runPromise(SingleShardTransaction.beginEffect(
+      env,
+      "tx-effect-operation-deployment",
+      "user:u1",
+      {
+        createRoot: {
+          rootTableId: 1,
+          preallocatedRootId: "1:root",
+        },
+      },
+    ));
+
+    const failure = await Effect.runPromise(Effect.flip(tx.commitEffect({ source: "missing-root" })));
+    expect(failure).toMatchObject({
+      _tag: "TransactionInvariantError",
+      message: "Create-root transaction must insert root document 1:root before commit.",
+    });
+    await expect(tx.commit({ source: "missing-root" }))
+      .rejects.toThrow("Create-root transaction must insert root document 1:root before commit.");
+  });
+
   it("rejects malformed partition schema-cache JSON at the route boundary", async () => {
     const partition = env.PARTITIONS.getByName(
       partitionObjectName("schema-cache-boundary-deployment", "user:ada"),

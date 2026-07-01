@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "../src/http";
-import { PartitionRequestError } from "../src/transaction";
+import { PartitionRequestError, PartitionResponseError } from "../src/transaction";
 import {
   ExecutionRouteOperationError,
   executionRouteOperationError,
@@ -65,5 +65,30 @@ describe("execution route operation errors", () => {
       cause,
     });
     expect(executionRouteOperationErrorToAdapterError(failure)).toBe(cause);
+  });
+
+  it("preserves typed partition response failures for the invoke adapter", () => {
+    const cause = new PartitionResponseError({
+      status: 409,
+      body: {
+        code: "OCC_CONFLICT",
+        error: "Read set changed.",
+      },
+    });
+    const failure = executionRouteOperationError("finish", cause);
+
+    expect(failure).toMatchObject({
+      operation: "finish",
+      status: 409,
+      message: "Partition request failed with status 409.",
+      cause,
+    });
+    expect(executionRouteOperationErrorToAdapterError(failure)).toMatchObject({
+      status: 409,
+      body: {
+        code: "OCC_CONFLICT",
+        error: "Read set changed.",
+      },
+    });
   });
 });

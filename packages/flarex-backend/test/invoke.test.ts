@@ -23,6 +23,7 @@ import {
   findQueryIndexEffect,
   invokeActiveDeploymentLoadErrorToHttpError,
   invokeRuntimeErrorToHttpError,
+  invokeTransactionOperationToPromise,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
   loadActiveDeploymentEffect,
@@ -48,6 +49,7 @@ import {
   validateReturnEffect,
   validateUniqueQueryResultEffect,
   type BackendFunctionRegistry,
+  type InvokeTransactionOperation,
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
 import { SingleShardTransaction } from "../src/transaction";
@@ -362,6 +364,145 @@ describe("executeInvoke", () => {
     });
   });
 
+  it("keeps commit partition failures typed until invoke adapter mapping", async () => {
+    const deploymentId = "typed-execute-commit-conflict-deployment";
+    await putSchema(deploymentId, usersPartitionSchema());
+    await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", usersPartitionSchema());
+    const seed = await SingleShardTransaction.begin(env, deploymentId, "u1");
+    seed.insert(2, { name: "Ada" }, "2:user");
+    await seed.commit({ source: "seed" });
+
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        deploymentId,
+        {
+          path: "users:conflict",
+          kind: "mutation",
+          partitionKey: "u1",
+          args: { userId: "u1", id: "2:user" },
+        },
+        {
+          "users:conflict": {
+            kind: "mutation",
+            partition: userPartition(),
+            handler: async (ctx, args) => {
+              if (typeof args !== "object" || args === null || Array.isArray(args)) {
+                throw new Error("Expected object args.");
+              }
+              const id = args.id;
+              if (typeof id !== "string") {
+                throw new Error("Expected string id.");
+              }
+              await ctx.db.get(id);
+              const concurrent = await SingleShardTransaction.begin(env, deploymentId, "u1");
+              concurrent.replace(2, id, { name: "Grace" });
+              await concurrent.commit({ source: "concurrent" });
+              await ctx.db.replace(id, { name: "Ada stale" });
+              return null;
+            },
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeExecutionOperationError);
+    if (!(failure instanceof InvokeExecutionOperationError)) {
+      throw new Error("Expected InvokeExecutionOperationError.");
+    }
+    expect(failure).toMatchObject({
+      operation: "commit",
+      status: 409,
+      cause: {
+        _tag: "PartitionResponseError",
+        status: 409,
+        body: {
+          code: "OCC_CONFLICT",
+        },
+      },
+    });
+    await expect(executeInvoke(
+      env,
+      deploymentId,
+      {
+        path: "users:conflict",
+        kind: "mutation",
+        partitionKey: "u1",
+        args: { userId: "u1", id: "2:user" },
+      },
+      {
+        "users:conflict": {
+          kind: "mutation",
+          partition: userPartition(),
+          handler: async (ctx, args) => {
+            if (typeof args !== "object" || args === null || Array.isArray(args)) {
+              throw new Error("Expected object args.");
+            }
+            const id = args.id;
+            if (typeof id !== "string") {
+              throw new Error("Expected string id.");
+            }
+            await ctx.db.get(id);
+            const concurrent = await SingleShardTransaction.begin(env, deploymentId, "u1");
+            concurrent.replace(2, id, { name: "Marie" });
+            await concurrent.commit({ source: "concurrent-adapter" });
+            await ctx.db.replace(id, { name: "Ada stale adapter" });
+            return null;
+          },
+        },
+      },
+    )).rejects.toMatchObject({
+      status: 409,
+      body: {
+        code: "OCC_CONFLICT",
+      },
+    });
+  });
+
+  it("keeps handler transaction staging failures typed until invoke adapter mapping", async () => {
+    const deploymentId = "typed-execute-handler-staging-failure-deployment";
+    await putSchema(deploymentId, usersPartitionSchema());
+
+    const functions: BackendFunctionRegistry = {
+      "users:duplicateStage": {
+        kind: "mutation",
+        partition: userPartition(),
+        handler: async ctx => {
+          await ctx.db.insert("users", { name: "Ada" }, "2:duplicate");
+          await ctx.db.insert("users", { name: "Grace" }, "2:duplicate");
+          return null;
+        },
+      },
+    };
+    const request = {
+      path: "users:duplicateStage",
+      kind: "mutation" as const,
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    };
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(env, deploymentId, request, functions),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeExecutionOperationError);
+    if (!(failure instanceof InvokeExecutionOperationError)) {
+      throw new Error("Expected InvokeExecutionOperationError.");
+    }
+    expect(failure).toMatchObject({
+      operation: "handler",
+      status: 500,
+      cause: {
+        _tag: "TransactionInvariantError",
+        message: "Document 2:duplicate already has a staged write.",
+      },
+    });
+    await expect(executeInvoke(env, deploymentId, request, functions))
+      .rejects.toMatchObject({
+        status: 500,
+        message: "Document 2:duplicate already has a staged write.",
+      });
+  });
+
   it("keeps executeInvoke handler document validation typed before adapter mapping", async () => {
     await putSchema("typed-execute-handler-document-validation-deployment", {
       version: 1,
@@ -564,9 +705,9 @@ describe("executeInvoke", () => {
     };
     await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
     const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
-    const runTransaction = <A>(execute: () => Promise<A>) =>
+    const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
       Effect.tryPromise({
-        try: execute,
+        try: () => invokeTransactionOperationToPromise(operation),
         catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
       });
 
@@ -815,9 +956,9 @@ describe("executeInvoke", () => {
     } satisfies DeploymentSchema;
     await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
     const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
-    const runTransaction = <A>(execute: () => Promise<A>) =>
+    const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
       Effect.tryPromise({
-        try: execute,
+        try: () => invokeTransactionOperationToPromise(operation),
         catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
       });
 
