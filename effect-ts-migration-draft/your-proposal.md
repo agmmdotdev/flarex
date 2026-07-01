@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Generated DeploymentApi endpoint handler extraction.
+- Previous completed checkpoint: Generated DeploymentApi response validation effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,34 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the generated DeploymentApi endpoint handler extraction:
+Next recommended checkpoint after the generated DeploymentApi response validation effects:
 
 1. Prefer a deeper generated-handler or DeploymentService batch next:
-   continue moving handler response validation and failure mapping toward
-   named endpoint/domain helpers, or move another shared service path to typed
-   service/domain errors with a single adapter response edge.
+   continue moving failure mapping toward named domain helpers, or move another
+   shared service path to typed service/domain errors with a single adapter
+   response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 281 slice:
+
+1. Extract generated DeploymentApi response protocol validation into named
+   `Effect.fn(...)` helpers:
+   `decodeActiveDeploymentStatusForHttpApi`,
+   `decodePushStatusForHttpApi`, and
+   `decodeFinishPushResponseForHttpApi`.
+2. Route generated endpoint helpers through those named response validators
+   instead of private anonymous response-parser lambdas.
+3. Add direct response-validator coverage for active deployment, push status,
+   finish response, and malformed generated push-status responses mapping to
+   the declared storage error response.
+4. Leave `DeploymentDO.fetch()`, `HttpApiBuilder.group(...)` route wiring,
+   DeploymentService/store behavior, public Worker routing, PartitionDO
+   SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 280 slice:
 

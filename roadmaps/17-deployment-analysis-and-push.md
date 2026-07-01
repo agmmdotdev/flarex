@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Generated DeploymentApi Response Validation Effects
+
+Previous completed checkpoint: `a053f26` Extract generated deployment endpoint
+effects.
+
+What changed:
+
+- Generated DeploymentApi response validation for active deployment, push
+  status, and finish-push responses now runs through named `Effect.fn(...)`
+  helpers.
+- Start-analyzed, abandon, push-read, active-read, and finish handlers call the
+  named response validators after service/domain work succeeds.
+- Direct tests cover valid response decoding and malformed generated
+  push-status responses mapping to storage errors.
+
+Why it changed:
+
+The deployment push lifecycle depends on generated protocol response validation
+before responses leave the internal DeploymentDO HttpApi boundary. Naming that
+validation path makes the adapter responsibility explicit and prepares the
+next finish/abandon service batches to focus on domain behavior.
+
+Known limitations:
+
+- This checkpoint does not change analyzer behavior, push state transitions,
+  `DeploymentDO.fetch()`, generated route wiring, DeploymentService/store
+  internals, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Endpoint Handler Extraction
 
 Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to

@@ -29,6 +29,9 @@ import {
   deploymentReadFailureToResponse,
   deploymentStartFailureToResponse,
   DeploymentApiHandlers,
+  decodeActiveDeploymentStatusForHttpApi,
+  decodeFinishPushResponseForHttpApi,
+  decodePushStatusForHttpApi,
   deploymentAbandonPushHandler,
   deploymentFinishPushHandler,
   deploymentGetActiveDeploymentHandler,
@@ -432,6 +435,42 @@ describe("DeploymentApiHandlers", () => {
     expect(missingPush).toBeInstanceOf(DeploymentNotFoundErrorResponse);
     expect(parseDeploymentErrorResponse(missingPush)).toEqual({
       error: "Unknown push: push-missing-direct",
+    });
+  });
+
+  it("validates generated-handler responses through named protocol effects", async () => {
+    await expect(Effect.runPromise(decodeActiveDeploymentStatusForHttpApi(
+      activeDeploymentStatus(),
+    ))).resolves.toMatchObject({
+      activePushId: "active-push",
+      schemaVersion: 0,
+    });
+
+    await expect(Effect.runPromise(decodePushStatusForHttpApi(
+      pushStatus("push-response-direct"),
+    ))).resolves.toMatchObject({
+      pushId: "push-response-direct",
+      state: "analyzed",
+    });
+
+    await expect(Effect.runPromise(decodeFinishPushResponseForHttpApi({
+      result: "activated",
+      push: pushStatus("push-finish-response-direct", "activated"),
+    }))).resolves.toMatchObject({
+      result: "activated",
+      push: {
+        pushId: "push-finish-response-direct",
+        state: "activated",
+      },
+    });
+
+    const failure = await Effect.runPromise(Effect.flip(decodePushStatusForHttpApi({
+      ...pushStatus("push-response-invalid"),
+      state: "missing-state",
+    })));
+    expect(failure).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(failure)).toEqual({
+      error: "Deployment push response did not match the deployment protocol.",
     });
   });
 

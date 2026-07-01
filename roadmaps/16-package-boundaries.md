@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Generated DeploymentApi Response Validation Effects
+
+Previous completed checkpoint: `a053f26` Extract generated deployment endpoint
+effects.
+
+What changed:
+
+- `DeploymentApiHandlers` now exposes named response validation effects for
+  active deployment status, push status, and finish-push responses.
+- Endpoint helpers remain the boundary between generated routes and deployment
+  service/domain logic, but response protocol validation is now a separate
+  named adapter helper instead of anonymous local lambdas.
+- Tests cover the direct response-validator failure channel.
+
+Boundary decision:
+
+Generated response validation belongs to the HttpApi adapter layer, not the
+deployment service/store domain. Naming the validators makes that adapter
+boundary explicit while keeping service methods typed in domain terms.
+
+Known limitations:
+
+- No Durable Object routing, generated route registration, DeploymentService,
+  store, package metadata, public Worker routing, or SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Endpoint Handler Extraction
 
 Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to

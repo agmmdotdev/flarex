@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Generated DeploymentApi Response Validation Effects
+
+Previous completed checkpoint: `a053f26` Extract generated deployment endpoint
+effects.
+
+What changed:
+
+- Generated DeploymentApi response validation now runs through named
+  `Effect.fn(...)` helpers for active deployment status, push status, and
+  finish-push responses.
+- Endpoint helpers use those named validators after their service calls and
+  typed failure mapping.
+- Direct tests now cover successful response validation and malformed generated
+  push-status responses mapping to the declared storage error response.
+
+Why it changed:
+
+Generated handler response validation is part of the schema-first runtime
+boundary. Naming those response validators keeps protocol validation explicit
+and gives the next service/domain migration slices stable adapter helpers to
+reuse.
+
+Known limitations:
+
+- This checkpoint does not change `DeploymentDO.fetch()`, route wiring,
+  generated web-handler construction, DeploymentService/store internals,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Endpoint Handler Extraction
 
 Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to

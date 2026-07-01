@@ -90,14 +90,14 @@ export const deploymentGetActiveDeploymentHandler = Effect.fn(
   "DeploymentApiHandlers.getActiveDeployment",
 )(function* (deployment: DeploymentServiceApi) {
   return yield* mapDeploymentReadFailure(deployment.getActiveDeployment()).pipe(
-    Effect.flatMap(parseActiveDeploymentStatusForHttpApi),
+    Effect.flatMap(decodeActiveDeploymentStatusForHttpApi),
   );
 });
 
 export const deploymentGetPushHandler = Effect.fn("DeploymentApiHandlers.getPush")(
   function* (deployment: DeploymentServiceApi, pushId: string) {
     return yield* mapDeploymentReadFailure(deployment.getPush(pushId)).pipe(
-      Effect.flatMap(parsePushStatusForHttpApi),
+      Effect.flatMap(decodePushStatusForHttpApi),
     );
   },
 );
@@ -111,14 +111,14 @@ export const deploymentStartAnalyzedPushHandler = Effect.fn(
   return yield* decodeStartAnalyzedPushHandlerInput(payload).pipe(
     Effect.flatMap(input => deployment.startAnalyzedPush(input)),
     mapDeploymentStartFailure,
-    Effect.flatMap(parsePushStatusForHttpApi),
+    Effect.flatMap(decodePushStatusForHttpApi),
   );
 });
 
 export const deploymentFinishPushHandler = Effect.fn("DeploymentApiHandlers.finishPush")(
   function* (deployment: DeploymentServiceApi, pushId: string) {
     return yield* mapDeploymentFinishFailure(deployment.finishPush(pushId)).pipe(
-      Effect.flatMap(parseFinishPushResponseForHttpApi),
+      Effect.flatMap(decodeFinishPushResponseForHttpApi),
     );
   },
 );
@@ -130,7 +130,7 @@ export const deploymentAbandonPushHandler = Effect.fn("DeploymentApiHandlers.aba
     payload: AbandonPushRequest,
   ) {
     return yield* mapDeploymentAbandonFailure(deployment.abandonPush(pushId, payload)).pipe(
-      Effect.flatMap(parsePushStatusForHttpApi),
+      Effect.flatMap(decodePushStatusForHttpApi),
     );
   },
 );
@@ -377,11 +377,20 @@ export function startAnalyzedPushHandlerInputFromPayload(
   return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
 }
 
-const parsePushStatusForHttpApi = (value: unknown) =>
-  mapDeploymentProtocolResponseFailure(decodePushStatusEffect(value));
+export const decodePushStatusForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.decodePushStatusForHttpApi",
+)(function* (value: unknown) {
+  return yield* mapDeploymentProtocolResponseFailure(decodePushStatusEffect(value));
+});
 
-const parseActiveDeploymentStatusForHttpApi = (value: unknown) =>
-  mapDeploymentProtocolResponseFailure(decodeActiveDeploymentStatusEffect(value));
+export const decodeActiveDeploymentStatusForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.decodeActiveDeploymentStatusForHttpApi",
+)(function* (value: unknown) {
+  return yield* mapDeploymentProtocolResponseFailure(decodeActiveDeploymentStatusEffect(value));
+});
 
-const parseFinishPushResponseForHttpApi = (value: unknown) =>
-  mapDeploymentProtocolResponseFailure(decodeFinishPushResponseEffect(value));
+export const decodeFinishPushResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.decodeFinishPushResponseForHttpApi",
+)(function* (value: unknown) {
+  return yield* mapDeploymentProtocolResponseFailure(decodeFinishPushResponseEffect(value));
+});
