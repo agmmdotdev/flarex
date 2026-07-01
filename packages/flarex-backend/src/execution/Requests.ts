@@ -1,5 +1,8 @@
 import { Effect } from "effect";
 import {
+  decodeExecutionFinishRequestEffect,
+  decodeExecutionStartRequestEffect,
+  decodeExecutionSyscallRequestEffect,
   ExecutionProtocolValidationError,
   parseExecutionFinishRequest,
   parseExecutionStartRequest,
@@ -22,8 +25,8 @@ export const decodeExecutionStartPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  return yield* protocolParserResultToEffect(() =>
-    backendExecutionStartRequest(parseExecutionStartRequest(value))
+  return yield* decodeExecutionStartRequestEffect(value).pipe(
+    Effect.map(backendExecutionStartRequest),
   );
 });
 
@@ -42,8 +45,8 @@ export const decodeExecutionSyscallPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
-  return yield* protocolParserResultToEffect(() =>
-    backendExecutionSyscallRequest(parseExecutionSyscallRequest(value))
+  return yield* decodeExecutionSyscallRequestEffect(value).pipe(
+    Effect.map(backendExecutionSyscallRequest),
   );
 });
 
@@ -52,8 +55,8 @@ export const decodeExecutionFinishPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionFinishRequest, ExecutionProtocolValidationError> {
-  return yield* protocolParserResultToEffect(() =>
-    backendExecutionFinishRequest(parseExecutionFinishRequest(value))
+  return yield* decodeExecutionFinishRequestEffect(value).pipe(
+    Effect.map(backendExecutionFinishRequest),
   );
 });
 
@@ -95,21 +98,6 @@ export function parsePublicExecutionActionPayload(
   if (action === "syscall") return parseExecutionSyscallPayload(value);
   if (action === "finish") return parseExecutionFinishPayload(value);
   return value;
-}
-
-function protocolParserResultToEffect<T>(
-  parse: () => T,
-): Effect.Effect<T, ExecutionProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parse());
-    } catch (error) {
-      if (error instanceof ExecutionProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
 }
 
 function backendExecutionStartRequest(

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { isJson, JsonValue, type Json } from "./json";
 
 export class ExecutionProtocolValidationError extends Schema.TaggedErrorClass<ExecutionProtocolValidationError>()(
@@ -147,133 +147,170 @@ export const ExecutionFinishRequestSchema = Schema.Struct({
   value: JsonValue,
 });
 
-const decodeExecutionStartRequest = Schema.decodeUnknownSync(
+const decodeUnknownExecutionStartRequest = Schema.decodeUnknownEffect(
   ExecutionStartRequestSchema,
 );
 
-const decodeExecutionSyscallRequest = Schema.decodeUnknownSync(
+const decodeUnknownExecutionSyscallRequest = Schema.decodeUnknownEffect(
   ExecutionSyscallRequestSchema,
 );
 
-const decodeExecutionFinishRequest = Schema.decodeUnknownSync(
+const decodeUnknownExecutionFinishRequest = Schema.decodeUnknownEffect(
   ExecutionFinishRequestSchema,
 );
 
+export const decodeExecutionStartRequestEffect = Effect.fn(
+  "ExecutionProtocol.decodeStartRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ExecutionStartRequest, ExecutionProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* executionProtocolValidationFailure(
+      "ExecutionStartRequest",
+      "Execution start request must be an object.",
+      value,
+    );
+  }
+  const body = yield* decodeUnknownExecutionStartRequest(value).pipe(
+    Effect.mapError(cause =>
+      new ExecutionProtocolValidationError({
+        schema: "ExecutionStartRequest",
+        message:
+          "Execution start request must include string deploymentId, string path, JSON args, and optional string partitionKey, projectId, idempotencyKey, and query or mutation kind.",
+        cause,
+      })
+    ),
+  );
+  return {
+    deploymentId: body.deploymentId,
+    path: body.path,
+    args: body.args,
+    ...(body.partitionKey === undefined
+      ? {}
+      : { partitionKey: body.partitionKey }),
+    ...(body.projectId === undefined ? {} : { projectId: body.projectId }),
+    ...(body.kind === undefined ? {} : { kind: body.kind }),
+    ...(body.idempotencyKey === undefined
+      ? {}
+      : { idempotencyKey: body.idempotencyKey }),
+  };
+});
+
+export const decodeExecutionSyscallRequestEffect = Effect.fn(
+  "ExecutionProtocol.decodeSyscallRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* executionProtocolValidationFailure(
+      "ExecutionSyscallRequest",
+      "Execution syscall request must be an object.",
+      value,
+    );
+  }
+  const body = yield* decodeUnknownExecutionSyscallRequest(value).pipe(
+    Effect.mapError(cause =>
+      new ExecutionProtocolValidationError({
+        schema: "ExecutionSyscallRequest",
+        message:
+          "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
+        cause,
+      })
+    ),
+  );
+  switch (body.op) {
+    case "get":
+    case "replace":
+    case "delete":
+      return body;
+    case "query":
+      return {
+        op: "query",
+        request: {
+          table: body.request.table,
+          ...(body.request.index === undefined
+            ? {}
+            : { index: body.request.index }),
+          ...(body.request.range === undefined
+            ? {}
+            : { range: body.request.range }),
+          ...(body.request.limit === undefined
+            ? {}
+            : { limit: body.request.limit }),
+          ...(body.request.cursor === undefined
+            ? {}
+            : { cursor: body.request.cursor }),
+          ...(body.request.order === undefined
+            ? {}
+            : { order: body.request.order }),
+        },
+      };
+    case "insert":
+      return {
+        op: "insert",
+        table: body.table,
+        value: body.value,
+        ...(body.id === undefined ? {} : { id: body.id }),
+      };
+    case "patch":
+      return {
+        op: "patch",
+        id: body.id,
+        value: body.value,
+      };
+  }
+});
+
+export const decodeExecutionFinishRequestEffect = Effect.fn(
+  "ExecutionProtocol.decodeFinishRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ExecutionFinishRequest, ExecutionProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* executionProtocolValidationFailure(
+      "ExecutionFinishRequest",
+      "Execution finish request must be an object.",
+      value,
+    );
+  }
+  const body = yield* decodeUnknownExecutionFinishRequest(value).pipe(
+    Effect.mapError(cause =>
+      new ExecutionProtocolValidationError({
+        schema: "ExecutionFinishRequest",
+        message: "Execution finish request must include JSON value.",
+        cause,
+      })
+    ),
+  );
+  return {
+    value: body.value,
+  };
+});
+
 export function parseExecutionStartRequest(value: unknown): ExecutionStartRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionStartRequest",
-      message: "Execution start request must be an object.",
-      cause: value,
-    });
-  }
-  try {
-    const body = decodeExecutionStartRequest(value);
-    return {
-      deploymentId: body.deploymentId,
-      path: body.path,
-      args: body.args,
-      ...(body.partitionKey === undefined
-        ? {}
-        : { partitionKey: body.partitionKey }),
-      ...(body.projectId === undefined ? {} : { projectId: body.projectId }),
-      ...(body.kind === undefined ? {} : { kind: body.kind }),
-      ...(body.idempotencyKey === undefined
-        ? {}
-        : { idempotencyKey: body.idempotencyKey }),
-    };
-  } catch (cause) {
-    if (cause instanceof ExecutionProtocolValidationError) throw cause;
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionStartRequest",
-      message:
-        "Execution start request must include string deploymentId, string path, JSON args, and optional string partitionKey, projectId, idempotencyKey, and query or mutation kind.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeExecutionStartRequestEffect(value));
 }
 
 export function parseExecutionSyscallRequest(value: unknown): ExecutionSyscallRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionSyscallRequest",
-      message: "Execution syscall request must be an object.",
-      cause: value,
-    });
-  }
-  try {
-    const body = decodeExecutionSyscallRequest(value);
-    switch (body.op) {
-      case "get":
-      case "replace":
-      case "delete":
-        return body;
-      case "query":
-        return {
-          op: "query",
-          request: {
-            table: body.request.table,
-            ...(body.request.index === undefined
-              ? {}
-              : { index: body.request.index }),
-            ...(body.request.range === undefined
-              ? {}
-              : { range: body.request.range }),
-            ...(body.request.limit === undefined
-              ? {}
-              : { limit: body.request.limit }),
-            ...(body.request.cursor === undefined
-              ? {}
-              : { cursor: body.request.cursor }),
-            ...(body.request.order === undefined
-              ? {}
-              : { order: body.request.order }),
-          },
-        };
-      case "insert":
-        return {
-          op: "insert",
-          table: body.table,
-          value: body.value,
-          ...(body.id === undefined ? {} : { id: body.id }),
-        };
-      case "patch":
-        return {
-          op: "patch",
-          id: body.id,
-          value: body.value,
-        };
-    }
-  } catch (cause) {
-    if (cause instanceof ExecutionProtocolValidationError) throw cause;
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionSyscallRequest",
-      message:
-        "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeExecutionSyscallRequestEffect(value));
 }
 
 export function parseExecutionFinishRequest(value: unknown): ExecutionFinishRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionFinishRequest",
-      message: "Execution finish request must be an object.",
-      cause: value,
-    });
-  }
-  try {
-    const body = decodeExecutionFinishRequest(value);
-    return {
-      value: body.value,
-    };
-  } catch (cause) {
-    if (cause instanceof ExecutionProtocolValidationError) throw cause;
-    throw new ExecutionProtocolValidationError({
-      schema: "ExecutionFinishRequest",
-      message: "Execution finish request must include JSON value.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeExecutionFinishRequestEffect(value));
+}
+
+function executionProtocolValidationFailure(
+  schema: string,
+  message: string,
+  cause: unknown,
+): Effect.Effect<never, ExecutionProtocolValidationError> {
+  return Effect.fail(new ExecutionProtocolValidationError({
+    schema,
+    message,
+    cause,
+  }));
+}
+
+function isRecordValue(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

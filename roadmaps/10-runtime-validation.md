@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Execution Protocol Request Effect Decoders
+
+Previous completed checkpoint: `8b4346f` Validate artifact runtime invoke responses.
+
+What changed:
+
+- `flarex-protocol/execution` now exposes Effect-returning decoders for start,
+  syscall, and finish request payloads.
+- The existing throwing execution protocol parsers remain compatibility
+  wrappers over those Effect decoders.
+- Backend execution request normalization now consumes the protocol Effect
+  decoders directly instead of wrapping throwing parsers in local try/catch
+  code.
+
+Why it changed:
+
+Execution request boundaries were returning `Effect` in the backend, but their
+source protocol validation still depended on throwing parser adapters. Runtime
+validation should emit typed `ExecutionProtocolValidationError` values at the
+protocol boundary, then let route adapters map those failures once to HTTP.
+
+Known limitations:
+
+- This checkpoint does not change ExecutionDO session lifecycle, transaction
+  setup, syscall behavior, public invoke, deployment routing, scheduler or
+  delivery routing, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/executionRequests.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Artifact Runtime Invoke Response Schema Boundary
 
 Previous completed checkpoint: `8e169d5` Type transaction operation effects.

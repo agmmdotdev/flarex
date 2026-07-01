@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Artifact runtime invoke response schema boundary.
-- Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect body decoding, service/domain errors, and one adapter HTTP mapping edge.
+- Previous completed checkpoint: Execution protocol request Effect decoders.
+- Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the artifact runtime invoke response schema boundary:
+Next recommended checkpoint after the execution protocol request Effect decoders:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,27 @@ Next recommended checkpoint after the artifact runtime invoke response schema bo
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 268 slice:
+
+1. Add protocol-owned Effect decoders for execution start, syscall, and finish
+   request payloads in `flarex-protocol/execution`.
+2. Keep `parseExecutionStartRequest(...)`,
+   `parseExecutionSyscallRequest(...)`, and
+   `parseExecutionFinishRequest(...)` as throwing compatibility wrappers over
+   the Effect decoders.
+3. Move backend `execution/Requests.ts` decode helpers off local
+   try/catch-wrapped protocol parsers and onto the protocol Effect decoders
+   directly.
+4. Preserve public execution start route deployment-id overlay behavior,
+   public action syscall/finish validation, abort JSON forwarding, malformed
+   JSON handling, and route adapter HTTP mapping.
+5. Add direct protocol tests for typed Effect failure channels before
+   compatibility parsing, while keeping backend route-boundary tests as the
+   HTTP adapter mapping proof.
+6. Leave ExecutionDO session lifecycle, transaction setup, syscall semantics,
+   public invoke, deployment, scheduler, delivery, PartitionDO SQL/OCC,
+   executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 267 slice:
 

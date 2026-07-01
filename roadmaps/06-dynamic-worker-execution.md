@@ -1,5 +1,41 @@
 # Dynamic Worker Execution
 
+## Execution Protocol Request Effect Decoders
+
+Previous completed checkpoint: `8b4346f` Validate artifact runtime invoke responses.
+
+What changed:
+
+- Execution start, syscall, and finish transport payloads now have
+  protocol-owned Effect decoders.
+- Backend execution request helpers use those decoders directly before
+  normalizing protocol JSON into backend runtime request shapes.
+- Public execution start still overlays the deployment id from the route before
+  validation, and public execution actions still validate syscall/finish bodies
+  while forwarding abort JSON unchanged.
+
+Why it changed:
+
+Dynamic-worker execution depends on start/syscall/finish payloads crossing
+Worker and Durable Object boundaries. Those payload failures should stay typed
+as protocol failures until the route adapter maps them, rather than depending
+on a throwing parser wrapped in backend-local try/catch logic.
+
+Known limitations:
+
+- This checkpoint does not change ExecutionDO session lifecycle, transaction
+  setup, syscall semantics, direct invoke, artifact runtime dispatch,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/executionRequests.test.ts packages/flarex-backend/test/executionStartRouteBoundary.test.ts packages/flarex-backend/test/executionActionRouteBoundary.test.ts packages/flarex-backend/test/executionSyscallRouteBoundary.test.ts packages/flarex-backend/test/executionFinishRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Artifact Runtime Invoke Response Schema Boundary
 
 Previous completed checkpoint: `8e169d5` Type transaction operation effects.

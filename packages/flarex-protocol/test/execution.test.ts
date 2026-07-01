@@ -1,6 +1,9 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  decodeExecutionFinishRequestEffect,
+  decodeExecutionStartRequestEffect,
+  decodeExecutionSyscallRequestEffect,
   ExecutionProtocolValidationError,
   ExecutionFinishRequestSchema,
   ExecutionStartRequestSchema,
@@ -63,6 +66,19 @@ describe("execution protocol schemas", () => {
       path: "users:get",
     }))
       .toThrow("Execution start request must include string deploymentId");
+  });
+
+  it("exposes typed execution start decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({
+      deploymentId: "deployment-a",
+      path: "users:get",
+    }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect([])))
+      .rejects.toMatchObject({
+        schema: "ExecutionStartRequest",
+        message: "Execution start request must be an object.",
+      });
   });
 
   it("rejects non-object bodies and invalid execution field shapes", () => {
@@ -189,6 +205,22 @@ describe("execution protocol schemas", () => {
       .toThrow(ExecutionProtocolValidationError);
   });
 
+  it("exposes typed execution syscall decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
+      op: "query",
+      request: {
+        table: "users",
+        order: "sideways",
+      },
+    }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect(null)))
+      .rejects.toMatchObject({
+        schema: "ExecutionSyscallRequest",
+        message: "Execution syscall request must be an object.",
+      });
+  });
+
   it("parses execution finish requests used by ExecutionDO sessions", () => {
     expect(parseExecutionFinishRequest({
       value: { ok: true, ids: ["1:user", null] },
@@ -212,5 +244,16 @@ describe("execution protocol schemas", () => {
       .toThrow(ExecutionProtocolValidationError);
     expect(() => parseExecutionFinishRequest({ value: new Date(0) }))
       .toThrow(ExecutionProtocolValidationError);
+  });
+
+  it("exposes typed execution finish decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({})))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect("done")))
+      .rejects.toMatchObject({
+        schema: "ExecutionFinishRequest",
+        message: "Execution finish request must be an object.",
+      });
   });
 });
