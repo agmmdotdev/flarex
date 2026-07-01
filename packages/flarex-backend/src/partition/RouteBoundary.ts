@@ -48,7 +48,7 @@ export function parsePartitionSchemaCacheRequest(
   value: unknown,
 ): PartitionSchemaCacheRequest {
   return Effect.runSync(parsePartitionSchemaCacheRequestEffect(value).pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -80,7 +80,7 @@ export function decodePartitionCommitRequest(
 
 export function parsePartitionCommitRequest(value: unknown): PartitionCommitRequest {
   return Effect.runSync(parsePartitionCommitRequestEffect(value).pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -114,7 +114,7 @@ export function parsePartitionSubscriptionRegistrationRequest(
   value: unknown,
 ): PartitionSubscriptionRegistrationRequest {
   return Effect.runSync(parsePartitionSubscriptionRegistrationRequestEffect(value).pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -148,7 +148,7 @@ export function parsePartitionSubscriptionTargetRequest(
   value: unknown,
 ): PartitionSubscriptionTargetRequest {
   return Effect.runSync(parsePartitionSubscriptionTargetRequestEffect(value).pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -182,7 +182,7 @@ export function parsePartitionConnectionUnregisterRequest(
   value: unknown,
 ): PartitionConnectionUnregisterRequest {
   return Effect.runSync(parsePartitionConnectionUnregisterRequestEffect(value).pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -200,7 +200,7 @@ export function decodePartitionConnectionUnregisterRoutePayload(
 
 function runPartitionRouteEffect<A>(effect: Effect.Effect<A, PartitionRouteError>): Promise<A> {
   return Effect.runPromise(effect.pipe(
-    Effect.mapError(partitionRouteErrorToHttpError),
+    Effect.catch(partitionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -210,3 +210,11 @@ export function partitionRouteErrorToHttpError(error: PartitionRouteError): Http
   }
   return new HttpError(400, error.message);
 }
+
+export const partitionRouteErrorToHttpErrorEffect = Effect.fn(
+  "PartitionRouteBoundary.partitionRouteErrorToHttpError",
+)(function* (
+  error: PartitionRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(partitionRouteErrorToHttpError(error));
+});

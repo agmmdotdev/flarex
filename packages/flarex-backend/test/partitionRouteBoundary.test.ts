@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePartitionCommitRoutePayload,
   decodePartitionCommitRequest,
@@ -9,6 +9,7 @@ import {
   decodePartitionSubscriptionRegistrationRoutePayload,
   decodePartitionSubscriptionTargetRoutePayload,
   partitionRouteErrorToHttpError,
+  partitionRouteErrorToHttpErrorEffect,
   parsePartitionCommitRequest,
   parsePartitionCommitRequestEffect,
   parsePartitionConnectionUnregisterRequest,
@@ -258,6 +259,30 @@ describe("partition route boundary", () => {
         message: "writes[0].tableId must be an integer.",
       });
     }
+  });
+
+  it("maps partition route errors through the named Effect adapter", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("bad json"),
+    });
+    const validationError = new PartitionRoutePayloadError({
+      message: "writes must be an array.",
+    });
+
+    await expect(Effect.runPromise(
+      partitionRouteErrorToHttpErrorEffect(jsonError),
+    )).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    await expect(Effect.runPromise(
+      partitionRouteErrorToHttpErrorEffect(validationError),
+    )).rejects.toMatchObject({
+      status: 400,
+      message: "writes must be an array.",
+    });
   });
 
   it("exposes shared typed partition payload failures before HTTP mapping", async () => {

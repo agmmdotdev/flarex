@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Partition Route Adapter Effects
+
+Previous completed checkpoint: `28aa766` Type deployment HttpApi route
+adapters.
+
+What changed:
+
+- Partition route JSON/payload failures now have a named
+  `partitionRouteErrorToHttpErrorEffect(...)` adapter while typed decoders
+  still expose `RequestJsonError | PartitionRoutePayloadError`.
+- Public partition schema-cache forwarding now has a named
+  `publicPartitionSchemaCacheRouteErrorToHttpErrorEffect(...)` adapter for the
+  Worker-facing compatibility boundary.
+- PartitionDO internal route recovery now uses the named
+  `partitionInternalRouteErrorToResponseEffect(...)` adapter for the Durable
+  Object HTTP response edge.
+- Focused tests cover named partition and public schema-cache adapter mapping
+  directly.
+
+Why it changed:
+
+PartitionDO already had typed route decoders and tagged operation failures, but
+compatibility readers and the DO response runner still collapsed failures
+inline. Naming those adapters keeps JSON and payload failures typed until the
+route or Durable Object edge that owns HTTP conversion, without changing
+transactional SQL/OCC behavior.
+
+Known limitations:
+
+- This checkpoint does not change PartitionDO SQL/OCC, idempotency replay,
+  schema-cache persistence, document/index reads, subscription state, public
+  Worker route matching, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment HttpApi Route-Service Adapter Effects
 
 Previous completed checkpoint: `3a0cb19` Type registry route adapters.

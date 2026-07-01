@@ -1,5 +1,48 @@
 # Package Boundaries
 
+## Partition Route Adapter Effects
+
+Previous completed checkpoint: `28aa766` Type deployment HttpApi route
+adapters.
+
+What changed:
+
+- `partition/RouteBoundary.ts` now exposes a named route-to-`HttpError`
+  adapter effect for PartitionDO JSON and payload failures.
+- `partition/PublicSchemaCacheRouteBoundary.ts` now exposes a named public
+  schema-cache route adapter effect for Worker-facing schema-cache forwarding.
+- `partitionDO.ts` now routes internal recovery through a named response
+  adapter effect for typed route and operation failures.
+- Tests assert the named route adapter effects directly while broader
+  partition tests continue covering request and transaction behavior.
+
+Boundary decision:
+
+Partition request decoding belongs to `partition/RouteBoundary.ts` and
+`partition/PublicSchemaCacheRouteBoundary.ts`. PartitionDO SQL/OCC,
+schema-cache persistence, subscription state, document/index reads, and
+idempotency replay remain in `partitionDO.ts`. HTTP response conversion for
+PartitionDO route, payload, and operation failures belongs at the PartitionDO
+response adapter edge, not the request decoders, public Worker routing,
+executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No SQL table layout, OCC validation, idempotency behavior, schema-cache
+  persistence, subscription mutation, public Worker route matching, service
+  binding configuration, executor-http route, or `ValidatorJson` boundary
+  changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment HttpApi Route-Service Adapter Effects
 
 Previous completed checkpoint: `3a0cb19` Type registry route adapters.

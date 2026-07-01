@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment HttpApi route-service adapter effects.
-- Active checkpoint: validate and review the Deployment HttpApi route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `28aa766` Type deployment HttpApi route adapters.
+- Active checkpoint: validate and review the Partition route adapter-effect batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,18 +48,38 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Deployment HttpApi route-service adapter effects:
+Next recommended checkpoint after the Partition route adapter effects:
 
-1. Prefer another route-service batch or a deeper DeploymentService batch next:
-   carry the named adapter-effect pattern into remaining deployment route
-   response edges, or continue moving deployment store/service write helpers
-   toward typed service/domain failures with one adapter response edge.
+1. Prefer a fuller route/service batch next: either continue deeper
+   DeploymentService/store write helpers toward typed service/domain failures,
+   or move the next Worker/DO boundary that still has direct `mapError(...)`
+   HTTP conversion to named adapter effects.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
-   service extraction are separated from logic changes.
+4. Continue avoiding PartitionDO SQL/OCC rewrites; this checkpoint only names
+   route adapter effects and keeps correctness-sensitive storage logic in
+   place.
+
+Completed Goal 296 slice:
+
+1. Add named `partitionRouteErrorToHttpErrorEffect(...)` for internal
+   PartitionDO request JSON and partition payload failures.
+2. Route partition compatibility readers and parse wrappers through the named
+   adapter effect while preserving typed
+   `RequestJsonError | PartitionRoutePayloadError` decoder channels.
+3. Add named `publicPartitionSchemaCacheRouteErrorToHttpErrorEffect(...)` for
+   the public Worker schema-cache route boundary and route its compatibility
+   readers through that adapter.
+4. Route PartitionDO internal recovery through the named
+   `partitionInternalRouteErrorToResponseEffect(...)` adapter instead of an
+   inline tag table, preserving the single Durable Object response edge.
+5. Add direct coverage for named partition and public schema-cache route
+   adapter mapping.
+6. Leave PartitionDO SQL/OCC, idempotency replay, schema-cache persistence,
+   document/index reads, subscription state, public Worker route matching,
+   executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 295 slice:
 

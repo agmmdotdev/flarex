@@ -1211,20 +1211,18 @@ function partitionRouteOperationError(
 function runPartitionRoute(effect: Effect.Effect<Response, PartitionInternalRouteError>): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: recoverPartitionInternalRouteError,
-        PartitionRoutePayloadError: recoverPartitionInternalRouteError,
-        PartitionRouteOperationError: recoverPartitionInternalRouteError,
-      }),
+      Effect.catch(partitionInternalRouteErrorToResponseEffect),
     ),
   );
 }
 
-function recoverPartitionInternalRouteError(
+export const partitionInternalRouteErrorToResponseEffect = Effect.fn(
+  "PartitionDO.partitionInternalRouteErrorToResponse",
+)(function* (
   error: PartitionInternalRouteError,
-): Effect.Effect<Response> {
-  return Effect.succeed(partitionInternalRouteErrorToResponse(error));
-}
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(partitionInternalRouteErrorToResponse(error));
+});
 
 function partitionInternalRouteErrorToResponse(error: PartitionInternalRouteError): Response {
   if (error instanceof PartitionRouteOperationError) {

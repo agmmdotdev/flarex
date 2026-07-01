@@ -16,7 +16,7 @@ export async function readPublicPartitionSchemaCacheRequest(
   partitionKey: string,
 ): Promise<PartitionSchemaCacheRequest> {
   return Effect.runPromise(decodePublicPartitionSchemaCacheRequest(request, partitionKey).pipe(
-    Effect.mapError(publicPartitionSchemaCacheRouteErrorToHttpError),
+    Effect.catch(publicPartitionSchemaCacheRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -34,7 +34,7 @@ export function parsePublicPartitionSchemaCacheRequest(
   partitionKey: string,
 ): PartitionSchemaCacheRequest {
   return Effect.runSync(parsePublicPartitionSchemaCacheRequestEffect(value, partitionKey).pipe(
-    Effect.mapError(publicPartitionSchemaCacheRouteErrorToHttpError),
+    Effect.catch(publicPartitionSchemaCacheRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -57,3 +57,11 @@ export function publicPartitionSchemaCacheRouteErrorToHttpError(
 ): HttpError {
   return partitionRouteErrorToHttpError(error);
 }
+
+export const publicPartitionSchemaCacheRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicSchemaCacheRouteBoundary.publicPartitionSchemaCacheRouteErrorToHttpError",
+)(function* (
+  error: PartitionRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicPartitionSchemaCacheRouteErrorToHttpError(error));
+});

@@ -1,12 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError } from "../src/http";
+import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodePublicPartitionSchemaCacheRequest,
   decodePublicPartitionSchemaCacheRoutePayload,
   parsePublicPartitionSchemaCacheRequest,
   parsePublicPartitionSchemaCacheRequestEffect,
   publicPartitionSchemaCacheRouteErrorToHttpError,
+  publicPartitionSchemaCacheRouteErrorToHttpErrorEffect,
   readPublicPartitionSchemaCacheRequest,
 } from "../src/partition/PublicSchemaCacheRouteBoundary";
 import {
@@ -131,6 +132,30 @@ describe("public partition schema-cache route boundary", () => {
         message: "schema-cache request body must be an object.",
       });
     }
+  });
+
+  it("maps public schema-cache route errors through the named Effect adapter", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("bad json"),
+    });
+    const validationError = new PartitionRoutePayloadError({
+      message: "schema-cache request body must be an object.",
+    });
+
+    await expect(Effect.runPromise(
+      publicPartitionSchemaCacheRouteErrorToHttpErrorEffect(jsonError),
+    )).rejects.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    await expect(Effect.runPromise(
+      publicPartitionSchemaCacheRouteErrorToHttpErrorEffect(validationError),
+    )).rejects.toMatchObject({
+      status: 400,
+      message: "schema-cache request body must be an object.",
+    });
   });
 
   it("exposes shared typed public schema-cache payload failures before HTTP mapping", async () => {
