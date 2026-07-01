@@ -1,5 +1,47 @@
 # Deployment Analysis And Push
 
+## Deployment Schema/Function Analysis Validation Boundary
+
+Previous completed checkpoint: `7539fa3` Type deployment start push ingress validation.
+
+What changed:
+
+- Deployment schema, function metadata, combined analysis validation, and
+  codegen-analysis validation now run through direct Effect decoders in
+  `deployment/Validation.ts`.
+- Shared leaf checks for table/index states, placement, function metadata,
+  partition metadata, source positions, JSON values, validators, and
+  partition/schema consistency now emit `DeploymentValidationError` through the
+  typed channel.
+- Compatibility wrappers remain for synchronous callers, but migrated Effect
+  flows call the direct decoders without crossing back through those sync
+  shims.
+
+Why it changed:
+
+Analyzer metadata becomes deployment authority for runtime routing, validation,
+and push activation. These metadata checks should fail through the same typed
+deployment validation channel as protocol and stored-row boundaries rather than
+remaining result-first parser internals.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, artifact availability checks, storage schema, route contracts,
+  analyzer behavior, public invoke/execution dispatch, PartitionDO SQL/OCC, or
+  `ValidatorJson` semantics.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Start-Push Ingress Validation Boundary
 
 Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.

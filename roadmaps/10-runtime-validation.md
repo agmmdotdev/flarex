@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Deployment Schema/Function Analysis Validation Boundary
+
+Previous completed checkpoint: `7539fa3` Type deployment start push ingress validation.
+
+What changed:
+
+- `decodeSchema(...)`, `decodeFunctions(...)`, `decodeAnalysis(...)`, and
+  `decodeCodegenAnalysis(...)` now validate deployment metadata through direct
+  Effect pipelines.
+- Shared leaf validation for table/index state, placement, function
+  kind/visibility, source positions, route/partition metadata, JSON values,
+  and validators now has Effect-backed sources.
+- Synchronous `DeploymentValidationResult` helpers remain for compatibility,
+  but delegate to the typed decoders instead of owning separate parser logic or
+  running inside migrated Effect flows.
+
+Why it changed:
+
+Deployment analysis metadata is a runtime validation boundary between analyzer
+output, stored deployment state, and service/runtime dispatch. Keeping this
+validation in typed Effect channels makes metadata failures explicit before
+route or service adapter mapping while preserving existing sync callers.
+
+Known limitations:
+
+- DeploymentDO SQL schema, push lifecycle transitions, stored row decoding,
+  public deployment route contracts, public invoke/execution dispatch,
+  PartitionDO SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Start-Push Ingress Validation Boundary
 
 Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.

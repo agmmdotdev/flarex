@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Deployment Schema/Function Analysis Validation Boundary
+
+Previous completed checkpoint: `7539fa3` Type deployment start push ingress validation.
+
+What changed:
+
+- The deployment package now owns direct Effect decoders for schema, function
+  metadata, combined deployment-analysis validation, and codegen-analysis
+  validation.
+- Shared metadata leaf validation delegates through Effect-backed helpers,
+  including placement, partition policy, source position, JSON validator, and
+  partition/schema consistency checks.
+- Result-style compatibility helpers remain only as package-boundary shims for
+  callers that have not yet moved to Effect-returning decoders, and migrated
+  Effect flows call the direct decoders without crossing those sync shims.
+
+Boundary decision:
+
+`deployment/Validation` owns metadata shape and consistency checks. Deployment
+routes and services own request orchestration and final adapter mapping.
+`ValidatorJson` remains the user document/function validator contract and is
+not replaced by Effect Schema.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO storage layout, push lifecycle
+  semantics, public route request schemas, public execution/invoke dispatch,
+  PartitionDO SQL/OCC, protocol schemas, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Start-Push Ingress Validation Boundary
 
 Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.

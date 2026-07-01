@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment start-push ingress validation boundary.
+- Previous completed checkpoint: Deployment schema/function analysis validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment start-push ingress validation checkpoint:
+Next recommended checkpoint after the deployment schema/function analysis validation checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the deployment start-push ingress validation c
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 263 slice:
+
+1. Convert deployment schema, function metadata, deployment-analysis, and
+   codegen-analysis validation to direct Effect pipelines through
+   `decodeSchema(...)`, `decodeFunctions(...)`, `decodeAnalysis(...)`, and
+   `decodeCodegenAnalysis(...)`.
+2. Move shared leaf validation for table/index state, source positions,
+   route/partition policy, placement, function kind/visibility, JSON values,
+   validators, and partition/schema consistency behind Effect-backed helpers.
+3. Keep `DeploymentValidationResult` compatibility helpers by delegating them
+   to the new typed Effect decoders, so existing synchronous callers share the
+   same validation source without running inside migrated Effect flows.
+4. Preserve `ValidatorJson` parsing as the user document/function validator
+   authority and only use Effect for transport/domain metadata validation.
+5. Leave DeploymentDO SQL schema, push lifecycle state transitions, route
+   contracts, public invoke/execution dispatch, PartitionDO SQL/OCC, protocol
+   schemas, executor-http, and `ValidatorJson` semantics unchanged.
 
 Completed Goal 262 slice:
 
