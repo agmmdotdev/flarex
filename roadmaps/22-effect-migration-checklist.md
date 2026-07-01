@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `55f0739` Plan concrete Effect migration
-  checklist.
+- Previous completed checkpoint: `c4404be` Wire deployment mutation direct
+  dispatch.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -110,11 +110,14 @@ The Effect migration is complete only when all of these are true:
     `test/deploymentHttpApiRouteBoundary.test.ts`,
     `test/deploymentHttpApiHandlers.test.ts`,
     `test/push.test.ts`.
-- [ ] D-5. Add direct read response mapping for DeploymentDO read routes
-  `GET /active` and `GET /push/:pushId`, then remove read-route dependence on
+- [x] D-5. Add direct read response mapping for DeploymentDO read routes
+  `GET /deployment` and `GET /push/:pushId`, then remove read-route dependence on
   generated web-handler request rebuilding.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
+    `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/HttpApiHandlers.ts`,
     `packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts`,
     `packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts`.
@@ -391,10 +394,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with D-5:
+Start with D-6:
 
-Add direct read response mapping for DeploymentDO `GET /active` and
-`GET /push/:pushId`, remove read-route dependence on generated web-handler
-request rebuilding, preserve all HTTP behavior, update
+Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
+after all DeploymentDO API routes dispatch directly, decide whether
+`HttpApiWebHandler` remains only for handler tests or should be demoted, update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `D-5`, then commit.
+run only the EffectTS quality checker, tick `D-6`, then commit.

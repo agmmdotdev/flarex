@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `55f0739` Plan concrete Effect migration checklist.
-- Active checkpoint: D-4 DeploymentDO mutation direct wiring, routing start/finish/abandon production requests through typed route inputs and generated handler effects while keeping read routes on the generated request bridge.
+- Previous completed checkpoint: `c4404be` Wire deployment mutation direct dispatch.
+- Active checkpoint: D-5 DeploymentDO read direct mapping, routing health/active/push read production requests through typed route inputs and generated handler effects without rebuilding generated HttpApi requests.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,11 +52,10 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after D-4 DeploymentDO mutation direct wiring:
+Next recommended checkpoint after D-5 DeploymentDO read direct mapping:
 
-1. Add direct read response mapping for `GET /active` and `GET /push/:pushId`
-   so DeploymentDO read routes no longer depend on generated web-handler
-   request rebuilding.
+1. Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
+   now that all DeploymentDO API route inputs dispatch directly.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -66,7 +65,25 @@ Next recommended checkpoint after D-4 DeploymentDO mutation direct wiring:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 337 slice:
+Current Goal 338 slice:
+
+1. Split the generic `DeploymentApiReadRoute` input into explicit
+   health/active/get-push typed route inputs.
+2. Add `dispatchDeploymentApiReadRouteInputDirect(...)`, a named Effect
+   adapter that calls existing generated read handler effects and maps their
+   success/error values to HTTP responses.
+3. Route all DeploymentDO read inputs directly, including `GET /health`,
+   `GET /deployment`, and `GET /push/:pushId`.
+4. Preserve active deployment success/not-found, push success/not-found,
+   storage failure, health, and fallback route behavior.
+5. Tick `D-5` in `roadmaps/22-effect-migration-checklist.md` and move the
+   next active checkpoint to `D-6`.
+6. Leave generated handler logic, DeploymentService/store lifecycle logic,
+   public Worker deployment dispatch, artifact materializer/cache,
+   source-package analyzer semantics, PartitionDO SQL/OCC, executor-http,
+   protocol parser compatibility wrappers, and `ValidatorJson` unchanged.
+
+Completed Goal 337 slice:
 
 1. Wire `routeDeploymentDurableObject(...)` mutation route inputs directly to
    `dispatchDeploymentApiMutationRouteInputDirect(...)`.

@@ -11,6 +11,9 @@ import { errorResponse, HttpError, json } from "../http";
 import {
   deploymentAbandonPushHandler,
   deploymentFinishPushHandler,
+  deploymentGetActiveDeploymentHandler,
+  deploymentGetPushHandler,
+  deploymentHealthHandler,
   deploymentStartAnalyzedPushHandler,
 } from "./HttpApiHandlers";
 import {
@@ -42,6 +45,13 @@ export type DeploymentApiMutationRouteInput = Extract<
   | { readonly _tag: "DeploymentApiAbandonPushRoute" }
 >;
 
+export type DeploymentApiReadRouteInput = Extract<
+  DeploymentApiRouteInput,
+  | { readonly _tag: "DeploymentApiHealthRoute" }
+  | { readonly _tag: "DeploymentApiActiveDeploymentRoute" }
+  | { readonly _tag: "DeploymentApiGetPushRoute" }
+>;
+
 export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
   function* (
     request: Request,
@@ -54,10 +64,8 @@ export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
         const deployment = yield* DeploymentService;
         return yield* dispatchDeploymentApiMutationRouteInputDirect(apiRouteInput, deployment);
       }
-      return yield* dispatchDeploymentApiRouteInputViaRequestCompatibility(
-        apiRouteInput,
-        handleApiRequest,
-      );
+      const deployment = yield* DeploymentService;
+      return yield* dispatchDeploymentApiReadRouteInputDirect(apiRouteInput, deployment);
     }
     if (url.pathname === DeploymentRoute.health) {
       return json({ service: "flarex-deployment", status: "ok" });
@@ -91,23 +99,53 @@ export const dispatchDeploymentApiMutationRouteInputDirect = Effect.fn(
   if (apiRouteInput._tag === "DeploymentApiStartAnalyzedPushRoute") {
     return yield* deploymentStartAnalyzedPushHandler(deployment, apiRouteInput.body).pipe(
       Effect.match({
-        onFailure: deploymentGeneratedMutationValueToResponse,
-        onSuccess: deploymentGeneratedMutationValueToResponse,
+        onFailure: deploymentGeneratedValueToResponse,
+        onSuccess: deploymentGeneratedValueToResponse,
       }),
     );
   }
   if (apiRouteInput._tag === "DeploymentApiFinishPushRoute") {
     return yield* deploymentFinishPushHandler(deployment, apiRouteInput.pushId).pipe(
       Effect.match({
-        onFailure: deploymentGeneratedMutationValueToResponse,
-        onSuccess: deploymentGeneratedMutationValueToResponse,
+        onFailure: deploymentGeneratedValueToResponse,
+        onSuccess: deploymentGeneratedValueToResponse,
       }),
     );
   }
   return yield* deploymentAbandonPushHandler(deployment, apiRouteInput.pushId, apiRouteInput.body).pipe(
     Effect.match({
-      onFailure: deploymentGeneratedMutationValueToResponse,
-      onSuccess: deploymentGeneratedMutationValueToResponse,
+      onFailure: deploymentGeneratedValueToResponse,
+      onSuccess: deploymentGeneratedValueToResponse,
+    }),
+  );
+});
+
+export const dispatchDeploymentApiReadRouteInputDirect = Effect.fn(
+  "DeploymentDO.dispatchApiReadRouteInputDirect",
+)(function* (
+  apiRouteInput: DeploymentApiReadRouteInput,
+  deployment: DeploymentServiceApi,
+): Effect.fn.Return<Response> {
+  if (apiRouteInput._tag === "DeploymentApiHealthRoute") {
+    return yield* deploymentHealthHandler().pipe(
+      Effect.match({
+        onFailure: deploymentGeneratedValueToResponse,
+        onSuccess: deploymentGeneratedValueToResponse,
+      }),
+    );
+  }
+  if (apiRouteInput._tag === "DeploymentApiActiveDeploymentRoute") {
+    return yield* deploymentGetActiveDeploymentHandler(deployment).pipe(
+      Effect.match({
+        onFailure: deploymentGeneratedValueToResponse,
+        onSuccess: deploymentGeneratedValueToResponse,
+      }),
+    );
+  }
+  return yield* deploymentGetPushHandler(deployment, apiRouteInput.pushId).pipe(
+    Effect.match({
+      onFailure: deploymentGeneratedValueToResponse,
+      onSuccess: deploymentGeneratedValueToResponse,
     }),
   );
 });
@@ -156,7 +194,7 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function deploymentGeneratedMutationValueToResponse(value: object): Response {
+function deploymentGeneratedValueToResponse(value: object): Response {
   if (value instanceof DeploymentBadRequestErrorResponse) {
     return json(value, { status: 400 });
   }

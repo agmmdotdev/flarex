@@ -25,8 +25,17 @@ export type DeploymentRouteError = RequestJsonError | DeploymentProtocolValidati
 
 export type DeploymentApiRouteInput =
   | {
-    readonly _tag: "DeploymentApiReadRoute";
+    readonly _tag: "DeploymentApiHealthRoute";
     readonly request: Request;
+  }
+  | {
+    readonly _tag: "DeploymentApiActiveDeploymentRoute";
+    readonly request: Request;
+  }
+  | {
+    readonly _tag: "DeploymentApiGetPushRoute";
+    readonly request: Request;
+    readonly pushId: string;
   }
   | {
     readonly _tag: "DeploymentApiStartAnalyzedPushRoute";
@@ -56,9 +65,15 @@ export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decode
 export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRouteInput")(
   function* (request: Request): Effect.fn.Return<DeploymentApiRouteInput | null, DeploymentRouteError> {
     const url = new URL(request.url);
-    if (isDeploymentApiReadRoute(request, url)) {
+    if (url.pathname === DeploymentRoute.health && request.method === "GET") {
       return {
-        _tag: "DeploymentApiReadRoute",
+        _tag: "DeploymentApiHealthRoute",
+        request,
+      };
+    }
+    if (url.pathname === DeploymentRoute.activeDeployment && request.method === "GET") {
+      return {
+        _tag: "DeploymentApiActiveDeploymentRoute",
         request,
       };
     }
@@ -80,6 +95,13 @@ export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRo
       return null;
     }
     const action = pushMatch[2];
+    if (action === undefined && request.method === "GET") {
+      return {
+        _tag: "DeploymentApiGetPushRoute",
+        request,
+        pushId,
+      };
+    }
     if (action === DeploymentPushAction.finish && request.method === "POST") {
       const body = yield* decodeDeploymentFinishPushRouteRequest(request);
       return {
@@ -105,7 +127,11 @@ export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRo
 export function deploymentApiRouteInputToRequest(
   routeInput: DeploymentApiRouteInput,
 ): Request {
-  if (routeInput._tag === "DeploymentApiReadRoute") {
+  if (
+    routeInput._tag === "DeploymentApiHealthRoute"
+    || routeInput._tag === "DeploymentApiActiveDeploymentRoute"
+    || routeInput._tag === "DeploymentApiGetPushRoute"
+  ) {
     return routeInput.request;
   }
   return jsonRequest(routeInput.url, routeInput.body);
@@ -179,13 +205,4 @@ function jsonRequest(url: URL, body: unknown): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-}
-
-function isDeploymentApiReadRoute(request: Request, url: URL): boolean {
-  if (request.method !== "GET") return false;
-  if (url.pathname === DeploymentRoute.health || url.pathname === DeploymentRoute.activeDeployment) {
-    return true;
-  }
-  const pushMatch = url.pathname.match(deploymentPushRoutePattern);
-  return pushMatch !== null && pushMatch[2] === undefined;
 }

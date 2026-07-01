@@ -4,9 +4,11 @@ import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
   DeploymentRoute,
+  parseActiveDeploymentStatus,
   parseAnalyzedStartPushRequest,
   parseDeploymentErrorResponse,
   parseFinishPushResponse,
+  parsePushStatus,
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
@@ -22,17 +24,29 @@ import {
   deploymentRouteErrorToHttpErrorEffect,
 } from "../src/deployment/HttpApiRouteBoundary";
 import {
+  dispatchDeploymentApiReadRouteInputDirect,
   dispatchDeploymentApiMutationRouteInputDirect,
   dispatchDeploymentApiRouteInputViaRequestCompatibility,
   deploymentInternalRouteErrorToResponseEffect,
+  type DeploymentApiReadRouteInput,
   type DeploymentApiMutationRouteInput,
   DeploymentRouteOperationError,
   routeDeploymentDurableObject,
   runDeploymentDurableObjectRoute,
 } from "../src/deployment/InternalRouteBoundary";
-import { DeploymentPushInvalidStateError } from "../src/deployment/Errors";
+import {
+  DeploymentActiveDeploymentNotFoundError,
+  DeploymentPushInvalidStateError,
+  DeploymentPushNotFoundError,
+  DeploymentValidationError,
+} from "../src/deployment/Errors";
 import { DeploymentService, type DeploymentServiceApi } from "../src/deployment/Service";
-import type { DeploymentAnalysis, DeploymentCodegenAnalysis, PushStatus } from "../src/types";
+import type {
+  ActiveDeploymentStatus,
+  DeploymentAnalysis,
+  DeploymentCodegenAnalysis,
+  PushStatus,
+} from "../src/types";
 
 describe("deployment HttpApi route boundary", () => {
   it("forwards all read routes to the generated DeploymentApi handler", async () => {
@@ -46,12 +60,39 @@ describe("deployment HttpApi route boundary", () => {
       DeploymentRoute.health,
       { method: "GET" },
     )));
-    expect(health).toMatchObject({ _tag: "DeploymentApiReadRoute" });
-    if (health?._tag !== "DeploymentApiReadRoute") {
-      throw new Error("Expected read route input.");
+    expect(health).toMatchObject({ _tag: "DeploymentApiHealthRoute" });
+    if (health?._tag !== "DeploymentApiHealthRoute") {
+      throw new Error("Expected health route input.");
     }
     expect(deploymentApiRouteInputToRequest(health).url).toBe(
       `https://deployment.test${DeploymentRoute.health}`,
+    );
+
+    const active = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      DeploymentRoute.activeDeployment,
+      { method: "GET" },
+    )));
+    expect(active).toMatchObject({ _tag: "DeploymentApiActiveDeploymentRoute" });
+    if (active?._tag !== "DeploymentApiActiveDeploymentRoute") {
+      throw new Error("Expected active deployment route input.");
+    }
+    expect(deploymentApiRouteInputToRequest(active).url).toBe(
+      `https://deployment.test${DeploymentRoute.activeDeployment}`,
+    );
+
+    const readPush = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      `${DeploymentRoute.push}/push-read-typed`,
+      { method: "GET" },
+    )));
+    expect(readPush).toMatchObject({
+      _tag: "DeploymentApiGetPushRoute",
+      pushId: "push-read-typed",
+    });
+    if (readPush?._tag !== "DeploymentApiGetPushRoute") {
+      throw new Error("Expected get-push route input.");
+    }
+    expect(deploymentApiRouteInputToRequest(readPush).url).toBe(
+      `https://deployment.test${DeploymentRoute.push}/push-read-typed`,
     );
 
     const start = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
@@ -359,36 +400,6 @@ describe("deployment HttpApi route boundary", () => {
       error: "A push without analysis must include an error message.",
     });
 
-    const handlerFailure = await runDeploymentRoute(
-      jsonRequest(`${DeploymentRoute.push}/push-handler-failure`, {
-        method: "GET",
-      }),
-      async () => {
-        throw new Error("deployment handler failed");
-      },
-    );
-    expect(handlerFailure.status).toBe(500);
-    await expect(handlerFailure.json()).resolves.toEqual({
-      error: "deployment handler failed",
-    });
-
-    const handlerProtocolFailure = await runDeploymentRoute(
-      jsonRequest(`${DeploymentRoute.push}/push-handler-protocol-failure`, {
-        method: "GET",
-      }),
-      async () => {
-        throw new DeploymentProtocolValidationError({
-          schema: "DeploymentGeneratedResponse",
-          message: "Generated deployment response failed validation.",
-          cause: new Error("invalid generated deployment response"),
-        });
-      },
-    );
-    expect(handlerProtocolFailure.status).toBe(400);
-    await expect(handlerProtocolFailure.json()).resolves.toEqual({
-      error: "Generated deployment response failed validation.",
-    });
-
     const health = await runDeploymentRoute(
       jsonRequest(DeploymentRoute.health, {
         method: "POST",
@@ -413,12 +424,98 @@ describe("deployment HttpApi route boundary", () => {
     });
   });
 
-  it("routes DeploymentDO mutations directly while keeping reads on the generated handler bridge", async () => {
+  it("routes DeploymentDO read and mutation inputs directly without the generated handler bridge", async () => {
     let generatedHandlerCalls = 0;
     const generatedHandler = async () => {
       generatedHandlerCalls += 1;
-      throw new Error("generated handler should not handle mutation routes");
+      throw new Error("generated handler should not handle direct routes");
     };
+
+    const health = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.health, {
+        method: "GET",
+      }),
+      generatedHandler,
+    );
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+
+    const active = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.activeDeployment, {
+        method: "GET",
+      }),
+      generatedHandler,
+      deploymentTestService({
+        getActiveDeployment: () => Effect.succeed(activeDeploymentStatus()),
+      }),
+    );
+    expect(active.status).toBe(200);
+    expect(parseActiveDeploymentStatus(await active.json())).toMatchObject({
+      activePushId: "active-push",
+      schemaVersion: 0,
+    });
+
+    const readPush = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-direct-read`, {
+        method: "GET",
+      }),
+      generatedHandler,
+      deploymentTestService({
+        getPush: pushId => Effect.succeed(pushStatus(pushId)),
+      }),
+    );
+    expect(readPush.status).toBe(200);
+    expect(parsePushStatus(await readPush.json())).toMatchObject({
+      pushId: "push-direct-read",
+      state: "analyzed",
+    });
+
+    const missingActive = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.activeDeployment, {
+        method: "GET",
+      }),
+      generatedHandler,
+      deploymentTestService({
+        getActiveDeployment: () => Effect.fail(new DeploymentActiveDeploymentNotFoundError()),
+      }),
+    );
+    expect(missingActive.status).toBe(404);
+    expect(parseDeploymentErrorResponse(await missingActive.json())).toEqual({
+      error: "No active deployment.",
+    });
+
+    const missingPush = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-direct-missing`, {
+        method: "GET",
+      }),
+      generatedHandler,
+      deploymentTestService({
+        getPush: pushId => Effect.fail(new DeploymentPushNotFoundError({ pushId })),
+      }),
+    );
+    expect(missingPush.status).toBe(404);
+    expect(parseDeploymentErrorResponse(await missingPush.json())).toEqual({
+      error: "Unknown push: push-direct-missing",
+    });
+
+    const storageFailure = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-direct-storage-failed`, {
+        method: "GET",
+      }),
+      generatedHandler,
+      deploymentTestService({
+        getPush: () => Effect.fail(new DeploymentValidationError({
+          message: "Stored push is invalid.",
+        })),
+      }),
+    );
+    expect(storageFailure.status).toBe(500);
+    expect(parseDeploymentErrorResponse(await storageFailure.json())).toEqual({
+      error: "Deployment storage error.",
+    });
 
     const start = await runDeploymentRoute(
       jsonRequest(DeploymentRoute.startAnalyzedPush, {
@@ -484,27 +581,6 @@ describe("deployment HttpApi route boundary", () => {
     });
 
     expect(generatedHandlerCalls).toBe(0);
-
-    const read = await runDeploymentRoute(
-      jsonRequest(`${DeploymentRoute.push}/push-read-bridge`, {
-        method: "GET",
-      }),
-      async request => {
-        generatedHandlerCalls += 1;
-        return Response.json({
-          method: request.method,
-          url: request.url,
-          routedBy: "generated-handler",
-        });
-      },
-    );
-    expect(read.status).toBe(200);
-    await expect(read.json()).resolves.toEqual({
-      method: "GET",
-      url: "https://deployment.test/push/push-read-bridge",
-      routedBy: "generated-handler",
-    });
-    expect(generatedHandlerCalls).toBe(1);
   });
 
   it("dispatches typed DeploymentDO route inputs through the request compatibility adapter", async () => {
@@ -655,6 +731,68 @@ describe("deployment HttpApi route boundary", () => {
     });
   });
 
+  it("dispatches typed DeploymentDO read route inputs directly to generated handler effects", async () => {
+    const service = deploymentTestService({
+      getActiveDeployment: () => Effect.succeed(activeDeploymentStatus()),
+      getPush: pushId => Effect.succeed(pushStatus(pushId)),
+    });
+    const healthRouteInput = await readRouteInput(
+      DeploymentRoute.health,
+      { method: "GET" },
+      "DeploymentApiHealthRoute",
+    );
+    const healthResponse = await Effect.runPromise(dispatchDeploymentApiReadRouteInputDirect(
+      healthRouteInput,
+      service,
+    ));
+    expect(healthResponse.status).toBe(200);
+    await expect(healthResponse.json()).resolves.toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+
+    const activeRouteInput = await readRouteInput(
+      DeploymentRoute.activeDeployment,
+      { method: "GET" },
+      "DeploymentApiActiveDeploymentRoute",
+    );
+    const activeResponse = await Effect.runPromise(dispatchDeploymentApiReadRouteInputDirect(
+      activeRouteInput,
+      service,
+    ));
+    expect(activeResponse.status).toBe(200);
+    expect(parseActiveDeploymentStatus(await activeResponse.json())).toMatchObject({
+      activePushId: "active-push",
+      schemaVersion: 0,
+    });
+
+    const pushRouteInput = await readRouteInput(
+      `${DeploymentRoute.push}/push-direct-read-input`,
+      { method: "GET" },
+      "DeploymentApiGetPushRoute",
+    );
+    const pushResponse = await Effect.runPromise(dispatchDeploymentApiReadRouteInputDirect(
+      pushRouteInput,
+      service,
+    ));
+    expect(pushResponse.status).toBe(200);
+    expect(parsePushStatus(await pushResponse.json())).toMatchObject({
+      pushId: "push-direct-read-input",
+      state: "analyzed",
+    });
+
+    const missingPushResponse = await Effect.runPromise(dispatchDeploymentApiReadRouteInputDirect(
+      pushRouteInput,
+      deploymentTestService({
+        getPush: pushId => Effect.fail(new DeploymentPushNotFoundError({ pushId })),
+      }),
+    ));
+    expect(missingPushResponse.status).toBe(404);
+    expect(parseDeploymentErrorResponse(await missingPushResponse.json())).toEqual({
+      error: "Unknown push: push-direct-read-input",
+    });
+  });
+
   it("maps DeploymentDO route failures through a named response adapter effect", async () => {
     const protocolResponse = await Effect.runPromise(deploymentInternalRouteErrorToResponseEffect(
       new DeploymentProtocolValidationError({
@@ -737,6 +875,11 @@ type MutationRouteInputTag =
   | "DeploymentApiFinishPushRoute"
   | "DeploymentApiAbandonPushRoute";
 
+type ReadRouteInputTag =
+  | "DeploymentApiHealthRoute"
+  | "DeploymentApiActiveDeploymentRoute"
+  | "DeploymentApiGetPushRoute";
+
 async function mutationRouteInput<Tag extends MutationRouteInputTag>(
   path: string,
   options: RequestOptions,
@@ -749,7 +892,21 @@ async function mutationRouteInput<Tag extends MutationRouteInputTag>(
   return routeInput;
 }
 
+async function readRouteInput<Tag extends ReadRouteInputTag>(
+  path: string,
+  options: RequestOptions,
+  tag: Tag,
+): Promise<DeploymentApiReadRouteInput> {
+  const routeInput = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(path, options)));
+  if (routeInput?._tag !== tag) {
+    throw new Error(`Expected ${tag}.`);
+  }
+  return routeInput;
+}
+
 interface DeploymentTestServiceOverrides {
+  readonly getActiveDeployment?: DeploymentServiceApi["getActiveDeployment"];
+  readonly getPush?: DeploymentServiceApi["getPush"];
   readonly startAnalyzedPush?: DeploymentServiceApi["startAnalyzedPush"];
   readonly finishPush?: DeploymentServiceApi["finishPush"];
   readonly abandonPush?: DeploymentServiceApi["abandonPush"];
@@ -759,8 +916,8 @@ function deploymentTestService(
   overrides: DeploymentTestServiceOverrides = {},
 ): DeploymentServiceApi {
   return {
-    getActiveDeployment: () => Effect.die("not used"),
-    getPush: () => Effect.die("not used"),
+    getActiveDeployment: overrides.getActiveDeployment ?? (() => Effect.succeed(activeDeploymentStatus())),
+    getPush: overrides.getPush ?? (pushId => Effect.succeed(pushStatus(pushId))),
     startAnalyzedPush: overrides.startAnalyzedPush ?? (() => Effect.succeed(pushStatus("generated-push"))),
     finishPush: overrides.finishPush ?? (pushId => Effect.succeed({
       result: "activated",
@@ -783,6 +940,23 @@ function pushStatus(pushId: string, state: PushStatus["state"] = "analyzed"): Pu
     diagnostics: [],
     createdAt: 1,
     updatedAt: 2,
+  };
+}
+
+function activeDeploymentStatus(): ActiveDeploymentStatus {
+  return {
+    activePushId: "active-push",
+    activatedAt: 3,
+    schemaVersion: 0,
+    executionArtifactRef: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact-active",
+      sourcePackageHash: "b".repeat(64),
+      executionModule: "__execution.ts",
+    },
+    sourcePackage: sourcePackage(),
+    analysis: deploymentAnalysis(),
+    codegenAnalysis: deploymentCodegenAnalysis(),
   };
 }
 
