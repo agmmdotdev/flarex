@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public connection live-query route-service boundary effects.
+- Previous completed checkpoint: Public invoke and pass-through route adapter effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,19 +48,39 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public connection live-query route-service boundary effects:
+Next recommended checkpoint after the public invoke and pass-through route adapter effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
-   carry the public route request/dispatch/error pattern to invoke-adjacent
-   or remaining pass-through routes, or move deployment validation/service
-   helpers further toward typed service/domain failures with one adapter
-   response edge.
+   carry the named adapter-effect pattern into remaining deployment route
+   response edges, or move deployment validation/service helpers further
+   toward typed service/domain failures with one adapter response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 289 slice:
+
+1. Add `publicInvokeRouteErrorToHttpErrorEffect(...)` for public invoke
+   request JSON, protocol validation, and missing invoke field failures.
+2. Route public invoke compatibility readers and parse wrappers through the
+   named adapter effect while preserving typed Effect decoder channels.
+3. Add `publicWorkerInvokeRouteErrorToResponseEffect(...)` for the top-level
+   `/invoke` Worker response edge while preserving `invokeErrorResponse(...)`
+   bodies for invoke execution, artifact dispatch, and route failures.
+4. Add `publicWorkerDispatchErrorToHttpErrorEffect(...)` for reusable public
+   Worker pass-through dispatch failure mapping.
+5. Route top-level registry deployments and public scheduler routes through
+   named adapter effects instead of direct `mapError(...)` conversions,
+   including `publicWorkerSchedulerRouteErrorToHttpErrorEffect(...)`.
+6. Add direct tests for public invoke and public Worker dispatch adapter
+   effects.
+7. Leave invoke execution internals, artifact runtime invoke dispatch,
+   deployment-scoped invoke response compatibility, SchedulerDO maintenance,
+   RegistryDO behavior, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 288 slice:
 

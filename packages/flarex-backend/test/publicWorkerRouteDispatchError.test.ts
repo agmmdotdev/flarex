@@ -5,8 +5,10 @@ import {
   publicWorkerDispatchError,
   publicWorkerDispatchErrorToAdapterError,
   publicWorkerDispatchErrorToHttpError,
+  publicWorkerDispatchErrorToHttpErrorEffect,
   PublicWorkerDispatchError,
 } from "../src/worker/PublicRouteDispatchError";
+import { Effect } from "effect";
 
 describe("public Worker route dispatch errors", () => {
   it("preserves downstream HttpError status and message as a typed dispatch failure", () => {
@@ -60,6 +62,20 @@ describe("public Worker route dispatch errors", () => {
     expect(publicWorkerDispatchErrorToHttpError(error)).toMatchObject({
       status: 500,
       message: "Binding failed.",
+    });
+  });
+
+  it("maps dispatch failures through a named adapter effect", async () => {
+    const error = publicWorkerDispatchError(
+      "registry-deployments",
+      new Error("registry unavailable"),
+    );
+
+    await expect(Effect.runPromise(Effect.flip(
+      publicWorkerDispatchErrorToHttpErrorEffect(error),
+    ))).resolves.toMatchObject({
+      status: 500,
+      message: "registry unavailable",
     });
   });
 

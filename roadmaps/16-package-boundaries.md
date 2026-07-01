@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Public Invoke And Pass-Through Route Adapter Effects
+
+Previous completed checkpoint: `7c0f0b0` Type public live query delivery
+boundary.
+
+What changed:
+
+- Public invoke route boundaries now expose a named HTTP adapter effect for
+  typed request JSON, protocol validation, and missing-field failures.
+- Public Worker dispatch failures now expose a reusable named HTTP adapter
+  effect for pass-through route mapping.
+- Top-level Worker `/invoke`, registry deployments, and public scheduler
+  route adapters now recover through named Effect adapter helpers.
+
+Boundary decision:
+
+Public invoke request decoding belongs to `invoke/PublicInvokeRouteBoundary.ts`;
+public Worker dispatch failures belong to `worker/PublicRouteDispatchError.ts`;
+top-level route response conversion remains in `worker.ts`. `HttpError` stays
+at compatibility adapter edges, while invoke execution, artifact runtime
+dispatch, scheduler dispatch, and registry dispatch remain typed behind their
+existing service boundaries.
+
+Known limitations:
+
+- No invoke execution internals, artifact runtime invoke dispatch,
+  deployment-scoped invoke response compatibility, SchedulerDO maintenance,
+  RegistryDO behavior, service binding configuration, executor-http, or SQL/OCC
+  boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/invokeRequests.test.ts test/publicWorkerRouteDispatchError.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Connection Live-Query Route-Service Boundary Effects
 
 Previous completed checkpoint: `69f1c03` Type public delivery wake route

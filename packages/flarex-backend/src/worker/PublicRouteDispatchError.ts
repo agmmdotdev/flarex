@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, Effect } from "effect";
 import { HttpError } from "../http";
 import { PartitionRequestError } from "../transaction";
 
@@ -66,6 +66,14 @@ export function publicWorkerDispatchErrorToHttpError(
 ): HttpError {
   return new HttpError(error.status, error.message);
 }
+
+export const publicWorkerDispatchErrorToHttpErrorEffect = Effect.fn(
+  "PublicRouteDispatchError.toHttpError",
+)(function* (
+  error: PublicWorkerDispatchError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicWorkerDispatchErrorToHttpError(error));
+});
 
 export function publicWorkerDispatchErrorToAdapterError(
   error: PublicWorkerDispatchError,

@@ -15,7 +15,6 @@ import {
   MissingInvokeDeploymentError,
   MissingInvokePartitionKeyError,
   MissingInvokePathError,
-  parsePublicInvokePayload,
   publicInvokeDeploymentIdEffect,
 } from "./Requests";
 
@@ -39,7 +38,7 @@ export async function readPublicInvokeRequest(
 ): Promise<PublicInvokeRequestBody> {
   return await Effect.runPromise(
     decodePublicInvokeRouteRequest(request).pipe(
-      Effect.mapError(publicInvokeRouteErrorToHttpError),
+      Effect.catch(publicInvokeRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -55,14 +54,9 @@ export function decodePublicInvokeRouteRequest(
 export function parsePublicInvokeRouteRequest(
   value: unknown,
 ): PublicInvokeRequestBody {
-  try {
-    return parsePublicInvokePayload(value);
-  } catch (error) {
-    if (error instanceof InvokeProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
+  return Effect.runSync(parsePublicInvokeRouteRequestEffect(value).pipe(
+    Effect.catch(publicInvokeRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parsePublicInvokeRouteRequestEffect(
@@ -94,3 +88,11 @@ export function publicInvokeRouteErrorToHttpError(
   }
   return new HttpError(400, error.message);
 }
+
+export const publicInvokeRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicInvokeRouteBoundary.publicInvokeRouteErrorToHttpError",
+)(function* (
+  error: PublicInvokeRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicInvokeRouteErrorToHttpError(error));
+});
