@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: E-1 Executor HTTP adapter module split
+- Previous completed checkpoint: E-2 Executor HTTP body validation effects
   in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -398,10 +398,11 @@ The Effect migration is complete only when all of these are true:
   - Focus tests: `packages/executor-http/test/http.test.ts`.
   - Gate:
     `corepack pnpm --filter @flarex/executor-http typecheck`.
-- [ ] E-2. Replace local parse-result body validators with reusable Effect
+- [x] E-2. Replace local parse-result body validators with reusable Effect
   decoders and tagged validation errors.
+  - Completed by: this E-2 checkpoint commit.
   - Files:
-    `packages/executor-http/src/index.ts`.
+    `packages/executor-http/src/requestDecoders.ts`.
   - Must preserve: all current bad request response bodies.
 - [ ] E-3. Move live-query delivery HTTP helper runtime bridges to one adapter
   edge and typed fetch/response errors.
@@ -460,11 +461,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with E-2:
+Start with E-3:
 
-Replace local parse-result body validators in `packages/executor-http/src/requestDecoders.ts`
-with reusable Effect decoders and tagged validation errors while preserving all
-current bad request response bodies; update `effect-ts-migration-draft/your-proposal.md`
-and relevant roadmaps, validate with executor-http focused tests and gates, run
-only the EffectTS quality checker if Effect code changes, tick `E-2`, then
-commit.
+Move `packages/executor-http/src/liveQueryDelivery.ts` HTTP helper runtime
+bridges to one adapter edge with typed fetch/response errors; update
+`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
+with executor-http focused tests and gates, run only the EffectTS quality
+checker if Effect code changes, tick `E-3`, then commit.

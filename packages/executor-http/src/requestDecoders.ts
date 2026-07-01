@@ -37,11 +37,25 @@ type ExecutorHttpParseResult<A> =
   | { value: A }
   | { error: BadRequestBody };
 
-type ExecutorHttpBodyParser<A> = (body: unknown) => ExecutorHttpParseResult<A>;
-
 export type ExecutorHttpBodyDecoder<A> = (
   body: unknown,
 ) => Effect.Effect<A, ExecutorHttpBodyValidationError>;
+
+type ExecutorHttpBodyValidationEffect<A> = Effect.Effect<
+  A,
+  ExecutorHttpBodyValidationError
+>;
+
+type LiveQueryRerunMaintenanceBody = {
+  readonly deploymentId: string;
+  readonly projectId: string;
+  readonly limit?: number;
+};
+
+type LiveQueryDeliveryMaintenanceBody = {
+  readonly deploymentId: string;
+  readonly limit?: number;
+};
 
 export function readExecutorHttpJsonBody(
   request: Request,
@@ -55,172 +69,301 @@ export function readExecutorHttpJsonBody(
   });
 }
 
-function decodeExecutorHttpParsedBody<A>(
-  body: unknown,
-  parse: ExecutorHttpBodyParser<A>,
-): Effect.Effect<A, ExecutorHttpBodyValidationError> {
-  const parsed = parse(body);
-  return "error" in parsed
-    ? Effect.fail(new ExecutorHttpBodyValidationError({ body: parsed.error }))
-    : Effect.succeed(parsed.value);
+function decodeExecutorHttpValidationResult<A>(
+  result: ExecutorHttpParseResult<A>,
+): ExecutorHttpBodyValidationEffect<A> {
+  return "error" in result
+    ? Effect.fail(new ExecutorHttpBodyValidationError({ body: result.error }))
+    : Effect.succeed(result.value);
 }
 
 export const decodePrepareInvokeBody = Effect.fn("ExecutorHttp.decodePrepareInvokeBody")(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parsePrepareInvokeBody),
+  (body: unknown) => parsePrepareInvokeBody(body),
 );
 
 export const decodeBeginInvokeSessionBody = Effect.fn(
   "ExecutorHttp.decodeBeginInvokeSessionBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseBeginInvokeSessionBody),
+  (body: unknown) => parseBeginInvokeSessionBody(body),
 );
 
 export const decodeInvokeSyscallBody = Effect.fn("ExecutorHttp.decodeInvokeSyscallBody")(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeSyscallBody),
+  (body: unknown) => parseInvokeSyscallBody(body),
 );
 
 export const decodeInvokeFinishBody = Effect.fn("ExecutorHttp.decodeInvokeFinishBody")(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeFinishBody),
+  (body: unknown) => parseInvokeFinishBody(body),
 );
 
 export const decodeInvokeAbortBody = Effect.fn("ExecutorHttp.decodeInvokeAbortBody")(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeAbortBody),
+  (body: unknown) => parseInvokeAbortBody(body),
 );
 
 export const decodeInvokeAbortStaleBody = Effect.fn(
   "ExecutorHttp.decodeInvokeAbortStaleBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeAbortStaleBody),
+  (body: unknown) => parseInvokeAbortStaleBody(body),
 );
 
 export const decodeInvokeSessionMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeInvokeSessionMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseInvokeSessionMaintenanceBody),
+  (body: unknown) => parseInvokeSessionMaintenanceBody(body),
 );
 
 export const decodeLiveQueryRerunMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryRerunMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryRerunMaintenanceBody),
+  (body: unknown) => parseLiveQueryRerunMaintenanceBody(body),
 );
 
 export const decodeLiveQueryDeliveryMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryDeliveryMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeliveryMaintenanceBody),
+  (body: unknown) => parseLiveQueryDeliveryMaintenanceBody(body),
 );
 
 export const decodeLiveQuerySubscriptionRecordBody = Effect.fn(
   "ExecutorHttp.decodeLiveQuerySubscriptionRecordBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRecordBody),
+  (body: unknown) => parseLiveQuerySubscriptionRecordBody(body),
 );
 
 export const decodeLiveQuerySubscriptionRemoveBody = Effect.fn(
   "ExecutorHttp.decodeLiveQuerySubscriptionRemoveBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRemoveBody),
+  (body: unknown) => parseLiveQuerySubscriptionRemoveBody(body),
 );
 
 export const decodeLiveQueryConnectionTouchBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryConnectionTouchBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryConnectionTouchBody),
+  (body: unknown) => parseLiveQueryConnectionTouchBody(body),
 );
 
 export const decodeLiveQuerySubscriptionRemoveConnectionBody = Effect.fn(
   "ExecutorHttp.decodeLiveQuerySubscriptionRemoveConnectionBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQuerySubscriptionRemoveConnectionBody),
+  (body: unknown) => parseLiveQuerySubscriptionRemoveConnectionBody(body),
 );
 
 export const decodeLiveQueryConnectionCleanupBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryConnectionCleanupBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryConnectionCleanupBody),
+  (body: unknown) => parseLiveQueryConnectionCleanupBody(body),
 );
 
 export const decodeLiveQueryClaimMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryClaimMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryClaimMaintenanceBody),
+  (body: unknown) => parseLiveQueryClaimMaintenanceBody(body),
 );
 
 export const decodeLiveQueryAckMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryAckMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryAckMaintenanceBody),
+  (body: unknown) => parseLiveQueryAckMaintenanceBody(body),
 );
 
 export const decodeLiveQueryFailureMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryFailureMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryFailureMaintenanceBody),
+  (body: unknown) => parseLiveQueryFailureMaintenanceBody(body),
 );
 
 export const decodeLiveQueryDeadLetterMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryDeadLetterMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeadLetterMaintenanceBody),
+  (body: unknown) => parseLiveQueryDeadLetterMaintenanceBody(body),
 );
 
 export const decodeLiveQueryDeadLetterStuckMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryDeadLetterStuckMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryDeadLetterStuckMaintenanceBody),
+  (body: unknown) => parseLiveQueryDeadLetterStuckMaintenanceBody(body),
 );
 
 export const decodeLiveQueryPendingDeploymentsMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryPendingDeploymentsMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryPendingDeploymentsMaintenanceBody),
+  (body: unknown) => parseLiveQueryPendingDeploymentsMaintenanceBody(body),
 );
 
 export const decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryExpiredConnectionDeploymentsMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(
-    body,
-    parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody,
-  ),
+  (body: unknown) => parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(body),
 );
 
 export const decodeLiveQueryStuckDeliveriesMaintenanceBody = Effect.fn(
   "ExecutorHttp.decodeLiveQueryStuckDeliveriesMaintenanceBody",
 )(
-  (body: unknown) => decodeExecutorHttpParsedBody(body, parseLiveQueryStuckDeliveriesMaintenanceBody),
+  (body: unknown) => parseLiveQueryStuckDeliveriesMaintenanceBody(body),
 );
 
 function parsePrepareInvokeBody(
   body: unknown,
-):
-  | { value: PrepareInvokeInput }
-  | { error: { error: "bad_request"; message: string } } {
-  return parseInvokeBody(body, { includeIdempotencyKey: false });
+): ExecutorHttpBodyValidationEffect<PrepareInvokeInput> {
+  return decodeExecutorHttpValidationResult(parsePrepareInvokeBodyResult(body));
 }
 
 function parseBeginInvokeSessionBody(
   body: unknown,
+): ExecutorHttpBodyValidationEffect<BeginInvokeSessionInput> {
+  return decodeExecutorHttpValidationResult(parseBeginInvokeSessionBodyResult(body));
+}
+
+function parseInvokeSyscallBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<InvokeSyscallInput> {
+  return decodeExecutorHttpValidationResult(parseInvokeSyscallBodyResult(body));
+}
+
+function parseInvokeFinishBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<FinishInvokeSessionInput> {
+  return decodeExecutorHttpValidationResult(parseInvokeFinishBodyResult(body));
+}
+
+function parseInvokeAbortBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<AbortInvokeSessionInput> {
+  return decodeExecutorHttpValidationResult(parseInvokeAbortBodyResult(body));
+}
+
+function parseInvokeAbortStaleBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<AbortStaleInvokeSessionsInput> {
+  return decodeExecutorHttpValidationResult(parseInvokeAbortStaleBodyResult(body));
+}
+
+function parseInvokeSessionMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RunInvokeSessionMaintenanceInput> {
+  return decodeExecutorHttpValidationResult(parseInvokeSessionMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryRerunMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<LiveQueryRerunMaintenanceBody> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryRerunMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryDeliveryMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<LiveQueryDeliveryMaintenanceBody> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryDeliveryMaintenanceBodyResult(body));
+}
+
+function parseLiveQuerySubscriptionRecordBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RecordLiveQuerySubscriptionInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQuerySubscriptionRecordBodyResult(body));
+}
+
+function parseLiveQuerySubscriptionRemoveBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RemoveLiveQuerySubscriptionInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQuerySubscriptionRemoveBodyResult(body));
+}
+
+function parseLiveQueryConnectionTouchBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<TouchLiveQueryConnectionInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryConnectionTouchBodyResult(body));
+}
+
+function parseLiveQuerySubscriptionRemoveConnectionBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RemoveLiveQuerySubscriptionsForConnectionInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQuerySubscriptionRemoveConnectionBodyResult(body));
+}
+
+function parseLiveQueryConnectionCleanupBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RemoveExpiredLiveQuerySubscriptionsInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryConnectionCleanupBodyResult(body));
+}
+
+function parseLiveQueryClaimMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<ClaimLiveQueryDeliveryBatchInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryClaimMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryAckMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<AckLiveQueryDeliveriesInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryAckMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryFailureMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<RecordLiveQueryDeliveryFailureInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryFailureMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryDeadLetterMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<MarkLiveQueryDeliveriesDeadLetteredInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryDeadLetterMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryDeadLetterStuckMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<DeadLetterStuckLiveQueryDeliveriesInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryDeadLetterStuckMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryPendingDeploymentsMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<ListPendingLiveQueryDeliveryDeploymentsInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryPendingDeploymentsMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<ListExpiredLiveQueryConnectionDeploymentsInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryExpiredConnectionDeploymentsMaintenanceBodyResult(body));
+}
+
+function parseLiveQueryStuckDeliveriesMaintenanceBody(
+  body: unknown,
+): ExecutorHttpBodyValidationEffect<ListStuckLiveQueryDeliveriesInput> {
+  return decodeExecutorHttpValidationResult(parseLiveQueryStuckDeliveriesMaintenanceBodyResult(body));
+}
+
+// These result helpers preserve the exact legacy bad-request messages while
+// route-facing decoders expose tagged Effect failures.
+function parsePrepareInvokeBodyResult(
+  body: unknown,
+):
+  | { value: PrepareInvokeInput }
+  | { error: { error: "bad_request"; message: string } } {
+  return parseInvokeBodyResult(body, { includeIdempotencyKey: false });
+}
+
+function parseBeginInvokeSessionBodyResult(
+  body: unknown,
 ):
   | { value: BeginInvokeSessionInput }
   | { error: { error: "bad_request"; message: string } } {
-  return parseInvokeBody(body, { includeIdempotencyKey: true });
+  return parseInvokeBodyResult(body, { includeIdempotencyKey: true });
 }
 
-function parseInvokeBody(
+function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: false },
 ):
   | { value: PrepareInvokeInput }
   | { error: { error: "bad_request"; message: string } };
-function parseInvokeBody(
+function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: true },
 ):
   | { value: BeginInvokeSessionInput }
   | { error: { error: "bad_request"; message: string } };
-function parseInvokeBody(
+function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: boolean },
 ):
@@ -272,7 +415,7 @@ function parseInvokeBody(
   };
 }
 
-function parseInvokeSyscallBody(
+function parseInvokeSyscallBodyResult(
   body: unknown,
 ):
   | { value: InvokeSyscallInput }
@@ -305,7 +448,7 @@ function parseInvokeSyscallBody(
   };
 }
 
-function parseInvokeFinishBody(
+function parseInvokeFinishBodyResult(
   body: unknown,
 ):
   | { value: FinishInvokeSessionInput }
@@ -338,7 +481,7 @@ function parseInvokeFinishBody(
   };
 }
 
-function parseInvokeAbortBody(
+function parseInvokeAbortBodyResult(
   body: unknown,
 ):
   | { value: AbortInvokeSessionInput }
@@ -368,7 +511,7 @@ function parseInvokeAbortBody(
   };
 }
 
-function parseInvokeAbortStaleBody(
+function parseInvokeAbortStaleBodyResult(
   body: unknown,
 ):
   | { value: AbortStaleInvokeSessionsInput }
@@ -403,7 +546,7 @@ function parseInvokeAbortStaleBody(
   };
 }
 
-function parseInvokeSessionMaintenanceBody(
+function parseInvokeSessionMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: RunInvokeSessionMaintenanceInput }
@@ -438,7 +581,7 @@ function parseInvokeSessionMaintenanceBody(
   };
 }
 
-function parseLiveQueryRerunMaintenanceBody(
+function parseLiveQueryRerunMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: { deploymentId: string; projectId: string; limit?: number } }
@@ -468,7 +611,7 @@ function parseLiveQueryRerunMaintenanceBody(
   };
 }
 
-function parseLiveQueryDeliveryMaintenanceBody(
+function parseLiveQueryDeliveryMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: { deploymentId: string; limit?: number } }
@@ -495,7 +638,7 @@ function parseLiveQueryDeliveryMaintenanceBody(
   };
 }
 
-function parseLiveQuerySubscriptionRecordBody(
+function parseLiveQuerySubscriptionRecordBodyResult(
   body: unknown,
 ):
   | { value: RecordLiveQuerySubscriptionInput }
@@ -551,7 +694,7 @@ function parseLiveQuerySubscriptionRecordBody(
   };
 }
 
-function parseLiveQuerySubscriptionRemoveBody(
+function parseLiveQuerySubscriptionRemoveBodyResult(
   body: unknown,
 ):
   | { value: RemoveLiveQuerySubscriptionInput }
@@ -584,7 +727,7 @@ function parseLiveQuerySubscriptionRemoveBody(
   };
 }
 
-function parseLiveQueryConnectionTouchBody(
+function parseLiveQueryConnectionTouchBodyResult(
   body: unknown,
 ):
   | { value: TouchLiveQueryConnectionInput }
@@ -619,7 +762,7 @@ function parseLiveQueryConnectionTouchBody(
   };
 }
 
-function parseLiveQuerySubscriptionRemoveConnectionBody(
+function parseLiveQuerySubscriptionRemoveConnectionBodyResult(
   body: unknown,
 ):
   | { value: RemoveLiveQuerySubscriptionsForConnectionInput }
@@ -649,7 +792,7 @@ function parseLiveQuerySubscriptionRemoveConnectionBody(
   };
 }
 
-function parseLiveQueryConnectionCleanupBody(
+function parseLiveQueryConnectionCleanupBodyResult(
   body: unknown,
 ):
   | { value: RemoveExpiredLiveQuerySubscriptionsInput }
@@ -679,7 +822,7 @@ function parseLiveQueryConnectionCleanupBody(
   };
 }
 
-function parseLiveQueryClaimMaintenanceBody(
+function parseLiveQueryClaimMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: ClaimLiveQueryDeliveryBatchInput }
@@ -717,7 +860,7 @@ function parseLiveQueryClaimMaintenanceBody(
   };
 }
 
-function parseLiveQueryAckMaintenanceBody(
+function parseLiveQueryAckMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: AckLiveQueryDeliveriesInput }
@@ -750,7 +893,7 @@ function parseLiveQueryAckMaintenanceBody(
   };
 }
 
-function parseLiveQueryFailureMaintenanceBody(
+function parseLiveQueryFailureMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: RecordLiveQueryDeliveryFailureInput }
@@ -789,7 +932,7 @@ function parseLiveQueryFailureMaintenanceBody(
   };
 }
 
-function parseLiveQueryDeadLetterMaintenanceBody(
+function parseLiveQueryDeadLetterMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: MarkLiveQueryDeliveriesDeadLetteredInput }
@@ -825,7 +968,7 @@ function parseLiveQueryDeadLetterMaintenanceBody(
   };
 }
 
-function parseLiveQueryDeadLetterStuckMaintenanceBody(
+function parseLiveQueryDeadLetterStuckMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: DeadLetterStuckLiveQueryDeliveriesInput }
@@ -873,7 +1016,7 @@ function parseLiveQueryDeadLetterStuckMaintenanceBody(
   };
 }
 
-function parseLiveQueryPendingDeploymentsMaintenanceBody(
+function parseLiveQueryPendingDeploymentsMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: ListPendingLiveQueryDeliveryDeploymentsInput }
@@ -900,7 +1043,7 @@ function parseLiveQueryPendingDeploymentsMaintenanceBody(
   };
 }
 
-function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(
+function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: ListExpiredLiveQueryConnectionDeploymentsInput }
@@ -930,7 +1073,7 @@ function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBody(
   };
 }
 
-function parseLiveQueryStuckDeliveriesMaintenanceBody(
+function parseLiveQueryStuckDeliveriesMaintenanceBodyResult(
   body: unknown,
 ):
   | { value: ListStuckLiveQueryDeliveriesInput }

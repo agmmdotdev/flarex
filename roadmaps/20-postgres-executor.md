@@ -1,5 +1,63 @@
 # Postgres Executor
 
+## Executor HTTP Body Validation Effects
+
+Previous completed checkpoint: `91c0d67` Split executor HTTP adapter modules.
+
+What changed:
+
+- Executor HTTP exported body decoders now call per-route Effect validation
+  functions directly instead of sharing one generic parse-result adapter.
+- Body validation failures are emitted as tagged
+  `ExecutorHttpBodyValidationError` values at each route body decoder boundary.
+- Narrow HTTP-only body types were added for live-query rerun and delivery
+  maintenance routes because route configuration supplies `freshnessStore`,
+  `runQuery`, and `deliver` after body validation.
+- Private `*Result` helpers remain only as a compatibility layer for preserving
+  exact legacy `bad_request` messages during this checkpoint.
+
+Why it changed:
+
+E-2 moves executor HTTP route body decoding closer to the backend Effect
+boundary pattern: reusable route decoders return Effects, and adapter response
+mapping sees tagged validation errors instead of raw parse-result values.
+Preserving existing bad-request bodies keeps the E-1 route split behavior
+locked while the validation internals move toward Effect.
+
+Convex references:
+
+- `crates/local_backend/src/public_api.rs` for deserialized public API request
+  structs and bad-request conversion at the HTTP boundary.
+- `crates/local_backend/src/args_structs.rs` for request body structs that keep
+  function-call payload shape separate from execution behavior.
+- `crates/local_backend/src/parse.rs` for small parse helpers that convert
+  invalid identifiers into bad-request metadata.
+
+How Flarex differs:
+
+- Convex relies on Rust/Serde request extraction and `ErrorMetadata` for bad
+  requests. Flarex's TypeScript executor adapter keeps Elysia and manual JSON
+  body validation for now, but route-facing validation now returns typed Effect
+  failures.
+
+Known limitations:
+
+- The compatibility `*Result` helpers still assemble exact legacy messages; E-2
+  does not yet replace every field-level helper with Effect Schema.
+- `liveQueryDelivery.ts` remains unchanged until E-3.
+- Public route paths, status codes, response bodies, authorization behavior,
+  and executor method calls are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Adapter Module Split
 
 Previous completed checkpoint: `63d9429` Type scheduler connection JSON

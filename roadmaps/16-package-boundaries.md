@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Executor HTTP Body Decoder Boundary
+
+Previous completed checkpoint: `91c0d67` Split executor HTTP adapter modules.
+
+What changed:
+
+- Kept executor HTTP body validation inside
+  `packages/executor-http/src/requestDecoders.ts`.
+- Route-facing decoders now return typed Effect failures with
+  `ExecutorHttpBodyValidationError`.
+- Narrow body-only types for live-query maintenance routes stay local to
+  `@flarex/executor-http` because they describe HTTP adapter payloads, not
+  framework-neutral executor service inputs.
+
+Boundary decision:
+
+Executor HTTP body decoders remain in `@flarex/executor-http`. The
+framework-neutral `@flarex/executor` package still receives fully assembled
+executor inputs, while the HTTP adapter owns JSON body shape checks,
+authorization order, configuration preflight, and HTTP error mapping.
+
+Convex comparison:
+
+Convex keeps HTTP request extraction in local backend route modules such as
+`crates/local_backend/src/public_api.rs`, request structs in
+`crates/local_backend/src/args_structs.rs`, and narrow parse helpers in
+`crates/local_backend/src/parse.rs`. Flarex mirrors the separation by keeping
+adapter body validation out of executor core.
+
+Known limitations:
+
+- The private `*Result` helpers remain as a compatibility layer for legacy
+  message preservation.
+- This checkpoint does not move executor HTTP contracts to `flarex-protocol`
+  or replace body checks with Effect Schema.
+- `liveQueryDelivery.ts`, backend Worker/DO packages, public SDK packages, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Adapter Package Boundary
 
 Previous completed checkpoint: `63d9429` Type scheduler connection JSON

@@ -1,5 +1,52 @@
 # Runtime Validation
 
+## Executor HTTP Body Validation Effects
+
+Previous completed checkpoint: `91c0d67` Split executor HTTP adapter modules.
+
+What changed:
+
+- `@flarex/executor-http` route body decoders now return typed Effect
+  validation failures directly from their per-route decoder functions.
+- The generic parse-result body adapter was removed from the route-facing
+  decoder path.
+- Live-query rerun and delivery maintenance request body types now model only
+  the JSON body fields; configured runtime dependencies are added later in the
+  route Effect.
+
+Why it changed:
+
+Runtime body validation should fail at the request boundary with a tagged error
+that the HTTP adapter maps to the existing response body. E-2 keeps every
+current `bad_request` message stable while making the executor HTTP decoder
+surface match the rest of the Effect migration.
+
+Convex comparison:
+
+Convex local backend request validation uses deserialized request structs in
+`crates/local_backend/src/public_api.rs` and
+`crates/local_backend/src/args_structs.rs`, then maps invalid identifiers
+through helpers such as `crates/local_backend/src/parse.rs`. Flarex keeps
+manual TypeScript validation for the executor adapter in this slice, but the
+boundary now exposes Effect failures instead of raw parse results.
+
+Known limitations:
+
+- Field-level compatibility helpers still build the exact legacy message text.
+- Effect Schema replacement for these executor HTTP bodies is not introduced in
+  this checkpoint.
+- `liveQueryDelivery.ts` fetch/response validation remains E-3.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Scheduler And Connection JSON Bridge Runtime Boundary
 
 Previous completed checkpoint: `09529e6` Decode deployment storage rows with
