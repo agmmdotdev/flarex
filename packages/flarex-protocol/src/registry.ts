@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 
 export const RegistryRoute = {
@@ -70,69 +70,109 @@ export class RegistryApiGroup extends HttpApiGroup.make("registry", { topLevel: 
 
 export class RegistryApi extends HttpApi.make("flarex-registry").add(RegistryApiGroup) {}
 
-const decodeCreateDeploymentRequest = Schema.decodeUnknownSync(CreateDeploymentRequest);
-const decodeRegistryHealthResponse = Schema.decodeUnknownSync(RegistryHealthResponse);
-const decodeRegistryStorageErrorResponse = Schema.decodeUnknownSync(RegistryStorageErrorResponse);
+const decodeUnknownCreateDeploymentRequest = Schema.decodeUnknownEffect(CreateDeploymentRequest);
+const decodeUnknownRegistryHealthResponse = Schema.decodeUnknownEffect(RegistryHealthResponse);
+const decodeUnknownRegistryStorageErrorResponse = Schema.decodeUnknownEffect(RegistryStorageErrorResponse);
+
+export const decodeCreateDeploymentRequestEffect = Effect.fn(
+  "RegistryProtocol.decodeCreateDeploymentRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<CreateDeploymentRequest, ProtocolValidationError> {
+  return yield* decodeUnknownCreateDeploymentRequest(value).pipe(
+    Effect.mapError(cause =>
+      new ProtocolValidationError({
+        schema: "CreateDeploymentRequest",
+        message: "Create deployment request must include optional string deploymentId and slug fields.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeRegistryHealthResponseEffect = Effect.fn(
+  "RegistryProtocol.decodeHealthResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<RegistryHealthResponse, ProtocolValidationError> {
+  return yield* decodeUnknownRegistryHealthResponse(value).pipe(
+    Effect.mapError(cause =>
+      new ProtocolValidationError({
+        schema: "RegistryHealthResponse",
+        message: "Registry health response did not match the registry protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeRegistryStorageErrorResponseEffect = Effect.fn(
+  "RegistryProtocol.decodeStorageErrorResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<RegistryStorageErrorResponse, ProtocolValidationError> {
+  return yield* decodeUnknownRegistryStorageErrorResponse(value).pipe(
+    Effect.mapError(cause =>
+      new ProtocolValidationError({
+        schema: "RegistryStorageErrorResponse",
+        message: "Registry storage error response did not match the registry protocol.",
+        cause,
+      })
+    ),
+  );
+});
 
 export function parseCreateDeploymentRequest(value: unknown): CreateDeploymentRequest {
-  try {
-    return decodeCreateDeploymentRequest(value);
-  } catch (cause) {
-    throw new ProtocolValidationError({
-      schema: "CreateDeploymentRequest",
-      message: "Create deployment request must include optional string deploymentId and slug fields.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeCreateDeploymentRequestEffect(value));
 }
 
 export function parseRegistryHealthResponse(value: unknown): RegistryHealthResponse {
-  try {
-    return decodeRegistryHealthResponse(value);
-  } catch (cause) {
-    throw new ProtocolValidationError({
-      schema: "RegistryHealthResponse",
-      message: "Registry health response did not match the registry protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeRegistryHealthResponseEffect(value));
 }
 
 export function parseRegistryStorageErrorResponse(value: unknown): RegistryStorageErrorResponse {
-  try {
-    return decodeRegistryStorageErrorResponse(value);
-  } catch (cause) {
-    throw new ProtocolValidationError({
-      schema: "RegistryStorageErrorResponse",
-      message: "Registry storage error response did not match the registry protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeRegistryStorageErrorResponseEffect(value));
 }
 
-const decodeDeploymentRecord = Schema.decodeUnknownSync(DeploymentRecord);
-const decodeListDeploymentsResponse = Schema.decodeUnknownSync(ListDeploymentsResponse);
+const decodeUnknownDeploymentRecord = Schema.decodeUnknownEffect(DeploymentRecord);
+const decodeUnknownListDeploymentsResponse = Schema.decodeUnknownEffect(ListDeploymentsResponse);
+
+export const decodeDeploymentRecordEffect = Effect.fn(
+  "RegistryProtocol.decodeDeploymentRecord",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<DeploymentRecord, ProtocolValidationError> {
+  return yield* decodeUnknownDeploymentRecord(value).pipe(
+    Effect.mapError(cause =>
+      new ProtocolValidationError({
+        schema: "DeploymentRecord",
+        message: "Deployment record response did not match the registry protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeListDeploymentsResponseEffect = Effect.fn(
+  "RegistryProtocol.decodeListDeploymentsResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ListDeploymentsResponse, ProtocolValidationError> {
+  return yield* decodeUnknownListDeploymentsResponse(value).pipe(
+    Effect.mapError(cause =>
+      new ProtocolValidationError({
+        schema: "ListDeploymentsResponse",
+        message: "List deployments response did not match the registry protocol.",
+        cause,
+      })
+    ),
+  );
+});
 
 export function parseDeploymentRecord(value: unknown): DeploymentRecord {
-  try {
-    return decodeDeploymentRecord(value);
-  } catch (cause) {
-    throw new ProtocolValidationError({
-      schema: "DeploymentRecord",
-      message: "Deployment record response did not match the registry protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeDeploymentRecordEffect(value));
 }
 
 export function parseListDeploymentsResponse(value: unknown): ListDeploymentsResponse {
-  try {
-    return decodeListDeploymentsResponse(value);
-  } catch (cause) {
-    throw new ProtocolValidationError({
-      schema: "ListDeploymentsResponse",
-      message: "List deployments response did not match the registry protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeListDeploymentsResponseEffect(value));
 }

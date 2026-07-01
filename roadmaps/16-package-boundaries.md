@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Registry Protocol Request And Response Effect Decoders
+
+Previous completed checkpoint: `1ac3bd4` Add deployment protocol effect decoders.
+
+What changed:
+
+- `flarex-protocol/registry` owns Effect-returning decoders for
+  create-deployment requests, health responses, storage-error responses,
+  deployment records, and list responses.
+- Backend `registry/Requests.ts` owns only backend create-deployment request
+  normalization after protocol validation succeeds.
+- Throwing registry protocol parsers remain compatibility adapters, not the
+  source API used by migrated Effect decode paths.
+
+Boundary decision:
+
+The protocol package owns registry transport shape and emits
+`ProtocolValidationError` at the first failing boundary. The backend registry
+request layer owns the service-facing request payload. Route boundary modules
+own request-body JSON reading and final HTTP/error-response conversion.
+Registry service/store modules own database behavior.
+
+Known limitations:
+
+- This checkpoint does not change Registry service/store behavior, RegistryDO
+  routing, DeploymentDO, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/registryRequests.test.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Deployment Protocol Request Effect Decoders
 
 Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.

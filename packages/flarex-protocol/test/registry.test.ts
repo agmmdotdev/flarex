@@ -1,9 +1,16 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  decodeCreateDeploymentRequestEffect,
+  decodeDeploymentRecordEffect,
+  decodeListDeploymentsResponseEffect,
+  decodeRegistryHealthResponseEffect,
+  decodeRegistryStorageErrorResponseEffect,
   parseDeploymentRecord,
   parseCreateDeploymentRequest,
   parseRegistryHealthResponse,
   parseRegistryStorageErrorResponse,
+  ProtocolValidationError,
   RegistryApi,
   RegistryRoute,
 } from "../src/registry";
@@ -60,6 +67,36 @@ describe("registry protocol routes", () => {
     });
   });
 
+  it("exposes typed registry request and response decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeCreateDeploymentRequestEffect({
+      deploymentId: 123,
+    }))).rejects.toBeInstanceOf(ProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeRegistryHealthResponseEffect({
+      service: "wrong",
+      status: "ok",
+    }))).rejects.toMatchObject({
+      schema: "RegistryHealthResponse",
+      message: "Registry health response did not match the registry protocol.",
+    });
+
+    await expect(Effect.runPromise(decodeDeploymentRecordEffect({
+      deploymentId: "deployment_1",
+      createdAt: 1,
+      updatedAt: 2,
+    }))).rejects.toMatchObject({
+      schema: "DeploymentRecord",
+      message: "Deployment record response did not match the registry protocol.",
+    });
+
+    await expect(Effect.runPromise(decodeListDeploymentsResponseEffect({
+      deployments: [{ deploymentId: "deployment_1" }],
+    }))).rejects.toMatchObject({
+      schema: "ListDeploymentsResponse",
+      message: "List deployments response did not match the registry protocol.",
+    });
+  });
+
   it("parses the declared registry storage error body", () => {
     expect(parseRegistryStorageErrorResponse({
       error: "Registry storage error.",
@@ -69,5 +106,14 @@ describe("registry protocol routes", () => {
 
     expect(() => parseRegistryStorageErrorResponse({ error: "raw database message" }))
       .toThrow("Registry storage error response did not match the registry protocol.");
+  });
+
+  it("exposes typed registry storage error response decode failures", async () => {
+    await expect(Effect.runPromise(decodeRegistryStorageErrorResponseEffect({
+      error: "raw database message",
+    }))).rejects.toMatchObject({
+      schema: "RegistryStorageErrorResponse",
+      message: "Registry storage error response did not match the registry protocol.",
+    });
   });
 });

@@ -1,5 +1,38 @@
 # Runtime Validation
 
+## Registry Protocol Request And Response Effect Decoders
+
+Previous completed checkpoint: `1ac3bd4` Add deployment protocol effect decoders.
+
+What changed:
+
+- `flarex-protocol/registry` now exposes Effect-returning decoders for
+  create-deployment requests and registry response envelopes.
+- The existing throwing registry protocol parsers remain compatibility
+  wrappers over those Effect decoders.
+- Backend registry request decoding now consumes the protocol Effect decoder
+  directly instead of wrapping a throwing parser in local try/catch code.
+
+Why it changed:
+
+Registry is the smallest service-backed route family. Closing its transport
+decoder boundary keeps protocol validation failures typed at source and leaves
+the route adapters responsible for request JSON and final HTTP conversion.
+
+Known limitations:
+
+- This checkpoint does not change Registry service/store behavior, RegistryDO
+  route matching, DeploymentDO, invoke/execution runtime behavior,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/registryRequests.test.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Deployment Protocol Request Effect Decoders
 
 Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.

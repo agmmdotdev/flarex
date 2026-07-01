@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment protocol request Effect decoders.
+- Previous completed checkpoint: Registry protocol request/response Effect decoders.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment protocol request Effect decoders:
+Next recommended checkpoint after the registry protocol request/response Effect decoders:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the deployment protocol request Effect decoder
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 271 slice:
+
+1. Add protocol-owned Effect decoders for registry create-deployment requests,
+   health responses, storage-error responses, deployment records, and list
+   deployment responses in `flarex-protocol/registry`.
+2. Keep the existing registry `parse...(...)` functions as throwing
+   compatibility wrappers over those Effect decoders.
+3. Move backend `registry/Requests.ts` create-deployment decoding off the local
+   try/catch-wrapped protocol parser and onto the protocol Effect decoder
+   directly.
+4. Preserve RegistryDO route matching, Registry service/store behavior,
+   create/list response bodies, malformed JSON handling, generated HttpApi
+   handler behavior, and registry route HTTP mapping.
+5. Add direct protocol tests for typed Effect request and response failure
+   channels before compatibility parsing, while keeping backend registry
+   request, route-boundary, and HttpApi handler tests as the adapter mapping
+   proof.
+6. Leave DeploymentDO, invoke/execution runtime behavior, scheduler, delivery,
+   PartitionDO SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 270 slice:
 
