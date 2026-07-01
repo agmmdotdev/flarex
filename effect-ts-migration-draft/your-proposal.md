@@ -8,6 +8,10 @@ Current migration state:
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
 - Larger-slice alignment: avoid one-branch validation commits. Group related validation-boundary conversions into coherent batches, then return to fuller route/service Effect conversions with typed body decoders and one adapter HTTP mapping edge.
+- Concrete execution checklist: use `roadmaps/22-effect-migration-checklist.md`
+  as the tick-box plan for the remaining migration. Each Effect migration turn
+  should tick only completed checklist items and update the next active
+  checkpoint there.
 
 ## Effect migration quality bar
 
