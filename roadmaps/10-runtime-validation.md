@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Deployment Start And Abandon Service Input Effects
+
+Previous completed checkpoint: `df0eb71` Type deployment finish service
+preflight.
+
+What changed:
+
+- Start-push service input construction now has a named Effect helper that
+  combines controlled id/clock sources with analyzed or failed push inputs.
+- Abandon-push service preflight now has a named Effect helper that composes
+  push lookup, eligibility validation, clock reads, and reason normalization.
+- Tests assert typed helper success and failure channels before store writes.
+
+Why it changed:
+
+The deployment service should keep lifecycle preflight failures typed and
+separate from generated HTTP response mapping. This checkpoint makes the start
+and abandon service preflight boundaries explicit without moving store write
+behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentService runtime validation cleanup.
+
+How Flarex differs:
+
+- Flarex deployment push lifecycle uses Cloudflare Durable Object storage and
+  service-controlled IDs/clocks. These are Flarex runtime boundaries, not
+  Convex user API compatibility behavior.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, artifact store implementation,
+  DeploymentPushStore write behavior, PartitionDO SQL/OCC, executor-http,
+  protocol parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Finish Service Preflight Effects
 
 Previous completed checkpoint: `8638044` Type public finish artifact sources.

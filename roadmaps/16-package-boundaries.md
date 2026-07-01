@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Deployment Start And Abandon Service Input Effects
+
+Previous completed checkpoint: `df0eb71` Type deployment finish service
+preflight.
+
+What changed:
+
+- `deployment/Service.ts` now exports
+  `startAnalyzedDeploymentPushStoreInput(...)` for start-push store input
+  construction.
+- `deployment/Service.ts` now exports `abandonDeploymentPushStoreInput(...)`
+  for abandon-push preflight and store input construction.
+- `DeploymentService.startAnalyzedPush(...)` and
+  `DeploymentService.abandonPush(...)` delegate to those helpers and keep
+  store write behavior in `DeploymentPushStore`.
+
+Boundary decision:
+
+Deployment lifecycle service preflight belongs in `DeploymentService`; write
+transactions and state transitions belong in `DeploymentPushStore`; HTTP
+response mapping belongs in generated DeploymentApi handlers. This checkpoint
+makes that split consistent across start, finish, and abandon operations.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment service/store package boundary.
+
+How Flarex differs:
+
+- Convex does not have this Cloudflare DeploymentDO plus generated Effect
+  HttpApi handler split. Flarex keeps service-controlled IDs/clocks in the
+  service layer and state mutation in the Durable Object store.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, artifact store implementation,
+  DeploymentPushStore write/state behavior, PartitionDO SQL/OCC behavior,
+  executor-http route, protocol parser compatibility, or `ValidatorJson`
+  boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Finish Service Preflight Effects
 
 Previous completed checkpoint: `8638044` Type public finish artifact sources.

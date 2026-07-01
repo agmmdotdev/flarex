@@ -8,7 +8,13 @@ import type {
   PushStatus,
 } from "../types";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
-import { DeploymentPushStore, type DeploymentSqlError, type FinishPushStoreInput } from "./Store";
+import {
+  DeploymentPushStore,
+  type AbandonPushStoreInput,
+  type DeploymentSqlError,
+  type FinishPushStoreInput,
+  type StartAnalyzedPushStoreInput,
+} from "./Store";
 import type { StartAnalyzedPushServiceInput } from "./Validation";
 import {
   DeploymentActiveDeploymentInvalidError,
@@ -37,6 +43,10 @@ export interface DeploymentArtifactResolver {
 
 export interface DeploymentClockReader {
   readonly currentTimeMillis: Effect.Effect<number>;
+}
+
+export interface DeploymentIdReader {
+  readonly pushId: Effect.Effect<string>;
 }
 
 export interface DeploymentServiceApi {
@@ -98,6 +108,34 @@ export const deploymentExecutionArtifactRefForPush = Effect.fn(
   return yield* artifacts.executionArtifactRefForSourcePackage(status.sourcePackage);
 });
 
+export const startAnalyzedDeploymentPushStoreInput = Effect.fn(
+  "DeploymentService.startAnalyzedDeploymentPushStoreInput",
+)(function* (
+  ids: DeploymentIdReader,
+  clock: DeploymentClockReader,
+  input: StartAnalyzedPushInput,
+): Effect.fn.Return<StartAnalyzedPushStoreInput> {
+  const now = yield* clock.currentTimeMillis;
+  const pushId = yield* ids.pushId;
+  if ("analysis" in input) {
+    return {
+      pushId,
+      now,
+      sourcePackage: input.sourcePackage,
+      analysis: input.analysis,
+      codegenAnalysis: input.codegenAnalysis,
+      diagnostics: input.diagnostics,
+    };
+  }
+  return {
+    pushId,
+    now,
+    sourcePackage: input.sourcePackage,
+    error: input.error,
+    diagnostics: input.diagnostics,
+  };
+});
+
 export const finishDeploymentPushStoreInput = Effect.fn(
   "DeploymentService.finishDeploymentPushStoreInput",
 )(function* (
@@ -119,6 +157,31 @@ export const finishDeploymentPushStoreInput = Effect.fn(
     pushId,
     now,
     executionArtifactRef,
+  };
+});
+
+export const abandonDeploymentPushStoreInput = Effect.fn(
+  "DeploymentService.abandonDeploymentPushStoreInput",
+)(function* (
+  store: DeploymentPushReader,
+  clock: DeploymentClockReader,
+  pushId: string,
+  request: AbandonPushRequest,
+): Effect.fn.Return<
+  AbandonPushStoreInput,
+  | DeploymentPushInvalidStateError
+  | DeploymentPushNotFoundError
+  | DeploymentSqlError
+  | DeploymentValidationError
+> {
+  const status = yield* requireDeploymentPush(store, pushId);
+  yield* ensureDeploymentPushCanBeAbandoned(status);
+  const now = yield* clock.currentTimeMillis;
+  const reason = yield* normalizeDeploymentAbandonReason(request);
+  return {
+    pushId,
+    now,
+    reason,
   };
 });
 
@@ -185,25 +248,8 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
         function* (
           input: StartAnalyzedPushInput,
         ): Effect.fn.Return<PushStatus, DeploymentSqlError | DeploymentStoredPushMissingError | DeploymentValidationError> {
-          const now = yield* clock.currentTimeMillis;
-          const pushId = yield* ids.pushId;
-          if ("analysis" in input) {
-            return yield* store.startAnalyzedPush({
-              pushId,
-              now,
-              sourcePackage: input.sourcePackage,
-              analysis: input.analysis,
-              codegenAnalysis: input.codegenAnalysis,
-              diagnostics: input.diagnostics,
-            });
-          }
-          return yield* store.startAnalyzedPush({
-            pushId,
-            now,
-            sourcePackage: input.sourcePackage,
-            error: input.error,
-            diagnostics: input.diagnostics,
-          });
+          const storeInput = yield* startAnalyzedDeploymentPushStoreInput(ids, clock, input);
+          return yield* store.startAnalyzedPush(storeInput);
         },
       );
 
@@ -235,15 +281,8 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           | DeploymentStoredPushMissingError
           | DeploymentValidationError
         > {
-          const status = yield* requireDeploymentPush(store, pushId);
-          yield* ensureDeploymentPushCanBeAbandoned(status);
-          const now = yield* clock.currentTimeMillis;
-          const reason = yield* normalizeDeploymentAbandonReason(request);
-          return yield* store.abandonPush({
-            pushId,
-            now,
-            reason,
-          });
+          const input = yield* abandonDeploymentPushStoreInput(store, clock, pushId, request);
+          return yield* store.abandonPush(input);
         },
       );
 

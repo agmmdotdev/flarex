@@ -12,11 +12,13 @@ import {
 } from "../src/deployment/Errors";
 import {
   DeploymentService,
+  abandonDeploymentPushStoreInput,
   deploymentExecutionArtifactRefForPush,
   ensureDeploymentPushCanBeAbandoned,
   finishDeploymentPushStoreInput,
   normalizeDeploymentAbandonReason,
   requireDeploymentPush,
+  startAnalyzedDeploymentPushStoreInput,
   type StartAnalyzedPushInput,
 } from "../src/deployment/Service";
 import {
@@ -317,6 +319,45 @@ describe("DeploymentService", () => {
       pushId: "push-failed",
       state: "failed",
       error: "analysis failed",
+    });
+  });
+
+  it("builds analyzed and failed start store inputs through a named service helper", async () => {
+    const analyzedInput: StartAnalyzedPushInput = {
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: deploymentCodegenAnalysis(),
+      diagnostics: [{ level: "log", message: "ok" }],
+    };
+    const failedInput: StartAnalyzedPushInput = {
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      diagnostics: [{ level: "error", message: "failed" }],
+    };
+
+    await expect(Effect.runPromise(startAnalyzedDeploymentPushStoreInput(
+      { pushId: Effect.succeed("push-helper-analyzed") },
+      { currentTimeMillis: Effect.succeed(1_850_000) },
+      analyzedInput,
+    ))).resolves.toEqual({
+      pushId: "push-helper-analyzed",
+      now: 1_850_000,
+      sourcePackage: analyzedInput.sourcePackage,
+      analysis: analyzedInput.analysis,
+      codegenAnalysis: analyzedInput.codegenAnalysis,
+      diagnostics: analyzedInput.diagnostics,
+    });
+
+    await expect(Effect.runPromise(startAnalyzedDeploymentPushStoreInput(
+      { pushId: Effect.succeed("push-helper-failed") },
+      { currentTimeMillis: Effect.succeed(1_860_000) },
+      failedInput,
+    ))).resolves.toEqual({
+      pushId: "push-helper-failed",
+      now: 1_860_000,
+      sourcePackage: failedInput.sourcePackage,
+      error: "analysis failed",
+      diagnostics: failedInput.diagnostics,
     });
   });
 
@@ -1680,6 +1721,69 @@ describe("DeploymentService", () => {
       .resolves.toBe("Push abandoned before activation.");
     await expect(Effect.runPromise(normalizeDeploymentAbandonReason({ reason: "x".repeat(1_100) })))
       .resolves.toBe("x".repeat(1_000));
+  });
+
+  it("builds abandon store input through a named service preflight helper", async () => {
+    const status = analyzedPushStatus("push-abandon-preflight");
+
+    const input = await Effect.runPromise(abandonDeploymentPushStoreInput(
+      {
+        getPush: pushId => Effect.succeed(pushId === status.pushId ? status : null),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_750_000),
+      },
+      status.pushId,
+      { reason: "typecheck failed" },
+    ));
+
+    expect(input).toEqual({
+      pushId: status.pushId,
+      now: 2_750_000,
+      reason: "typecheck failed",
+    });
+  });
+
+  it("preserves typed abandon preflight not-found and invalid-state failures", async () => {
+    const notFound = await Effect.runPromise(abandonDeploymentPushStoreInput(
+      {
+        getPush: () => Effect.succeed(null),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_760_000),
+      },
+      "missing-abandon-preflight",
+      {},
+    ).pipe(
+      Effect.catchTag("DeploymentPushNotFoundError", error => Effect.succeed(error)),
+    ));
+
+    if (!(notFound instanceof DeploymentPushNotFoundError)) {
+      throw new Error("Expected DeploymentPushNotFoundError.");
+    }
+    expect(notFound.pushId).toBe("missing-abandon-preflight");
+
+    const invalidState = await Effect.runPromise(abandonDeploymentPushStoreInput(
+      {
+        getPush: () => Effect.succeed({ ...analyzedPushStatus("push-abandon-invalid-preflight"), state: "activated" }),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_770_000),
+      },
+      "push-abandon-invalid-preflight",
+      {},
+    ).pipe(
+      Effect.catchTag("DeploymentPushInvalidStateError", error => Effect.succeed(error)),
+    ));
+
+    if (!(invalidState instanceof DeploymentPushInvalidStateError)) {
+      throw new Error("Expected DeploymentPushInvalidStateError.");
+    }
+    expect(invalidState).toMatchObject({
+      action: "abandon",
+      pushId: "push-abandon-invalid-preflight",
+      state: "activated",
+    });
   });
 
   it("returns a typed not-found error before abandon storage work", async () => {

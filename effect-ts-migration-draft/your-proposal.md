@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8638044` Type public finish artifact sources.
-- Active checkpoint: validate and review the deployment finish service preflight Effect batch, keeping finish response behavior unchanged while naming the service helper that builds `FinishPushStoreInput`.
+- Previous completed checkpoint: `df0eb71` Type deployment finish service preflight.
+- Active checkpoint: validate and review the deployment start/abandon service input Effect batch, keeping service behavior unchanged while naming the helpers that build `StartAnalyzedPushStoreInput` and `AbandonPushStoreInput`.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment finish service preflight effects:
+Next recommended checkpoint after the deployment start/abandon service input effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially start-push input construction or
-   abandon preflight input construction inside `DeploymentService`.
+   service/domain failures, especially active deployment read preflight and
+   generated handler service response mapping around deployment reads.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,30 @@ Next recommended checkpoint after the deployment finish service preflight effect
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 323 slice:
+
+1. Extract start-push service input construction into
+   `startAnalyzedDeploymentPushStoreInput(...)`, a named Effect helper that
+   combines controlled push id, clock, and analyzed/failed push input variants
+   into `StartAnalyzedPushStoreInput`.
+2. Extract abandon-push service preflight input construction into
+   `abandonDeploymentPushStoreInput(...)`, a named Effect helper that composes
+   push lookup, abandon eligibility, clock reads, and reason normalization into
+   `AbandonPushStoreInput`.
+3. Keep typed `DeploymentPushNotFoundError`,
+   `DeploymentPushInvalidStateError`, `DeploymentSqlError`, and
+   `DeploymentValidationError` failures propagated unchanged from their source
+   boundaries.
+4. Keep `DeploymentService.startAnalyzedPush(...)` and
+   `DeploymentService.abandonPush(...)` behavior unchanged: they build store
+   inputs and delegate write semantics to `DeploymentPushStore`.
+5. Add direct helper coverage for analyzed and failed start input construction,
+   abandon input construction, missing abandon push, and invalid abandon state.
+6. Leave DeploymentDO routing, DeploymentApi generated handler response
+   mapping, public Worker deployment dispatch, artifact store implementation,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 322 slice:
 
