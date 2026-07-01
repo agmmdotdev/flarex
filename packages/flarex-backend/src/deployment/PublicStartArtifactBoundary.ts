@@ -1,6 +1,7 @@
 import { Effect } from "effect";
+import { validateExecutionArtifactRef } from "flarex/artifacts";
 import type { BackendExecutionArtifactStore } from "../artifactStore";
-import type { AnalyzedStartPushRequest } from "../types";
+import type { AnalyzedStartPushRequest, ExecutionArtifactRef } from "../types";
 import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchError,
@@ -14,8 +15,20 @@ export const persistAnalyzedSourcePackageEffect = Effect.fn(
 ): Effect.fn.Return<void, PublicWorkerDispatchError> {
   if (artifactStore === undefined || analyzed.analysis === undefined) return;
 
-  yield* Effect.tryPromise({
+  const ref = yield* Effect.tryPromise({
     try: () => artifactStore.put(analyzed.sourcePackage),
+    catch: error => publicWorkerDispatchError("deployment-start-push-store-artifact", error),
+  });
+  yield* decodePublicStartArtifactRef(ref);
+});
+
+export const decodePublicStartArtifactRef = Effect.fn(
+  "Worker.decodePublicStartArtifactRef",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ExecutionArtifactRef, PublicWorkerDispatchError> {
+  return yield* Effect.try({
+    try: () => validateExecutionArtifactRef(value),
     catch: error => publicWorkerDispatchError("deployment-start-push-store-artifact", error),
   });
 });

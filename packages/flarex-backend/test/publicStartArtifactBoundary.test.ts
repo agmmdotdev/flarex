@@ -2,8 +2,12 @@ import { Effect } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
-import { persistAnalyzedSourcePackageEffect } from "../src/deployment/PublicStartArtifactBoundary";
+import {
+  decodePublicStartArtifactRef,
+  persistAnalyzedSourcePackageEffect,
+} from "../src/deployment/PublicStartArtifactBoundary";
 import type {
+  ExecutionArtifactRef,
   AnalyzedStartPushRequest,
   PushSourcePackage,
 } from "../src/types";
@@ -51,6 +55,36 @@ describe("public start artifact boundary", () => {
       message: "artifact write failed",
     });
   });
+
+  it("schema-checks artifact refs returned from public start artifact storage", async () => {
+    const validRef = await executionArtifactRefForSourcePackage(sourcePackage());
+    await expect(Effect.runPromise(decodePublicStartArtifactRef(validRef)))
+      .resolves
+      .toEqual(validRef);
+
+    const invalidRef = await Effect.runPromise(Effect.flip(
+      decodePublicStartArtifactRef({ ...validRef, artifactId: "not-an-artifact" }),
+    ));
+    expect(invalidRef).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-start-push-store-artifact",
+      status: 500,
+      message: "Stored execution artifact reference has an invalid artifact ID.",
+    });
+  });
+
+  it("keeps invalid artifact store write responses in the public worker dispatch channel", async () => {
+    const failure = await Effect.runPromise(Effect.flip(
+      persistAnalyzedSourcePackageEffect(invalidRefArtifactStore(), analyzedStartPushRequest()),
+    ));
+
+    expect(failure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-start-push-store-artifact",
+      status: 500,
+      message: "Stored execution artifact reference has an invalid source package hash.",
+    });
+  });
 });
 
 function artifactStore(stored: PushSourcePackage[]): BackendExecutionArtifactStore {
@@ -69,6 +103,21 @@ function failingArtifactStore(): BackendExecutionArtifactStore {
   return {
     put: async () => {
       throw new Error("artifact write failed");
+    },
+    get: async () => {
+      throw new Error("unused");
+    },
+  };
+}
+
+function invalidRefArtifactStore(): BackendExecutionArtifactStore {
+  return {
+    put: async sourcePackage => {
+      const ref = await executionArtifactRefForSourcePackage(sourcePackage);
+      return {
+        ...ref,
+        sourcePackageHash: "not-a-hash",
+      } as ExecutionArtifactRef;
     },
     get: async () => {
       throw new Error("unused");

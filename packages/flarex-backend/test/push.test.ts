@@ -10,6 +10,7 @@ import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
 import {
   analyzeSourcePackageEffect,
   decodeBackendAnalyzerResponse,
+  decodeBackendAnalyzerStartPushResponse,
 } from "../src/backendAnalyzerResponse";
 import type { R2BucketLike } from "../src/artifactStore";
 import type {
@@ -61,6 +62,35 @@ describe("deployment push lifecycle", () => {
       message: "Analyzer request failed with status 502",
       diagnostics: undefined,
       body: null,
+    });
+  });
+
+  it("schema-checks assembled backend analyzer start-push responses", async () => {
+    const package_ = sourcePackage();
+    await expect(Effect.runPromise(decodeBackendAnalyzerStartPushResponse(
+      Response.json({
+        analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+        codegenAnalysis: candidateCodegenAnalysis(),
+        diagnostics: [{ level: "warn", message: "slow analysis" }],
+      }),
+      package_,
+    ))).resolves.toEqual({
+      sourcePackage: package_,
+      analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+      codegenAnalysis: candidateCodegenAnalysis(),
+      diagnostics: [{ level: "warn", message: "slow analysis" }],
+    });
+
+    await expect(Effect.runPromise(decodeBackendAnalyzerStartPushResponse(
+      Response.json({
+        analysis: { schema: candidateSchema(), functions: candidateFunctions() },
+        codegenAnalysis: candidateCodegenAnalysis(),
+      }),
+      { ...package_, modules: "not-modules" } as unknown as StartPushRequest["sourcePackage"],
+    ))).rejects.toMatchObject({
+      _tag: "BackendAnalyzerResponseError",
+      status: 200,
+      message: "Source package modules must be an array.",
     });
   });
 

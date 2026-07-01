@@ -1,5 +1,7 @@
 import { Data, Effect } from "effect";
 import { readResponseJsonOrNullEffect } from "./http";
+import { decodeDeploymentAnalyzedStartPushPayload } from "./deployment/Requests";
+import { decodeAnalyzedStartPushRequest } from "./deployment/Validation";
 import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchError,
@@ -54,20 +56,17 @@ export const analyzeSourcePackageEffect = Effect.fn("Worker.analyzeSourcePackage
       }),
       catch: error => publicWorkerDispatchError("deployment-start-push-analyze", error),
     });
-    const decoded = yield* decodeBackendAnalyzerResponse(response).pipe(
+    const decoded = yield* decodeBackendAnalyzerStartPushResponse(
+      response,
+      request.sourcePackage,
+    ).pipe(
       Effect.match({
         onFailure: error => ({ ok: false, error } as const),
-        onSuccess: body => ({ ok: true, body } as const),
+        onSuccess: analyzed => ({ ok: true, analyzed } as const),
       }),
     );
     if (decoded.ok) {
-      const diagnostics = analyzerDiagnostics(decoded.body);
-      return {
-        sourcePackage: request.sourcePackage,
-        analysis: decoded.body.analysis,
-        codegenAnalysis: decoded.body.codegenAnalysis,
-        ...(diagnostics === undefined ? {} : { diagnostics }),
-      };
+      return decoded.analyzed;
     }
     return {
       sourcePackage: request.sourcePackage,
@@ -76,6 +75,38 @@ export const analyzeSourcePackageEffect = Effect.fn("Worker.analyzeSourcePackage
     };
   },
 );
+
+export const decodeBackendAnalyzerStartPushResponse = Effect.fn(
+  "Worker.decodeBackendAnalyzerStartPushResponse",
+)(function* (
+  response: AnalyzerHttpResponse,
+  sourcePackage: StartPushRequest["sourcePackage"],
+): Effect.fn.Return<AnalyzedStartPushRequest, BackendAnalyzerResponseError> {
+  const body = yield* decodeBackendAnalyzerResponse(response);
+  const diagnostics = analyzerDiagnostics(body);
+  const analyzed: AnalyzedStartPushRequest = {
+    sourcePackage,
+    analysis: body.analysis,
+    codegenAnalysis: body.codegenAnalysis,
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+  };
+  const protocolPayload = yield* decodeDeploymentAnalyzedStartPushPayload(analyzed).pipe(
+    Effect.mapError(error => new BackendAnalyzerResponseError({
+      status: response.status,
+      message: error.message,
+      diagnostics,
+      body,
+    })),
+  );
+  return yield* decodeAnalyzedStartPushRequest(protocolPayload).pipe(
+    Effect.mapError(error => new BackendAnalyzerResponseError({
+      status: response.status,
+      message: error.message,
+      diagnostics,
+      body,
+    })),
+  );
+});
 
 function readBackendAnalyzerResponseJson(response: AnalyzerHttpResponse): Effect.Effect<unknown> {
   return readResponseJsonOrNullEffect(response);

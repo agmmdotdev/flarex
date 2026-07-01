@@ -1,5 +1,43 @@
 # Deployment Analysis And Push
 
+## Public Artifact Boundary Validation
+
+Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
+
+What changed:
+
+- Analyzer success responses are no longer trusted as raw analysis bodies. The
+  Worker assembles them with the request source package, validates the protocol
+  analyzed-start envelope, then validates the backend deployment payload.
+- Public start artifact persistence validates the returned execution artifact
+  ref before continuing.
+- Finish artifact availability validates the stored source package payload
+  before treating the artifact as available.
+
+Why it changed:
+
+This completes `P-3` in the concrete migration checklist. Public deployment
+start/finish artifact responses now have typed Effect validation boundaries
+without changing analyzer fetch behavior, artifact storage behavior, or the
+public deployment response adapter.
+
+Known limitations:
+
+- Worker-level route error cleanup is still next. Generated handler logic,
+  DeploymentService/store lifecycle logic, artifact materializer/cache
+  semantics, DeploymentPushStore lifecycle state changes, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentValidation.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Response Adapter
 
 Previous completed checkpoint: `d4d1fc7` Type public push route inputs.

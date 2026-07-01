@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
+- Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -145,16 +145,17 @@ The Effect migration is complete only when all of these are true:
     `test/push.test.ts`.
 - [x] P-2. Move public deployment Worker HTTP response mapping to one adapter
   edge and stop exposing `HttpError` from public deployment dispatch logic.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `656d1ea` Map public deployment errors at adapter.
   - Files:
     `packages/flarex-backend/src/worker.ts`,
     `packages/flarex-backend/src/deployment/PublicPushDispatchBoundary.ts`,
     `packages/flarex-backend/src/worker/PublicRouteDispatchError.ts`.
   - Must preserve: start pending, analyzed start, read push, finish, abandon,
     scheduler handoff, deployment id/path errors.
-- [ ] P-3. Schema-check public start artifact and finish artifact service
+- [x] P-3. Schema-check public start artifact and finish artifact service
   boundary responses through typed Effect decoders.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/deployment/PublicStartArtifactBoundary.ts`,
     `packages/flarex-backend/src/deployment/PublicFinishArtifactBoundary.ts`,
@@ -162,7 +163,8 @@ The Effect migration is complete only when all of these are true:
   - Focus tests:
     `test/publicStartArtifactBoundary.test.ts`,
     `test/publicFinishArtifactBoundary.test.ts`,
-    `test/deploymentValidation.test.ts`.
+    `test/deploymentValidation.test.ts`,
+    `test/push.test.ts`.
 
 ### Phase 3: Worker Route Error Model
 
@@ -395,10 +397,9 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with P-3:
+Start with W-1:
 
-Schema-check public start artifact and finish artifact service boundary
-responses through typed Effect decoders in `PublicStartArtifactBoundary`,
-`PublicFinishArtifactBoundary`, and `backendAnalyzerResponse`; update
+Replace `type PublicWorkerRouteError = HttpError` with a tagged Worker route
+error union and one Worker-level response adapter; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `P-3`, then commit.
+run only the EffectTS quality checker, tick `W-1`, then commit.

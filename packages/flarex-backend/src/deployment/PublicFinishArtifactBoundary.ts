@@ -1,10 +1,14 @@
 import { Effect, Schema } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { PushStatus as ProtocolPushStatus } from "flarex-protocol/deployment";
+import {
+  PushSourcePackage as ProtocolPushSourcePackage,
+  PushStatus as ProtocolPushStatus,
+} from "flarex-protocol/deployment";
 import type { BackendExecutionArtifactStore } from "../artifactStore";
 import { json } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import type { ExecutionArtifactRef, PushSourcePackage, PushStatus } from "../types";
+import { decodeSourcePackage } from "./Validation";
 import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchError,
@@ -52,13 +56,14 @@ export const readFinishArtifactAvailabilityEffect = Effect.fn(
   artifactStore: BackendExecutionArtifactStore,
   ref: ExecutionArtifactRef,
 ): Effect.fn.Return<boolean, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
+  const sourcePackage = yield* Effect.tryPromise({
     try: async () => {
-      await artifactStore.get(ref);
-      return true;
+      return await artifactStore.get(ref);
     },
     catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
   });
+  yield* decodeFinishArtifactSourcePackage(sourcePackage);
+  return true;
 });
 
 export const readFinishArtifactPushStatusJson = Effect.fn(
@@ -81,4 +86,17 @@ export const decodeFinishArtifactPushStatus = Effect.fn(
     Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
   );
   return status as PushStatus;
+});
+
+export const decodeFinishArtifactSourcePackage = Effect.fn(
+  "Worker.decodeFinishArtifactSourcePackage",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PushSourcePackage, PublicWorkerDispatchError> {
+  const protocolSourcePackage = yield* Schema.decodeUnknownEffect(ProtocolPushSourcePackage)(value).pipe(
+    Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
+  );
+  return yield* decodeSourcePackage(protocolSourcePackage as PushSourcePackage).pipe(
+    Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
+  );
 });

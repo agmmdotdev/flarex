@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
-- Active checkpoint: P-2 public deployment Worker response mapping, moving deployment route failures directly to one response adapter edge without exposing `HttpError` from public deployment dispatch logic.
+- Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
+- Active checkpoint: W-1 Worker route error model, replacing `type PublicWorkerRouteError = HttpError` with a tagged Worker route error union and one Worker-level response adapter.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,20 +52,53 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after P-2 public deployment Worker response mapping:
+Next recommended checkpoint after P-3 public artifact boundary validation:
 
-1. Schema-check public start artifact and finish artifact service boundary
-   responses through typed Effect decoders.
+1. Replace `type PublicWorkerRouteError = HttpError` with a tagged Worker route
+   error union and one Worker-level response adapter.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding deployment storage, artifact materializer/cache,
-   source-package behavior, executor-http, public Worker dispatch, and
+   source-package behavior, executor-http, PartitionDO SQL/OCC, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 341 slice:
+Current Goal 343 slice:
+
+1. Replace `type PublicWorkerRouteError = HttpError` with a tagged Worker route
+   error union.
+2. Add or reuse one Worker-level response adapter for public route failures.
+3. Keep public deployment route failures typed through the Worker route branch
+   and preserve existing response body/status behavior.
+4. Extend affected public route error/path tests before broad Worker route
+   family changes.
+5. Leave route-family dispatch logic, DeploymentService/store lifecycle,
+   analyzer/artifact semantics, PartitionDO SQL/OCC, executor-http, protocol
+   parser compatibility wrappers, and `ValidatorJson` unchanged unless W-1
+   owns that boundary directly.
+
+Completed Goal 342 slice:
+
+1. Decode assembled analyzer start responses through the protocol analyzed
+   start boundary and backend deployment validation boundary.
+2. Validate artifact store `put(...)` return refs in
+   `PublicStartArtifactBoundary`.
+3. Validate artifact store `get(...)` source packages in
+   `PublicFinishArtifactBoundary`.
+4. Keep analyzer fetch failures and artifact store failures in the existing
+   `PublicWorkerDispatchError` channels.
+5. Extend focused tests for analyzer response decode, start artifact ref
+   decode, and finish artifact source package decode.
+6. Tick `P-3` in `roadmaps/22-effect-migration-checklist.md` and move the
+   next active checkpoint to `W-1`.
+7. Leave generated handler logic, DeploymentService/store lifecycle, public
+   push route input shape, Worker response adapter shape, PartitionDO SQL/OCC,
+   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+   unchanged.
+
+Completed Goal 341 slice:
 
 1. Remove the intermediate
    `publicWorkerDeploymentRouteErrorToHttpErrorEffect(...)` mapping from the

@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Artifact Boundary Validation
+
+Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
+
+What changed:
+
+- Backend analyzer start-push responses now assemble the known source package
+  with analyzer output and pass through typed Effect decoders before becoming
+  an analyzed push payload.
+- Public start artifact storage validates the artifact ref returned by the
+  backend artifact store.
+- Public finish artifact availability validates the source package returned by
+  the artifact store before accepting the artifact as present.
+- The concrete migration checklist ticks `P-3` and sets `W-1` as the next
+  active checkpoint.
+
+Why it changed:
+
+P-3 closes unchecked public analyzer/artifact service responses that sat behind
+already-typed public deployment route inputs and response mapping. The public
+Worker branch keeps the same HTTP behavior while the service responses now fail
+through typed Effect error channels.
+
+Known limitations:
+
+- Worker-wide `HttpError` cleanup remains for W-1/W-2. Generated handler logic,
+  DeploymentService/store lifecycle logic, artifact materializer/cache
+  semantics, PartitionDO SQL/OCC, executor-http, protocol parser compatibility
+  wrappers, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentValidation.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Response Adapter
 
 Previous completed checkpoint: `d4d1fc7` Type public push route inputs.

@@ -3,6 +3,7 @@ import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
 import {
+  decodeFinishArtifactSourcePackage,
   decodeFinishArtifactPushStatus,
   executionArtifactRefForFinishArtifactEffect,
   readFinishArtifactAvailabilityEffect,
@@ -88,6 +89,9 @@ describe("public finish artifact boundary", () => {
     const ref = await Effect.runPromise(executionArtifactRefForFinishArtifactEffect(package_));
 
     expect(ref).toEqual(await executionArtifactRefForSourcePackage(package_));
+    await expect(Effect.runPromise(decodeFinishArtifactSourcePackage(package_)))
+      .resolves
+      .toEqual(package_);
     await expect(Effect.runPromise(readFinishArtifactAvailabilityEffect(
       artifactStore({ available: true }),
       ref,
@@ -99,6 +103,30 @@ describe("public finish artifact boundary", () => {
       readFinishArtifactAvailabilityEffect(throwingArtifactStore(), executionArtifactRef()),
     ));
     expect(availabilityFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+
+    const invalidSourcePackageFailure = await Effect.runPromise(Effect.flip(
+      decodeFinishArtifactSourcePackage({
+        ...sourcePackage(),
+        modules: "not-modules",
+      }),
+    ));
+    expect(invalidSourcePackageFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+
+    const invalidStoreReadFailure = await Effect.runPromise(Effect.flip(
+      readFinishArtifactAvailabilityEffect(
+        invalidSourcePackageArtifactStore(),
+        executionArtifactRef(),
+      ),
+    ));
+    expect(invalidStoreReadFailure).toMatchObject({
       _tag: "PublicWorkerDispatchError",
       source: "deployment-finish-push-artifact",
       status: 500,
@@ -179,6 +207,16 @@ function throwingArtifactStore(): BackendExecutionArtifactStore {
     get: () => {
       throw new Error("artifact store unavailable");
     },
+  };
+}
+
+function invalidSourcePackageArtifactStore(): BackendExecutionArtifactStore {
+  return {
+    put: async sourcePackage => executionArtifactRefForSourcePackage(sourcePackage),
+    get: async () => ({
+      ...sourcePackage(),
+      functions: "not-functions",
+    } as unknown as PushSourcePackage),
   };
 }
 

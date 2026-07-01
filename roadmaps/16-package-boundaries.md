@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Public Artifact Boundary Validation
+
+Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
+
+What changed:
+
+- `backendAnalyzerResponse.ts` now validates assembled analyzer start-push
+  responses through the protocol analyzed-start decoder and backend deployment
+  validation decoder.
+- `deployment/PublicStartArtifactBoundary.ts` validates artifact refs returned
+  from public start artifact writes.
+- `deployment/PublicFinishArtifactBoundary.ts` validates source packages read
+  during finish artifact availability checks.
+- `P-3` is ticked in `roadmaps/22-effect-migration-checklist.md`; `W-1` is the
+  next active checkpoint.
+
+Boundary decision:
+
+Analyzer and artifact store responses are now checked at the public deployment
+service boundary before downstream route/dispatch code trusts them. Existing
+artifact store failures remain in the public worker dispatch error channel.
+
+Known limitations:
+
+- This slice does not change storage implementation, artifact materialization,
+  generated handlers, DeploymentService lifecycle, Worker route error unions,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentValidation.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Response Adapter
 
 Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
