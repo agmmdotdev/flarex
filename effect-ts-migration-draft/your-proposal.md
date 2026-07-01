@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `39e4aaa` Type start abandon store write plans.
-- Active checkpoint: validate and review the public Worker deployment route adapter batch, keeping deployment route failures mapped through a named Effect response adapter at the Worker edge.
+- Previous completed checkpoint: `456e952` Type public deployment route adapter.
+- Active checkpoint: validate and review the generated Deployment HttpApi handler-input batch, removing full duplicate protocol payload decoding while keeping unexpressed protocol invariants in a named Effect guard.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,12 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker deployment route adapter effects:
+Next recommended checkpoint after the generated Deployment HttpApi handler-input effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially the next deployment generated
-   HttpApi/service adapter slice that removes duplicated request decoding and
-   keeps protocol validation failures propagated unchanged.
+   service/domain failures, especially the next generated HttpApi/service
+   adapter slice that moves finish/abandon handler input and response mapping
+   toward named Effect boundaries without duplicating protocol decoding.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -63,7 +63,32 @@ Next recommended checkpoint after the public Worker deployment route adapter eff
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 330 slice:
+Current Goal 331 slice:
+
+1. Remove `decodeDeploymentAnalyzedStartPushPayload(...)` from
+   `decodeStartAnalyzedPushHandlerInput(...)` so the generated HttpApi handler
+   does not re-run the full protocol payload decoder after HttpApi payload
+   decoding.
+2. Add `decodeStartAnalyzedPushHandlerProtocolInput(...)`, a small named
+   Effect guard for protocol cross-field invariants that the current
+   `AnalyzedStartPushRequest` schema cannot express: missing error without
+   analysis, codegen without analysis, and error with analysis.
+3. Keep domain validation in `decodeStartAnalyzedPushInput(...)`, so source
+   package, diagnostics, analysis, function, partition, and codegen metadata
+   failures remain typed `DeploymentValidationError` values at the service
+   adapter boundary.
+4. Widen `decodeStartAnalyzedPushInput(...)` to the structural payload it
+   already validates and normalize source package modules from checked fields,
+   avoiding handler-side casts.
+5. Add direct generated-handler tests for the protocol guard and preserve
+   existing direct handler-input coverage for domain validation failures and
+   declared 400 response mapping.
+6. Leave DeploymentDO route decoding, public Worker deployment dispatch,
+   DeploymentService/store lifecycle logic, artifact materializer/cache,
+   source-package analyzer semantics, PartitionDO SQL/OCC, executor-http,
+   protocol parser compatibility wrappers, and `ValidatorJson` unchanged.
+
+Completed Goal 330 slice:
 
 1. Route the public Worker `/deployments/...` branch through
    `publicWorkerDeploymentRouteErrorToResponseEffect(...)`, a named Effect

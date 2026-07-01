@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   DeploymentApi,
-  type AnalyzedStartPushRequest,
+  type AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest,
   type AbandonPushRequest,
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
@@ -30,10 +30,8 @@ import {
 } from "./Service";
 import type { DeploymentSqlError } from "./Store";
 import {
-  decodeAnalyzedStartPushRequest,
   decodeStartAnalyzedPushInput,
 } from "./Validation";
-import { decodeDeploymentAnalyzedStartPushPayload } from "./Requests";
 
 export type DeploymentReadErrorResponse =
   | DeploymentNotFoundErrorResponse
@@ -142,7 +140,7 @@ export const deploymentStartAnalyzedPushHandler = Effect.fn(
   "DeploymentApiHandlers.startAnalyzedPush",
 )(function* (
   deployment: DeploymentServiceApi,
-  payload: AnalyzedStartPushRequest,
+  payload: ProtocolAnalyzedStartPushRequest,
 ) {
   return yield* decodeStartAnalyzedPushHandlerInput(payload).pipe(
     Effect.flatMap(input => deployment.startAnalyzedPush(input)),
@@ -340,17 +338,53 @@ export function deploymentProtocolResponseFailureToResponse(
 }
 
 export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
-  "decodeStartAnalyzedPushHandlerInput",
+  "DeploymentApiHandlers.decodeStartAnalyzedPushHandlerInput",
 )(function* (
-  payload: AnalyzedStartPushRequest,
+  payload: ProtocolAnalyzedStartPushRequest,
 ): Effect.fn.Return<
   StartAnalyzedPushInput,
   DeploymentProtocolValidationError | DeploymentValidationError
 > {
-  const protocolPayload = yield* decodeDeploymentAnalyzedStartPushPayload(payload);
-  const request = yield* decodeAnalyzedStartPushRequest(protocolPayload);
-  return yield* decodeStartAnalyzedPushInput(request);
+  const protocolPayload = yield* decodeStartAnalyzedPushHandlerProtocolInput(payload);
+  return yield* decodeStartAnalyzedPushInput(protocolPayload);
 });
+
+export const decodeStartAnalyzedPushHandlerProtocolInput = Effect.fn(
+  "DeploymentApiHandlers.decodeStartAnalyzedPushHandlerProtocolInput",
+)(function* (
+  payload: ProtocolAnalyzedStartPushRequest,
+): Effect.fn.Return<ProtocolAnalyzedStartPushRequest, DeploymentProtocolValidationError> {
+  if (payload.analysis === undefined && (typeof payload.error !== "string" || payload.error.length === 0)) {
+    return yield* deploymentStartProtocolFailure(
+      "A push without analysis must include an error message.",
+      payload,
+    );
+  }
+  if (payload.analysis === undefined && payload.codegenAnalysis !== undefined) {
+    return yield* deploymentStartProtocolFailure(
+      "A push without analysis must not include codegenAnalysis.",
+      payload,
+    );
+  }
+  if (payload.analysis !== undefined && payload.error !== undefined) {
+    return yield* deploymentStartProtocolFailure(
+      "A push with analysis must not include error.",
+      payload,
+    );
+  }
+  return payload;
+});
+
+function deploymentStartProtocolFailure(
+  message: string,
+  cause: unknown,
+): Effect.Effect<never, DeploymentProtocolValidationError> {
+  return Effect.fail(new DeploymentProtocolValidationError({
+    schema: "AnalyzedStartPushRequest",
+    message,
+    cause,
+  }));
+}
 
 export const decodePushStatusForHttpApi = Effect.fn(
   "DeploymentApiHandlers.decodePushStatusForHttpApi",

@@ -38,7 +38,7 @@ export interface DeploymentPushStatusRow extends Record<string, string | number 
 }
 
 export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourcePackage")(
-  function* (sourcePackage: PushSourcePackage): Effect.fn.Return<PushSourcePackage, DeploymentValidationError> {
+  function* (sourcePackage: unknown): Effect.fn.Return<PushSourcePackage, DeploymentValidationError> {
     if (!isRecord(sourcePackage)) {
       return yield* deploymentValidationFailureEffect("Source package must be an object.");
     }
@@ -52,39 +52,50 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
       return yield* deploymentValidationFailureEffect("Source package execution module is required.");
     }
     const seen = new Set<string>();
-    const modules = [];
+    const modules: PushSourcePackage["modules"] = [];
     for (const module of sourcePackage.modules) {
       if (!isRecord(module)) {
         return yield* deploymentValidationFailureEffect("Source package module must be an object.");
       }
-      if (typeof module.path !== "string" || module.path.length === 0) {
+      const path = module.path;
+      if (typeof path !== "string" || path.length === 0) {
         return yield* deploymentValidationFailureEffect("Source package module has an invalid path.");
       }
-      if (seen.has(module.path)) {
-        return yield* deploymentValidationFailureEffect(`Duplicate source module path: ${module.path}.`);
+      if (seen.has(path)) {
+        return yield* deploymentValidationFailureEffect(`Duplicate source module path: ${path}.`);
       }
-      seen.add(module.path);
+      seen.add(path);
       if (module.environment !== "isolate") {
         return yield* deploymentValidationFailureEffect(
-          `Source module ${module.path} has unsupported environment ${module.environment}.`,
+          `Source module ${path} has unsupported environment ${module.environment}.`,
         );
       }
-      if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
-        return yield* deploymentValidationFailureEffect(`Source module ${module.path} has an invalid sha256.`);
+      const sha256 = module.sha256;
+      if (typeof sha256 !== "string" || !/^[a-f0-9]{64}$/.test(sha256)) {
+        return yield* deploymentValidationFailureEffect(`Source module ${path} has an invalid sha256.`);
       }
       if (module.source !== undefined && typeof module.source !== "string") {
-        return yield* deploymentValidationFailureEffect(`Source module ${module.path} source must be a string.`);
+        return yield* deploymentValidationFailureEffect(`Source module ${path} source must be a string.`);
       }
       if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
-        return yield* deploymentValidationFailureEffect(`Source module ${module.path} sourceMap must be a string.`);
+        return yield* deploymentValidationFailureEffect(`Source module ${path} sourceMap must be a string.`);
       }
-      modules.push({ ...module });
+      modules.push({
+        path,
+        environment: "isolate",
+        sha256,
+        ...(module.source === undefined ? {} : { source: module.source }),
+        ...(module.sourceMap === undefined ? {} : { sourceMap: module.sourceMap }),
+      });
     }
     modules.sort((left, right) => left.path.localeCompare(right.path));
     if (!seen.has(sourcePackage.execution)) {
       return yield* deploymentValidationFailureEffect(
         `Source package execution module ${sourcePackage.execution} is missing.`,
       );
+    }
+    if (sourcePackage.schema !== undefined && typeof sourcePackage.schema !== "string") {
+      return yield* deploymentValidationFailureEffect("Source package schema module must be a string.");
     }
     if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
       return yield* deploymentValidationFailureEffect(
@@ -176,10 +187,18 @@ export type StartAnalyzedPushServiceInput = {
     }
 );
 
+export interface StartAnalyzedPushInputPayload {
+  readonly sourcePackage: unknown;
+  readonly analysis?: unknown;
+  readonly codegenAnalysis?: unknown;
+  readonly error?: string | undefined;
+  readonly diagnostics?: unknown;
+}
+
 export const decodeStartAnalyzedPushInput = Effect.fn(
   "DeploymentValidation.decodeStartAnalyzedPushInput",
 )(function* (
-  request: AnalyzedStartPushRequest,
+  request: StartAnalyzedPushInputPayload,
 ): Effect.fn.Return<StartAnalyzedPushServiceInput, DeploymentValidationError> {
   const sourcePackage = yield* decodeSourcePackage(request.sourcePackage);
   const error = request.error;

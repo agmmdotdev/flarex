@@ -42,6 +42,7 @@ import {
   deploymentStartAnalyzedPushHandler,
   deploymentStartFailureResponseEffect,
   decodeStartAnalyzedPushHandlerInput,
+  decodeStartAnalyzedPushHandlerProtocolInput,
 } from "../src/deployment/HttpApiHandlers";
 import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
 import {
@@ -1480,6 +1481,54 @@ describe("DeploymentApiHandlers", () => {
     expect(codegenCoverageFailure.message).toBe(
       "Codegen analysis functions must cover every deployment function.",
     );
+  });
+
+  it("keeps generated-handler protocol guards separate from domain validation", async () => {
+    await expect(Effect.runPromise(decodeStartAnalyzedPushHandlerProtocolInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: deploymentCodegenAnalysis(),
+    }))).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+    });
+
+    const missingError = await Effect.runPromise(decodeStartAnalyzedPushHandlerProtocolInput({
+      sourcePackage: sourcePackage(),
+    }).pipe(
+      Effect.catchTag("DeploymentProtocolValidationError", error => Effect.succeed(error)),
+    ));
+    expect(missingError).toBeInstanceOf(DeploymentProtocolValidationError);
+    if (!(missingError instanceof DeploymentProtocolValidationError)) {
+      throw new Error("Expected DeploymentProtocolValidationError.");
+    }
+    expect(missingError.message).toBe("A push without analysis must include an error message.");
+
+    const codegenWithoutAnalysis = await Effect.runPromise(decodeStartAnalyzedPushHandlerProtocolInput({
+      sourcePackage: sourcePackage(),
+      error: "analysis failed",
+      codegenAnalysis: deploymentCodegenAnalysis(),
+    }).pipe(
+      Effect.catchTag("DeploymentProtocolValidationError", error => Effect.succeed(error)),
+    ));
+    expect(codegenWithoutAnalysis).toBeInstanceOf(DeploymentProtocolValidationError);
+    if (!(codegenWithoutAnalysis instanceof DeploymentProtocolValidationError)) {
+      throw new Error("Expected DeploymentProtocolValidationError.");
+    }
+    expect(codegenWithoutAnalysis.message).toBe("A push without analysis must not include codegenAnalysis.");
+
+    const errorWithAnalysis = await Effect.runPromise(decodeStartAnalyzedPushHandlerProtocolInput({
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      error: "analysis failed",
+    }).pipe(
+      Effect.catchTag("DeploymentProtocolValidationError", error => Effect.succeed(error)),
+    ));
+    expect(errorWithAnalysis).toBeInstanceOf(DeploymentProtocolValidationError);
+    if (!(errorWithAnalysis instanceof DeploymentProtocolValidationError)) {
+      throw new Error("Expected DeploymentProtocolValidationError.");
+    }
+    expect(errorWithAnalysis.message).toBe("A push with analysis must not include error.");
   });
 });
 

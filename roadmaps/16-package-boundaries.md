@@ -1,5 +1,59 @@
 # Package Boundaries
 
+## Generated Deployment HttpApi Handler Input Effects
+
+Previous completed checkpoint: `456e952` Type public deployment route
+adapter.
+
+What changed:
+
+- `deployment/HttpApiHandlers.ts` now separates generated-handler protocol
+  cross-field checks from backend domain validation.
+- `decodeStartAnalyzedPushHandlerProtocolInput(...)` emits
+  `DeploymentProtocolValidationError` for analyzed start-push shape invariants
+  that belong to the transport/API contract.
+- `decodeStartAnalyzedPushHandlerInput(...)` delegates once to
+  `decodeStartAnalyzedPushInput(...)` for backend metadata validation instead
+  of re-decoding the full protocol payload.
+- `decodeStartAnalyzedPushInput(...)` accepts the structural payload boundary
+  it validates, so generated handlers do not need casts to enter domain
+  validation.
+
+Boundary decision:
+
+Generated HttpApi payload decoding belongs to the transport/API contract.
+Backend source package, analysis, partition, and codegen checks belong to the
+deployment validation layer. The generated handler adapter is the boundary that
+composes those two typed checks for service input construction.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's Deployment HttpApi handler-input boundary.
+
+How Flarex differs:
+
+- Convex does not have this generated DeploymentDO HttpApi adapter. Flarex uses
+  it to bridge generated route payloads into backend deployment service input.
+
+Known limitations:
+
+- No DeploymentDO route decoding, public Worker deployment dispatch,
+  DeploymentService/store lifecycle logic, artifact materializer/cache,
+  source-package analyzer semantics, PartitionDO SQL/OCC behavior,
+  executor-http route, protocol parser compatibility wrapper, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Worker Deployment Route Adapter Effects
 
 Previous completed checkpoint: `39e4aaa` Type start abandon store write plans.
