@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: R-4 scheduler route boundaries in this checkpoint commit.
-- Active checkpoint: R-5 delivery and live-query route boundaries, migrating `delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`, `liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries to typed wake/change-delivery inputs with adapter-only HTTP mapping.
+- Previous completed checkpoint: R-5 delivery and live-query route boundaries in this checkpoint commit.
+- Active checkpoint: R-6 connection and artifact runtime route boundaries, migrating `connection/RouteBoundary.ts`, `connectionDO.ts`, `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and `artifactRuntime.ts` to typed connection sync/change payloads, artifact invoke route inputs, and one response mapper per adapter.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,29 +52,45 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-4 scheduler route boundaries:
+Next recommended checkpoint after R-5 delivery and live-query route boundaries:
 
-1. Migrate delivery and live-query route boundaries in
-   `delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`,
-   `liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries.
-2. Decode delivery wake and live-query change-delivery route inputs through
-   typed Effect boundaries.
-3. Keep route error channels typed until Worker/DeliveryDO/live-query adapter
-   edges map them to HTTP responses.
+1. Migrate connection and artifact runtime route boundaries in
+   `connection/RouteBoundary.ts`, `connectionDO.ts`,
+   `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and
+   `artifactRuntime.ts`.
+2. Decode connection sync/change payloads and artifact invoke route inputs
+   through typed Effect boundaries.
+3. Keep route error channels typed until ConnectionDO, artifact runtime, and
+   Worker adapter edges map them to HTTP responses.
 4. Continue avoiding deployment storage, artifact materializer/cache,
    source-package behavior, executor-http, unrelated ExecutionDO internals, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 350 slice:
+Current Goal 351 slice:
+
+1. Convert connection route and artifact runtime route request handling to
+   named `Effect.fn(...)` decoders.
+2. Remove route-boundary `HttpError` ownership where R-6 can move it to the
+   ConnectionDO, artifact runtime, or Worker adapter edge without changing
+   response behavior.
+3. Preserve connection sync/change and artifact invoke response status/body
+   behavior through focused boundary/runtime tests.
+4. Keep partition storage, scheduler runtime loops, delivery drain/fanout
+   runtime behavior, deployment storage, executor-http, protocol parser
+   compatibility wrappers, and `ValidatorJson` unchanged unless R-6 owns that
+   boundary directly.
+
+Completed Goal 350 slice:
 
 1. Convert delivery wake and live-query delivery route request handling to
    named `Effect.fn(...)` decoders.
 2. Remove route-boundary `HttpError` ownership where R-5 can move it to the
    Worker, DeliveryDO, or live-query adapter edge without changing response
    behavior.
-3. Preserve public delivery wake dispatch and live-query delivery response
-   status/body behavior through focused boundary and dispatch tests.
+3. Preserve public delivery wake dispatch, public live-query delivery dispatch,
+   and live-query delivery response status/body behavior through focused
+   boundary, dispatch, and selected sync tests.
 4. Keep partition storage, scheduler runtime loops, deployment storage,
    artifact materializer/cache, executor-http, protocol parser compatibility
    wrappers, and `ValidatorJson` unchanged unless R-5 owns that boundary
@@ -1290,9 +1306,8 @@ Completed Goal 288 slice:
 3. Route the ConnectionDO internal JSON route runner through a named response
    adapter effect while preserving one `Effect.runPromise` edge and the
    existing error response body/status mapping.
-4. Add `publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(...)` for the
-   public Worker live-query delivery request boundary and route compatibility
-   readers through it.
+4. Add public Worker live-query delivery adapter coverage for typed request
+   decoder failures and route compatibility readers.
 5. Add `dispatchPublicLiveQueryDeliveryEffect(...)` as the named public
    Worker dispatch helper for live-query delivery fanout, preserving target
    validation failures and mapping connection dispatch failures to the
@@ -1306,12 +1321,11 @@ Completed Goal 288 slice:
 
 Completed Goal 287 slice:
 
-1. Add named delivery wake route HTTP adapter effects:
-   `deliveryWakeRouteErrorToHttpErrorEffect(...)` and
-   `publicDeliveryWakeRouteErrorToHttpErrorEffect(...)`.
+1. Add delivery wake route HTTP adapter coverage for public Worker and
+   DeliveryDO paths.
 2. Route delivery wake compatibility readers and parse wrappers through the
-   named adapter effects while preserving typed `DeliveryWakeRouteError`
-   decoder channels for public Worker and DeliveryDO paths.
+   adapter edge while preserving typed `DeliveryWakeRouteError` decoder
+   channels for public Worker and DeliveryDO paths.
 3. Add `dispatchPublicDeliveryWakeEffect(...)` as the named service-binding
    dispatch helper for public DeliveryDO wake forwarding.
 4. Route public Worker `wake-delivery` dispatch through the helper while
@@ -2417,9 +2431,8 @@ Completed Goal 228 slice:
    validation tag.
 3. Keep the public route deployment ID override behavior while preserving
    malformed JSON as `RequestJsonError`.
-4. Preserve adapter-edge HTTP 400 mapping through
-   `deliveryWakeRouteErrorToHttpError(...)` and
-   `publicDeliveryWakeRouteErrorToHttpError(...)`.
+4. Preserve adapter-edge HTTP 400 mapping through DeliveryDO internal route
+   response mapping and Worker public delivery wake response mapping.
 5. Keep DeliveryDO drain semantics, pending drain state, SchedulerDO wake
    behavior, ConnectionDO/live-query fanout, PartitionDO SQL/OCC,
    executor-http, protocol schemas, and `ValidatorJson` unchanged.
@@ -2439,9 +2452,8 @@ Completed Goal 227 slice:
    same parser failures into separate route-local validation errors.
 3. Keep invalidation-specific query ID validation in
    `ConnectionRouteValidationError`; keep malformed JSON as `RequestJsonError`.
-4. Preserve adapter-edge HTTP 400 mapping through
-   `publicLiveQueryDeliveryRouteErrorToHttpError(...)` and
-   `connectionRouteErrorToHttpError(...)`.
+4. Preserve adapter-edge HTTP 400 mapping through Worker public live-query
+   delivery response mapping and ConnectionDO route response mapping.
 5. Keep live-query delivery fanout semantics, ConnectionDO state,
    SchedulerDO/DeliveryDO behavior, PartitionDO SQL/OCC, executor-http,
    protocol schemas, and `ValidatorJson` unchanged.

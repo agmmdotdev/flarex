@@ -1,5 +1,37 @@
 # Runtime Validation
 
+## Delivery And Live-Query Route Adapter Split
+
+Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.
+
+What changed:
+
+- `delivery/RouteBoundary.ts` now exposes named `Effect.fn(...)` decoders for
+  DeliveryDO wake requests and wake payloads only.
+- `delivery/PublicWakeRouteBoundary.ts` now exposes named public wake decoders
+  only and no longer exports HTTP mapping helpers.
+- `liveQueryDelivery/RouteBoundary.ts` now exposes named public live-query
+  delivery decoders only and no longer exports HTTP mapping helpers.
+- `delivery/InternalRouteBoundary.ts` owns DeliveryDO internal response mapping
+  for typed wake route errors.
+- `worker.ts` owns public delivery wake and public live-query delivery route
+  mapping at the public Worker adapter edge.
+
+Why it changed:
+
+R-5 removes HTTP response ownership from delivery and live-query route decoder
+modules while preserving public Worker and DeliveryDO response behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "malformed public live query delivery JSON|invalid public live query delivery envelopes|malformed DeliveryDO wake JSON|invalid DeliveryDO wake envelopes|malformed public DeliveryDO wake JSON|invalid public DeliveryDO wake envelopes" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Route Adapter Split
 
 Previous completed checkpoint: `94d07b3` Type partition route boundaries.

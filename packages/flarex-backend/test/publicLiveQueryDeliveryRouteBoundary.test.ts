@@ -1,13 +1,11 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { RequestJsonError } from "../src/http";
-import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
   decodePublicLiveQueryDeliveryRoutePayload,
-  publicLiveQueryDeliveryRouteErrorToHttpError,
-  publicLiveQueryDeliveryRouteErrorToHttpErrorEffect,
 } from "../src/liveQueryDelivery/RouteBoundary";
+import { createBackendHarness } from "./backendHarness";
 
 describe("public live query delivery route boundary", () => {
   it("decodes public live query delivery route payloads through a named Effect boundary", async () => {
@@ -150,46 +148,37 @@ describe("public live query delivery route boundary", () => {
     )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed public live query delivery route errors at the adapter boundary", () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    expect(publicLiveQueryDeliveryRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("maps public live query delivery route errors through the Worker adapter edge", async () => {
+    const harness = await createBackendHarness();
+    try {
+      const malformedJson = await harness.mf.dispatchFetch(
+        "http://flarex.test/deployments/deployment-a/sync/deliver-live-query",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        },
+      );
+      expect(malformedJson.status).toBe(400);
+      await expect(malformedJson.json()).resolves.toEqual({
+        error: "Request body must be JSON.",
+      });
 
-    const validationError = new LiveQueryDeliveryChangePayloadError({
-      message: "deliveries[0].queryId must be an integer.",
-    });
-    expect(publicLiveQueryDeliveryRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "deliveries[0].queryId must be an integer.",
-    });
-  });
-
-  it("maps typed public live query delivery route errors through a named adapter effect", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    await expect(Effect.runPromise(Effect.flip(
-      publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(jsonError),
-    ))).resolves.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    const validationError = new LiveQueryDeliveryChangePayloadError({
-      message: "deliveries[0].queryId must be an integer.",
-    });
-    await expect(Effect.runPromise(Effect.flip(
-      publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(validationError),
-    ))).resolves.toMatchObject({
-      status: 400,
-      message: "deliveries[0].queryId must be an integer.",
-    });
+      const invalidPayload = await harness.mf.dispatchFetch(
+        "http://flarex.test/deployments/deployment-a/sync/deliver-live-query",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deliveries: [{ queryId: "1" }] }),
+        },
+      );
+      expect(invalidPayload.status).toBe(400);
+      await expect(invalidPayload.json()).resolves.toEqual({
+        error: "deliveries[0].deploymentId must be a non-empty string.",
+      });
+    } finally {
+      await harness.dispose();
+    }
   });
 });
 

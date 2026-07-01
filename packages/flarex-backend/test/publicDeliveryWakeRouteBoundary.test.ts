@@ -4,13 +4,12 @@ import { RequestJsonError } from "../src/http";
 import {
   decodePublicDeliveryWakeRequest,
   decodePublicDeliveryWakeRoutePayload,
-  publicDeliveryWakeRouteErrorToHttpError,
-  publicDeliveryWakeRouteErrorToHttpErrorEffect,
 } from "../src/delivery/PublicWakeRouteBoundary";
 import {
   decodePublicDeliveryWakePayload,
   DeliveryWakePayloadError,
 } from "../src/delivery/WakeRequest";
+import { createBackendHarness } from "./backendHarness";
 
 describe("public delivery wake route boundary", () => {
   it("decodes public delivery wake payloads through the shared source boundary", async () => {
@@ -103,48 +102,37 @@ describe("public delivery wake route boundary", () => {
     ), "deployment-a"))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed public wake route errors at the adapter boundary", () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    expect(publicDeliveryWakeRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("maps public wake route errors through the Worker adapter edge", async () => {
+    const harness = await createBackendHarness();
+    try {
+      const malformedJson = await harness.mf.dispatchFetch(
+        "http://flarex.test/deployments/deployment-a/sync/wake-delivery",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        },
+      );
+      expect(malformedJson.status).toBe(400);
+      await expect(malformedJson.json()).resolves.toEqual({
+        error: "Request body must be JSON.",
+      });
 
-    const validationError = new DeliveryWakePayloadError({
-      message: "limit must be a positive integer.",
-    });
-    expect(publicDeliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "limit must be a positive integer.",
-    });
-  });
-
-  it("maps typed public wake route errors through a named adapter effect", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    const mappedJson = await Effect.runPromise(Effect.flip(
-      publicDeliveryWakeRouteErrorToHttpErrorEffect(jsonError),
-    ));
-    expect(mappedJson).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    const validationError = new DeliveryWakePayloadError({
-      message: "limit must be a positive integer.",
-    });
-    const mappedValidation = await Effect.runPromise(Effect.flip(
-      publicDeliveryWakeRouteErrorToHttpErrorEffect(validationError),
-    ));
-    expect(mappedValidation).toMatchObject({
-      status: 400,
-      message: "limit must be a positive integer.",
-    });
+      const invalidPayload = await harness.mf.dispatchFetch(
+        "http://flarex.test/deployments/deployment-a/sync/wake-delivery",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ limit: 0 }),
+        },
+      );
+      expect(invalidPayload.status).toBe(400);
+      await expect(invalidPayload.json()).resolves.toEqual({
+        error: "limit must be a positive integer.",
+      });
+    } finally {
+      await harness.dispose();
+    }
   });
 
   it("exposes shared typed public wake payload failures before HTTP mapping", async () => {

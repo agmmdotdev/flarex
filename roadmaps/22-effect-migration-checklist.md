@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `94d07b3` Type partition route boundaries.
+- Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -259,15 +259,18 @@ The Effect migration is complete only when all of these are true:
     `test/schedulerRouteBoundary.test.ts`,
     `test/publicSchedulerRouteBoundary.test.ts`,
     `test/publicSchedulerDispatchBoundary.test.ts`.
-- [ ] R-5. Delivery and live-query route boundaries:
+- [x] R-5. Delivery and live-query route boundaries:
   `delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`,
   `liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries.
+  - Completed by: this R-5 checkpoint commit.
   - Goal: typed wake/change-delivery inputs and adapter-only HTTP mapping.
   - Focus tests:
     `test/deliveryRouteBoundary.test.ts`,
     `test/publicDeliveryWakeRouteBoundary.test.ts`,
     `test/publicLiveQueryDeliveryRouteBoundary.test.ts`,
-    related dispatch tests.
+    `test/publicDeliveryWakeDispatchBoundary.test.ts`,
+    `test/publicLiveQueryDeliveryDispatchBoundary.test.ts`,
+    selected `test/sync.test.ts` Worker/DeliveryDO route-boundary cases.
 - [ ] R-6. Connection and artifact runtime route boundaries:
   `connection/RouteBoundary.ts`, `connectionDO.ts`,
   `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`,
@@ -424,11 +427,12 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with R-5:
+Start with R-6:
 
-Migrate delivery and live-query route boundaries in
-`delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`,
-`liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries to typed
-wake/change-delivery inputs with adapter-only HTTP mapping; update
+Migrate connection and artifact runtime route boundaries in
+`connection/RouteBoundary.ts`, `connectionDO.ts`,
+`artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and
+`artifactRuntime.ts` to typed connection sync/change payloads, artifact invoke
+route inputs, and one response mapper per adapter; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `R-5`, then commit.
+run only the EffectTS quality checker, tick `R-6`, then commit.

@@ -4,8 +4,6 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeDeliveryWakeRequest,
   decodeDeliveryWakeRoutePayload,
-  deliveryWakeRouteErrorToHttpError,
-  deliveryWakeRouteErrorToHttpErrorEffect,
 } from "../src/delivery/RouteBoundary";
 import {
   decodeDeliveryWakePayload,
@@ -22,6 +20,7 @@ import {
   deliveryRouteOperationError,
   deliveryRouteOperationErrorToHttpError,
 } from "../src/delivery/RouteOperationError";
+import { deliveryInternalRouteErrorToResponseEffect } from "../src/delivery/InternalRouteBoundary";
 
 describe("delivery route boundary", () => {
   it("decodes delivery wake payloads through a shared typed boundary", async () => {
@@ -107,47 +106,26 @@ describe("delivery route boundary", () => {
     })))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed wake route errors at the adapter boundary", () => {
+  it("maps typed wake route errors through the internal response adapter", async () => {
     const jsonError = new RequestJsonError({
       message: "Request body must be JSON.",
       cause: new SyntaxError("Unexpected end of JSON input"),
     });
-    expect(deliveryWakeRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
+    const jsonResponse = await Effect.runPromise(deliveryInternalRouteErrorToResponseEffect(jsonError));
+    expect(jsonResponse.status).toBe(400);
+    await expect(jsonResponse.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
     });
 
     const validationError = new DeliveryWakePayloadError({
       message: "deploymentId must be a non-empty string.",
     });
-    expect(deliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "deploymentId must be a non-empty string.",
-    });
-  });
-
-  it("maps typed wake route errors through a named adapter effect", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    const mappedJson = await Effect.runPromise(Effect.flip(
-      deliveryWakeRouteErrorToHttpErrorEffect(jsonError),
-    ));
-    expect(mappedJson).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    const validationError = new DeliveryWakePayloadError({
-      message: "deploymentId must be a non-empty string.",
-    });
-    const mappedValidation = await Effect.runPromise(Effect.flip(
-      deliveryWakeRouteErrorToHttpErrorEffect(validationError),
-    ));
-    expect(mappedValidation).toMatchObject({
-      status: 400,
-      message: "deploymentId must be a non-empty string.",
+    const validationResponse = await Effect.runPromise(
+      deliveryInternalRouteErrorToResponseEffect(validationError),
+    );
+    expect(validationResponse.status).toBe(400);
+    await expect(validationResponse.json()).resolves.toEqual({
+      error: "deploymentId must be a non-empty string.",
     });
   });
 

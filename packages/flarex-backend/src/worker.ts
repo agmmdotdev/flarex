@@ -23,7 +23,6 @@ import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import {
   decodePublicDeliveryWakeRequest,
-  publicDeliveryWakeRouteErrorToHttpError,
 } from "./delivery/PublicWakeRouteBoundary";
 import {
   dispatchPublicDeliveryWakeEffect,
@@ -145,7 +144,6 @@ import {
 } from "./liveQueryDelivery/PublicDispatchBoundary";
 import {
   decodePublicLiveQueryDeliveryRequest,
-  publicLiveQueryDeliveryRouteErrorToHttpError,
   type LiveQueryDeliveryRouteError,
 } from "./liveQueryDelivery/RouteBoundary";
 import {
@@ -395,7 +393,8 @@ type PublicWorkerDeploymentNonInvokeRouteError =
 
 type PublicWorkerDeploymentRouteError =
   | PublicWorkerDeploymentNonInvokeRouteError
-  | PublicWorkerInvokeRouteError;
+  | PublicWorkerInvokeRouteError
+  | PublicWorkerAdapterRouteError;
 
 const routeDeployment = Effect.fn("Worker.routeDeployment")(
   function* (
@@ -429,7 +428,12 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
       );
     }
     if (parts[2] === "sync") {
-      return yield* routeDeploymentSync(request, env, deploymentId, parts.slice(3));
+      return yield* routeDeploymentSync(request, env, deploymentId, parts.slice(3)).pipe(
+        Effect.mapError(error => publicWorkerJsonRouteError(
+          publicWorkerDeploymentSyncRouteErrorToHttpError(error),
+          error,
+        )),
+      );
     }
     if (parts[2] === "scheduler") {
       return yield* routeDeploymentScheduler(request, env, deploymentId);
@@ -445,6 +449,14 @@ function isPublicWorkerAdapterRouteError(error: PublicWorkerRouteError): error i
 function publicWorkerDeploymentRouteErrorToHttpError(
   error: PublicWorkerDeploymentRouteError,
 ): HttpError {
+  if (error instanceof PublicWorkerJsonRouteError) {
+    return error.adapterError;
+  }
+  if (error instanceof PublicWorkerInvokeAdapterRouteError) {
+    const adapterError = error.adapterError;
+    if (adapterError instanceof HttpError) return adapterError;
+    return new HttpError(adapterError.status, adapterError.message);
+  }
   if (isPublicWorkerInvokeRouteError(error)) {
     const adapterError = publicWorkerInvokeRouteErrorToAdapterError(error);
     if (adapterError instanceof HttpError) return adapterError;
@@ -1060,12 +1072,32 @@ function publicWorkerDeploymentSyncRouteErrorToHttpError(
     return publicWorkerDispatchErrorToHttpError(error);
   }
   if (error instanceof DeliveryWakePayloadError) {
-    return publicDeliveryWakeRouteErrorToHttpError(error);
+    return deliveryWakeRouteErrorToHttpError(error);
   }
   if (error instanceof LiveQueryDeliveryChangePayloadError) {
-    return publicLiveQueryDeliveryRouteErrorToHttpError(error);
+    return liveQueryDeliveryRouteErrorToHttpError(error);
   }
-  return publicLiveQueryDeliveryRouteErrorToHttpError(error);
+  return liveQueryDeliveryRouteErrorToHttpError(error);
+}
+
+function deliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof DeliveryWakePayloadError) {
+    return new HttpError(400, error.message);
+  }
+  return new HttpError(500, "Unexpected delivery wake route error.");
+}
+
+function liveQueryDeliveryRouteErrorToHttpError(error: LiveQueryDeliveryRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof LiveQueryDeliveryChangePayloadError) {
+    return new HttpError(400, error.message);
+  }
+  return new HttpError(500, "Unexpected live query delivery route error.");
 }
 
 const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(

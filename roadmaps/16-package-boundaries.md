@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Delivery And Live-Query Route Adapter Split
+
+Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.
+
+What changed:
+
+- `delivery/RouteBoundary.ts` owns typed DeliveryDO wake request decoding only;
+  it no longer exports `HttpError` mapping helpers.
+- `delivery/PublicWakeRouteBoundary.ts` owns typed public delivery wake request
+  decoding only; it no longer exports public HTTP mapping helpers.
+- `liveQueryDelivery/RouteBoundary.ts` owns typed public live-query delivery
+  request decoding only; it no longer exports public HTTP mapping helpers.
+- `delivery/InternalRouteBoundary.ts` remains the DeliveryDO internal adapter
+  edge for typed wake, pending-drain, operation, and drain-failure responses.
+- `worker.ts` remains the public delivery wake and live-query delivery adapter
+  edge for route, authorization, target, and dispatch failures.
+
+Boundary decision:
+
+Delivery and live-query route boundary modules are transport-input boundaries.
+Worker is the public delivery/live-query adapter edge, and DeliveryDO's
+internal route boundary is the internal delivery adapter edge. Delivery drain
+state, fanout, executor responses, connection delivery, and scheduler wake
+behavior remain separate typed runtime/service boundaries.
+
+Known limitations:
+
+- `liveQueryDelivery.ts` still keeps lower-level payload compatibility helpers
+  and fanout mapping helpers. Those are not route decoder ownership and remain
+  for later service/runtime cleanup phases.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "malformed public live query delivery JSON|invalid public live query delivery envelopes|malformed DeliveryDO wake JSON|invalid DeliveryDO wake envelopes|malformed public DeliveryDO wake JSON|invalid public DeliveryDO wake envelopes" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Route Adapter Split
 
 Previous completed checkpoint: `94d07b3` Type partition route boundaries.
@@ -2282,10 +2323,8 @@ Public delivery wake decoding belongs in `delivery/PublicWakeRouteBoundary.ts`.
 Public live query delivery decoding belongs in
 `liveQueryDelivery/RouteBoundary.ts`. Public Worker orchestration and Durable
 Object dispatch remain in `worker.ts` and the existing dispatch boundary
-modules. HTTP conversion remains at the named route adapters:
-`publicInvokeRouteErrorToHttpError(...)`,
-`publicDeliveryWakeRouteErrorToHttpError(...)`, and
-`publicLiveQueryDeliveryRouteErrorToHttpError(...)`.
+modules. HTTP conversion for these public routes belongs to the Worker adapter
+edge.
 
 Convex references:
 
