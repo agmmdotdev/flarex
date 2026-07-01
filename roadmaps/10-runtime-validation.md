@@ -1,5 +1,37 @@
 # Runtime Validation
 
+## Registry HttpApi Response Effect Boundary
+
+Previous completed checkpoint: `414c09f` Add registry protocol effect decoders.
+
+What changed:
+
+- `RegistryApiHandlers` now validates service-produced deployment records and
+  list responses through protocol-owned Effect decoders.
+- Typed registry protocol response failures map at the HttpApi adapter edge to
+  the declared `RegistryStorageErrorResponse`.
+- Storage failures still map through the existing `RegistrySqlError` adapter.
+
+Why it changed:
+
+Registry service responses are part of the generated HttpApi contract. They
+should stay in Effect until protocol validation succeeds or the handler maps a
+typed failure to the declared error body, rather than using throwing parsers
+inside `Effect.try(...)`.
+
+Known limitations:
+
+- This checkpoint does not change registry request decoding, Registry
+  service/store behavior, RegistryDO route matching, DeploymentDO,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/registryHttpApiHandlers.test.ts packages/flarex-backend/test/registryHttpApiRouteBoundary.test.ts packages/flarex-backend/test/registryRequests.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Registry Protocol Request And Response Effect Decoders
 
 Previous completed checkpoint: `1ac3bd4` Add deployment protocol effect decoders.

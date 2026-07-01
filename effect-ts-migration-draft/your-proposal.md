@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Registry protocol request/response Effect decoders.
+- Previous completed checkpoint: Registry HttpApi response Effect boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the registry protocol request/response Effect decoders:
+Next recommended checkpoint after the registry HttpApi response Effect boundary:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the registry protocol request/response Effect 
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 272 slice:
+
+1. Move `RegistryApiHandlers` response validation from throwing protocol
+   parser wrappers inside `Effect.try(...)` to protocol-owned Effect response
+   decoders for deployment records and list deployment responses.
+2. Add `mapRegistryProtocolResponseFailure(...)` as the registry HttpApi
+   adapter edge that maps typed `ProtocolValidationError` response failures to
+   the declared `RegistryStorageErrorResponse`.
+3. Preserve existing `RegistrySqlError` to `RegistryStorageErrorResponse`
+   mapping and generated HttpApi success/error response bodies.
+4. Add direct handler coverage for typed protocol response failure mapping and
+   malformed list response payloads in addition to existing malformed create
+   response coverage.
+5. Leave registry request decoding, Registry service/store behavior,
+   RegistryDO route matching, DeploymentDO, invoke/execution runtime behavior,
+   scheduler, delivery, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 271 slice:
 

@@ -6,12 +6,14 @@ import {
   parseListDeploymentsResponse,
   parseRegistryHealthResponse,
   parseRegistryStorageErrorResponse,
+  ProtocolValidationError,
   RegistryApi,
   RegistryRoute,
   RegistryStorageErrorResponse,
   type DeploymentRecord,
 } from "flarex-protocol/registry";
 import {
+  mapRegistryProtocolResponseFailure,
   mapRegistryStorageFailure,
   RegistryApiHandlers,
 } from "../src/registry/HttpApiHandlers";
@@ -59,6 +61,28 @@ describe("RegistryApiHandlers", () => {
 
     const error = await Effect.runPromise(
       mapRegistryStorageFailure(Effect.fail(failure)).pipe(
+        Effect.match({
+          onFailure: value => value,
+          onSuccess: () => undefined,
+        }),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(RegistryStorageErrorResponse);
+    expect(parseRegistryStorageErrorResponse(error)).toEqual({
+      error: "Registry storage error.",
+    });
+  });
+
+  it("maps registry protocol response validation failures to the declared HttpApi error body", async () => {
+    const protocolError = new ProtocolValidationError({
+      schema: "DeploymentRecord",
+      message: "Deployment record response did not match the registry protocol.",
+      cause: new Error("bad generated response"),
+    });
+
+    const error = await Effect.runPromise(
+      mapRegistryProtocolResponseFailure(Effect.fail(protocolError)).pipe(
         Effect.match({
           onFailure: value => value,
           onSuccess: () => undefined,
@@ -152,6 +176,32 @@ describe("RegistryApiHandlers", () => {
           body: JSON.stringify({ deploymentId: "malformed-record" }),
         },
       ));
+
+      expect(response.status).toBe(500);
+      expect(parseRegistryStorageErrorResponse(await response.json())).toEqual({
+        error: "Registry storage error.",
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("maps malformed list response payloads through the protocol Effect decoder", async () => {
+    const { handler, dispose } = makeRegistryApiWebHandler(registryTestLayer({
+      now: 1_700_000,
+      generatedId: "generated-deployment",
+      store: {
+        createDeployment: input => Effect.succeed(deploymentFromStoreInput(input)),
+        listDeployments: Effect.succeed([{
+          deploymentId: "malformed-listed-record",
+          createdAt: 1_700_001,
+          updatedAt: 1_700_001,
+          schemaVersion: "bad-version",
+        } as unknown as DeploymentRecord]),
+      },
+    }));
+    try {
+      const response = await handler(new Request(`https://registry.test${RegistryRoute.deployments}`));
 
       expect(response.status).toBe(500);
       expect(parseRegistryStorageErrorResponse(await response.json())).toEqual({

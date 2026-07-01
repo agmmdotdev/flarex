@@ -1,11 +1,12 @@
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
+  decodeDeploymentRecordEffect,
+  decodeListDeploymentsResponseEffect,
   RegistryApi,
   RegistryHealthResponse,
   RegistryStorageErrorResponse,
-  parseDeploymentRecord,
-  parseListDeploymentsResponse,
+  type ProtocolValidationError,
 } from "flarex-protocol/registry";
 import { RegistryService } from "./Service";
 import type { RegistrySqlError } from "./Store";
@@ -25,12 +26,12 @@ export const RegistryApiHandlers = HttpApiBuilder.group(
       )
       .handle("listDeployments", () =>
         mapRegistryStorageFailure(registry.listDeployments()).pipe(
-          Effect.flatMap(parseListDeploymentsResponseForHttpApi),
+          Effect.flatMap(decodeListDeploymentsResponseForHttpApi),
         )
       )
       .handle("createDeployment", ({ payload }) =>
         mapRegistryStorageFailure(registry.createDeployment(payload)).pipe(
-          Effect.flatMap(parseDeploymentRecordForHttpApi),
+          Effect.flatMap(decodeDeploymentRecordForHttpApi),
         )
       );
   }),
@@ -48,22 +49,20 @@ export function mapRegistryStorageFailure<A>(
   );
 }
 
-const parseDeploymentRecordForHttpApi = responseParser(
-  parseDeploymentRecord,
-);
-
-const parseListDeploymentsResponseForHttpApi = responseParser(
-  parseListDeploymentsResponse,
-);
-
-function responseParser<A>(
-  parse: (value: unknown) => A,
-): (value: unknown) => Effect.Effect<A, RegistryStorageErrorResponse> {
-  return value =>
-    Effect.try({
-      try: () => parse(value),
-      catch: () => new RegistryStorageErrorResponse({
+export function mapRegistryProtocolResponseFailure<A>(
+  effect: Effect.Effect<A, ProtocolValidationError>,
+): Effect.Effect<A, RegistryStorageErrorResponse> {
+  return effect.pipe(
+    Effect.catchTag("ProtocolValidationError", () =>
+      Effect.fail(new RegistryStorageErrorResponse({
         error: "Registry storage error.",
-      }),
-    });
+      }))
+    ),
+  );
 }
+
+const decodeDeploymentRecordForHttpApi = (value: unknown) =>
+  mapRegistryProtocolResponseFailure(decodeDeploymentRecordEffect(value));
+
+const decodeListDeploymentsResponseForHttpApi = (value: unknown) =>
+  mapRegistryProtocolResponseFailure(decodeListDeploymentsResponseEffect(value));
