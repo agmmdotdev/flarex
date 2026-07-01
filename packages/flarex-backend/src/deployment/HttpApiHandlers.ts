@@ -14,7 +14,6 @@ import {
   DeploymentProtocolValidationError,
   DeploymentStorageErrorResponse,
 } from "flarex-protocol/deployment";
-import { HttpError } from "../http";
 import {
   DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
@@ -327,40 +326,6 @@ export function deploymentAbandonFailureToResponse(
 export function deploymentProtocolResponseFailureToResponse(
   error: DeploymentProtocolResponseFailure,
 ): DeploymentStorageErrorResponse {
-  return new DeploymentStorageErrorResponse({ error: error.message });
-}
-
-export function deploymentHttpErrorToReadResponse(error: HttpError): DeploymentReadErrorResponse {
-  if (error.status === 404) {
-    return new DeploymentNotFoundErrorResponse({ error: error.message });
-  }
-  return new DeploymentStorageErrorResponse({ error: error.message });
-}
-
-export function deploymentHttpErrorToStartResponse(error: HttpError): DeploymentStartErrorResponse {
-  if (error.status === 400) {
-    return new DeploymentBadRequestErrorResponse({ error: error.message });
-  }
-  return new DeploymentStorageErrorResponse({ error: error.message });
-}
-
-export function deploymentHttpErrorToFinishResponse(error: HttpError): DeploymentFinishErrorResponse {
-  if (error.status === 400) {
-    return new DeploymentBadRequestErrorResponse({ error: error.message });
-  }
-  if (error.status === 404) {
-    return new DeploymentNotFoundErrorResponse({ error: error.message });
-  }
-  return new DeploymentStorageErrorResponse({ error: error.message });
-}
-
-export function deploymentHttpErrorToAbandonResponse(error: HttpError): DeploymentAbandonErrorResponse {
-  if (error.status === 404) {
-    return new DeploymentNotFoundErrorResponse({ error: error.message });
-  }
-  if (error.status === 409) {
-    return new DeploymentConflictErrorResponse({ error: error.message });
-  }
   return new DeploymentStorageErrorResponse({ error: error.message });
 }
 

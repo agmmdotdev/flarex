@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Deployment Adapter Response Effects
+
+Previous completed checkpoint: `213dce6` Type delivery wake request boundary.
+
+What changed:
+
+- Removed the legacy `deployment/HttpBoundary.ts` adapter module and its test.
+- Removed `deploymentFailureToHttpError(...)`, `finishPushHttpStatus(...)`,
+  and the `deploymentHttpErrorTo*Response(...)` helpers.
+- Kept generated Deployment HttpApi handler failure mapping on declared
+  DeploymentApi response classes through typed mappers and named Effect adapter
+  wrappers.
+
+Why it changed:
+
+The deployment runtime now has one generated HttpApi response-mapping path for
+typed service, validation, protocol, and storage failures. Removing the
+parallel `HttpError` compatibility adapter keeps HTTP conversion at the
+DeploymentApi adapter edge instead of preserving a second deployment-specific
+HTTP error path.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  runtime adapter cleanup around deployment push/read/finish/abandon handlers.
+
+How Flarex differs:
+
+- Flarex maps deployment service failures into generated Effect HttpApi
+  response classes before the Cloudflare DeploymentDO response is produced.
+  This checkpoint does not change DeploymentDO routing or deployment state
+  semantics.
+
+Known limitations:
+
+- DeploymentService, DeploymentPushStore, DeploymentDO routing, public
+  deployment push dispatch, artifact storage/materialization, PartitionDO
+  SQL/OCC, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/deploymentService.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery Wake Request Effects
 
 Previous completed checkpoint: `54144cd` Type execution request payload

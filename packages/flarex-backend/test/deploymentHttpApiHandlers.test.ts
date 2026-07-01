@@ -17,10 +17,6 @@ import {
 import {
   deploymentAbandonFailureToResponse,
   deploymentFinishFailureToResponse,
-  deploymentHttpErrorToAbandonResponse,
-  deploymentHttpErrorToFinishResponse,
-  deploymentHttpErrorToReadResponse,
-  deploymentHttpErrorToStartResponse,
   mapDeploymentAbandonFailure,
   mapDeploymentFinishFailure,
   mapDeploymentProtocolResponseFailure,
@@ -62,7 +58,6 @@ import {
   DeploymentSqlError,
   type FinishPushStoreInput,
 } from "../src/deployment/Store";
-import { HttpError } from "../src/http";
 import type {
   ActiveDeploymentStatus,
   ExecutionArtifactRef,
@@ -581,21 +576,6 @@ describe("DeploymentApiHandlers", () => {
     expect(parseDeploymentErrorResponse(failure)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
-  });
-
-  it("maps preserved HttpError statuses to DeploymentApi response classes", () => {
-    expect(deploymentHttpErrorToStartResponse(
-      new HttpError(400, "bad request"),
-    )).toBeInstanceOf(DeploymentBadRequestErrorResponse);
-    expect(deploymentHttpErrorToReadResponse(
-      new HttpError(404, "missing"),
-    )).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(deploymentHttpErrorToAbandonResponse(
-      new HttpError(409, "conflict"),
-    )).toBeInstanceOf(DeploymentConflictErrorResponse);
-    expect(deploymentHttpErrorToFinishResponse(
-      new HttpError(500, "storage failed"),
-    )).toBeInstanceOf(DeploymentStorageErrorResponse);
   });
 
   it("maps invalid analyzed start-push payload combinations to 400 response bodies", async () => {

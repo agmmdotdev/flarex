@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `54144cd` Type execution request payload boundary.
-- Active checkpoint: validate and review the delivery wake request Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `213dce6` Type delivery wake request boundary.
+- Active checkpoint: validate and review the deployment adapter response Effect batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the delivery wake request effects:
+Next recommended checkpoint after the deployment adapter response effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,27 @@ Next recommended checkpoint after the delivery wake request effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 315 slice:
+
+1. Remove the legacy `deployment/HttpBoundary.ts` adapter module, including
+   `deploymentFailureToHttpError(...)` and `finishPushHttpStatus(...)`.
+2. Remove the matching legacy `deploymentHttpBoundary.test.ts` compatibility
+   test.
+3. Remove `deploymentHttpErrorToReadResponse(...)`,
+   `deploymentHttpErrorToStartResponse(...)`,
+   `deploymentHttpErrorToFinishResponse(...)`, and
+   `deploymentHttpErrorToAbandonResponse(...)` from
+   `deployment/HttpApiHandlers.ts`.
+4. Keep generated Deployment HttpApi handler failures on typed response
+   mappers: `deploymentReadFailureToResponse(...)`,
+   `deploymentStartFailureToResponse(...)`,
+   `deploymentFinishFailureToResponse(...)`,
+   `deploymentAbandonFailureToResponse(...)`, and their named Effect adapter
+   wrappers.
+5. Leave DeploymentService, DeploymentPushStore, DeploymentDO routing, public
+   deployment push dispatch, artifact storage/materialization, PartitionDO
+   SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 314 slice:
 
