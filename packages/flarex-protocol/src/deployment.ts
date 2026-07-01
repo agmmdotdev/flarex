@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 
 export const DeploymentRoute = {
@@ -474,69 +474,115 @@ export class DeploymentApiGroup extends HttpApiGroup.make("deployment", { topLev
 
 export class DeploymentApi extends HttpApi.make("flarex-deployment").add(DeploymentApiGroup) {}
 
-const decodeAbandonPushRequest = Schema.decodeUnknownSync(AbandonPushRequest);
-const decodeAnalyzedStartPushRequest = Schema.decodeUnknownSync(AnalyzedStartPushRequest);
+const decodeUnknownAbandonPushRequest = Schema.decodeUnknownEffect(AbandonPushRequest);
+const decodeUnknownAnalyzedStartPushRequest = Schema.decodeUnknownEffect(AnalyzedStartPushRequest);
 const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
 const decodeDeploymentErrorResponse = Schema.decodeUnknownSync(DeploymentErrorResponse);
 const decodeDeploymentHealthResponse = Schema.decodeUnknownSync(DeploymentHealthResponse);
 const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
 const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
-const decodeFinishPushRequest = Schema.decodeUnknownSync(FinishPushRequest);
+const decodeUnknownFinishPushRequest = Schema.decodeUnknownEffect(FinishPushRequest);
 const decodeFinishPushResponse = Schema.decodeUnknownSync(FinishPushResponse);
 const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
-const decodeStartPushRequest = Schema.decodeUnknownSync(StartPushRequest);
+const decodeUnknownStartPushRequest = Schema.decodeUnknownEffect(StartPushRequest);
 const decodePushStatus = Schema.decodeUnknownSync(PushStatus);
 
-export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "AbandonPushRequest",
-      message: "Abandon push request must be an object.",
-      cause: value,
-    });
+export const decodeAbandonPushRequestEffect = Effect.fn(
+  "DeploymentProtocol.decodeAbandonPushRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<AbandonPushRequest, DeploymentProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* deploymentProtocolValidationFailure(
+      "AbandonPushRequest",
+      "Abandon push request must be an object.",
+      value,
+    );
   }
   if ("reason" in value && value.reason !== undefined && typeof value.reason !== "string") {
-    throw new DeploymentProtocolValidationError({
-      schema: "AbandonPushRequest",
-      message: "Abandon push reason must be a string.",
-      cause: value.reason,
-    });
+    return yield* deploymentProtocolValidationFailure(
+      "AbandonPushRequest",
+      "Abandon push reason must be a string.",
+      value.reason,
+    );
   }
-  try {
-    return decodeAbandonPushRequest(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "AbandonPushRequest",
-      message: "Abandon push request must include an optional string reason field.",
-      cause,
-    });
+  return yield* decodeUnknownAbandonPushRequest(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "AbandonPushRequest",
+        message: "Abandon push request must include an optional string reason field.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeFinishPushRequestEffect = Effect.fn(
+  "DeploymentProtocol.decodeFinishPushRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<FinishPushRequest, DeploymentProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* deploymentProtocolValidationFailure(
+      "FinishPushRequest",
+      "Finish push request must be an object.",
+      value,
+    );
   }
+  if ("activate" in value && value.activate !== undefined && typeof value.activate !== "boolean") {
+    return yield* deploymentProtocolValidationFailure(
+      "FinishPushRequest",
+      "Finish push activate flag must be a boolean.",
+      value.activate,
+    );
+  }
+  return yield* decodeUnknownFinishPushRequest(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "FinishPushRequest",
+        message: "Finish push request must include an optional boolean activate field.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeStartPushRequestEffect = Effect.fn(
+  "DeploymentProtocol.decodeStartPushRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<StartPushRequest, DeploymentProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* deploymentProtocolValidationFailure(
+      "StartPushRequest",
+      "Start push request must be an object.",
+      value,
+    );
+  }
+  if (!("sourcePackage" in value)) {
+    return yield* deploymentProtocolValidationFailure(
+      "StartPushRequest",
+      "Start push request must include sourcePackage.",
+      value,
+    );
+  }
+  return yield* decodeUnknownStartPushRequest(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "StartPushRequest",
+        message: "Start push request must include a valid sourcePackage.",
+        cause,
+      })
+    ),
+  );
+});
+
+export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
+  return Effect.runSync(decodeAbandonPushRequestEffect(value));
 }
 
 export function parseFinishPushRequest(value: unknown): FinishPushRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "FinishPushRequest",
-      message: "Finish push request must be an object.",
-      cause: value,
-    });
-  }
-  if ("activate" in value && value.activate !== undefined && typeof value.activate !== "boolean") {
-    throw new DeploymentProtocolValidationError({
-      schema: "FinishPushRequest",
-      message: "Finish push activate flag must be a boolean.",
-      cause: value.activate,
-    });
-  }
-  try {
-    return decodeFinishPushRequest(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "FinishPushRequest",
-      message: "Finish push request must include an optional boolean activate field.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeFinishPushRequestEffect(value));
 }
 
 export function parsePushSourcePackage(value: unknown): PushSourcePackage {
@@ -552,29 +598,7 @@ export function parsePushSourcePackage(value: unknown): PushSourcePackage {
 }
 
 export function parseStartPushRequest(value: unknown): StartPushRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "StartPushRequest",
-      message: "Start push request must be an object.",
-      cause: value,
-    });
-  }
-  if (!("sourcePackage" in value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "StartPushRequest",
-      message: "Start push request must include sourcePackage.",
-      cause: value,
-    });
-  }
-  try {
-    return decodeStartPushRequest(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "StartPushRequest",
-      message: "Start push request must include a valid sourcePackage.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeStartPushRequestEffect(value));
 }
 
 export function parseDeploymentAnalysis(value: unknown): DeploymentAnalysis {
@@ -625,60 +649,67 @@ export function parseDeploymentHealthResponse(value: unknown): DeploymentHealthR
   }
 }
 
-export function parseAnalyzedStartPushRequest(value: unknown): AnalyzedStartPushRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "AnalyzedStartPushRequest",
-      message: "Analyzed start push request must be an object.",
-      cause: value,
-    });
+export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
+  "DeploymentProtocol.decodeAnalyzedStartPushRequest",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "Analyzed start push request must be an object.",
+      value,
+    );
   }
   if (!("sourcePackage" in value)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "AnalyzedStartPushRequest",
-      message: "Analyzed start push request must include sourcePackage.",
-      cause: value,
-    });
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "Analyzed start push request must include sourcePackage.",
+      value,
+    );
   }
   if ("diagnostics" in value && value.diagnostics !== undefined && !Array.isArray(value.diagnostics)) {
-    throw new DeploymentProtocolValidationError({
-      schema: "AnalyzedStartPushRequest",
-      message: "Push diagnostics must be an array.",
-      cause: value.diagnostics,
-    });
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "Push diagnostics must be an array.",
+      value.diagnostics,
+    );
   }
-  try {
-    const request = decodeAnalyzedStartPushRequest(value);
-    if (request.analysis === undefined && (typeof request.error !== "string" || request.error.length === 0)) {
-      throw new DeploymentProtocolValidationError({
+  const request = yield* decodeUnknownAnalyzedStartPushRequest(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
         schema: "AnalyzedStartPushRequest",
-        message: "A push without analysis must include an error message.",
-        cause: value,
-      });
-    }
-    if (request.analysis === undefined && request.codegenAnalysis !== undefined) {
-      throw new DeploymentProtocolValidationError({
-        schema: "AnalyzedStartPushRequest",
-        message: "A push without analysis must not include codegenAnalysis.",
-        cause: value,
-      });
-    }
-    if (request.analysis !== undefined && request.error !== undefined) {
-      throw new DeploymentProtocolValidationError({
-        schema: "AnalyzedStartPushRequest",
-        message: "A push with analysis must not include error.",
-        cause: value,
-      });
-    }
-    return request;
-  } catch (cause) {
-    if (cause instanceof DeploymentProtocolValidationError) throw cause;
-    throw new DeploymentProtocolValidationError({
-      schema: "AnalyzedStartPushRequest",
-      message: "Analyzed start push request must include a valid sourcePackage and optional analysis, codegenAnalysis, error, and diagnostics fields.",
-      cause,
-    });
+        message: "Analyzed start push request must include a valid sourcePackage and optional analysis, codegenAnalysis, error, and diagnostics fields.",
+        cause,
+      })
+    ),
+  );
+  if (request.analysis === undefined && (typeof request.error !== "string" || request.error.length === 0)) {
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "A push without analysis must include an error message.",
+      value,
+    );
   }
+  if (request.analysis === undefined && request.codegenAnalysis !== undefined) {
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "A push without analysis must not include codegenAnalysis.",
+      value,
+    );
+  }
+  if (request.analysis !== undefined && request.error !== undefined) {
+    return yield* deploymentProtocolValidationFailure(
+      "AnalyzedStartPushRequest",
+      "A push with analysis must not include error.",
+      value,
+    );
+  }
+  return request;
+});
+
+export function parseAnalyzedStartPushRequest(value: unknown): AnalyzedStartPushRequest {
+  return Effect.runSync(decodeAnalyzedStartPushRequestEffect(value));
 }
 
 export function parseActiveDeploymentStatus(value: unknown): ActiveDeploymentStatus {
@@ -715,4 +746,20 @@ export function parseFinishPushResponse(value: unknown) {
       cause,
     });
   }
+}
+
+function deploymentProtocolValidationFailure(
+  schema: string,
+  message: string,
+  cause: unknown,
+): Effect.Effect<never, DeploymentProtocolValidationError> {
+  return Effect.fail(new DeploymentProtocolValidationError({
+    schema,
+    message,
+    cause,
+  }));
+}
+
+function isRecordValue(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

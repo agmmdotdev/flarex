@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Deployment Protocol Request Effect Decoders
+
+Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.
+
+What changed:
+
+- `flarex-protocol/deployment` now exposes Effect-returning decoders for
+  start, analyzed-start, finish, and abandon request payloads.
+- The existing throwing deployment request parsers remain compatibility
+  wrappers over those Effect decoders.
+- Backend deployment request normalization now consumes the protocol Effect
+  decoders directly instead of wrapping throwing parsers in local try/catch
+  code.
+
+Why it changed:
+
+Deployment push ingress is a runtime validation boundary for source packages,
+analyzer output, finish activation requests, and abandon requests. These
+payload failures should be emitted as typed `DeploymentProtocolValidationError`
+values at the protocol boundary and mapped once by route adapters.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO push lifecycle, deployment
+  validation internals, analyzer behavior, artifact storage, public
+  invoke/execution dispatch, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentRequests.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Public Invoke Protocol Request Effect Decoder
 
 Previous completed checkpoint: `7e3dd43` Add execution protocol effect decoders.

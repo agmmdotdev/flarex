@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public invoke protocol request Effect decoder.
+- Previous completed checkpoint: Deployment protocol request Effect decoders.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public invoke protocol request Effect decoder:
+Next recommended checkpoint after the deployment protocol request Effect decoders:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,28 @@ Next recommended checkpoint after the public invoke protocol request Effect deco
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 270 slice:
+
+1. Add protocol-owned Effect decoders for deployment start, analyzed-start,
+   finish, and abandon request payloads in `flarex-protocol/deployment`.
+2. Keep `parseStartPushRequest(...)`, `parseAnalyzedStartPushRequest(...)`,
+   `parseFinishPushRequest(...)`, and `parseAbandonPushRequest(...)` as
+   throwing compatibility wrappers over those Effect decoders.
+3. Move backend `deployment/Requests.ts` decode helpers off the local
+   try/catch-wrapped protocol parsers and onto the protocol Effect decoders
+   directly.
+4. Preserve analyzed-start source-package presence checks, diagnostics array
+   checks, success/failure mutual-exclusion checks, public start source-package
+   normalization, malformed JSON handling, and DeploymentDO/public deployment
+   route HTTP mapping.
+5. Add direct protocol tests for typed Effect failure channels before
+   compatibility parsing, while keeping backend deployment request and route
+   tests as the normalization and adapter mapping proof.
+6. Leave DeploymentDO push lifecycle, deployment validation internals,
+   analyzer behavior, artifact storage, public invoke/execution dispatch,
+   scheduler, delivery, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 269 slice:
 

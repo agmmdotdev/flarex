@@ -1,5 +1,41 @@
 # Deployment Analysis And Push
 
+## Deployment Protocol Request Effect Decoders
+
+Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.
+
+What changed:
+
+- Start, analyzed-start, finish, and abandon deployment request payloads now
+  have protocol-owned Effect decoders.
+- Backend deployment request helpers use those decoders directly before
+  normalizing public start source packages into backend-owned request shapes.
+- Analyzed-start request invariants still run at the protocol boundary:
+  source-package presence, diagnostics array shape, missing-analysis error
+  requirement, no codegen without analysis, and no error with analysis.
+
+Why it changed:
+
+Deployment push ingress is where source packages and analyzer results become
+backend runtime state. Request shape and wrapper invariants should fail in a
+typed protocol channel before route adapters map them, instead of depending on
+throwing parser calls wrapped in backend-local Effect helpers.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO push lifecycle, deep deployment
+  validation in `deployment/Validation.ts`, analyzer behavior, artifact
+  storage, route path matching, public invoke/execution dispatch,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentRequests.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Deployment Response Decoder Boundary
 
 Previous completed checkpoint: `301924c` Type deployment metadata validation.

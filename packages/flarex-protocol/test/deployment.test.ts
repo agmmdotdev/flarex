@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SchemaAST, type Schema } from "effect";
+import { Effect, SchemaAST, type Schema } from "effect";
 import {
+  decodeAbandonPushRequestEffect,
+  decodeAnalyzedStartPushRequestEffect,
+  decodeFinishPushRequestEffect,
+  decodeStartPushRequestEffect,
   DeploymentApi,
   DeploymentApiPath,
   DeploymentBadRequestError,
@@ -158,6 +162,29 @@ describe("deployment protocol schemas", () => {
     expect(request.codegenAnalysis).toEqual({ not: "validated here" });
   });
 
+  it("exposes typed analyzed start-push decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect(null)))
+      .rejects.toMatchObject({
+        schema: "AnalyzedStartPushRequest",
+        message: "Analyzed start push request must be an object.",
+      });
+
+    await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect({
+      sourcePackage: sourcePackage(),
+    }))).rejects.toMatchObject({
+      schema: "AnalyzedStartPushRequest",
+      message: "A push without analysis must include an error message.",
+    });
+
+    await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect({
+      sourcePackage: sourcePackage(),
+      diagnostics: "not-array",
+    }))).rejects.toMatchObject({
+      schema: "AnalyzedStartPushRequest",
+      message: "Push diagnostics must be an array.",
+    });
+  });
+
   it("parses source-only start push request bodies", () => {
     expect(parseStartPushRequest({ sourcePackage: sourcePackage() })).toEqual({
       sourcePackage: sourcePackage(),
@@ -169,12 +196,40 @@ describe("deployment protocol schemas", () => {
     })).toThrow(DeploymentProtocolValidationError);
   });
 
+  it("exposes typed source-only start push decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeStartPushRequestEffect([])))
+      .rejects.toMatchObject({
+        schema: "StartPushRequest",
+        message: "Start push request must be an object.",
+      });
+
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({})))
+      .rejects.toMatchObject({
+        schema: "StartPushRequest",
+        message: "Start push request must include sourcePackage.",
+      });
+  });
+
   it("parses finish push request bodies", () => {
     expect(parseFinishPushRequest({})).toEqual({});
     expect(parseFinishPushRequest({ activate: true })).toEqual({ activate: true });
     expect(() => parseFinishPushRequest(null)).toThrow(DeploymentProtocolValidationError);
     expect(() => parseFinishPushRequest({ activate: "yes" }))
       .toThrow(DeploymentProtocolValidationError);
+  });
+
+  it("exposes typed finish push decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect(null)))
+      .rejects.toMatchObject({
+        schema: "FinishPushRequest",
+        message: "Finish push request must be an object.",
+      });
+
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect({ activate: "yes" })))
+      .rejects.toMatchObject({
+        schema: "FinishPushRequest",
+        message: "Finish push activate flag must be a boolean.",
+      });
   });
 
   it("parses abandon push request bodies", () => {
@@ -186,6 +241,20 @@ describe("deployment protocol schemas", () => {
     expect(() => parseAbandonPushRequest([])).toThrow(DeploymentProtocolValidationError);
     expect(() => parseAbandonPushRequest({ reason: 42 }))
       .toThrow(DeploymentProtocolValidationError);
+  });
+
+  it("exposes typed abandon push decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect([])))
+      .rejects.toMatchObject({
+        schema: "AbandonPushRequest",
+        message: "Abandon push request must be an object.",
+      });
+
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect({ reason: 42 })))
+      .rejects.toMatchObject({
+        schema: "AbandonPushRequest",
+        message: "Abandon push reason must be a string.",
+      });
   });
 });
 

@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Deployment Protocol Request Effect Decoders
+
+Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.
+
+What changed:
+
+- `flarex-protocol/deployment` owns Effect-returning decoders for deployment
+  start, analyzed-start, finish, and abandon request payloads.
+- Backend `deployment/Requests.ts` owns conversion from protocol request
+  shapes to backend request shapes after protocol validation succeeds.
+- Throwing deployment request parsers remain compatibility adapters, not the
+  source API used by migrated Effect decode paths.
+
+Boundary decision:
+
+The protocol package owns transport request shape and emits
+`DeploymentProtocolValidationError` at the first failing boundary. The backend
+deployment request layer owns backend source-package normalization. Route
+boundary modules own request-body JSON reading and final HTTP/error-response
+conversion. DeploymentDO and deployment services own push lifecycle behavior.
+
+Known limitations:
+
+- This checkpoint does not move DeploymentDO lifecycle logic, deployment
+  validation internals, storage operations, artifact behavior, PartitionDO
+  SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentRequests.test.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Public Invoke Protocol Request Effect Decoder
 
 Previous completed checkpoint: `7e3dd43` Add execution protocol effect decoders.
