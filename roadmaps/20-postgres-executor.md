@@ -1,5 +1,61 @@
 # Postgres Executor
 
+## Executor HTTP Live Query Helper Runtime Bridge
+
+Previous completed checkpoint: `9c25517` Type executor HTTP body validation.
+
+What changed:
+
+- Centralized the promise compatibility bridge for backend live-query helper
+  wrappers in `runFlarexBackendLiveQueryPromise(...)`.
+- Replaced three wrapper-local `Effect.runPromise(...)` calls with the shared
+  adapter edge while preserving compatibility error mapping.
+- Made the backend live-query POST context an explicit local type and routed
+  delivery, wake, and trigger Effect entrypoints directly through the named
+  `postFlarexBackendLiveQueryEffect(...)`.
+
+Why it changed:
+
+E-3 keeps `liveQueryDelivery.ts` on the same migration path as the executor
+HTTP route adapter: reusable helpers expose typed Effect errors, and
+Promise-returning compatibility functions cross one adapter edge. Fetch
+failures and non-OK backend responses remain typed until that edge.
+
+Convex references:
+
+- `crates/local_backend/src/router.rs` for keeping HTTP route/callback adapter
+  concerns separate from backend behavior.
+- `crates/convex/sync_types/src/types/mod.rs` and
+  `crates/convex/sync_types/src/types/json.rs` for typed sync message and JSON
+  conversion boundaries.
+- `npm-packages/convex/src/browser/sync/protocol.ts` for TypeScript-side sync
+  wire message typing.
+
+How Flarex differs:
+
+- Convex owns a canonical sync protocol and hosted routing stack. Flarex uses
+  backend Worker/DO HTTP callback routes for delivery fanout, wake, and trigger
+  notifications, so this package keeps those callbacks as executor HTTP helper
+  adapters with typed Effect failures.
+
+Known limitations:
+
+- The helper still accepts arbitrary backend response text for non-OK response
+  bodies to preserve current compatibility messages.
+- This checkpoint does not change executor HTTP route body decoders, Elysia
+  route registration, backend Worker/DO callback routes, or live-query
+  scheduling behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "backend live query|live query delivery callbacks|live query trigger notifications|compatibility wrapper fetch rejection|fails live query" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Body Validation Effects
 
 Previous completed checkpoint: `91c0d67` Split executor HTTP adapter modules.

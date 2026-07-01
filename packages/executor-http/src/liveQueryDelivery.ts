@@ -44,6 +44,13 @@ export interface FlarexBackendLiveQueryTriggerInput {
 
 type FlarexBackendLiveQueryOperation = "delivery" | "wake" | "trigger";
 
+type FlarexBackendLiveQueryPostContext = {
+  readonly operation: FlarexBackendLiveQueryOperation;
+  readonly deploymentId: string;
+  readonly failedMessagePrefix: string;
+  readonly fetcher: typeof fetch;
+};
+
 export class FlarexBackendLiveQueryResponseError extends Data.TaggedError(
   "FlarexBackendLiveQueryResponseError",
 )<{
@@ -71,10 +78,8 @@ export function createFlarexBackendLiveQueryDelivery(
   config: FlarexBackendLiveQueryDeliveryConfig,
 ): RunLiveQueryDeliveryBatchInput["deliver"] {
   return deliveries =>
-    Effect.runPromise(
-      deliverFlarexBackendLiveQueryEffect(config, deliveries).pipe(
-        Effect.mapError(flarexBackendLiveQueryErrorToError),
-      ),
+    runFlarexBackendLiveQueryPromise(
+      deliverFlarexBackendLiveQueryEffect(config, deliveries),
     );
 }
 
@@ -82,10 +87,8 @@ export function createFlarexBackendLiveQueryWakeNotifier(
   config: FlarexBackendLiveQueryWakeConfig,
 ): (input: FlarexBackendLiveQueryWakeInput) => Promise<void> {
   return input =>
-    Effect.runPromise(
-      notifyFlarexBackendLiveQueryWakeEffect(config, input).pipe(
-        Effect.mapError(flarexBackendLiveQueryErrorToError),
-      ),
+    runFlarexBackendLiveQueryPromise(
+      notifyFlarexBackendLiveQueryWakeEffect(config, input),
     );
 }
 
@@ -93,10 +96,8 @@ export function createFlarexBackendLiveQueryTriggerNotifier(
   config: FlarexBackendLiveQueryTriggerConfig,
 ): NonNullable<LiveQueryInvalidationConfig["notifyTrigger"]> {
   return input =>
-    Effect.runPromise(
-      notifyFlarexBackendLiveQueryTriggerEffect(config, input).pipe(
-        Effect.mapError(flarexBackendLiveQueryErrorToError),
-      ),
+    runFlarexBackendLiveQueryPromise(
+      notifyFlarexBackendLiveQueryTriggerEffect(config, input),
     );
 }
 
@@ -109,7 +110,7 @@ export const deliverFlarexBackendLiveQueryEffect = Effect.fn(
   const fetcher = config.fetch ?? fetch;
   const byDeployment = groupDeliveriesByDeployment(deliveries);
   for (const [deploymentId, deploymentDeliveries] of byDeployment) {
-    yield* postFlarexBackendLiveQuery(
+    yield* postFlarexBackendLiveQueryEffect(
       {
         operation: "delivery",
         deploymentId,
@@ -135,7 +136,7 @@ export const notifyFlarexBackendLiveQueryWakeEffect = Effect.fn(
   input: FlarexBackendLiveQueryWakeInput,
 ) {
   const fetcher = config.fetch ?? fetch;
-  yield* postFlarexBackendLiveQuery(
+  yield* postFlarexBackendLiveQueryEffect(
     {
       operation: "wake",
       deploymentId: input.deploymentId,
@@ -165,7 +166,7 @@ export const notifyFlarexBackendLiveQueryTriggerEffect = Effect.fn(
   input: FlarexBackendLiveQueryTriggerInput,
 ) {
   const fetcher = config.fetch ?? fetch;
-  yield* postFlarexBackendLiveQuery(
+  yield* postFlarexBackendLiveQueryEffect(
     {
       operation: "trigger",
       deploymentId: input.deploymentId,
@@ -191,29 +192,19 @@ export const notifyFlarexBackendLiveQueryTriggerEffect = Effect.fn(
   );
 });
 
-function postFlarexBackendLiveQuery(
-  context: {
-    readonly operation: FlarexBackendLiveQueryOperation;
-    readonly deploymentId: string;
-    readonly failedMessagePrefix: string;
-    readonly fetcher: typeof fetch;
-  },
-  input: RequestInfo | URL,
-  init: RequestInit,
-): Effect.Effect<void, FlarexBackendLiveQueryError> {
-  return postFlarexBackendLiveQueryEffect(context, input, init);
+function runFlarexBackendLiveQueryPromise(
+  effect: Effect.Effect<void, FlarexBackendLiveQueryError>,
+): Promise<void> {
+  return Effect.runPromise(
+    effect.pipe(Effect.mapError(flarexBackendLiveQueryErrorToError)),
+  );
 }
 
 const postFlarexBackendLiveQueryEffect = Effect.fn(
   "ExecutorHttp.postFlarexBackendLiveQuery",
 )(
   function* (
-    context: {
-      readonly operation: FlarexBackendLiveQueryOperation;
-      readonly deploymentId: string;
-      readonly failedMessagePrefix: string;
-      readonly fetcher: typeof fetch;
-    },
+    context: FlarexBackendLiveQueryPostContext,
     input: RequestInfo | URL,
     init: RequestInit,
   ) {

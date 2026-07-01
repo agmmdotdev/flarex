@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: E-2 Executor HTTP body validation effects
-  in this checkpoint commit.
+- Previous completed checkpoint: E-3 Executor HTTP live-query helper runtime
+  bridge in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -404,13 +404,14 @@ The Effect migration is complete only when all of these are true:
   - Files:
     `packages/executor-http/src/requestDecoders.ts`.
   - Must preserve: all current bad request response bodies.
-- [ ] E-3. Move live-query delivery HTTP helper runtime bridges to one adapter
+- [x] E-3. Move live-query delivery HTTP helper runtime bridges to one adapter
   edge and typed fetch/response errors.
+  - Completed by: this E-3 checkpoint commit.
   - Files:
     `packages/executor-http/src/liveQueryDelivery.ts`.
   - Tests:
-    extend `packages/executor-http/test/http.test.ts` or add focused helper
-    tests.
+    `packages/executor-http/test/http.test.ts` backend live-query helper
+    cases.
 - [ ] E-4. Decide whether Elysia remains as the adapter or is replaced after
   behavior is locked. Do not replace it before E-1 through E-3 are complete.
 
@@ -461,10 +462,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with E-3:
+Start with E-4:
 
-Move `packages/executor-http/src/liveQueryDelivery.ts` HTTP helper runtime
-bridges to one adapter edge with typed fetch/response errors; update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
-with executor-http focused tests and gates, run only the EffectTS quality
-checker if Effect code changes, tick `E-3`, then commit.
+Decide whether Elysia remains as the adapter or is replaced after E-1 through
+E-3 are complete. Audit the locked executor-http route/body/helper behavior,
+update `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps,
+validate with executor-http focused tests and gates, run only the EffectTS
+quality checker if Effect code changes, tick `E-4`, then commit.

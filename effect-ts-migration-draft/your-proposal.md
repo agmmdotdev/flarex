@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: E-2 executor-http body validation effects in this checkpoint commit.
-- Active checkpoint: E-3 executor-http live-query delivery helper bridges, moving `liveQueryDelivery.ts` fetch/response handling to typed Effect errors at one adapter edge.
+- Previous completed checkpoint: E-3 executor-http live-query helper bridge in this checkpoint commit.
+- Active checkpoint: E-4 executor-http adapter decision, deciding whether Elysia remains as the adapter or is replaced now that E-1 through E-3 have locked behavior.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,18 +52,27 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after E-2 executor-http body validation effects:
+Next recommended checkpoint after E-3 executor-http live-query helper bridge:
 
-1. Audit `packages/executor-http/src/liveQueryDelivery.ts` for fetch,
-   response-status, and response-body runtime bridge logic.
-2. Move helper fetch/response failures into typed Effect errors with one
-   adapter edge for promise-returning notifier/delivery helpers.
-3. Preserve backend live-query callback behavior through the existing
-   executor-http live-query tests before ticking E-3.
-4. Do not replace Elysia or change request body decoder behavior; E-3 owns
-   backend live-query HTTP helper bridges only.
+1. Audit E-1 through E-3 outcomes and the current Elysia adapter coupling in
+   `packages/executor-http/src`.
+2. Decide whether Elysia remains the HTTP adapter for now or whether a
+   replacement is warranted after behavior has been locked.
+3. If Elysia remains, document the decision and tick E-4 without route
+   rewrites. If replacement is warranted, write the concrete follow-up
+   checkpoint before changing production route behavior.
+4. Validate the decision with executor-http focused tests and package gates
+   before ticking E-4.
 
-Current Goal 361 slice:
+Current Goal 362 slice:
+
+1. Audit E-1 through E-3 outcome and current Elysia adapter coupling.
+2. Decide whether Elysia remains or replacement is warranted now.
+3. Preserve route behavior; if decision is no replacement, document and tick
+   E-4; if replacement, create a concrete follow-up checkpoint.
+4. Validate with executor-http tests and gates before ticking E-4.
+
+Completed Goal 361 slice:
 
 1. Audit `packages/executor-http/src/liveQueryDelivery.ts` fetch and response
    handling.

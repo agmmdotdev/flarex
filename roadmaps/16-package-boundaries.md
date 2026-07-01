@@ -1,5 +1,50 @@
 # Package Boundaries
 
+## Executor HTTP Live Query Helper Boundary
+
+Previous completed checkpoint: `9c25517` Type executor HTTP body validation.
+
+What changed:
+
+- Kept backend live-query delivery, wake, and trigger helper ownership in
+  `packages/executor-http/src/liveQueryDelivery.ts`.
+- Centralized the Promise compatibility runtime bridge in
+  `runFlarexBackendLiveQueryPromise(...)`.
+- Kept the reusable Effect entrypoints and typed backend fetch/response errors
+  inside `@flarex/executor-http`.
+
+Boundary decision:
+
+Backend live-query callback HTTP helpers are adapter code, not executor core.
+`@flarex/executor` still owns live-query delivery records and policy behavior;
+`@flarex/executor-http` owns how those records notify Flarex backend HTTP
+routes and how typed helper failures are mapped to Promise rejections for
+legacy callback interfaces.
+
+Convex comparison:
+
+Convex keeps sync protocol types and JSON conversion in
+`crates/convex/sync_types/src/types/mod.rs` and
+`crates/convex/sync_types/src/types/json.rs`, with local/backend routing
+separate in `crates/local_backend/src/router.rs`. Flarex mirrors the boundary
+by keeping HTTP callback transport in the executor HTTP adapter package.
+
+Known limitations:
+
+- This checkpoint does not move callback route contracts to `flarex-protocol`.
+- This checkpoint does not change backend Worker/DO callback handlers,
+  scheduler delivery behavior, public SDK packages, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "backend live query|live query delivery callbacks|live query trigger notifications|compatibility wrapper fetch rejection|fails live query" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Body Decoder Boundary
 
 Previous completed checkpoint: `91c0d67` Split executor HTTP adapter modules.

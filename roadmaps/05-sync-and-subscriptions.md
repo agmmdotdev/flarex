@@ -1,5 +1,60 @@
 # Sync And Subscriptions
 
+## Executor HTTP Backend Live Query Helper Bridge
+
+Previous completed checkpoint: `9c25517` Type executor HTTP body validation.
+
+What changed:
+
+- Backend live-query delivery, wake, and trigger helper wrappers now share one
+  Promise compatibility bridge in `liveQueryDelivery.ts`.
+- The exported Effect helpers still expose typed
+  `FlarexBackendLiveQueryFetchError` and
+  `FlarexBackendLiveQueryResponseError` failures before compatibility mapping.
+- Delivery, wake, and trigger helpers call the named backend POST Effect
+  directly with an explicit typed context.
+
+Why it changed:
+
+Live-query delivery fanout and invalidation notification are sync/subscription
+runtime paths. E-3 keeps their executor HTTP helper errors typed until a single
+Promise adapter edge while preserving the existing callback interface used by
+executor live-query maintenance.
+
+Convex references:
+
+- `crates/convex/sync_types/src/types/mod.rs` and
+  `crates/convex/sync_types/src/types/json.rs` for typed sync protocol
+  boundaries.
+- `npm-packages/convex/src/browser/sync/protocol.ts` for TypeScript sync wire
+  message typing.
+- `crates/local_backend/src/router.rs` for route adapter separation from
+  backend behavior.
+
+How Flarex differs:
+
+- Convex owns a canonical websocket sync protocol. Flarex's Cloudflare runtime
+  uses backend HTTP callback routes between executor maintenance and Worker/DO
+  sync components, so the typed failure boundary sits in
+  `@flarex/executor-http` helper code.
+
+Known limitations:
+
+- Non-OK backend response bodies remain plain text in the typed response error
+  for compatibility.
+- This checkpoint does not change scheduler rerun logic, DeliveryDO fanout,
+  ConnectionDO delivery, or public sync route behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "backend live query|live query delivery callbacks|live query trigger notifications|compatibility wrapper fetch rejection|fails live query" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Scheduler And Connection JSON Bridge Decoders
 
 Previous completed checkpoint: `09529e6` Decode deployment storage rows with
