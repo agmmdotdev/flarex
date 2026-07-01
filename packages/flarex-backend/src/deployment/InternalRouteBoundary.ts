@@ -1,9 +1,18 @@
 import { Data, Effect } from "effect";
 import {
+  DeploymentBadRequestErrorResponse,
+  DeploymentConflictErrorResponse,
+  DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
   DeploymentRoute,
+  DeploymentStorageErrorResponse,
 } from "flarex-protocol/deployment";
 import { errorResponse, HttpError, json } from "../http";
+import {
+  deploymentAbandonPushHandler,
+  deploymentFinishPushHandler,
+  deploymentStartAnalyzedPushHandler,
+} from "./HttpApiHandlers";
 import {
   decodeDeploymentApiRouteInput,
   deploymentApiRouteInputToRequest,
@@ -11,6 +20,7 @@ import {
   type DeploymentApiRouteInput,
   type DeploymentRouteError,
 } from "./HttpApiRouteBoundary";
+import type { DeploymentServiceApi } from "./Service";
 
 export class DeploymentRouteOperationError extends Data.TaggedError(
   "DeploymentRouteOperationError",
@@ -24,6 +34,13 @@ export class DeploymentRouteOperationError extends Data.TaggedError(
 export type DeploymentInternalRouteError =
   | DeploymentRouteError
   | DeploymentRouteOperationError;
+
+export type DeploymentApiMutationRouteInput = Extract<
+  DeploymentApiRouteInput,
+  | { readonly _tag: "DeploymentApiStartAnalyzedPushRoute" }
+  | { readonly _tag: "DeploymentApiFinishPushRoute" }
+  | { readonly _tag: "DeploymentApiAbandonPushRoute" }
+>;
 
 export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
   function* (
@@ -59,6 +76,36 @@ export const dispatchDeploymentApiRouteInputViaRequestCompatibility = Effect.fn(
         ? cause
         : deploymentRouteOperationError("http-api", cause),
   });
+});
+
+export const dispatchDeploymentApiMutationRouteInputDirect = Effect.fn(
+  "DeploymentDO.dispatchApiMutationRouteInputDirect",
+)(function* (
+  apiRouteInput: DeploymentApiMutationRouteInput,
+  deployment: DeploymentServiceApi,
+): Effect.fn.Return<Response> {
+  if (apiRouteInput._tag === "DeploymentApiStartAnalyzedPushRoute") {
+    return yield* deploymentStartAnalyzedPushHandler(deployment, apiRouteInput.body).pipe(
+      Effect.match({
+        onFailure: deploymentGeneratedMutationValueToResponse,
+        onSuccess: deploymentGeneratedMutationValueToResponse,
+      }),
+    );
+  }
+  if (apiRouteInput._tag === "DeploymentApiFinishPushRoute") {
+    return yield* deploymentFinishPushHandler(deployment, apiRouteInput.pushId).pipe(
+      Effect.match({
+        onFailure: deploymentGeneratedMutationValueToResponse,
+        onSuccess: deploymentGeneratedMutationValueToResponse,
+      }),
+    );
+  }
+  return yield* deploymentAbandonPushHandler(deployment, apiRouteInput.pushId, apiRouteInput.body).pipe(
+    Effect.match({
+      onFailure: deploymentGeneratedMutationValueToResponse,
+      onSuccess: deploymentGeneratedMutationValueToResponse,
+    }),
+  );
 });
 
 export function runDeploymentDurableObjectRoute(
@@ -103,4 +150,24 @@ function deploymentRouteOperationError(
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function deploymentGeneratedMutationValueToResponse(value: object): Response {
+  if (value instanceof DeploymentBadRequestErrorResponse) {
+    return json(value, { status: 400 });
+  }
+  if (value instanceof DeploymentNotFoundErrorResponse) {
+    return json(value, { status: 404 });
+  }
+  if (value instanceof DeploymentConflictErrorResponse || isRejectedFinishPushResponse(value)) {
+    return json(value, { status: 409 });
+  }
+  if (value instanceof DeploymentStorageErrorResponse) {
+    return json(value, { status: 500 });
+  }
+  return json(value);
+}
+
+function isRejectedFinishPushResponse(value: object): value is { readonly result: "rejected" } {
+  return "result" in value && value.result === "rejected";
 }

@@ -1,5 +1,57 @@
 # Runtime Validation
 
+## Direct DeploymentDO Mutation Route Input Dispatch
+
+Previous completed checkpoint: `a5843f5` Type deployment route compatibility
+dispatch.
+
+What changed:
+
+- Added `dispatchDeploymentApiMutationRouteInputDirect(...)`, a named Effect
+  adapter for typed start/finish/abandon route inputs.
+- The direct adapter calls the existing generated deployment handler effects
+  with `DeploymentServiceApi` instead of rebuilding a generated HttpApi
+  `Request`.
+- The adapter maps generated handler success/error values to HTTP `Response`
+  objects at one edge, preserving declared status semantics.
+- Focused tests cover direct start success, rejected finish `409`, and abandon
+  conflict `409`.
+
+Why it changed:
+
+The route surface now has typed decoded mutation inputs. This checkpoint proves
+those inputs can dispatch through generated handler effects directly without
+changing the Durable Object runtime wiring yet.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO direct-dispatch migration checkpoint.
+
+How Flarex differs:
+
+- Flarex still keeps the generated HttpApi request bridge wired in
+  `routeDeploymentDurableObject(...)`, but the mutation direct-dispatch
+  behavior is now implemented and testable before the runtime wiring decision.
+
+Known limitations:
+
+- `routeDeploymentDurableObject(...)` wiring, direct read dispatch, generated
+  handler logic, DeploymentService/store lifecycle logic, public Worker
+  deployment dispatch, artifact materializer/cache, source-package analyzer
+  semantics, PartitionDO SQL/OCC, executor-http, protocol parser compatibility
+  wrappers, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## DeploymentDO Route Input Compatibility Dispatch
 
 Previous completed checkpoint: `203ca2f` Type deployment route input boundary.

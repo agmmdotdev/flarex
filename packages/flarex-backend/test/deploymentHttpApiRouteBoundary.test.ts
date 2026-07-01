@@ -5,6 +5,8 @@ import {
   DeploymentPushAction,
   DeploymentRoute,
   parseAnalyzedStartPushRequest,
+  parseDeploymentErrorResponse,
+  parseFinishPushResponse,
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
@@ -20,12 +22,17 @@ import {
   deploymentRouteErrorToHttpErrorEffect,
 } from "../src/deployment/HttpApiRouteBoundary";
 import {
+  dispatchDeploymentApiMutationRouteInputDirect,
   dispatchDeploymentApiRouteInputViaRequestCompatibility,
   deploymentInternalRouteErrorToResponseEffect,
+  type DeploymentApiMutationRouteInput,
   DeploymentRouteOperationError,
   routeDeploymentDurableObject,
   runDeploymentDurableObjectRoute,
 } from "../src/deployment/InternalRouteBoundary";
+import { DeploymentPushInvalidStateError } from "../src/deployment/Errors";
+import type { DeploymentServiceApi } from "../src/deployment/Service";
+import type { DeploymentAnalysis, DeploymentCodegenAnalysis, PushStatus } from "../src/types";
 
 describe("deployment HttpApi route boundary", () => {
   it("forwards all read routes to the generated DeploymentApi handler", async () => {
@@ -485,6 +492,87 @@ describe("deployment HttpApi route boundary", () => {
     });
   });
 
+  it("dispatches typed DeploymentDO mutation route inputs directly to generated handler effects", async () => {
+    const service = deploymentTestService();
+    const startRouteInput = await mutationRouteInput(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: {
+          sourcePackage: sourcePackage(),
+          analysis: deploymentAnalysis(),
+          codegenAnalysis: deploymentCodegenAnalysis(),
+          diagnostics: [{ level: "warn", message: "direct dispatch" }],
+        },
+      },
+      "DeploymentApiStartAnalyzedPushRoute",
+    );
+    const startResponse = await Effect.runPromise(dispatchDeploymentApiMutationRouteInputDirect(
+      startRouteInput,
+      service,
+    ));
+    expect(startResponse.status).toBe(200);
+    await expect(startResponse.json()).resolves.toMatchObject({
+      pushId: "generated-push",
+      state: "analyzed",
+    });
+
+    const rejectedFinishRouteInput = await mutationRouteInput(
+      `${DeploymentRoute.push}/push-direct-rejected/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: {},
+      },
+      "DeploymentApiFinishPushRoute",
+    );
+    const rejectedFinishResponse = await Effect.runPromise(dispatchDeploymentApiMutationRouteInputDirect(
+      rejectedFinishRouteInput,
+      deploymentTestService({
+        finishPush: pushId => Effect.succeed({
+          result: "rejected",
+          push: pushStatus(pushId, "failed"),
+          code: "invalid_state",
+          error: `Cannot finish push ${pushId} in state failed.`,
+        }),
+      }),
+    ));
+    expect(rejectedFinishResponse.status).toBe(409);
+    const rejectedFinishBody: unknown = await rejectedFinishResponse.json();
+    expect(parseFinishPushResponse(rejectedFinishBody)).toMatchObject({
+      result: "rejected",
+      code: "invalid_state",
+      error: "Cannot finish push push-direct-rejected in state failed.",
+      push: {
+        pushId: "push-direct-rejected",
+        state: "failed",
+      },
+    });
+
+    const activeAbandonRouteInput = await mutationRouteInput(
+      `${DeploymentRoute.push}/push-direct-active/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: {},
+      },
+      "DeploymentApiAbandonPushRoute",
+    );
+    const activeAbandonResponse = await Effect.runPromise(dispatchDeploymentApiMutationRouteInputDirect(
+      activeAbandonRouteInput,
+      deploymentTestService({
+        abandonPush: pushId => Effect.fail(new DeploymentPushInvalidStateError({
+          action: "abandon",
+          pushId,
+          state: "activated",
+        })),
+      }),
+    ));
+    expect(activeAbandonResponse.status).toBe(409);
+    const activeAbandonBody: unknown = await activeAbandonResponse.json();
+    expect(parseDeploymentErrorResponse(activeAbandonBody)).toEqual({
+      error: "Cannot abandon push push-direct-active in state activated.",
+    });
+  });
+
   it("maps DeploymentDO route failures through a named response adapter effect", async () => {
     const protocolResponse = await Effect.runPromise(deploymentInternalRouteErrorToResponseEffect(
       new DeploymentProtocolValidationError({
@@ -547,5 +635,83 @@ function sourcePackage() {
     }],
     functions: [],
     execution: "__execution.ts",
+  };
+}
+
+type MutationRouteInputTag =
+  | "DeploymentApiStartAnalyzedPushRoute"
+  | "DeploymentApiFinishPushRoute"
+  | "DeploymentApiAbandonPushRoute";
+
+async function mutationRouteInput<Tag extends MutationRouteInputTag>(
+  path: string,
+  options: RequestOptions,
+  tag: Tag,
+): Promise<DeploymentApiMutationRouteInput> {
+  const routeInput = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(path, options)));
+  if (routeInput?._tag !== tag) {
+    throw new Error(`Expected ${tag}.`);
+  }
+  return routeInput;
+}
+
+interface DeploymentTestServiceOverrides {
+  readonly startAnalyzedPush?: DeploymentServiceApi["startAnalyzedPush"];
+  readonly finishPush?: DeploymentServiceApi["finishPush"];
+  readonly abandonPush?: DeploymentServiceApi["abandonPush"];
+}
+
+function deploymentTestService(
+  overrides: DeploymentTestServiceOverrides = {},
+): DeploymentServiceApi {
+  return {
+    getActiveDeployment: () => Effect.die("not used"),
+    getPush: () => Effect.die("not used"),
+    startAnalyzedPush: overrides.startAnalyzedPush ?? (() => Effect.succeed(pushStatus("generated-push"))),
+    finishPush: overrides.finishPush ?? (pushId => Effect.succeed({
+      result: "activated",
+      push: pushStatus(pushId, "activated"),
+    })),
+    abandonPush: overrides.abandonPush ?? ((pushId, request) => Effect.succeed({
+      ...pushStatus(pushId, "abandoned"),
+      error: request.reason ?? "Push abandoned before activation.",
+    })),
+  };
+}
+
+function pushStatus(pushId: string, state: PushStatus["state"] = "analyzed"): PushStatus {
+  return {
+    pushId,
+    state,
+    sourcePackage: sourcePackage(),
+    analysis: deploymentAnalysis(),
+    codegenAnalysis: deploymentCodegenAnalysis(),
+    diagnostics: [],
+    createdAt: 1,
+    updatedAt: 2,
+  };
+}
+
+function deploymentAnalysis(): DeploymentAnalysis {
+  return {
+    schema: {
+      version: 0,
+      tables: [],
+      indexes: [],
+    },
+    functions: {
+      functions: [],
+    },
+  };
+}
+
+function deploymentCodegenAnalysis(): DeploymentCodegenAnalysis {
+  return {
+    schema: {
+      version: 0,
+      tables: [],
+      indexes: [],
+    },
+    functions: [],
   };
 }
