@@ -1,11 +1,6 @@
 import { Data, Effect } from "effect";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import {
   decodePublicExecutionActionPayload,
 } from "./Requests";
@@ -36,21 +31,25 @@ export type PublicExecutionRoutePathError =
   | MissingExecutionSessionIdError
   | MissingExecutionActionError;
 
-export function decodePublicExecutionActionRequest(
+export const decodePublicExecutionActionRequest = Effect.fn(
+  "ExecutionActionRouteBoundary.decodePublicActionRequest",
+)(function* (
   request: Request,
   action: PublicExecutionAction,
-): Effect.Effect<unknown, PublicExecutionActionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<unknown, PublicExecutionActionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicExecutionActionRoutePayload(value, action)),
   );
-}
+});
 
-export function decodePublicExecutionActionRoutePayload(
+export const decodePublicExecutionActionRoutePayload = Effect.fn(
+  "ExecutionActionRouteBoundary.decodePublicActionPayload",
+)(function* (
   value: unknown,
   action: PublicExecutionAction,
-): Effect.Effect<unknown, ExecutionProtocolValidationError> {
-  return decodePublicExecutionActionPayload(value, action);
-}
+): Effect.fn.Return<unknown, ExecutionProtocolValidationError> {
+  return yield* decodePublicExecutionActionPayload(value, action);
+});
 
 export const publicExecutionRoutePathFromPartsEffect = Effect.fn(
   "ExecutionActionRouteBoundary.publicExecutionRoutePathFromParts",
@@ -69,40 +68,6 @@ export const publicExecutionRoutePathFromPartsEffect = Effect.fn(
     return { matched: false };
   }
   return { matched: true, sessionId, action };
-});
-
-export function publicExecutionActionRouteErrorToHttpError(
-  error: PublicExecutionActionRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const publicExecutionActionRouteErrorToHttpErrorEffect = Effect.fn(
-  "ExecutionActionRouteBoundary.publicExecutionActionRouteErrorToHttpError",
-)(function* (
-  error: PublicExecutionActionRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(publicExecutionActionRouteErrorToHttpError(error));
-});
-
-export function publicExecutionRoutePathErrorToHttpError(
-  error: PublicExecutionRoutePathError,
-): HttpError {
-  if (error instanceof MissingExecutionSessionIdError) {
-    return new HttpError(400, "Missing execution session id.");
-  }
-  return new HttpError(400, "Missing execution action.");
-}
-
-export const publicExecutionRoutePathErrorToHttpErrorEffect = Effect.fn(
-  "ExecutionActionRouteBoundary.publicExecutionRoutePathErrorToHttpError",
-)(function* (
-  error: PublicExecutionRoutePathError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(publicExecutionRoutePathErrorToHttpError(error));
 });
 
 function isPublicExecutionAction(action: string): action is PublicExecutionAction {

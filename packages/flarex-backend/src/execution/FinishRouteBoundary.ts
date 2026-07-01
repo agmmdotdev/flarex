@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { ExecutionFinishRequest } from "../types";
 import {
   decodeExecutionFinishPayload,
@@ -13,33 +8,20 @@ import {
 
 export type ExecutionFinishRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export function decodeExecutionFinishRouteRequest(
+export const decodeExecutionFinishRouteRequest = Effect.fn(
+  "ExecutionFinishRouteBoundary.decodeRequest",
+)(function* (
   request: Request,
-): Effect.Effect<ExecutionFinishRequest, ExecutionFinishRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<ExecutionFinishRequest, ExecutionFinishRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionFinishRoutePayload),
   );
-}
+});
 
-export function decodeExecutionFinishRoutePayload(
-  value: unknown,
-): Effect.Effect<ExecutionFinishRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionFinishPayload(value);
-}
-
-export function executionFinishRouteErrorToHttpError(
-  error: ExecutionFinishRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const executionFinishRouteErrorToHttpErrorEffect = Effect.fn(
-  "ExecutionFinishRouteBoundary.executionFinishRouteErrorToHttpError",
+export const decodeExecutionFinishRoutePayload = Effect.fn(
+  "ExecutionFinishRouteBoundary.decodePayload",
 )(function* (
-  error: ExecutionFinishRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(executionFinishRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<ExecutionFinishRequest, ExecutionProtocolValidationError> {
+  return yield* decodeExecutionFinishPayload(value);
 });

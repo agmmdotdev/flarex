@@ -1,5 +1,38 @@
 # Runtime Validation
 
+## Execution Route Adapter Split
+
+Previous completed checkpoint: `7737cd0` Type project required parameters.
+
+What changed:
+
+- Execution start, public action, finish, and syscall route boundary request
+  decoders are now named `Effect.fn(...)` functions.
+- `StartRouteBoundary.ts`, `ActionRouteBoundary.ts`,
+  `FinishRouteBoundary.ts`, and `SyscallRouteBoundary.ts` no longer import
+  `HttpError` or own HTTP error mapping.
+- Worker public execution routing and ExecutionDO internal routing own their
+  local decode/path error to `HttpError` compatibility mapping at the adapter
+  edge.
+- ExecutionDO keeps its single `Effect.runPromise(...)` fetch boundary and
+  routes internal decode failures through the execution adapter mapper.
+
+Why it changed:
+
+R-1 keeps execution route input validation typed at the route boundary while
+moving response-status compatibility into Worker and ExecutionDO adapter code.
+This makes the execution family match the migration rule that route/domain
+helpers should not depend on `HttpError`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Project Required Parameter Effects
 
 Previous completed checkpoint: `33054dd` Propagate public worker route errors.

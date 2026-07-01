@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `33054dd` Propagate public worker route errors.
-- Active checkpoint: R-1 execution route boundaries, migrating `StartRouteBoundary.ts`, `ActionRouteBoundary.ts`, `FinishRouteBoundary.ts`, and `SyscallRouteBoundary.ts` to typed route-input decoders and adapter-only `HttpError`.
+- Previous completed checkpoint: `7737cd0` Type project required parameters.
+- Active checkpoint: R-2 invoke route boundary, migrating `invoke/PublicInvokeRouteBoundary.ts` and `invoke.ts` to typed public invoke route input, tagged active-deployment load failures, and one response adapter.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,29 +52,40 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after W-3 project required-parameter errors:
+Next recommended checkpoint after R-1 execution route boundaries:
 
-1. Migrate execution route boundaries in `StartRouteBoundary.ts`,
-   `ActionRouteBoundary.ts`, `FinishRouteBoundary.ts`, and
-   `SyscallRouteBoundary.ts` to typed route-input decoders and adapter-only
-   `HttpError`.
-2. Keep each public Worker or Durable Object entrypoint at one
-   `Effect.runPromise` edge and one HTTP mapper.
-3. Preserve the existing HTTP response body/status exactly through adapter
-   mapping tests.
+1. Migrate the invoke route boundary in `invoke/PublicInvokeRouteBoundary.ts`
+   and `invoke.ts` to typed public invoke route input.
+2. Keep active deployment load failures tagged until the invoke response
+   adapter maps them.
+3. Preserve the existing invoke response body/status exactly through typed
+   boundary tests and public invoke route tests.
 4. Continue avoiding deployment storage, artifact materializer/cache,
    source-package behavior, executor-http, PartitionDO SQL/OCC, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 346 slice:
+Current Goal 347 slice:
 
-1. Add typed execution route-input decoders for start, action, finish, and
-   syscall route boundaries.
-2. Keep execution route-family `HttpError` conversion at adapter edges only.
-3. Preserve execution route request/response status and body behavior.
-4. Extend focused execution route and ExecutionDO tests before changing route
-   internals more broadly.
+1. Convert public invoke route input/body handling to typed Effect decoders.
+2. Keep active-deployment load failures tagged until the public invoke adapter
+   maps them to the preserved HTTP response.
+3. Preserve public invoke request/response status and body behavior.
+4. Keep execution, deployment storage, artifact materializer/cache,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
+   and `ValidatorJson` unchanged unless R-2 owns that boundary directly.
+
+Completed Goal 346 slice:
+
+1. Convert execution start, public action, finish, and syscall route boundary
+   request/payload decoders to named `Effect.fn(...)` functions.
+2. Move execution route-family `HttpError` conversion out of the route boundary
+   modules and into the Worker/ExecutionDO adapter edges.
+3. Preserve execution route request/response status and body behavior through
+   focused typed-boundary tests plus Worker/ExecutionDO response-path coverage
+   in `executionDO.test.ts`.
+4. Keep route boundary modules free of `HttpError` and
+   `requestJsonErrorToHttpError`.
 5. Leave DeploymentService/store lifecycle, analyzer/artifact semantics,
    PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
    and `ValidatorJson` unchanged unless R-1 owns that boundary directly.

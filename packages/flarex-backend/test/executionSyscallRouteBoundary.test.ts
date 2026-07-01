@@ -5,8 +5,6 @@ import { RequestJsonError } from "../src/http";
 import {
   decodeExecutionSyscallRoutePayload,
   decodeExecutionSyscallRouteRequest,
-  executionSyscallRouteErrorToHttpError,
-  executionSyscallRouteErrorToHttpErrorEffect,
 } from "../src/execution/SyscallRouteBoundary";
 
 describe("execution syscall route boundary", () => {
@@ -80,36 +78,6 @@ describe("execution syscall route boundary", () => {
     )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed execution syscall route errors through named adapter effects", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    expect(executionSyscallRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    const protocolError = new ExecutionProtocolValidationError({
-      schema: "ExecutionSyscallRequest",
-      message:
-        "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
-      cause: null,
-    });
-    expect(executionSyscallRouteErrorToHttpError(protocolError)).toMatchObject({
-      status: 400,
-      message:
-        "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
-    });
-
-    await expect(Effect.runPromise(Effect.flip(
-      executionSyscallRouteErrorToHttpErrorEffect(protocolError),
-    ))).resolves.toMatchObject({
-      status: 400,
-      message:
-        "Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.",
-    });
-  });
 });
 
 function jsonRequest(body: unknown): Request {

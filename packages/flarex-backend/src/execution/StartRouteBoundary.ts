@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { ExecutionStartRequest } from "../types";
 import {
   decodeExecutionStartPayload,
@@ -14,47 +9,40 @@ import {
 
 export type ExecutionStartRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export function decodeExecutionStartRouteRequest(
+export const decodeExecutionStartRouteRequest = Effect.fn(
+  "ExecutionStartRouteBoundary.decodeRequest",
+)(function* (
   request: Request,
-): Effect.Effect<ExecutionStartRequest, ExecutionStartRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<ExecutionStartRequest, ExecutionStartRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionStartRoutePayload),
   );
-}
+});
 
-export function decodePublicExecutionStartRouteRequest(
+export const decodePublicExecutionStartRouteRequest = Effect.fn(
+  "ExecutionStartRouteBoundary.decodePublicRequest",
+)(function* (
   request: Request,
   deploymentId: string,
-): Effect.Effect<ExecutionStartRequest, ExecutionStartRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<ExecutionStartRequest, ExecutionStartRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicExecutionStartRoutePayload(value, deploymentId)),
   );
-}
+});
 
-export function decodePublicExecutionStartRoutePayload(
+export const decodePublicExecutionStartRoutePayload = Effect.fn(
+  "ExecutionStartRouteBoundary.decodePublicPayload",
+)(function* (
   value: unknown,
   deploymentId: string,
-): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  return decodePublicExecutionStartPayload(value, deploymentId);
-}
+): Effect.fn.Return<ExecutionStartRequest, ExecutionProtocolValidationError> {
+  return yield* decodePublicExecutionStartPayload(value, deploymentId);
+});
 
-export function decodeExecutionStartRoutePayload(
-  value: unknown,
-): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionStartPayload(value);
-}
-
-export function executionStartRouteErrorToHttpError(error: ExecutionStartRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const executionStartRouteErrorToHttpErrorEffect = Effect.fn(
-  "ExecutionStartRouteBoundary.executionStartRouteErrorToHttpError",
+export const decodeExecutionStartRoutePayload = Effect.fn(
+  "ExecutionStartRouteBoundary.decodePayload",
 )(function* (
-  error: ExecutionStartRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(executionStartRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<ExecutionStartRequest, ExecutionProtocolValidationError> {
+  return yield* decodeExecutionStartPayload(value);
 });

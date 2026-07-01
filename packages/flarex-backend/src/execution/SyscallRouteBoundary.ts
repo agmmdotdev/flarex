@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { ExecutionSyscallRequest } from "../types";
 import {
   decodeExecutionSyscallPayload,
@@ -13,33 +8,20 @@ import {
 
 export type ExecutionSyscallRouteError = RequestJsonError | ExecutionProtocolValidationError;
 
-export function decodeExecutionSyscallRouteRequest(
+export const decodeExecutionSyscallRouteRequest = Effect.fn(
+  "ExecutionSyscallRouteBoundary.decodeRequest",
+)(function* (
   request: Request,
-): Effect.Effect<ExecutionSyscallRequest, ExecutionSyscallRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<ExecutionSyscallRequest, ExecutionSyscallRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionSyscallRoutePayload),
   );
-}
+});
 
-export function decodeExecutionSyscallRoutePayload(
-  value: unknown,
-): Effect.Effect<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
-  return decodeExecutionSyscallPayload(value);
-}
-
-export function executionSyscallRouteErrorToHttpError(
-  error: ExecutionSyscallRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const executionSyscallRouteErrorToHttpErrorEffect = Effect.fn(
-  "ExecutionSyscallRouteBoundary.executionSyscallRouteErrorToHttpError",
+export const decodeExecutionSyscallRoutePayload = Effect.fn(
+  "ExecutionSyscallRouteBoundary.decodePayload",
 )(function* (
-  error: ExecutionSyscallRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(executionSyscallRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
+  return yield* decodeExecutionSyscallPayload(value);
 });

@@ -441,11 +441,6 @@ function runExecutionRoute(
   );
 }
 
-type ExecutionRouteDecodeError =
-  | ExecutionStartRouteError
-  | ExecutionSyscallRouteError
-  | ExecutionFinishRouteError;
-
 function executionInternalRouteErrorToResponse(
   error: ExecutionInternalRouteError,
 ): Response {
@@ -512,6 +507,11 @@ export const executionInternalRouteErrorToResponseEffect = Effect.fn(
 ): Effect.fn.Return<Response> {
   return yield* Effect.succeed(executionInternalRouteErrorToResponse(error));
 });
+
+type ExecutionRouteDecodeError =
+  | ExecutionStartRouteError
+  | ExecutionSyscallRouteError
+  | ExecutionFinishRouteError;
 
 function executionRouteDecodeErrorToHttpError(
   error: ExecutionRouteDecodeError,

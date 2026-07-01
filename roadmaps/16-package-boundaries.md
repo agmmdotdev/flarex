@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Execution Route Adapter Split
+
+Previous completed checkpoint: `7737cd0` Type project required parameters.
+
+What changed:
+
+- Worker public execution routing and ExecutionDO internal routing now own
+  execution decode/path error to `HttpError` compatibility mapping locally at
+  their adapter edges.
+- Execution start, public action, finish, and syscall boundary modules now own
+  typed request/payload decoders only.
+- Worker public execution routing no longer imports execution HTTP mapping
+  from route boundary modules.
+- ExecutionDO internal route mapping keeps decode and service/domain failures
+  in the existing DO response mapper.
+
+Boundary decision:
+
+Execution route boundary modules are now transport-input boundaries, not HTTP
+response adapters. Worker and ExecutionDO are the only execution adapter edges
+that convert typed execution route failures to the preserved HTTP response
+contract.
+
+Known limitations:
+
+- Execution service/session failures still map through the existing ExecutionDO
+  response adapter. Later object/service phases own deeper session failure
+  cleanup.
+- Public Worker deployment route mapping still contains compatibility branches
+  for other route families until their R-phase checkpoints move those families
+  to the same adapter-only shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Project Required Parameter Effects
 
 Previous completed checkpoint: `33054dd` Propagate public worker route errors.

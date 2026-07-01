@@ -37,14 +37,14 @@ import {
   decodePublicExecutionActionRequest,
   MissingExecutionActionError,
   MissingExecutionSessionIdError,
-  publicExecutionRoutePathErrorToHttpError,
   publicExecutionRoutePathFromPartsEffect,
+  type PublicExecutionActionRouteError,
   type PublicExecutionAction,
   type PublicExecutionRoutePathError,
 } from "./execution/ActionRouteBoundary";
 import {
   decodePublicExecutionStartRouteRequest,
-  executionStartRouteErrorToHttpError,
+  type ExecutionStartRouteError,
 } from "./execution/StartRouteBoundary";
 import {
   dispatchPublicExecutionActionEffect,
@@ -456,11 +456,11 @@ function publicWorkerDeploymentRouteErrorToHttpError(
   ) {
     return publicDeploymentRoutePathErrorToHttpError(error);
   }
+  if (error instanceof ExecutionProtocolValidationError) {
+    return executionRouteDecodeErrorToHttpError(error);
+  }
   if (error instanceof RequestJsonError || error instanceof DeploymentProtocolValidationError) {
     return publicDeploymentRouteErrorToHttpError(error);
-  }
-  if (error instanceof ExecutionProtocolValidationError) {
-    return executionStartRouteErrorToHttpError(error);
   }
   if (error instanceof PartitionRoutePayloadError) {
     return partitionRouteErrorToHttpError(error);
@@ -482,6 +482,30 @@ function publicDeploymentRoutePathErrorToHttpError(
     return publicExecutionRoutePathErrorToHttpError(error);
   }
   return publicRoutePathErrorToHttpError(error);
+}
+
+function executionRouteDecodeErrorToHttpError(
+  error: ExecutionStartRouteError | PublicExecutionActionRouteError,
+): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof ExecutionProtocolValidationError) {
+    return new HttpError(400, error.message);
+  }
+  return new HttpError(500, "Unexpected execution route error.");
+}
+
+function publicExecutionRoutePathErrorToHttpError(
+  error: PublicExecutionRoutePathError,
+): HttpError {
+  if (error instanceof MissingExecutionSessionIdError) {
+    return new HttpError(400, "Missing execution session id.");
+  }
+  if (error instanceof MissingExecutionActionError) {
+    return new HttpError(400, "Missing execution action.");
+  }
+  return new HttpError(500, "Unexpected public execution route path error.");
 }
 
 function isPublicWorkerInvokeRouteError(
@@ -728,7 +752,8 @@ function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefin
 }
 
 type PublicWorkerExecutionRouteError =
-  | Parameters<typeof executionStartRouteErrorToHttpError>[0]
+  | ExecutionStartRouteError
+  | PublicExecutionActionRouteError
   | PublicExecutionRoutePathError
   | PublicWorkerDispatchError;
 
