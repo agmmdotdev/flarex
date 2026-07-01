@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Registry Adapter Response Effects
+
+Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter
+bridge.
+
+What changed:
+
+- Removed `registry/HttpBoundary.ts` as a legacy Registry `HttpError` adapter
+  module.
+- Removed `registryFailureToHttpError(...)` and the compatibility-only
+  registry HTTP boundary test.
+- The RegistryApi generated handler boundary now relies on typed storage and
+  protocol response mappers.
+
+Boundary decision:
+
+Registry store failures stay as `RegistrySqlError` until generated Registry
+HttpApi handlers convert them to declared `RegistryStorageErrorResponse`
+values. Generic `HttpError` is no longer a registry service failure adapter;
+RegistryDO route JSON/protocol errors continue to map through the route
+boundary adapters.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's registry package boundary around generated HttpApi response mapping.
+
+How Flarex differs:
+
+- Convex does not use this Cloudflare RegistryDO plus generated Effect HttpApi
+  adapter split. Flarex keeps the split explicit while avoiding a parallel
+  registry-specific `HttpError` response path.
+
+Known limitations:
+
+- No RegistryService, RegistryStore, RegistryDO routing, generated Registry
+  HttpApi web handler behavior, DeploymentDO, PartitionDO SQL/OCC behavior,
+  executor-http route, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Adapter Response Effects
 
 Previous completed checkpoint: `213dce6` Type delivery wake request boundary.

@@ -1,5 +1,50 @@
 # Runtime Validation
 
+## Registry Adapter Response Effects
+
+Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter
+bridge.
+
+What changed:
+
+- Removed the legacy `registry/HttpBoundary.ts` adapter module and its test.
+- Removed `registryFailureToHttpError(...)`.
+- Kept generated Registry HttpApi handler failure mapping on declared registry
+  response classes through typed storage/protocol mappers.
+
+Why it changed:
+
+The registry runtime now has one generated HttpApi response-mapping path for
+typed store and protocol response failures. Removing the parallel `HttpError`
+compatibility adapter keeps HTTP conversion at the RegistryApi adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  runtime adapter cleanup around RegistryDO generated handlers.
+
+How Flarex differs:
+
+- Flarex maps RegistryDO store failures into generated Effect HttpApi response
+  classes before the Cloudflare Durable Object response is produced. This
+  checkpoint does not change RegistryDO routing or registry persistence.
+
+Known limitations:
+
+- RegistryService, RegistryStore, RegistryDO routing, generated Registry
+  HttpApi web handler behavior, DeploymentDO, PartitionDO SQL/OCC,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Adapter Response Effects
 
 Previous completed checkpoint: `213dce6` Type delivery wake request boundary.

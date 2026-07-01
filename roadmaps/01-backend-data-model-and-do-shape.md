@@ -1,5 +1,52 @@
 # Backend Data Model And Durable Object Shape
 
+## Registry Adapter Response Effects
+
+Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter
+bridge.
+
+What changed:
+
+- Removed the legacy `registry/HttpBoundary.ts` adapter module.
+- Removed `registryFailureToHttpError(...)`.
+- Removed the matching `registryHttpBoundary.test.ts` compatibility test.
+- Kept generated Registry HttpApi handler storage/protocol failures on typed
+  response mappers.
+
+Why it changed:
+
+RegistryDO already hosts generated Registry HttpApi handlers that map
+`RegistrySqlError` and registry protocol response failures to the declared
+`RegistryStorageErrorResponse`. The removed helper kept an older `HttpError`
+adapter in parallel with the typed generated-handler path.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  RegistryDO adapter cleanup around existing generated HttpApi handlers.
+
+How Flarex differs:
+
+- Flarex hosts the deployment registry in a Cloudflare Durable Object with a
+  generated Effect HttpApi web handler. This checkpoint preserves that host
+  shape and removes only obsolete `HttpError` compatibility mapping.
+
+Known limitations:
+
+- RegistryService, RegistryStore, RegistryDO routing, generated Registry
+  HttpApi web handler behavior, DeploymentDO, PartitionDO SQL/OCC,
+  executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryHttpApiHandlers.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Decoder Ownership
 
 Previous completed checkpoint: `36dce15` Own scheduler route decoders.

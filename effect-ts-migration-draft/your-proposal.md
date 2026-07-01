@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `213dce6` Type delivery wake request boundary.
-- Active checkpoint: validate and review the deployment adapter response Effect batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter bridge.
+- Active checkpoint: validate and review the registry adapter response Effect batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment adapter response effects:
+Next recommended checkpoint after the registry adapter response effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,19 @@ Next recommended checkpoint after the deployment adapter response effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 316 slice:
+
+1. Remove the legacy `registry/HttpBoundary.ts` adapter module, including
+   `registryFailureToHttpError(...)`.
+2. Remove the matching legacy `registryHttpBoundary.test.ts` compatibility
+   test.
+3. Keep generated Registry HttpApi handler failures on typed response mappers:
+   `mapRegistryStorageFailure(...)` and
+   `mapRegistryProtocolResponseFailure(...)`.
+4. Leave RegistryService, RegistryStore, RegistryDO routing, generated
+   Registry HttpApi web handler behavior, DeploymentDO, PartitionDO SQL/OCC,
+   executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 315 slice:
 
