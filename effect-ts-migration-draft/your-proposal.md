@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment schema/function analysis validation boundary.
+- Previous completed checkpoint: Deployment response decoder boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment schema/function analysis validation checkpoint:
+Next recommended checkpoint after the deployment response decoder checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,23 @@ Next recommended checkpoint after the deployment schema/function analysis valida
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 264 slice:
+
+1. Convert generated Deployment HttpApi response validation for active
+   deployment reads, push-status reads, and finish-push responses from
+   throwing protocol parsers inside `Effect.try(...)` to direct Effect Schema
+   decoders.
+2. Convert public finish-push artifact preflight response handling into typed
+   Effect steps: one decoder for the DeploymentDO push-status JSON response and
+   one Effect Schema decoder for the push-status payload.
+3. Keep malformed push-status JSON and semantic push-status response failures
+   in the `PublicWorkerDispatchError` channel at the preflight source.
+4. Preserve existing generated HttpApi storage-error response mapping and the
+   public missing-artifact finish rejection response body/status.
+5. Leave DeploymentDO SQL schema, push lifecycle state transitions, public
+   route path matching, analyzer behavior, public invoke/execution dispatch,
+   PartitionDO SQL/OCC, executor-http, and `ValidatorJson` semantics unchanged.
 
 Completed Goal 263 slice:
 

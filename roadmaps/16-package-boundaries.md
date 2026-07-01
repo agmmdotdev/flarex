@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Deployment Response Decoder Boundary
+
+Previous completed checkpoint: `301924c` Type deployment metadata validation.
+
+What changed:
+
+- The deployment package now owns Effect Schema response decoders for generated
+  HttpApi active-deployment, push-status, and finish-push responses.
+- The public finish-push artifact preflight now has named Effect helpers for
+  DeploymentDO push-status response JSON and push-status schema decoding.
+- Public Worker dispatch failures remain the package boundary for artifact
+  preflight response read/decode failures.
+
+Boundary decision:
+
+Generated HttpApi handlers own protocol response validation before returning to
+the generated adapter. Public finish-push artifact preflight owns its read of
+DeploymentDO push status before checking durable artifact availability. Final
+HTTP mapping remains at the existing generated/public adapter edges.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO storage layout, push lifecycle
+  semantics, public route path matching, analyzer behavior, public
+  execution/invoke dispatch, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage before public finish|rejects malformed finish request bodies" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Schema/Function Analysis Validation Boundary
 
 Previous completed checkpoint: `7539fa3` Type deployment start push ingress validation.

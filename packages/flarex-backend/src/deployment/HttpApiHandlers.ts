@@ -1,18 +1,18 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
+  ActiveDeploymentStatus as ProtocolActiveDeploymentStatus,
   DeploymentApi,
   type AnalyzedStartPushRequest,
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
+  FinishPushResponse as ProtocolFinishPushResponse,
   DeploymentHealthResponse,
   DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
+  PushStatus as ProtocolPushStatus,
   DeploymentStorageErrorResponse,
-  parseActiveDeploymentStatus,
   parseAnalyzedStartPushRequest,
-  parseFinishPushResponse,
-  parsePushStatus,
 } from "flarex-protocol/deployment";
 import { HttpError } from "../http";
 import {
@@ -33,6 +33,11 @@ import {
   startAnalyzedPushInput,
 } from "./Validation";
 import { decodeDeploymentAnalyzedStartPushPayload } from "./Requests";
+import type {
+  ActiveDeploymentStatus,
+  FinishPushResponse,
+  PushStatus,
+} from "../types";
 
 export type DeploymentReadErrorResponse =
   | DeploymentNotFoundErrorResponse
@@ -327,28 +332,27 @@ export function startAnalyzedPushHandlerInputFromPayload(
   return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
 }
 
-const parsePushStatusForHttpApi = responseParser(
+const parsePushStatusForHttpApi = responseDecoder<PushStatus>(
   "Deployment push response did not match the deployment protocol.",
-  parsePushStatus,
+  ProtocolPushStatus,
 );
 
-const parseActiveDeploymentStatusForHttpApi = responseParser(
+const parseActiveDeploymentStatusForHttpApi = responseDecoder<ActiveDeploymentStatus>(
   "Active deployment response did not match the deployment protocol.",
-  parseActiveDeploymentStatus,
+  ProtocolActiveDeploymentStatus,
 );
 
-const parseFinishPushResponseForHttpApi = responseParser(
+const parseFinishPushResponseForHttpApi = responseDecoder<FinishPushResponse>(
   "Finish push response did not match the deployment protocol.",
-  parseFinishPushResponse,
+  ProtocolFinishPushResponse,
 );
 
-function responseParser<A>(
+function responseDecoder<A>(
   message: string,
-  parse: (value: unknown) => A,
+  schema: Schema.Schema<unknown>,
 ): (value: unknown) => Effect.Effect<A, DeploymentStorageErrorResponse> {
   return value =>
-    Effect.try({
-      try: () => parse(value),
-      catch: () => new DeploymentStorageErrorResponse({ error: message }),
-    });
+    (Schema.decodeUnknownEffect(schema)(value) as Effect.Effect<A, unknown, never>).pipe(
+      Effect.mapError(() => new DeploymentStorageErrorResponse({ error: message })),
+    );
 }

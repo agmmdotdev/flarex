@@ -2,11 +2,43 @@ import { Effect } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
-import { verifyStoredPushArtifactEffect } from "../src/deployment/PublicFinishArtifactBoundary";
+import {
+  decodeFinishArtifactPushStatus,
+  readFinishArtifactPushStatusJson,
+  verifyStoredPushArtifactEffect,
+} from "../src/deployment/PublicFinishArtifactBoundary";
 import type { PushSourcePackage, PushStatus } from "../src/types";
 import { publicWorkerDispatchError } from "../src/worker/PublicRouteDispatchError";
 
 describe("public finish artifact boundary", () => {
+  it("decodes push-status responses through typed Effect helpers", async () => {
+    const status = analyzedPushStatus();
+    await expect(Effect.runPromise(readFinishArtifactPushStatusJson(Response.json(status))))
+      .resolves
+      .toEqual(status);
+    await expect(Effect.runPromise(decodeFinishArtifactPushStatus(status)))
+      .resolves
+      .toEqual(status);
+  });
+
+  it("keeps push-status response decode failures in the dispatch error channel", async () => {
+    const jsonFailure = await Effect.runPromise(Effect.flip(
+      readFinishArtifactPushStatusJson(new Response("{", { status: 200 })),
+    ));
+    expect(jsonFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+
+    const semanticFailure = await Effect.runPromise(Effect.flip(decodeFinishArtifactPushStatus(null)));
+    expect(semanticFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
+    });
+  });
+
   it("skips artifact preflight when durable artifact storage is not configured", async () => {
     let fetchCalled = false;
 

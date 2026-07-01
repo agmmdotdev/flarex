@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Deployment Response Decoder Boundary
+
+Previous completed checkpoint: `301924c` Type deployment metadata validation.
+
+What changed:
+
+- Generated Deployment HttpApi response validation for active deployment,
+  push-status, and finish-push responses now uses direct Effect Schema decoders
+  instead of throwing protocol parsers inside `Effect.try(...)`.
+- Public finish-push artifact preflight now reads the DeploymentDO push-status
+  JSON response and decodes the push-status payload through named Effect
+  helpers.
+- Push-status JSON and semantic response failures stay in
+  `PublicWorkerDispatchError` at the preflight source.
+
+Why it changed:
+
+Deployment response validation is a runtime boundary between Durable Object
+service responses, generated HttpApi adapters, and public Worker finish-push
+preflight behavior. Decoding these responses as Effect values keeps expected
+boundary failures typed without changing adapter response shapes.
+
+Known limitations:
+
+- DeploymentDO SQL schema, push lifecycle transitions, public route path
+  matching, analyzer behavior, public invoke/execution dispatch, PartitionDO
+  SQL/OCC, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/publicDeploymentPushRouteBoundary.test.ts packages/flarex-backend/test/push.test.ts -t "public deployment push route boundary|requires durable artifact storage before public finish|rejects malformed finish request bodies" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Schema/Function Analysis Validation Boundary
 
 Previous completed checkpoint: `7539fa3` Type deployment start push ingress validation.

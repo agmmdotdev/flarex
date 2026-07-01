@@ -1,6 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { parsePushStatus } from "flarex-protocol/deployment";
+import { PushStatus as ProtocolPushStatus } from "flarex-protocol/deployment";
 import type { BackendExecutionArtifactStore } from "../artifactStore";
 import { json } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
@@ -21,10 +21,8 @@ export const verifyStoredPushArtifactEffect = Effect.fn(
   const response = yield* fetchPush;
   if (!response.ok) return undefined;
 
-  const status = yield* Effect.tryPromise({
-    try: async () => parsePushStatus(await response.json()) as PushStatus,
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  });
+  const rawStatus = yield* readFinishArtifactPushStatusJson(response);
+  const status = yield* decodeFinishArtifactPushStatus(rawStatus);
   if (status.state !== "analyzed") return undefined;
 
   const ref = yield* Effect.tryPromise({
@@ -44,4 +42,26 @@ export const verifyStoredPushArtifactEffect = Effect.fn(
 
   const error = `Execution artifact ${ref.artifactId} is not available in durable storage.`;
   return json(rejectedFinishPushResponse(status, "missing_artifact", error), { status: 409 });
+});
+
+export const readFinishArtifactPushStatusJson = Effect.fn(
+  "Worker.readFinishArtifactPushStatusJson",
+)(function* (
+  response: Response,
+): Effect.fn.Return<unknown, PublicWorkerDispatchError> {
+  return yield* Effect.tryPromise({
+    try: () => response.json() as Promise<unknown>,
+    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
+  });
+});
+
+export const decodeFinishArtifactPushStatus = Effect.fn(
+  "Worker.decodeFinishArtifactPushStatus",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PushStatus, PublicWorkerDispatchError> {
+  const status = yield* Schema.decodeUnknownEffect(ProtocolPushStatus)(value).pipe(
+    Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
+  );
+  return status as PushStatus;
 });
