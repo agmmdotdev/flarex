@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Worker Route Family Error Propagation
+
+Previous completed checkpoint: `8312909` Tag public worker route errors.
+
+What changed:
+
+- `worker.ts` now owns the full public Worker route error union:
+  adapter errors, dispatch errors, invoke route errors, scheduler route errors,
+  and deployment route errors.
+- Public Worker branch routing no longer performs branch-local catches for
+  invoke, registry, scheduler, or deployment paths.
+- `worker/PublicRouteDispatchError.ts` now names its helper union
+  `PublicWorkerAdapterRouteError`, making adapter-route errors distinct from
+  the full Worker route-family error union.
+- `W-2` is ticked in `roadmaps/22-effect-migration-checklist.md`; `W-3` is the
+  next active checkpoint.
+
+Boundary decision:
+
+Route-family modules still own their typed route errors and compatibility HTTP
+mapping helpers. The top-level Worker now owns deciding which route-family
+mapper applies and converting the result to a response at one adapter edge.
+
+Known limitations:
+
+- This slice does not rewrite route-family internals, `project.ts`, storage,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRouteDispatchError.test.ts test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Error Adapter
 
 Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.
-- Active checkpoint: W-2 Worker route family typed errors, converting deployment, scheduler, invoke, execution, partition, live-query, and delivery-wake branches in `routePublicWorker(...)` to return typed route errors until the Worker adapter edge.
+- Previous completed checkpoint: `8312909` Tag public worker route errors.
+- Active checkpoint: W-3 project required-parameter errors, converting `project.ts` required parameter helpers from throwing `HttpError` to typed Effect path/precondition errors.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,11 +52,10 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after W-1 Worker route error model:
+Next recommended checkpoint after W-2 Worker route family typed errors:
 
-1. Convert deployment, scheduler, invoke, execution, partition, live-query, and
-   delivery-wake branches in `routePublicWorker(...)` to return typed route
-   errors until the Worker adapter edge.
+1. Convert `project.ts` required parameter helpers from throwing `HttpError` to
+   typed Effect path/precondition errors.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -66,15 +65,31 @@ Next recommended checkpoint after W-1 Worker route error model:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 344 slice:
+Current Goal 345 slice:
+
+1. Replace throwing `project.ts` required parameter helpers with typed Effect
+   path/precondition errors.
+2. Update Worker/invoke/deployment callers to propagate those typed errors to
+   their adapter mappers.
+3. Preserve existing missing-parameter HTTP status and body behavior.
+4. Leave route-family dispatch logic, DeploymentService/store lifecycle,
+   analyzer/artifact semantics, PartitionDO SQL/OCC, executor-http, protocol
+   parser compatibility wrappers, and `ValidatorJson` unchanged unless W-3
+   owns that boundary directly.
+
+Completed Goal 344 slice:
 
 1. Convert the remaining `routePublicWorker(...)` branch-local compatibility
    catches into typed route errors consumed by the Worker adapter.
 2. Keep deployment, scheduler, invoke, execution, partition, live-query, and
    delivery-wake branch status/body behavior unchanged.
-3. Expand affected public route tests around representative route-family
-   failures rather than changing domain/storage behavior.
-4. Leave DeploymentService/store lifecycle, analyzer/artifact semantics,
+3. Let `routePublicWorker(...)` expose raw invoke, scheduler, deployment,
+   execution, partition, live-query, delivery-wake, and dispatch route errors
+   to the top-level Worker adapter.
+4. Keep shared JSON body failures mapped explicitly at the Worker adapter.
+5. Preserve route precedence and response behavior through focused public
+   route, scheduler, invoke, and push tests.
+6. Leave DeploymentService/store lifecycle, analyzer/artifact semantics,
    PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
    and `ValidatorJson` unchanged unless W-2 owns that boundary directly.
 

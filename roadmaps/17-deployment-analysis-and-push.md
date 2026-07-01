@@ -1,5 +1,43 @@
 # Deployment Analysis And Push
 
+## Worker Route Family Error Propagation
+
+Previous completed checkpoint: `8312909` Tag public worker route errors.
+
+What changed:
+
+- The public deployment branch in `routePublicWorker(...)` now returns its typed
+  route-family errors directly to the Worker adapter instead of catching and
+  converting them locally.
+- The Worker adapter maps deployment push/read/path, execution, partition,
+  live-query, delivery-wake, scheduler handoff, and dispatch failures while
+  preserving existing status/body behavior.
+- Shared JSON body failures are mapped at the Worker adapter edge before
+  route-family-specific mapping.
+- The concrete migration checklist ticks `W-2` and sets `W-3` as the next
+  active checkpoint.
+
+Why it changed:
+
+Deployment public routing now follows the same top-level Worker adapter model
+as the other public route families. This keeps deployment route errors typed
+until the Worker edge and avoids branch-local response conversion.
+
+Known limitations:
+
+- Deployment route-family compatibility mappers still exist at the Worker
+  adapter. W-3 and later route-boundary phases own removing more
+  adapter-shaped `HttpError` dependencies.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Error Adapter
 
 Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.

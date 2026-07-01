@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Worker Route Family Error Propagation
+
+Previous completed checkpoint: `8312909` Tag public worker route errors.
+
+What changed:
+
+- `routePublicWorker(...)` no longer catches public invoke, registry,
+  scheduler, or deployment branch errors to pre-convert them into adapter route
+  errors.
+- The Worker adapter now receives raw typed route-family failures for invoke,
+  scheduler, deployment, execution, partition, live-query, delivery-wake, and
+  dispatch branches and maps them in one response adapter.
+- Shared `RequestJsonError` is handled explicitly at the Worker adapter before
+  route-family-specific mapping.
+- The concrete migration checklist ticks `W-2` and sets `W-3` as the next
+  active checkpoint.
+
+Why it changed:
+
+W-1 introduced tagged Worker adapter errors. W-2 moves the remaining
+branch-local compatibility catches out of `routePublicWorker(...)`, so typed
+route-family errors flow to the Worker adapter edge.
+
+Known limitations:
+
+- Route-family mappers still use compatibility `*ToHttpError(...)` helpers at
+  the Worker adapter. W-3 owns `project.ts` required-parameter errors next.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRouteDispatchError.test.ts test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Error Adapter
 
 Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.

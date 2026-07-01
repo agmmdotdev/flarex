@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.
+- Previous completed checkpoint: `8312909` Tag public worker route errors.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -169,8 +169,7 @@ The Effect migration is complete only when all of these are true:
 
 - [x] W-1. Replace `type PublicWorkerRouteError = HttpError` with a tagged
   Worker route error union and one Worker-level response adapter.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `8312909` Tag public worker route errors.
   - Files:
     `packages/flarex-backend/src/worker.ts`,
     `packages/flarex-backend/src/worker/PublicRouteDispatchError.ts`,
@@ -182,13 +181,26 @@ The Effect migration is complete only when all of these are true:
     `test/publicDeploymentPushRouteBoundary.test.ts`,
     `test/publicDeploymentPushDispatchBoundary.test.ts`,
     `test/push.test.ts`.
-- [ ] W-2. Convert deployment, scheduler, invoke, execution, partition,
+- [x] W-2. Convert deployment, scheduler, invoke, execution, partition,
   live-query, delivery-wake branches in `routePublicWorker(...)` to return
   typed route errors until the Worker adapter edge.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/worker.ts` and the route boundary files listed
     by each branch.
   - Must preserve: route precedence and all current status/body shapes.
+  - Focus tests:
+    `test/publicWorkerRouteDispatchError.test.ts`,
+    `test/publicWorkerRoutePathBoundary.test.ts`,
+    `test/publicPassThroughDispatchBoundary.test.ts`,
+    `test/publicDeploymentPushRouteBoundary.test.ts`,
+    `test/publicDeploymentPushDispatchBoundary.test.ts`,
+    `test/publicSchedulerRouteBoundary.test.ts`,
+    `test/publicSchedulerDispatchBoundary.test.ts`,
+    `test/publicInvokeRouteBoundary.test.ts`,
+    `test/invoke.test.ts`,
+    `test/push.test.ts`.
 - [ ] W-3. Convert `project.ts` required parameter helpers from throwing
   `HttpError` to typed Effect path/precondition errors.
   - Files:
@@ -401,10 +413,9 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with W-2:
+Start with W-3:
 
-Convert deployment, scheduler, invoke, execution, partition, live-query, and
-delivery-wake branches in `routePublicWorker(...)` to return typed route
-errors until the Worker adapter edge; update
+Convert `project.ts` required parameter helpers from throwing `HttpError` to
+typed Effect path/precondition errors; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `W-2`, then commit.
+run only the EffectTS quality checker, tick `W-3`, then commit.

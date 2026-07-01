@@ -45,7 +45,6 @@ import {
 import {
   decodePublicExecutionStartRouteRequest,
   executionStartRouteErrorToHttpError,
-  executionStartRouteErrorToHttpErrorEffect,
 } from "./execution/StartRouteBoundary";
 import {
   dispatchPublicExecutionActionEffect,
@@ -57,9 +56,11 @@ import {
   publicWorkerDispatchErrorToHttpError,
   publicWorkerInvokeRouteError,
   publicWorkerJsonRouteError,
-  publicWorkerRouteErrorToResponse,
+  publicWorkerRouteErrorToResponse as publicWorkerAdapterRouteErrorToResponse,
   PublicWorkerDispatchError,
-  type PublicWorkerRouteError,
+  PublicWorkerInvokeAdapterRouteError,
+  PublicWorkerJsonRouteError,
+  type PublicWorkerAdapterRouteError,
 } from "./worker/PublicRouteDispatchError";
 import {
   dispatchDeploymentSchedulerEffect,
@@ -98,7 +99,6 @@ import {
   type PublicDeploymentStartPushRouteInput,
   type PublicDeploymentRouteError,
   publicDeploymentRouteErrorToHttpError,
-  publicDeploymentRouteErrorToHttpErrorEffect,
 } from "./deployment/PublicPushRouteBoundary";
 import {
   abandonDeploymentPushEffect,
@@ -134,7 +134,6 @@ import {
   MissingInvokePathError,
   publicInvokeDeploymentIdEffect,
   publicInvokeRouteErrorToHttpError,
-  publicInvokeRouteErrorToHttpErrorEffect,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
   LiveQueryDeliveryChangePayloadError,
@@ -184,8 +183,8 @@ import {
   decodePublicSchedulerRerunSubscriptionsRequest,
   decodePublicSchedulerTriggerSubscriptionsRequest,
   publicSchedulerRouteErrorToHttpError,
-  publicSchedulerRouteErrorToHttpErrorEffect,
 } from "./scheduler/PublicRouteBoundary";
+import { SchedulerRoutePayloadError } from "./scheduler/RouteBoundary";
 import {
   cleanupPublicSchedulerConnectionsEffect,
   deadLetterPublicSchedulerDeliveriesEffect,
@@ -198,6 +197,7 @@ import {
   LIVE_QUERY_SCHEDULER_INTERNAL_PATHS,
   LIVE_QUERY_SCHEDULER_NAME,
 } from "./schedulerRoutes";
+import type { PartitionRequestError } from "./transaction";
 import type {
   Env,
   PushStatus,
@@ -251,12 +251,49 @@ async function route(request: Request, env: Env): Promise<Response> {
   );
 }
 
+type PublicWorkerRouteError =
+  | PublicWorkerAdapterRouteError
+  | PublicWorkerDispatchError
+  | PublicWorkerInvokeRouteError
+  | PublicWorkerSchedulerRouteError
+  | PublicWorkerDeploymentRouteError;
+
 const publicWorkerRouteErrorToResponseEffect = Effect.fn(
   "Worker.publicWorkerRouteErrorToResponse",
 )(function* (
   error: PublicWorkerRouteError,
 ): Effect.fn.Return<Response, never> {
-  return publicWorkerRouteErrorToResponse(error);
+  if (isPublicWorkerAdapterRouteError(error)) {
+    return publicWorkerAdapterRouteErrorToResponse(error);
+  }
+  if (isPublicWorkerInvokeRouteError(error)) {
+    return publicWorkerAdapterRouteErrorToResponse(publicWorkerInvokeRouteError(
+      publicWorkerInvokeRouteErrorToAdapterError(error),
+      error,
+    ));
+  }
+  if (error instanceof RequestJsonError) {
+    return publicWorkerAdapterRouteErrorToResponse(publicWorkerJsonRouteError(
+      requestJsonErrorToHttpError(error),
+      error,
+    ));
+  }
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerAdapterRouteErrorToResponse(publicWorkerJsonRouteError(
+      publicWorkerDispatchErrorToHttpError(error),
+      error,
+    ));
+  }
+  if (isPublicWorkerSchedulerRouteError(error)) {
+    return publicWorkerAdapterRouteErrorToResponse(publicWorkerJsonRouteError(
+      publicWorkerSchedulerRouteErrorToHttpError(error),
+      error,
+    ));
+  }
+  return publicWorkerAdapterRouteErrorToResponse(publicWorkerJsonRouteError(
+    publicWorkerDeploymentRouteErrorToHttpError(error),
+    error,
+  ));
 });
 
 const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
@@ -272,27 +309,19 @@ const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
   }
 
   if (url.pathname === "/invoke" && request.method === "POST") {
-    return yield* routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined).pipe(
-      Effect.catch(publicWorkerInvokeRouteErrorToRouteErrorEffect),
-    );
+    return yield* routePublicInvoke(request, env, request.headers.get("x-flarex-deployment") ?? undefined);
   }
 
   if (url.pathname === "/deployments" && ["GET", "POST"].includes(request.method)) {
-    return yield* routeRegistryDeployments(request, env).pipe(
-      Effect.catch(publicWorkerDispatchErrorToJsonRouteErrorEffect),
-    );
+    return yield* routeRegistryDeployments(request, env);
   }
 
   if (request.method === "POST" && isPublicSchedulerRoutePath(url.pathname)) {
-    return yield* routePublicScheduler(request, env, url.pathname).pipe(
-      Effect.catch(publicWorkerSchedulerRouteErrorToRouteErrorEffect),
-    );
+    return yield* routePublicScheduler(request, env, url.pathname);
   }
 
   if (parts[0] === "deployments") {
-    return yield* routeDeployment(request, env, parts, url).pipe(
-      Effect.catch(publicWorkerDeploymentRouteErrorToRouteErrorEffect),
-    );
+    return yield* routeDeployment(request, env, parts, url);
   }
 
   return json({ error: "Not found." }, { status: 404 });
@@ -403,16 +432,20 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
   },
 );
 
-const publicWorkerDeploymentRouteErrorToRouteErrorEffect = Effect.fn(
-  "Worker.publicWorkerDeploymentRouteErrorToRouteError",
-)(function* (
+function isPublicWorkerAdapterRouteError(error: PublicWorkerRouteError): error is PublicWorkerAdapterRouteError {
+  return error instanceof PublicWorkerJsonRouteError || error instanceof PublicWorkerInvokeAdapterRouteError;
+}
+
+function publicWorkerDeploymentRouteErrorToHttpError(
   error: PublicWorkerDeploymentRouteError,
-): Effect.fn.Return<never, PublicWorkerRouteError> {
+): HttpError {
   if (isPublicWorkerInvokeRouteError(error)) {
-    return yield* publicWorkerInvokeRouteErrorToRouteErrorEffect(error);
+    const adapterError = publicWorkerInvokeRouteErrorToAdapterError(error);
+    if (adapterError instanceof HttpError) return adapterError;
+    return new HttpError(adapterError.status, adapterError.message);
   }
   if (error instanceof PublicWorkerDispatchError) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(publicWorkerDispatchErrorToHttpError(error), error));
+    return publicWorkerDispatchErrorToHttpError(error);
   }
   if (
     error instanceof MissingPublicDeploymentIdError ||
@@ -421,19 +454,19 @@ const publicWorkerDeploymentRouteErrorToRouteErrorEffect = Effect.fn(
     error instanceof MissingExecutionSessionIdError ||
     error instanceof MissingExecutionActionError
   ) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(publicDeploymentRoutePathErrorToHttpError(error), error));
+    return publicDeploymentRoutePathErrorToHttpError(error);
   }
   if (error instanceof RequestJsonError || error instanceof DeploymentProtocolValidationError) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(publicDeploymentRouteErrorToHttpError(error), error));
+    return publicDeploymentRouteErrorToHttpError(error);
   }
   if (error instanceof ExecutionProtocolValidationError) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(executionStartRouteErrorToHttpError(error), error));
+    return executionStartRouteErrorToHttpError(error);
   }
   if (error instanceof PartitionRoutePayloadError) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(partitionRouteErrorToHttpError(error), error));
+    return partitionRouteErrorToHttpError(error);
   }
-  return yield* Effect.fail(publicWorkerJsonRouteError(publicWorkerDeploymentSyncRouteErrorToHttpError(error), error));
-});
+  return publicWorkerDeploymentSyncRouteErrorToHttpError(error);
+}
 
 function publicDeploymentRoutePathErrorToHttpError(
   error:
@@ -452,7 +485,7 @@ function publicDeploymentRoutePathErrorToHttpError(
 }
 
 function isPublicWorkerInvokeRouteError(
-  error: PublicWorkerDeploymentRouteError,
+  error: PublicWorkerRouteError,
 ): error is PublicWorkerInvokeRouteError {
   if (isInvokeExecutionError(error)) return true;
   if (error instanceof InvokeProtocolValidationError) return true;
@@ -557,31 +590,26 @@ function liveQueryScheduler(env: Env): DurableObjectStub {
   return env.SCHEDULERS.getByName(LIVE_QUERY_SCHEDULER_NAME);
 }
 
-const publicWorkerDispatchErrorToJsonRouteErrorEffect = Effect.fn(
-  "Worker.publicWorkerDispatchErrorToJsonRouteError",
-)(function* (
-  error: PublicWorkerDispatchError,
-): Effect.fn.Return<never, PublicWorkerRouteError> {
-  return yield* Effect.fail(publicWorkerJsonRouteError(publicWorkerDispatchErrorToHttpError(error), error));
-});
-
-const publicWorkerSchedulerRouteErrorToRouteErrorEffect = Effect.fn(
-  "Worker.publicWorkerSchedulerRouteErrorToRouteError",
-)(function* (
+function publicWorkerSchedulerRouteErrorToHttpError(
   error: PublicWorkerSchedulerRouteError,
-): Effect.fn.Return<never, PublicWorkerRouteError> {
+): HttpError {
   if (error instanceof PublicLiveQueryDeliveryAuthorizationError) {
-    return yield* Effect.fail(publicWorkerJsonRouteError(
-      publicLiveQueryDeliveryAuthorizationErrorToHttpError(error),
-      error,
-    ));
+    return publicLiveQueryDeliveryAuthorizationErrorToHttpError(error);
   }
   if (error instanceof PublicWorkerDispatchError) {
-    return yield* publicWorkerDispatchErrorToJsonRouteErrorEffect(error);
+    return publicWorkerDispatchErrorToHttpError(error);
   }
-  const httpError = yield* Effect.flip(publicSchedulerRouteErrorToHttpErrorEffect(error));
-  return yield* Effect.fail(publicWorkerJsonRouteError(httpError, error));
-});
+  return publicSchedulerRouteErrorToHttpError(error);
+}
+
+function isPublicWorkerSchedulerRouteError(
+  error: PublicWorkerRouteError,
+): error is PublicWorkerSchedulerRouteError {
+  if (error instanceof PublicLiveQueryDeliveryAuthorizationError) return true;
+  if (error instanceof SchedulerRoutePayloadError) return true;
+  return error instanceof PublicWorkerDispatchError &&
+    error.source.startsWith("scheduler-");
+}
 
 const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
   function* (
@@ -781,26 +809,17 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
   },
 );
 
-const publicWorkerInvokeRouteErrorToRouteErrorEffect = Effect.fn(
-  "Worker.publicWorkerInvokeRouteErrorToRouteError",
-)(function* (
+function publicWorkerInvokeRouteErrorToAdapterError(
   error: PublicWorkerInvokeRouteError,
-): Effect.fn.Return<never, PublicWorkerRouteError> {
+): HttpError | PartitionRequestError {
   if (isInvokeExecutionError(error)) {
-    return yield* Effect.fail(publicWorkerInvokeRouteError(
-      invokeExecutionErrorToAdapterError(error),
-      error,
-    ));
+    return invokeExecutionErrorToAdapterError(error);
   }
   if (error instanceof PublicWorkerDispatchError) {
-    return yield* Effect.fail(publicWorkerInvokeRouteError(
-      publicWorkerDispatchErrorToAdapterError(error),
-      error,
-    ));
+    return publicWorkerDispatchErrorToAdapterError(error);
   }
-  const httpError = yield* Effect.flip(publicInvokeRouteErrorToHttpErrorEffect(error));
-  return yield* Effect.fail(publicWorkerInvokeRouteError(httpError, error));
-});
+  return publicInvokeRouteErrorToHttpError(error);
+}
 
 function isInvokeExecutionError(error: unknown): error is InvokeExecutionError {
   if (error instanceof InvokeActiveDeploymentLoadError) return true;

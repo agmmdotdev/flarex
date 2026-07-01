@@ -54,7 +54,7 @@ export class PublicWorkerInvokeAdapterRouteError
     readonly cause: unknown;
   }> {}
 
-export type PublicWorkerRouteError =
+export type PublicWorkerAdapterRouteError =
   | PublicWorkerJsonRouteError
   | PublicWorkerInvokeAdapterRouteError;
 
@@ -98,7 +98,7 @@ export function publicWorkerInvokeRouteError(
   return new PublicWorkerInvokeAdapterRouteError({ adapterError, cause });
 }
 
-export function publicWorkerRouteErrorToResponse(error: PublicWorkerRouteError): Response {
+export function publicWorkerRouteErrorToResponse(error: PublicWorkerAdapterRouteError): Response {
   if (error instanceof PublicWorkerInvokeAdapterRouteError) {
     return invokeErrorResponse(error.adapterError);
   }
