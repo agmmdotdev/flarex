@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
 import {
   decodeFinishArtifactPushStatus,
+  executionArtifactRefForFinishArtifactEffect,
+  readFinishArtifactAvailabilityEffect,
   readFinishArtifactPushStatusJson,
   verifyStoredPushArtifactEffect,
 } from "../src/deployment/PublicFinishArtifactBoundary";
-import type { PushSourcePackage, PushStatus } from "../src/types";
+import type { ExecutionArtifactRef, PushSourcePackage, PushStatus } from "../src/types";
 import { publicWorkerDispatchError } from "../src/worker/PublicRouteDispatchError";
 
 describe("public finish artifact boundary", () => {
@@ -78,6 +80,28 @@ describe("public finish artifact boundary", () => {
       push: status,
       code: "missing_artifact",
       error: `Execution artifact ${ref.artifactId} is not available in durable storage.`,
+    });
+  });
+
+  it("resolves finish artifact refs and availability through typed Effect sources", async () => {
+    const package_ = sourcePackage();
+    const ref = await Effect.runPromise(executionArtifactRefForFinishArtifactEffect(package_));
+
+    expect(ref).toEqual(await executionArtifactRefForSourcePackage(package_));
+    await expect(Effect.runPromise(readFinishArtifactAvailabilityEffect(
+      artifactStore({ available: true }),
+      ref,
+    ))).resolves.toBe(true);
+  });
+
+  it("keeps finish artifact availability failures in the dispatch error channel before route policy", async () => {
+    const availabilityFailure = await Effect.runPromise(Effect.flip(
+      readFinishArtifactAvailabilityEffect(throwingArtifactStore(), executionArtifactRef()),
+    ));
+    expect(availabilityFailure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push-artifact",
+      status: 500,
     });
   });
 
@@ -173,6 +197,15 @@ function analyzedPushStatus(source = sourcePackage()): PushStatus {
     },
     createdAt: 1_000,
     updatedAt: 1_000,
+  };
+}
+
+function executionArtifactRef(): ExecutionArtifactRef {
+  return {
+    runtime: "dynamic-worker",
+    artifactId: "artifact_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    sourcePackageHash: "a".repeat(64),
+    executionModule: "__execution.ts",
   };
 }
 

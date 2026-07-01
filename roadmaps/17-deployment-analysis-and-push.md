@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Public Finish Artifact Source Effects
+
+Previous completed checkpoint: `3b9faab` Type deployment store write
+transactions.
+
+What changed:
+
+- Public finish artifact preflight now exposes named Effect sources for
+  execution artifact reference derivation and durable artifact availability
+  lookup.
+- Artifact availability failures remain typed `PublicWorkerDispatchError`
+  values at the source helper.
+- The public finish route policy still catches availability failures as
+  missing artifacts and returns the existing 409 rejected finish response.
+- Added direct finish-artifact boundary tests for artifact-ref success,
+  availability success, and availability failure before route policy mapping.
+
+Why it changed:
+
+The public finish path crosses deployment push status reads, source-package
+artifact reference derivation, and durable artifact storage. Naming those
+Effect sources makes the route-service boundary explicit while preserving the
+current external finish behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  public finish artifact boundary cleanup around existing deployment push
+  activation behavior.
+
+How Flarex differs:
+
+- Flarex can require a durable execution artifact before public finish when R2
+  artifact storage is configured. This is a Cloudflare deployment preflight
+  concern, not a Convex API compatibility surface.
+
+Known limitations:
+
+- Public Worker deployment routing, DeploymentDO generated handler behavior,
+  DeploymentService finish-push semantics, artifact storage/materializer
+  implementation, PartitionDO SQL/OCC, executor-http, protocol parser
+  compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Store Write Transaction Effects
 
 Previous completed checkpoint: `317db9c` Type partition route request

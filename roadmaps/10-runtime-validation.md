@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Public Finish Artifact Source Effects
+
+Previous completed checkpoint: `3b9faab` Type deployment store write
+transactions.
+
+What changed:
+
+- Public finish artifact preflight now has named typed Effect sources for
+  execution artifact reference derivation and artifact availability reads.
+- Artifact availability failures are typed before `verifyStoredPushArtifactEffect(...)`
+  applies the route policy that converts unavailable artifacts to the existing
+  409 rejected finish response.
+
+Why it changed:
+
+Public finish runtime validation includes more than JSON body decoding: it must
+prove the analyzed push has a materialized execution artifact before activation
+when durable artifact storage is configured. This checkpoint makes that
+preflight validation source explicit without changing response semantics.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  public deployment finish preflight cleanup.
+
+How Flarex differs:
+
+- Flarex has Cloudflare-specific durable artifact storage and service-binding
+  deployment finish forwarding. The validation remains at the Worker boundary
+  before the generated DeploymentDO finish handler is called.
+
+Known limitations:
+
+- Public Worker deployment routing, DeploymentDO generated handler behavior,
+  DeploymentService finish-push semantics, artifact storage/materializer
+  implementation, PartitionDO SQL/OCC, executor-http, protocol parser
+  compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Store Write Transaction Effects
 
 Previous completed checkpoint: `317db9c` Type partition route request

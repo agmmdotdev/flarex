@@ -4,7 +4,7 @@ import { PushStatus as ProtocolPushStatus } from "flarex-protocol/deployment";
 import type { BackendExecutionArtifactStore } from "../artifactStore";
 import { json } from "../http";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
-import type { PushStatus } from "../types";
+import type { ExecutionArtifactRef, PushSourcePackage, PushStatus } from "../types";
 import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchError,
@@ -25,23 +25,40 @@ export const verifyStoredPushArtifactEffect = Effect.fn(
   const status = yield* decodeFinishArtifactPushStatus(rawStatus);
   if (status.state !== "analyzed") return undefined;
 
-  const ref = yield* Effect.tryPromise({
-    try: () => executionArtifactRefForSourcePackage(status.sourcePackage),
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  });
-  const artifactAvailable = yield* Effect.tryPromise({
-    try: async () => {
-      await artifactStore.get(ref);
-      return true;
-    },
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  }).pipe(
+  const ref = yield* executionArtifactRefForFinishArtifactEffect(status.sourcePackage);
+  const artifactAvailable = yield* readFinishArtifactAvailabilityEffect(artifactStore, ref).pipe(
     Effect.catchTag("PublicWorkerDispatchError", () => Effect.succeed(false)),
   );
   if (artifactAvailable) return undefined;
 
   const error = `Execution artifact ${ref.artifactId} is not available in durable storage.`;
   return json(rejectedFinishPushResponse(status, "missing_artifact", error), { status: 409 });
+});
+
+export const executionArtifactRefForFinishArtifactEffect = Effect.fn(
+  "Worker.executionArtifactRefForFinishArtifact",
+)(function* (
+  sourcePackage: PushSourcePackage,
+): Effect.fn.Return<ExecutionArtifactRef, PublicWorkerDispatchError> {
+  return yield* Effect.tryPromise({
+    try: () => executionArtifactRefForSourcePackage(sourcePackage),
+    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
+  });
+});
+
+export const readFinishArtifactAvailabilityEffect = Effect.fn(
+  "Worker.readFinishArtifactAvailability",
+)(function* (
+  artifactStore: BackendExecutionArtifactStore,
+  ref: ExecutionArtifactRef,
+): Effect.fn.Return<boolean, PublicWorkerDispatchError> {
+  return yield* Effect.tryPromise({
+    try: async () => {
+      await artifactStore.get(ref);
+      return true;
+    },
+    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
+  });
 });
 
 export const readFinishArtifactPushStatusJson = Effect.fn(

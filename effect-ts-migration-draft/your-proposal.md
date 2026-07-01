@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `317db9c` Type partition route request boundary.
-- Active checkpoint: validate and review the deployment store write transaction Effect batch, keeping DeploymentDO route behavior unchanged while centralizing start/finish/abandon write transactions behind one typed Effect source boundary.
+- Previous completed checkpoint: `3b9faab` Type deployment store write transactions.
+- Active checkpoint: validate and review the public finish artifact Effect source batch, keeping public finish response behavior unchanged while naming artifact-ref derivation and durable artifact availability as typed Effect sources.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment store write transaction effects:
+Next recommended checkpoint after the public finish artifact effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially finish-push preflight and artifact
-   resolution boundaries that still need careful behavior-preserving slices.
+   service/domain failures, especially finish-push service preflight and
+   artifact resolution boundaries inside `DeploymentService`.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,20 @@ Next recommended checkpoint after the deployment store write transaction effects
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 321 slice:
+
+1. Add named public finish artifact Effect sources for execution artifact
+   reference derivation and durable artifact availability lookup.
+2. Keep `verifyStoredPushArtifactEffect(...)` as the route policy boundary
+   that treats artifact-store lookup failures as missing artifacts and returns
+   the existing 409 rejected finish response.
+3. Add direct tests for artifact-ref success, artifact availability success,
+   and typed artifact availability failures before route policy swallowing.
+4. Leave public Worker deployment routing, DeploymentDO generated handler
+   behavior, DeploymentService finish-push semantics, artifact store
+   implementation, PartitionDO SQL/OCC, executor-http, protocol parser
+   compatibility, and `ValidatorJson` unchanged.
 
 Completed Goal 320 slice:
 

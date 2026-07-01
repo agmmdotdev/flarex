@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Public Finish Artifact Source Effects
+
+Previous completed checkpoint: `3b9faab` Type deployment store write
+transactions.
+
+What changed:
+
+- `deployment/PublicFinishArtifactBoundary.ts` now exports named Effect
+  helpers for finish artifact reference derivation and artifact availability
+  reads.
+- `verifyStoredPushArtifactEffect(...)` remains the route policy owner for the
+  existing missing-artifact finish response.
+- Artifact-store failures do not leak as generic errors; they become typed
+  `PublicWorkerDispatchError` values before route policy mapping.
+
+Boundary decision:
+
+Source-package artifact reference derivation and artifact store reads belong in
+`deployment/PublicFinishArtifactBoundary.ts` because they are public Worker
+finish preflight behavior. DeploymentDO generated handlers and
+DeploymentService still own push activation state transitions.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's public deployment finish package boundary around artifact
+  preflight sources.
+
+How Flarex differs:
+
+- Convex does not expose this Cloudflare Worker plus R2 artifact preflight
+  split. Flarex keeps artifact availability as a Worker preflight while
+  preserving DeploymentDO activation semantics.
+
+Known limitations:
+
+- No public Worker route selection, DeploymentDO generated handler response
+  mapping, DeploymentService finish-push behavior, artifact store
+  implementation, PartitionDO SQL/OCC behavior, executor-http route, protocol
+  parser compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Store Write Transaction Effects
 
 Previous completed checkpoint: `317db9c` Type partition route request
