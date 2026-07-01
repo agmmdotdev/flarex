@@ -1,26 +1,25 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError, RequestJsonError } from "../src/http";
+import { RequestJsonError } from "../src/http";
 import {
   decodeExecutionArtifactInvokePayloadBody,
   ExecutionArtifactInvokePayloadError,
-  parseExecutionArtifactInvokePayloadBody,
 } from "../src/artifactRuntime/Requests";
 import {
   decodeExecutionArtifactInvokePayload,
   executionArtifactInvokeRouteErrorToHttpErrorEffect,
-  parseExecutionArtifactInvokePayload,
-  readExecutionArtifactInvokePayload,
 } from "../src/artifactRuntime/RouteBoundary";
 
 describe("artifact runtime request payloads", () => {
-  it("decodes execution artifact invoke payloads through the shared source boundary", async () => {
+  it("decodes execution artifact invoke payloads through Effect boundaries", async () => {
     const payload = testPayload();
 
     await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBody(payload)))
       .resolves
       .toEqual(payload);
-    expect(parseExecutionArtifactInvokePayloadBody(payload)).toEqual(payload);
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest(payload))))
+      .resolves
+      .toEqual(payload);
   });
 
   it("keeps invalid invoke payload failures typed before route HTTP mapping", async () => {
@@ -29,32 +28,21 @@ describe("artifact runtime request payloads", () => {
       ref: { artifactId: "artifact-a" },
     }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
 
-    expect(() => parseExecutionArtifactInvokePayloadBody(null))
-      .toThrow(ExecutionArtifactInvokePayloadError);
-  });
-
-  it("decodes runtime invoke route requests through a typed Effect boundary", async () => {
-    const payload = testPayload();
-
-    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest(payload))))
-      .resolves
-      .toEqual(payload);
-    await expect(readExecutionArtifactInvokePayload(jsonRequest(payload)))
-      .resolves
-      .toEqual(payload);
-  });
-
-  it("exposes runtime invoke route failures before HTTP mapping", async () => {
-    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(new Request("https://runtime.test/invoke", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{",
-    })))).rejects.toBeInstanceOf(RequestJsonError);
-
     await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(jsonRequest({
       deploymentId: "deployment-a",
       ref: { artifactId: "artifact-a" },
     })))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+
+  it("keeps malformed runtime invoke JSON typed before route HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayload(new Request(
+      "https://runtime.test/invoke",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("maps runtime invoke route errors through a named adapter effect", async () => {
@@ -78,9 +66,6 @@ describe("artifact runtime request payloads", () => {
       status: 400,
       message: "Invalid execution artifact invoke payload.",
     });
-
-    expect(() => parseExecutionArtifactInvokePayload(null))
-      .toThrow(HttpError);
   });
 });
 

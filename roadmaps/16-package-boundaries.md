@@ -1,5 +1,66 @@
 # Package Boundaries
 
+## Artifact Runtime Invoke Route Boundary Effects
+
+Previous completed checkpoint: `58ec773` Type internal execution route
+boundaries.
+
+What changed:
+
+- `artifactRuntime/RouteBoundary.ts` no longer exports
+  `readExecutionArtifactInvokePayload(...)`,
+  `parseExecutionArtifactInvokePayload(...)`, or
+  `parseExecutionArtifactInvokePayloadEffect(...)`.
+- `artifactRuntime/Requests.ts` no longer exports the throwing
+  `parseExecutionArtifactInvokePayloadBody(...)` compatibility wrapper.
+- The artifact runtime invoke boundary now exposes Effect-returning request
+  and payload decoders plus the named route HTTP adapters.
+- Tests now exercise `RequestJsonError` and
+  `ExecutionArtifactInvokePayloadError` channels directly before the adapter
+  mapping assertions.
+
+Boundary decision:
+
+Artifact runtime invoke request decoding belongs in
+`artifactRuntime/RouteBoundary.ts` and `artifactRuntime/Requests.ts` as
+Effect-returning decoders. Runtime route orchestration remains in
+`artifactRuntime/RuntimeRoute.ts`, including authorization, header validation,
+source-package resolution, materializer/cache calls, and artifact invocation.
+HTTP conversion for invoke request decode failures remains at
+`executionArtifactInvokeRouteErrorToHttpError(...)` /
+`executionArtifactInvokeRouteErrorToHttpErrorEffect(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's artifact runtime invoke adapter boundary around existing runtime
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare artifact materialization and
+  runtime invoke route shape. Flarex keeps that runtime orchestration explicit
+  while keeping request/body validation typed until the adapter edge.
+
+Known limitations:
+
+- No runtime request authorization, artifact header validation, source-package
+  resolution, materializer/cache behavior, artifact invoke execution,
+  deployment artifact behavior, public Worker dispatch, executor-http route,
+  PartitionDO SQL/OCC behavior, or `ValidatorJson` boundary changed.
+- Lower-level artifact runtime service/operation errors remain available for
+  later route/service migration slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Internal Execution Route Boundary Effects
 
 Previous completed checkpoint: `5fc55a7` Type deployment HttpApi route

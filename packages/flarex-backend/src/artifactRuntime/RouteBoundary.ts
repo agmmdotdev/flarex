@@ -9,24 +9,16 @@ import type { ExecutionArtifactInvokePayload } from "../artifactRuntime";
 import {
   decodeExecutionArtifactInvokePayloadBody,
   ExecutionArtifactInvokePayloadError,
-  parseExecutionArtifactInvokePayloadBody,
 } from "./Requests";
 
 export {
   decodeExecutionArtifactInvokePayloadBody,
   ExecutionArtifactInvokePayloadError,
-  parseExecutionArtifactInvokePayloadBody,
 } from "./Requests";
 
 export type ExecutionArtifactInvokeRouteError =
   | RequestJsonError
   | ExecutionArtifactInvokePayloadError;
-
-export async function readExecutionArtifactInvokePayload(
-  request: Request,
-): Promise<ExecutionArtifactInvokePayload> {
-  return await runExecutionArtifactInvokeRouteEffect(decodeExecutionArtifactInvokePayload(request));
-}
 
 export function decodeExecutionArtifactInvokePayload(
   request: Request,
@@ -34,20 +26,6 @@ export function decodeExecutionArtifactInvokePayload(
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionArtifactInvokeRoutePayload),
   );
-}
-
-export function parseExecutionArtifactInvokePayload(
-  value: unknown,
-): ExecutionArtifactInvokePayload {
-  return Effect.runSync(parseExecutionArtifactInvokePayloadEffect(value).pipe(
-    Effect.catch(executionArtifactInvokeRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseExecutionArtifactInvokePayloadEffect(
-  value: unknown,
-): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
-  return decodeExecutionArtifactInvokeRoutePayload(value);
 }
 
 export function decodeExecutionArtifactInvokeRoutePayload(
@@ -63,14 +41,6 @@ export function executionArtifactInvokeRouteErrorToHttpError(
     return requestJsonErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
-}
-
-function runExecutionArtifactInvokeRouteEffect<A>(
-  effect: Effect.Effect<A, ExecutionArtifactInvokeRouteError>,
-): Promise<A> {
-  return Effect.runPromise(effect.pipe(
-    Effect.catch(executionArtifactInvokeRouteErrorToHttpErrorEffect),
-  ));
 }
 
 export const executionArtifactInvokeRouteErrorToHttpErrorEffect = Effect.fn(

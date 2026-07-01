@@ -17,14 +17,6 @@ export const decodeExecutionArtifactInvokePayloadBody = Effect.fn(
   );
 });
 
-export function parseExecutionArtifactInvokePayloadBody(
-  value: unknown,
-): ExecutionArtifactInvokePayload {
-  return unwrapExecutionArtifactInvokePayloadValidation(
-    normalizeExecutionArtifactInvokePayload(value),
-  );
-}
-
 function normalizeExecutionArtifactInvokePayload(
   value: unknown,
 ): ExecutionArtifactInvokePayloadValidationResult<ExecutionArtifactInvokePayload> {
@@ -66,13 +58,6 @@ function executionArtifactInvokePayloadValidationResultToEffect<A>(
   result: ExecutionArtifactInvokePayloadValidationResult<A>,
 ): Effect.Effect<A, ExecutionArtifactInvokePayloadError> {
   return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
-}
-
-function unwrapExecutionArtifactInvokePayloadValidation<A>(
-  result: ExecutionArtifactInvokePayloadValidationResult<A>,
-): A {
-  if (result.success) return result.value;
-  throw result.error;
 }
 
 function isExecutionArtifactInvokePayload(
