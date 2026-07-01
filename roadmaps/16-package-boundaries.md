@@ -1,5 +1,64 @@
 # Package Boundaries
 
+## Public Deployment Push Route Boundary Effects
+
+Previous completed checkpoint: `67ab41f` Type deployment start input handler.
+
+What changed:
+
+- `deployment/PublicPushRouteBoundary.ts` now exposes only Effect-returning
+  public deployment push decoders and the route-level HTTP adapter.
+- Unused Promise wrappers that mapped route failures to `HttpError` were
+  removed.
+- Unused throwing route-level `parsePublic*PushRequest(...)` wrappers and
+  their `parsePublic*PushRequestEffect(...)` aliases were removed.
+- The redundant JSON-only adapter effect was removed in favor of
+  `publicDeploymentRouteErrorToHttpErrorEffect(...)`.
+- Tests now exercise typed route decoder success/failure channels directly and
+  keep HTTP mapping assertions at the named route adapter edge.
+
+Boundary decision:
+
+Public deployment push route decoding belongs in
+`deployment/PublicPushRouteBoundary.ts`. Public Worker orchestration remains in
+`worker.ts`, including analyzer availability checks and artifact preflight.
+Forwarding to DeploymentDO remains in `deployment/PublicPushDispatchBoundary.ts`.
+The only HTTP adapter for public deployment push route decoding is now
+`publicDeploymentRouteErrorToHttpError(...)` /
+`publicDeploymentRouteErrorToHttpErrorEffect(...)`, not per-wrapper Promise
+helpers or throwing parser wrappers.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint only
+  narrows Flarex's Cloudflare Worker adapter surface around existing protocol
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare Worker/Durable Object public push
+  adapter boundary. Flarex keeps the Cloudflare-specific route splitting,
+  analyzer service binding, artifact store preflight, and DO dispatch in the
+  Worker layer while keeping protocol validation typed at the boundary.
+
+Known limitations:
+
+- No analyzer behavior, artifact persistence/preflight, public dispatch
+  behavior, DeploymentDO/DeploymentService/store behavior, executor-http
+  route, PartitionDO SQL/OCC behavior, or `ValidatorJson` boundary changed.
+- Lower-level deployment request payload parser compatibility wrappers remain
+  for now.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Start Input Handler Effects
 
 Previous completed checkpoint: `3f831f0` Type artifact runtime route adapters.
