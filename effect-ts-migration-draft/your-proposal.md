@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Invoke transaction operation Effect boundary.
+- Previous completed checkpoint: Artifact runtime invoke response schema boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect body decoding, service/domain errors, and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the invoke transaction operation Effect boundary:
+Next recommended checkpoint after the artifact runtime invoke response schema boundary:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the invoke transaction operation Effect bounda
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 267 slice:
+
+1. Add `InvokeResponseSchema` to `flarex-protocol/invoke` for the backend
+   invoke response envelope returned by direct and artifact-runtime execution.
+2. Decode successful service-binding artifact runtime `/invoke` responses
+   through `decodeServiceBindingExecutionArtifactRuntimeInvokeResponse(...)`
+   instead of trusting a raw `body as InvokeResponse` cast.
+3. Keep non-OK runtime responses and semantically invalid successful runtime
+   payloads in `ServiceBindingExecutionArtifactRuntimeResponseError` until the
+   service-binding runtime adapter maps to the existing `HttpError` shape.
+4. Preserve public Worker invoke routing, active-deployment loading, artifact
+   runtime fetch behavior, source-package loading, materializer cache behavior,
+   PartitionDO SQL/OCC logic, executor-http, and `ValidatorJson` semantics.
+5. Add direct protocol schema coverage for query and mutation invoke responses,
+   direct backend typed success/failure coverage for service-binding invoke
+   responses, and adapter-edge `HttpError` mapping coverage for invalid
+   runtime invoke responses.
 
 Completed Goal 266 slice:
 

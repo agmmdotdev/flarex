@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Artifact Runtime Invoke Response Schema Boundary
+
+Previous completed checkpoint: `8e169d5` Type transaction operation effects.
+
+What changed:
+
+- `InvokeResponseSchema` now validates runtime invoke response envelopes in
+  `flarex-protocol/invoke`.
+- The service-binding artifact runtime decodes successful `/invoke` responses
+  through the protocol schema before returning to the public invoke Worker
+  route.
+- Invalid successful runtime invoke responses remain typed as
+  `ServiceBindingExecutionArtifactRuntimeResponseError` until adapter mapping.
+
+Why it changed:
+
+Runtime validation needs to cover response boundaries as well as request
+boundaries. Artifact runtime invoke responses carry user function results,
+read sets, commit timestamps, and writes across a service binding; malformed
+or semantically invalid payloads should be typed runtime response failures.
+
+Known limitations:
+
+- This checkpoint does not change invoke execution semantics, active
+  deployment loading, artifact source-package loading, runtime fetch behavior,
+  materializer cache behavior, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol test -- test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Invoke Transaction Operation Effect Boundary
 
 Previous completed checkpoint: `eaf6596` Type invoke active deployment response.

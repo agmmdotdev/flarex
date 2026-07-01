@@ -1,5 +1,42 @@
 # Dynamic Worker Execution
 
+## Artifact Runtime Invoke Response Schema Boundary
+
+Previous completed checkpoint: `8e169d5` Type transaction operation effects.
+
+What changed:
+
+- `flarex-protocol/invoke` now owns an `InvokeResponseSchema` for runtime
+  invoke result envelopes.
+- `ServiceBindingExecutionArtifactRuntime.invoke` decodes successful runtime
+  `/invoke` responses through that protocol schema instead of casting raw JSON
+  to `InvokeResponse`.
+- Invalid successful runtime invoke payloads now fail as
+  `ServiceBindingExecutionArtifactRuntimeResponseError` before the
+  service-binding compatibility adapter maps them to `HttpError`.
+
+Why it changed:
+
+Hosted artifact-runtime execution is the public invoke branch where user-code
+results cross a service-binding boundary before the Worker returns the invoke
+response. That response must be validated as an Effect value at the runtime
+boundary, not trusted as arbitrary JSON.
+
+Known limitations:
+
+- Public Worker invoke routing, active-deployment loading, artifact runtime
+  fetch/source-package behavior, materializer cache behavior, PartitionDO
+  SQL/OCC logic, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol test -- test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Invoke Transaction Operation Effect Boundary
 
 Previous completed checkpoint: `eaf6596` Type invoke active deployment response.

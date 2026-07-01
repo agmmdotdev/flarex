@@ -31,6 +31,44 @@ export const PublicInvokeRequestBodySchema = Schema.Struct({
   idempotencyKey: Schema.optional(Schema.String),
 });
 
+const InvokeDocumentReadSchema = Schema.Struct({
+  tableId: Schema.Number,
+  id: Schema.String,
+});
+
+const InvokeTableReadSchema = Schema.Struct({
+  tableId: Schema.Number,
+});
+
+const InvokeIndexReadSchema = Schema.Struct({
+  indexId: Schema.Number,
+  lower: Schema.optional(Schema.String),
+  upper: Schema.optional(Schema.String),
+});
+
+export const InvokeReadSetSchema = Schema.Struct({
+  documents: Schema.optional(Schema.Array(InvokeDocumentReadSchema)),
+  tables: Schema.optional(Schema.Array(InvokeTableReadSchema)),
+  indexes: Schema.optional(Schema.Array(InvokeIndexReadSchema)),
+});
+
+export const InvokeCommittedWriteSchema = Schema.Struct({
+  tableId: Schema.Number,
+  id: Schema.String,
+  prevTs: Schema.Union([Schema.Number, Schema.Null]),
+  ts: Schema.Number,
+  value: JsonValue,
+});
+
+export const InvokeResponseSchema = Schema.Struct({
+  value: JsonValue,
+  readSet: Schema.optional(InvokeReadSetSchema),
+  readTs: Schema.optional(Schema.Number),
+  committedTs: Schema.optional(Schema.Number),
+  writes: Schema.optional(Schema.Array(InvokeCommittedWriteSchema)),
+});
+export type InvokeResponse = typeof InvokeResponseSchema.Type;
+
 const decodePublicInvokeRequestBody = Schema.decodeUnknownSync(
   PublicInvokeRequestBodySchema,
 );

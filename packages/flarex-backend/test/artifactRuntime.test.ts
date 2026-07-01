@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BackendExecutionArtifactStore } from "../src/artifactStore";
 import {
   CachedExecutionArtifactMaterializer,
+  decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
   ExecutionArtifactRuntimeMissingSourcePackageError,
@@ -37,6 +38,29 @@ describe("backend execution artifact runtime", () => {
       status: 503,
       message: "Execution artifact runtime failed with status 503",
       body: null,
+    });
+  });
+
+  it("decodes service-binding invoke responses through the protocol schema", async () => {
+    await expect(Effect.runPromise(
+      decodeServiceBindingExecutionArtifactRuntimeInvokeResponse({
+        value: { ok: true },
+        readSet: { documents: [{ tableId: 1, id: "1:user" }] },
+        readTs: 42,
+      }),
+    )).resolves.toEqual({
+      value: { ok: true },
+      readSet: { documents: [{ tableId: 1, id: "1:user" }] },
+      readTs: 42,
+    });
+
+    await expect(Effect.runPromise(Effect.flip(
+      decodeServiceBindingExecutionArtifactRuntimeInvokeResponse({ readTs: 42 }),
+    ))).resolves.toMatchObject({
+      _tag: "ServiceBindingExecutionArtifactRuntimeResponseError",
+      status: 500,
+      message: "Invalid execution artifact runtime invoke response.",
+      body: { readTs: 42 },
     });
   });
 
@@ -230,6 +254,29 @@ describe("backend execution artifact runtime", () => {
       name: "HttpError",
       status: 503,
       message: "Execution artifact runtime failed with status 503",
+    });
+  });
+
+  it("maps invalid service-binding runtime invoke responses to HttpError at the adapter edge", async () => {
+    const runtime = new ServiceBindingExecutionArtifactRuntime({
+      deploymentId: "deployment1",
+      store: {
+        put: async () => activeDeployment.executionArtifactRef,
+        get: async () => testSourcePackage(),
+      },
+      runtime: {
+        fetch: async () => Response.json({ readTs: 42 }),
+      } as unknown as Fetcher,
+    });
+
+    await expect(runtime.invoke(activeDeployment, {
+      path: "users:get",
+      args: {},
+      kind: "query",
+    })).rejects.toMatchObject({
+      name: "HttpError",
+      status: 500,
+      message: "Invalid execution artifact runtime invoke response.",
     });
   });
 

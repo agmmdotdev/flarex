@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Artifact Runtime Invoke Response Schema Boundary
+
+Previous completed checkpoint: `8e169d5` Type transaction operation effects.
+
+What changed:
+
+- `flarex-protocol/invoke` now owns the shared invoke response schema.
+- `artifactRuntime.ts` owns service-binding runtime response JSON/status
+  handling and protocol response decoding before returning to the public Worker
+  invoke path.
+- The service-binding `BackendExecutionArtifactRuntime.invoke(...)`
+  compatibility method still maps typed runtime failures to `HttpError` at its
+  adapter edge.
+
+Boundary decision:
+
+The protocol package owns transport envelope shape. The artifact runtime
+service-binding adapter owns response body/status decoding from the runtime
+Fetcher. Worker public invoke owns final route response mapping. User
+document/function validation remains under `ValidatorJson` and is not part of
+this transport response schema.
+
+Known limitations:
+
+- This checkpoint does not change artifact runtime request routing, source
+  package loading, runtime materialization, direct invoke execution,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol test -- test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Invoke Transaction Operation Effect Boundary
 
 Previous completed checkpoint: `eaf6596` Type invoke active deployment response.

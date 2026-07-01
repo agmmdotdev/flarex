@@ -14,14 +14,17 @@ import {
   ExecutionArtifactRuntimeMissingSourcePackageError,
   ExecutionArtifactRuntimeOperationError,
 } from "./artifactRuntime/Errors.ts";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
+import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import { HttpError, readResponseJsonOrNullEffect, RequestJsonError } from "./http.ts";
 import type {
   ActiveDeploymentStatus,
+  CommittedWrite,
   InvokeRequest,
   InvokeResponse,
   Json,
   PushSourcePackage,
+  ReadSet,
 } from "./types.ts";
 
 export type ExecutionArtifactInvokePayload = {
@@ -69,6 +72,7 @@ export {
 };
 
 type ExecutionArtifactRuntimeHttpResponse = Pick<Response, "json" | "ok" | "status">;
+const decodeUnknownInvokeResponse = Schema.decodeUnknownEffect(InvokeResponseSchema);
 
 export class ServiceBindingExecutionArtifactRuntimeResponseError extends Data.TaggedError(
   "ServiceBindingExecutionArtifactRuntimeResponseError",
@@ -230,7 +234,7 @@ export const invokeServiceBindingExecutionArtifactRuntime = Effect.fn(
       request,
     );
     const response = yield* fetchServiceBindingExecutionArtifactRuntime(options, deployment, payload);
-    return yield* decodeServiceBindingExecutionArtifactRuntimeResponse<InvokeResponse>(response);
+    return yield* decodeServiceBindingExecutionArtifactRuntimeResponse(response);
   },
 );
 
@@ -289,7 +293,7 @@ function fetchServiceBindingExecutionArtifactRuntime(
 export const decodeServiceBindingExecutionArtifactRuntimeResponse = Effect.fn(
   "ServiceBindingExecutionArtifactRuntime.decodeResponse",
 )(
-  function* <A>(response: ExecutionArtifactRuntimeHttpResponse) {
+  function* (response: ExecutionArtifactRuntimeHttpResponse) {
     const body = yield* readServiceBindingExecutionArtifactRuntimeResponseJson(response);
     if (!response.ok) {
       return yield* Effect.fail(new ServiceBindingExecutionArtifactRuntimeResponseError({
@@ -298,9 +302,76 @@ export const decodeServiceBindingExecutionArtifactRuntimeResponse = Effect.fn(
         body,
       }));
     }
-    return body as A;
+    return yield* decodeServiceBindingExecutionArtifactRuntimeInvokeResponse(body);
   },
 );
+
+export const decodeServiceBindingExecutionArtifactRuntimeInvokeResponse = Effect.fn(
+  "ServiceBindingExecutionArtifactRuntime.decodeInvokeResponse",
+)(
+  function* (
+    value: unknown,
+  ): Effect.fn.Return<InvokeResponse, ServiceBindingExecutionArtifactRuntimeResponseError> {
+    const decoded = yield* decodeUnknownInvokeResponse(value).pipe(
+      Effect.mapError(() => new ServiceBindingExecutionArtifactRuntimeResponseError({
+        status: 500,
+        message: "Invalid execution artifact runtime invoke response.",
+        body: value,
+      })),
+    );
+    return backendInvokeResponseFromProtocol(decoded);
+  },
+);
+
+function backendInvokeResponseFromProtocol(response: ProtocolInvokeResponse): InvokeResponse {
+  return {
+    value: cloneProtocolJson(response.value),
+    ...(response.readSet === undefined ? {} : { readSet: backendReadSetFromProtocol(response.readSet) }),
+    ...(response.readTs === undefined ? {} : { readTs: response.readTs }),
+    ...(response.committedTs === undefined ? {} : { committedTs: response.committedTs }),
+    ...(response.writes === undefined ? {} : { writes: response.writes.map(backendWriteFromProtocol) }),
+  };
+}
+
+function backendReadSetFromProtocol(readSet: NonNullable<ProtocolInvokeResponse["readSet"]>): ReadSet {
+  return {
+    ...(readSet.documents === undefined
+      ? {}
+      : { documents: readSet.documents.map(read => ({ tableId: read.tableId, id: read.id })) }),
+    ...(readSet.tables === undefined
+      ? {}
+      : { tables: readSet.tables.map(read => ({ tableId: read.tableId })) }),
+    ...(readSet.indexes === undefined
+      ? {}
+      : {
+          indexes: readSet.indexes.map(read => ({
+            indexId: read.indexId,
+            ...(read.lower === undefined ? {} : { lower: read.lower }),
+            ...(read.upper === undefined ? {} : { upper: read.upper }),
+          })),
+        }),
+  };
+}
+
+function backendWriteFromProtocol(write: NonNullable<ProtocolInvokeResponse["writes"]>[number]): CommittedWrite {
+  return {
+    tableId: write.tableId,
+    id: write.id,
+    prevTs: write.prevTs,
+    ts: write.ts,
+    value: cloneProtocolJson(write.value),
+  };
+}
+
+function cloneProtocolJson(value: ProtocolInvokeResponse["value"]): Json {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map(cloneProtocolJson);
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, cloneProtocolJson(entry)]),
+  );
+}
 
 function readServiceBindingExecutionArtifactRuntimeResponseJson(
   response: ExecutionArtifactRuntimeHttpResponse,

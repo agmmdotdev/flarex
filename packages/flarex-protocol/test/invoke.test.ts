@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import {
+  InvokeResponseSchema,
   InvokeProtocolValidationError,
   parsePublicInvokeRequestBody,
   PublicInvokeRequestBodySchema,
@@ -9,6 +10,7 @@ import {
 const decodePublicInvokeRequestBody = Schema.decodeUnknownSync(
   PublicInvokeRequestBodySchema,
 );
+const decodeInvokeResponse = Schema.decodeUnknownSync(InvokeResponseSchema);
 
 describe("invoke protocol schemas", () => {
   it("parses public invoke request bodies used by the Worker route", () => {
@@ -69,5 +71,59 @@ describe("invoke protocol schemas", () => {
       .toThrow();
     expect(() => decodePublicInvokeRequestBody({ args: Number.NaN }))
       .toThrow();
+  });
+
+  it("decodes invoke responses returned by execution runtimes", () => {
+    expect(decodeInvokeResponse({
+      value: { ok: true },
+      readSet: {
+        documents: [{ tableId: 1, id: "1:user" }],
+        tables: [{ tableId: 2 }],
+        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+      },
+      readTs: 42,
+    })).toEqual({
+      value: { ok: true },
+      readSet: {
+        documents: [{ tableId: 1, id: "1:user" }],
+        tables: [{ tableId: 2 }],
+        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+      },
+      readTs: 42,
+    });
+
+    expect(decodeInvokeResponse({
+      value: null,
+      committedTs: 43,
+      writes: [{
+        tableId: 1,
+        id: "1:user",
+        prevTs: null,
+        ts: 43,
+        value: { name: "Ada" },
+      }],
+    })).toEqual({
+      value: null,
+      committedTs: 43,
+      writes: [{
+        tableId: 1,
+        id: "1:user",
+        prevTs: null,
+        ts: 43,
+        value: { name: "Ada" },
+      }],
+    });
+  });
+
+  it("rejects invalid invoke response payloads", () => {
+    expect(() => decodeInvokeResponse({ readTs: 1 }))
+      .toThrow();
+    expect(() => decodeInvokeResponse({
+      value: () => undefined,
+    })).toThrow();
+    expect(() => decodeInvokeResponse({
+      value: null,
+      writes: [{ tableId: 1, id: "1:user", prevTs: null, ts: 1 }],
+    })).toThrow();
   });
 });
