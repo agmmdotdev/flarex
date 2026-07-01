@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Generated DeploymentApi Endpoint Handler Extraction
+
+Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to
+route edge.
+
+What changed:
+
+- Generated `DeploymentApiHandlers` endpoint bodies now run through named
+  `Effect.fn(...)` helpers for health, active deployment read, push read,
+  analyzed start, finish, and abandon.
+- Each endpoint helper owns the endpoint's request decoding, service call,
+  typed failure mapping, and protocol response validation.
+- Direct tests now exercise handler-effect success and failure channels before
+  the Worker-compatible web handler response mapping.
+
+Why it changed:
+
+Generated DeploymentApi handlers are the Durable Object's schema-first runtime
+validation edge. Naming each endpoint effect makes the typed validation and
+response parsing path explicit without changing generated route matching,
+service/store behavior, or HTTP response bodies.
+
+Known limitations:
+
+- This checkpoint does not change `DeploymentDO.fetch()`, internal route
+  matching, generated web-handler construction, DeploymentService/store
+  internals, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment-Scoped Invoke Route Adapter Edge
 
 Previous completed checkpoint: `03cd604` Route execution partition errors at

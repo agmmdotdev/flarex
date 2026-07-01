@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Generated DeploymentApi Endpoint Handler Extraction
+
+Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to
+route edge.
+
+What changed:
+
+- Generated DeploymentApi push lifecycle endpoints now run through named
+  handler effects for start-analyzed, finish, abandon, push read, active
+  deployment read, and health.
+- The generated handler group is now route wiring; endpoint helpers own
+  payload decoding, deployment service calls, typed failure mapping, and
+  protocol response parsing.
+- Direct tests cover the named handler effects alongside the existing web
+  handler and route-boundary tests.
+
+Why it changed:
+
+The deployment push lifecycle is already schema-first at the generated
+DeploymentApi boundary. Naming the endpoint effects makes the next service
+migration slices clearer: push analysis, finish, and abandon can now be
+improved per endpoint without hiding behavior behind anonymous handler
+pipelines.
+
+Known limitations:
+
+- This checkpoint does not change analyzer behavior, push state transitions,
+  `DeploymentDO.fetch()`, internal route matching, generated web-handler
+  construction, DeploymentService/store internals, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment-Scoped Invoke Route Adapter Edge
 
 Previous completed checkpoint: `03cd604` Route execution partition errors at

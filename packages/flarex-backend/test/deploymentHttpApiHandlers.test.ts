@@ -29,6 +29,12 @@ import {
   deploymentReadFailureToResponse,
   deploymentStartFailureToResponse,
   DeploymentApiHandlers,
+  deploymentAbandonPushHandler,
+  deploymentFinishPushHandler,
+  deploymentGetActiveDeploymentHandler,
+  deploymentGetPushHandler,
+  deploymentHealthHandler,
+  deploymentStartAnalyzedPushHandler,
   decodeStartAnalyzedPushHandlerInput,
   startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
@@ -41,7 +47,7 @@ import {
   DeploymentValidationError,
 } from "../src/deployment/Errors";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
-import { DeploymentService } from "../src/deployment/Service";
+import { DeploymentService, type DeploymentServiceApi } from "../src/deployment/Service";
 import {
   DeploymentPushStore,
   DeploymentSqlError,
@@ -369,6 +375,63 @@ describe("DeploymentApiHandlers", () => {
       }),
     )))).rejects.toMatchObject({
       error: "Deployment push response did not match the deployment protocol.",
+    });
+  });
+
+  it("runs named generated-handler effects with typed success and failure channels", async () => {
+    const service = deploymentTestService();
+
+    await expect(Effect.runPromise(deploymentHealthHandler())).resolves.toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+
+    await expect(Effect.runPromise(deploymentGetActiveDeploymentHandler(service))).resolves.toMatchObject({
+      activePushId: "active-push",
+      schemaVersion: 0,
+    });
+
+    await expect(Effect.runPromise(deploymentGetPushHandler(service, "push-direct"))).resolves.toMatchObject({
+      pushId: "push-direct",
+      state: "analyzed",
+    });
+
+    await expect(Effect.runPromise(deploymentStartAnalyzedPushHandler(service, {
+      sourcePackage: sourcePackage(),
+      analysis: deploymentAnalysis(),
+      codegenAnalysis: deploymentCodegenAnalysis(),
+      diagnostics: [{ level: "warn", message: "generated warning" }],
+    }))).resolves.toMatchObject({
+      pushId: "generated-push",
+      state: "analyzed",
+    });
+
+    await expect(Effect.runPromise(deploymentFinishPushHandler(service, "push-finish-direct")))
+      .resolves.toMatchObject({
+        result: "activated",
+        push: {
+          pushId: "push-finish-direct",
+          state: "activated",
+        },
+      });
+
+    await expect(Effect.runPromise(deploymentAbandonPushHandler(service, "push-abandon-direct", {
+      reason: "direct handler abandon",
+    }))).resolves.toMatchObject({
+      pushId: "push-abandon-direct",
+      state: "abandoned",
+      error: "direct handler abandon",
+    });
+
+    const missingPush = await Effect.runPromise(Effect.flip(deploymentGetPushHandler(
+      deploymentTestService({
+        getPush: pushId => Effect.fail(new DeploymentPushNotFoundError({ pushId })),
+      }),
+      "push-missing-direct",
+    )));
+    expect(missingPush).toBeInstanceOf(DeploymentNotFoundErrorResponse);
+    expect(parseDeploymentErrorResponse(missingPush)).toEqual({
+      error: "Unknown push: push-missing-direct",
     });
   });
 
@@ -1280,6 +1343,32 @@ interface DeploymentTestLayerOverrides {
   readonly finishPush?: (
     input: FinishPushStoreInput,
   ) => Effect.Effect<FinishPushResponse, DeploymentSqlError | DeploymentValidationError>;
+}
+
+interface DeploymentTestServiceOverrides {
+  readonly getActiveDeployment?: DeploymentServiceApi["getActiveDeployment"];
+  readonly getPush?: DeploymentServiceApi["getPush"];
+  readonly startAnalyzedPush?: DeploymentServiceApi["startAnalyzedPush"];
+  readonly finishPush?: DeploymentServiceApi["finishPush"];
+  readonly abandonPush?: DeploymentServiceApi["abandonPush"];
+}
+
+function deploymentTestService(
+  overrides: DeploymentTestServiceOverrides = {},
+): DeploymentServiceApi {
+  return {
+    getActiveDeployment: overrides.getActiveDeployment ?? (() => Effect.succeed(activeDeploymentStatus())),
+    getPush: overrides.getPush ?? (pushId => Effect.succeed(pushStatus(pushId))),
+    startAnalyzedPush: overrides.startAnalyzedPush ?? (() => Effect.succeed(pushStatus("generated-push"))),
+    finishPush: overrides.finishPush ?? (pushId => Effect.succeed({
+      result: "activated",
+      push: pushStatus(pushId, "activated"),
+    })),
+    abandonPush: overrides.abandonPush ?? ((pushId, request) => Effect.succeed({
+      ...pushStatus(pushId, "abandoned"),
+      error: request.reason ?? "Push abandoned before activation.",
+    })),
+  };
 }
 
 function deploymentTestLayer(overrides: DeploymentTestLayerOverrides = {}) {

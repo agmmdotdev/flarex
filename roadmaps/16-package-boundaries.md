@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Generated DeploymentApi Endpoint Handler Extraction
+
+Previous completed checkpoint: `f8c929d` Move deployment invoke mapping to
+route edge.
+
+What changed:
+
+- `DeploymentApiHandlers` now delegates every generated endpoint body to a
+  named endpoint effect.
+- The generated `HttpApiBuilder.group(...)` layer remains responsible for
+  schema route registration, while endpoint helpers own typed request/service
+  orchestration and protocol response decoding.
+- Direct handler tests now cover named endpoint success and failure channels
+  without depending only on web-handler integration.
+
+Boundary decision:
+
+The generated HttpApi layer should be route wiring. Endpoint helpers are the
+boundary between schema-first generated routes and deployment service/domain
+logic. They can now be evolved independently toward richer typed service
+errors and response validation without moving Durable Object routing or SQL
+ownership.
+
+Known limitations:
+
+- `DeploymentDO.fetch()`, `InternalRouteBoundary`, `HttpApiWebHandler`,
+  DeploymentService/store behavior, public Worker routing, package metadata,
+  service bindings, and Durable Object SQL/OCC are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment-Scoped Invoke Route Adapter Edge
 
 Previous completed checkpoint: `03cd604` Route execution partition errors at

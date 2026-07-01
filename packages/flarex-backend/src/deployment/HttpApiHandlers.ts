@@ -3,6 +3,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   DeploymentApi,
   type AnalyzedStartPushRequest,
+  type AbandonPushRequest,
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
   decodeActiveDeploymentStatusEffect,
@@ -24,7 +25,11 @@ import {
   DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "./Errors";
-import { DeploymentService, type StartAnalyzedPushInput } from "./Service";
+import {
+  DeploymentService,
+  type DeploymentServiceApi,
+  type StartAnalyzedPushInput,
+} from "./Service";
 import type { DeploymentSqlError } from "./Store";
 import {
   decodeAnalyzedStartPushRequest,
@@ -59,40 +64,75 @@ export const DeploymentApiHandlers = HttpApiBuilder.group(
     const deployment = yield* DeploymentService;
 
     return handlers
-      .handle("health", () =>
-        Effect.succeed(DeploymentHealthResponse.make({
-          service: "flarex-deployment",
-          status: "ok",
-        }))
-      )
-      .handle("getActiveDeployment", () =>
-        mapDeploymentReadFailure(deployment.getActiveDeployment()).pipe(
-          Effect.flatMap(parseActiveDeploymentStatusForHttpApi),
-        )
-      )
-      .handle("getPush", ({ params }) =>
-        mapDeploymentReadFailure(deployment.getPush(params.pushId)).pipe(
-          Effect.flatMap(parsePushStatusForHttpApi),
-        )
-      )
+      .handle("health", () => deploymentHealthHandler())
+      .handle("getActiveDeployment", () => deploymentGetActiveDeploymentHandler(deployment))
+      .handle("getPush", ({ params }) => deploymentGetPushHandler(deployment, params.pushId))
       .handle("startAnalyzedPush", ({ payload }) =>
-        decodeStartAnalyzedPushHandlerInput(payload).pipe(
-          Effect.flatMap(input => deployment.startAnalyzedPush(input)),
-          mapDeploymentStartFailure,
-          Effect.flatMap(parsePushStatusForHttpApi),
-        )
+        deploymentStartAnalyzedPushHandler(deployment, payload)
       )
-      .handle("finishPush", ({ params }) =>
-        mapDeploymentFinishFailure(deployment.finishPush(params.pushId)).pipe(
-          Effect.flatMap(parseFinishPushResponseForHttpApi),
-        )
-      )
+      .handle("finishPush", ({ params }) => deploymentFinishPushHandler(deployment, params.pushId))
       .handle("abandonPush", ({ params, payload }) =>
-        mapDeploymentAbandonFailure(deployment.abandonPush(params.pushId, payload)).pipe(
-          Effect.flatMap(parsePushStatusForHttpApi),
-        )
+        deploymentAbandonPushHandler(deployment, params.pushId, payload)
       );
   }),
+);
+
+export const deploymentHealthHandler = Effect.fn("DeploymentApiHandlers.health")(
+  function* () {
+    return DeploymentHealthResponse.make({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+  },
+);
+
+export const deploymentGetActiveDeploymentHandler = Effect.fn(
+  "DeploymentApiHandlers.getActiveDeployment",
+)(function* (deployment: DeploymentServiceApi) {
+  return yield* mapDeploymentReadFailure(deployment.getActiveDeployment()).pipe(
+    Effect.flatMap(parseActiveDeploymentStatusForHttpApi),
+  );
+});
+
+export const deploymentGetPushHandler = Effect.fn("DeploymentApiHandlers.getPush")(
+  function* (deployment: DeploymentServiceApi, pushId: string) {
+    return yield* mapDeploymentReadFailure(deployment.getPush(pushId)).pipe(
+      Effect.flatMap(parsePushStatusForHttpApi),
+    );
+  },
+);
+
+export const deploymentStartAnalyzedPushHandler = Effect.fn(
+  "DeploymentApiHandlers.startAnalyzedPush",
+)(function* (
+  deployment: DeploymentServiceApi,
+  payload: AnalyzedStartPushRequest,
+) {
+  return yield* decodeStartAnalyzedPushHandlerInput(payload).pipe(
+    Effect.flatMap(input => deployment.startAnalyzedPush(input)),
+    mapDeploymentStartFailure,
+    Effect.flatMap(parsePushStatusForHttpApi),
+  );
+});
+
+export const deploymentFinishPushHandler = Effect.fn("DeploymentApiHandlers.finishPush")(
+  function* (deployment: DeploymentServiceApi, pushId: string) {
+    return yield* mapDeploymentFinishFailure(deployment.finishPush(pushId)).pipe(
+      Effect.flatMap(parseFinishPushResponseForHttpApi),
+    );
+  },
+);
+
+export const deploymentAbandonPushHandler = Effect.fn("DeploymentApiHandlers.abandonPush")(
+  function* (
+    deployment: DeploymentServiceApi,
+    pushId: string,
+    payload: AbandonPushRequest,
+  ) {
+    return yield* mapDeploymentAbandonFailure(deployment.abandonPush(pushId, payload)).pipe(
+      Effect.flatMap(parsePushStatusForHttpApi),
+    );
+  },
 );
 
 export function mapDeploymentReadFailure<A>(
