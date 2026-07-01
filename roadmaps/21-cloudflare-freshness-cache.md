@@ -1,5 +1,24 @@
 # Cloudflare Freshness Cache
 
+## Project Required Parameter Effects
+
+Previous completed checkpoint: `33054dd` Propagate public worker route errors.
+
+What changed:
+
+- Scheduler live-query connection cleanup now resolves request-or-env
+  `projectId` through the shared typed `projectIdFromRequestOrEnvEffect(...)`
+  helper in `project.ts`.
+- The preserved cleanup behavior remains: explicit non-empty `projectId` wins,
+  missing request project id falls back to `FLAREX_PROJECT_ID`, and missing both
+  returns the existing `400` error body at the public route adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend exec vitest run test/project.test.ts test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+```
+
 ## Public Scheduler Dispatch Effect Boundary
 
 Previous completed checkpoint: `f38ff04` Type live query delivery

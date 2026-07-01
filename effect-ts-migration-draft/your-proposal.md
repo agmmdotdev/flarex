@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `8312909` Tag public worker route errors.
-- Active checkpoint: W-3 project required-parameter errors, converting `project.ts` required parameter helpers from throwing `HttpError` to typed Effect path/precondition errors.
+- Previous completed checkpoint: `33054dd` Propagate public worker route errors.
+- Active checkpoint: R-1 execution route boundaries, migrating `StartRouteBoundary.ts`, `ActionRouteBoundary.ts`, `FinishRouteBoundary.ts`, and `SyscallRouteBoundary.ts` to typed route-input decoders and adapter-only `HttpError`.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,10 +52,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after W-2 Worker route family typed errors:
+Next recommended checkpoint after W-3 project required-parameter errors:
 
-1. Convert `project.ts` required parameter helpers from throwing `HttpError` to
-   typed Effect path/precondition errors.
+1. Migrate execution route boundaries in `StartRouteBoundary.ts`,
+   `ActionRouteBoundary.ts`, `FinishRouteBoundary.ts`, and
+   `SyscallRouteBoundary.ts` to typed route-input decoders and adapter-only
+   `HttpError`.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -65,14 +67,29 @@ Next recommended checkpoint after W-2 Worker route family typed errors:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 345 slice:
+Current Goal 346 slice:
+
+1. Add typed execution route-input decoders for start, action, finish, and
+   syscall route boundaries.
+2. Keep execution route-family `HttpError` conversion at adapter edges only.
+3. Preserve execution route request/response status and body behavior.
+4. Extend focused execution route and ExecutionDO tests before changing route
+   internals more broadly.
+5. Leave DeploymentService/store lifecycle, analyzer/artifact semantics,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
+   and `ValidatorJson` unchanged unless R-1 owns that boundary directly.
+
+Completed Goal 345 slice:
 
 1. Replace throwing `project.ts` required parameter helpers with typed Effect
    path/precondition errors.
-2. Update Worker/invoke/deployment callers to propagate those typed errors to
-   their adapter mappers.
-3. Preserve existing missing-parameter HTTP status and body behavior.
-4. Leave route-family dispatch logic, DeploymentService/store lifecycle,
+2. Update ConnectionDO executor integration calls to resolve project ids through
+   `requireProjectIdEffect(...)`.
+3. Route scheduler cleanup project id resolution through
+   `projectIdFromRequestOrEnvEffect(...)`.
+4. Preserve existing missing-parameter HTTP status and body behavior through
+   scheduler/sync validation.
+5. Leave route-family dispatch logic, DeploymentService/store lifecycle,
    analyzer/artifact semantics, PartitionDO SQL/OCC, executor-http, protocol
    parser compatibility wrappers, and `ValidatorJson` unchanged unless W-3
    owns that boundary directly.

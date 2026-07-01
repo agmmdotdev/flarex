@@ -31,7 +31,7 @@ import {
   type LiveQueryDeliveryChange,
   type LiveQueryDeliverySkipReasons,
 } from "./liveQueryDelivery";
-import { requireProjectId } from "./project";
+import { requireProjectIdEffect } from "./project";
 import {
   partitionObjectName,
 } from "./routing";
@@ -608,7 +608,7 @@ export class ConnectionDO extends DurableObject<Env> {
     }
     await postExecutor(this.env, "/live-query-subscriptions/record", {
       deploymentId,
-      projectId: requireProjectId(this.env),
+      projectId: await requireProjectId(this.env),
       connectionId: connectionName,
       queryId: query.queryId,
       functionPath: query.udfPath,
@@ -627,7 +627,7 @@ export class ConnectionDO extends DurableObject<Env> {
   ): Promise<void> {
     await postExecutor(this.env, "/live-query-subscriptions/remove", {
       deploymentId,
-      projectId: requireProjectId(this.env),
+      projectId: await requireProjectId(this.env),
       connectionId: connectionName,
       queryId,
     });
@@ -639,7 +639,7 @@ export class ConnectionDO extends DurableObject<Env> {
   ): Promise<void> {
     await postExecutor(this.env, "/live-query-subscriptions/remove-connection", {
       deploymentId,
-      projectId: requireProjectId(this.env),
+      projectId: await requireProjectId(this.env),
       connectionId: connectionName,
     });
   }
@@ -655,7 +655,7 @@ export class ConnectionDO extends DurableObject<Env> {
     }
     await postExecutor(this.env, "/live-query-connections/touch", {
       deploymentId: this.state.deploymentId,
-      projectId: requireProjectId(this.env),
+      projectId: await requireProjectId(this.env),
       connectionId: this.state.connectionName,
       leaseDurationMs: CONNECTION_LEASE_DURATION_MS,
     });
@@ -831,6 +831,10 @@ function artifactRuntimeFromEnv(
       ? {}
       : { capabilityToken: env.FLAREX_ARTIFACT_RUNTIME_TOKEN }),
   });
+}
+
+function requireProjectId(env: Env): Promise<string> {
+  return Effect.runPromise(requireProjectIdEffect(env));
 }
 
 function deploymentIdFromRequest(request: Request): string {

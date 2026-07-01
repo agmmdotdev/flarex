@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { projectIdFromRequestOrEnvEffect } from "../project";
 import type { Env } from "../types";
 import {
   DEFAULT_DEAD_LETTER_REASON,
@@ -116,9 +117,17 @@ export const decodeSchedulerCleanupConnectionsPayload = Effect.fn(
     value: unknown,
     env: Env,
   ): Effect.fn.Return<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
-    return yield* schedulerRoutePayloadValidationResultToEffect(
-      normalizeSchedulerCleanupConnectionsPayload(value, env),
+    const normalized = yield* schedulerRoutePayloadValidationResultToEffect(
+      normalizeSchedulerCleanupConnectionsPayload(value),
     );
+    const projectId = yield* projectIdFromRequestOrEnvEffect(normalized.projectId, env).pipe(
+      Effect.mapError(error => new SchedulerRoutePayloadError({ message: error.message })),
+    );
+    return {
+      deploymentId: normalized.deploymentId,
+      projectId,
+      ...(normalized.expiredAt === undefined ? {} : { expiredAt: normalized.expiredAt }),
+    };
   },
 );
 
@@ -249,21 +258,22 @@ function normalizeSchedulerDeadLetterDeliveriesPayload(
 
 function normalizeSchedulerCleanupConnectionsPayload(
   value: unknown,
-  env: Env,
-): SchedulerRoutePayloadValidationResult<SchedulerCleanupConnectionsRequest> {
+): SchedulerRoutePayloadValidationResult<{
+  readonly deploymentId: string;
+  readonly projectId: unknown;
+  readonly expiredAt?: string;
+}> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return schedulerRoutePayloadValidationFailure("Live query connection cleanup request body must be an object.");
   }
   const body = value as Record<string, unknown>;
   const deploymentId = nonEmptyString(body.deploymentId, "deploymentId");
   if (!deploymentId.success) return deploymentId;
-  const projectId = projectIdFromRequestOrEnvPayload(body.projectId, env);
-  if (!projectId.success) return projectId;
   const expiredAt = optionalDateString(body.expiredAt, "expiredAt");
   if (!expiredAt.success) return expiredAt;
   return schedulerRoutePayloadValidationSuccess({
     deploymentId: deploymentId.value,
-    projectId: projectId.value,
+    projectId: body.projectId,
     ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
   });
 }
@@ -347,24 +357,6 @@ function dateString(value: unknown, field: string): SchedulerRoutePayloadValidat
 function nonEmptyString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {
   if (typeof value === "string" && value.length > 0) return schedulerRoutePayloadValidationSuccess(value);
   return schedulerRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
-}
-
-function projectIdFromRequestOrEnvPayload(
-  value: unknown,
-  env: Env,
-): SchedulerRoutePayloadValidationResult<string> {
-  if (typeof value === "string" && value.length > 0) {
-    return schedulerRoutePayloadValidationSuccess(value);
-  }
-  if (value !== undefined) {
-    return schedulerRoutePayloadValidationFailure("projectId must be a non-empty string.");
-  }
-  if (env.FLAREX_PROJECT_ID !== undefined && env.FLAREX_PROJECT_ID.length > 0) {
-    return schedulerRoutePayloadValidationSuccess(env.FLAREX_PROJECT_ID);
-  }
-  return schedulerRoutePayloadValidationFailure(
-    "projectId is required when FLAREX_PROJECT_ID is not configured.",
-  );
 }
 
 type SchedulerRoutePayloadValidationResult<A> =

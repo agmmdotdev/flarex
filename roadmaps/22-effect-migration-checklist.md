@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `8312909` Tag public worker route errors.
+- Previous completed checkpoint: `33054dd` Propagate public worker route errors.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -184,8 +184,7 @@ The Effect migration is complete only when all of these are true:
 - [x] W-2. Convert deployment, scheduler, invoke, execution, partition,
   live-query, delivery-wake branches in `routePublicWorker(...)` to return
   typed route errors until the Worker adapter edge.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `33054dd` Propagate public worker route errors.
   - Files:
     `packages/flarex-backend/src/worker.ts` and the route boundary files listed
     by each branch.
@@ -201,11 +200,17 @@ The Effect migration is complete only when all of these are true:
     `test/publicInvokeRouteBoundary.test.ts`,
     `test/invoke.test.ts`,
     `test/push.test.ts`.
-- [ ] W-3. Convert `project.ts` required parameter helpers from throwing
+- [x] W-3. Convert `project.ts` required parameter helpers from throwing
   `HttpError` to typed Effect path/precondition errors.
+  - Completed by: this W-3 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/project.ts`,
-    callers in Worker/invoke/deployment routes.
+    ConnectionDO executor calls, and scheduler cleanup request decoding.
+  - Focus tests:
+    `test/project.test.ts`,
+    `test/schedulerRouteBoundary.test.ts`,
+    `test/publicSchedulerRouteBoundary.test.ts`,
+    `test/sync.test.ts`.
 
 ### Phase 4: Route Boundary Families
 
@@ -413,9 +418,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with W-3:
+Start with R-1:
 
-Convert `project.ts` required parameter helpers from throwing `HttpError` to
-typed Effect path/precondition errors; update
+Migrate execution route boundaries in `StartRouteBoundary.ts`,
+`ActionRouteBoundary.ts`, `FinishRouteBoundary.ts`, and
+`SyscallRouteBoundary.ts` to typed route-input decoders and adapter-only
+`HttpError`; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `W-3`, then commit.
+run only the EffectTS quality checker, tick `R-1`, then commit.

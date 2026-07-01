@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Project Required Parameter Effects
+
+Previous completed checkpoint: `33054dd` Propagate public worker route errors.
+
+What changed:
+
+- `project.ts` now owns `ProjectRequiredParameterError`,
+  `requireProjectIdEffect(...)`, and `projectIdFromRequestOrEnvEffect(...)`.
+- `projectRequiredParameterErrorToHttpError(...)` is the compatibility adapter
+  for HTTP status/message preservation.
+- Scheduler cleanup payload decoding imports the shared project helper instead
+  of carrying a local request-or-env implementation.
+- ConnectionDO executor paths call the typed project helper before posting to
+  the executor service.
+- `W-3` is ticked in `roadmaps/22-effect-migration-checklist.md`; `R-1` is the
+  next active checkpoint.
+
+Boundary decision:
+
+Project id presence/shape is now a typed shared precondition. Scheduler keeps
+its public route payload error type by mapping project precondition failures at
+the scheduler route boundary.
+
+Known limitations:
+
+- ConnectionDO still has other sync protocol precondition throws outside the
+  project-id boundary. Later route-family phases own those.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/project.test.ts test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Family Error Propagation
 
 Previous completed checkpoint: `8312909` Tag public worker route errors.

@@ -1,5 +1,35 @@
 # Runtime Validation
 
+## Project Required Parameter Effects
+
+Previous completed checkpoint: `33054dd` Propagate public worker route errors.
+
+What changed:
+
+- `project.ts` now exposes typed Effect helpers for required project id
+  resolution instead of throwing `Error` or `HttpError` directly.
+- ConnectionDO executor live-query calls resolve `FLAREX_PROJECT_ID` through
+  `requireProjectIdEffect(...)`.
+- Scheduler cleanup request decoding resolves request-or-env `projectId`
+  through `projectIdFromRequestOrEnvEffect(...)`.
+- The concrete migration checklist ticks `W-3` and sets `R-1` as the next
+  active checkpoint.
+
+Why it changed:
+
+W-3 removes adapter-shaped project parameter throws from the shared project
+helper boundary while preserving the existing missing-project response text and
+status where HTTP mapping still applies.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/project.test.ts test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Family Error Propagation
 
 Previous completed checkpoint: `8312909` Tag public worker route errors.
