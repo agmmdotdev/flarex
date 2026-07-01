@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: S-3 scheduler/connection JSON bridge decoding in this checkpoint commit.
-- Active checkpoint: E-1 executor-http adapter split, separating route registration, request decoders, route effects, error mapping, and response helpers without changing public routes.
+- Previous completed checkpoint: E-1 executor-http adapter module split in this checkpoint commit.
+- Active checkpoint: E-2 executor-http body validator replacement, converting local parse-result validators in `requestDecoders.ts` to reusable Effect decoders and tagged validation errors while preserving bad request bodies.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,18 +52,28 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after S-3 scheduler/connection JSON bridge decoding:
+Next recommended checkpoint after E-1 executor-http adapter module split:
 
-1. Audit `packages/executor-http/src/index.ts` for route registration,
-   request body parsing, route effects, error mapping, and response helpers.
-2. Split those concerns into focused modules without changing the Elysia public
-   routes or response bodies.
-3. Preserve executor HTTP behavior through `packages/executor-http/test/http.test.ts`
-   and the package typecheck gate before ticking E-1.
-4. Do not replace Elysia or change live-query delivery helper behavior in E-1;
-   lock behavior first, then continue to E-2/E-3.
+1. Audit `packages/executor-http/src/requestDecoders.ts` for parse-result
+   validators that still return `{ value } | { error }`.
+2. Replace those validators with reusable Effect-returning decoders and tagged
+   validation errors without changing any current `bad_request` response body.
+3. Preserve executor HTTP behavior through typed decoder tests and
+   `packages/executor-http/test/http.test.ts` before ticking E-2.
+4. Do not replace Elysia or change `liveQueryDelivery.ts`; E-2 owns body
+   decoder internals only.
 
-Current Goal 359 slice:
+Current Goal 360 slice:
+
+1. Audit `packages/executor-http/src/requestDecoders.ts` parse-result helpers
+   and shared field validators.
+2. Convert the owned request body validators to reusable Effect decoders with
+   tagged validation failures.
+3. Keep every current bad request message and route response body unchanged.
+4. Preserve executor-http behavior through focused typed decoder tests and
+   package gates before ticking E-2.
+
+Completed Goal 359 slice:
 
 1. Audit `packages/executor-http/src/index.ts` route registration, body
    decoders, route effects, error mapping, and response helpers.

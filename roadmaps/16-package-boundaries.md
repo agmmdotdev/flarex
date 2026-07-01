@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Executor HTTP Adapter Package Boundary
+
+Previous completed checkpoint: `63d9429` Type scheduler connection JSON
+bridges.
+
+What changed:
+
+- Split `@flarex/executor-http` adapter ownership into focused source files:
+  `config.ts`, `routes.ts`, `routeEffects.ts`, `requestDecoders.ts`,
+  `responses.ts`, and `errors.ts`.
+- Kept `src/index.ts` as the only package export target and public barrel.
+- Kept `liveQueryDelivery.ts` unchanged and re-exported from the same public
+  entrypoint.
+
+Boundary decision:
+
+`@flarex/executor-http` remains the Elysia HTTP adapter package around the
+framework-neutral `@flarex/executor` core. Route registration belongs in
+`routes.ts`; request decoding stays in `requestDecoders.ts`; Effect route
+orchestration stays in `routeEffects.ts`; and HTTP response mapping stays in
+`responses.ts`. None of these adapter concerns move into
+`@flarex/executor`, `flarex-protocol`, Nitro, or backend Durable Object code in
+this checkpoint.
+
+Convex comparison:
+
+Convex keeps local backend HTTP route registration in
+`crates/local_backend/src/router.rs`, separates execution/application behavior
+behind `crates/application/src/api.rs`, and routes HTTP actions through
+`crates/application/src/application_function_runner/http_routing.rs`. Flarex
+uses TypeScript packages and Elysia, so the package boundary is an adapter
+module split rather than a Rust trait/router split.
+
+Known limitations:
+
+- The local parse-result validators remain in `requestDecoders.ts` until E-2.
+- Backend live-query fetch/response helpers remain in `liveQueryDelivery.ts`
+  until E-3.
+- This checkpoint does not change public SDK packages, protocol exports,
+  backend Worker/DO packages, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+```
+
 ## Scheduler And Connection Bridge Decoder Boundary
 
 Previous completed checkpoint: `09529e6` Decode deployment storage rows with

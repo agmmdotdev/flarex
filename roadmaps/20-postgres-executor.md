@@ -1,5 +1,67 @@
 # Postgres Executor
 
+## Executor HTTP Adapter Module Split
+
+Previous completed checkpoint: `63d9429` Type scheduler connection JSON
+bridges.
+
+What changed:
+
+- Split `packages/executor-http/src/index.ts` into focused adapter modules:
+  `config.ts`, `routes.ts`, `routeEffects.ts`, `requestDecoders.ts`,
+  `responses.ts`, and `errors.ts`.
+- Kept `index.ts` as the package public barrel, preserving existing exports for
+  `createFlarexHttpApp(...)`, `createFlarexHttpHandler(...)`, body decoders,
+  error classes, and backend live-query helpers.
+- Kept Elysia route registration in `routes.ts`.
+- Kept request JSON/body parsing and parse-result compatibility validators in
+  `requestDecoders.ts`.
+- Kept route Effect orchestration, authorization, preflight configuration, and
+  executor method calls in `routeEffects.ts`.
+- Kept executor error-to-HTTP response mapping in `responses.ts`.
+
+Why it changed:
+
+E-1 locks the executor HTTP adapter shape before replacing the remaining local
+parse-result validators in E-2. The public Elysia routes and response bodies
+stay unchanged, but route registration, request decoding, route effects, error
+mapping, and response helpers are now separated enough to migrate each concern
+without another giant `index.ts` diff.
+
+Convex references:
+
+- `crates/local_backend/src/router.rs` for keeping HTTP route registration thin
+  and delegating route handlers to focused modules.
+- `crates/application/src/api.rs` for the `ApplicationApi` trait boundary that
+  keeps HTTP routes separate from execution/application behavior.
+- `crates/application/src/application_function_runner/http_routing.rs` for
+  routing HTTP action requests separately from the function-runner execution
+  path.
+
+How Flarex differs:
+
+- Convex uses Rust `axum` routers and an `ApplicationApi` trait boundary.
+  Flarex's executor adapter uses Elysia, Effect route effects, and an injected
+  `FlarexExecutor`, so this checkpoint keeps Elysia as the adapter and only
+  separates TypeScript module ownership.
+
+Known limitations:
+
+- E-1 intentionally does not replace parse-result validators with Effect
+  Schema contracts; that remains E-2.
+- E-1 does not change `liveQueryDelivery.ts`; typed fetch/response bridges for
+  that helper remain E-3.
+- No public route paths, status codes, response bodies, authorization behavior,
+  or executor method calls are intended to change in this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+```
+
 ## Executor HTTP Authorization Route Effect Boundary
 
 Previous completed checkpoint: `b40230e` Type partition route dispatch

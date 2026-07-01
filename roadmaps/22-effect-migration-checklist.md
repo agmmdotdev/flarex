@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: S-3 Scheduler/connection JSON bridge decoding
+- Previous completed checkpoint: E-1 Executor HTTP adapter module split
   in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -383,9 +383,18 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 7: Executor HTTP Adapter
 
-- [ ] E-1. Split `packages/executor-http/src/index.ts` into route registration,
+- [x] E-1. Split `packages/executor-http/src/index.ts` into route registration,
   request decoders, route effects, error mapping, and response helpers without
   changing public routes.
+  - Completed by: this E-1 checkpoint commit.
+  - Files:
+    `packages/executor-http/src/index.ts`,
+    `packages/executor-http/src/config.ts`,
+    `packages/executor-http/src/routes.ts`,
+    `packages/executor-http/src/routeEffects.ts`,
+    `packages/executor-http/src/requestDecoders.ts`,
+    `packages/executor-http/src/responses.ts`,
+    `packages/executor-http/src/errors.ts`.
   - Focus tests: `packages/executor-http/test/http.test.ts`.
   - Gate:
     `corepack pnpm --filter @flarex/executor-http typecheck`.
@@ -451,10 +460,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with E-1:
+Start with E-2:
 
-Split `packages/executor-http/src/index.ts` into route registration, request
-decoders, route effects, error mapping, and response helpers without changing
-public routes; update `effect-ts-migration-draft/your-proposal.md` and relevant
-roadmaps, validate with executor-http focused tests and gates, run only the
-EffectTS quality checker if Effect code changes, tick `E-1`, then commit.
+Replace local parse-result body validators in `packages/executor-http/src/requestDecoders.ts`
+with reusable Effect decoders and tagged validation errors while preserving all
+current bad request response bodies; update `effect-ts-migration-draft/your-proposal.md`
+and relevant roadmaps, validate with executor-http focused tests and gates, run
+only the EffectTS quality checker if Effect code changes, tick `E-2`, then
+commit.
