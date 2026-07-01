@@ -7,8 +7,8 @@ import {
 } from "../src/artifactRuntime/Requests";
 import {
   decodeExecutionArtifactInvokePayload,
-  executionArtifactInvokeRouteErrorToHttpErrorEffect,
 } from "../src/artifactRuntime/RouteBoundary";
+import { executionArtifactRuntimeRouteErrorToResponseEffect } from "../src/artifactRuntime";
 
 describe("artifact runtime request payloads", () => {
   it("decodes execution artifact invoke payloads through Effect boundaries", async () => {
@@ -45,26 +45,26 @@ describe("artifact runtime request payloads", () => {
     )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps runtime invoke route errors through a named adapter effect", async () => {
+  it("maps runtime invoke route errors through the runtime response adapter", async () => {
     const jsonError = new RequestJsonError({
       message: "Request body must be JSON.",
       cause: new SyntaxError("Unexpected end of JSON input"),
     });
-    await expect(Effect.runPromise(Effect.flip(
-      executionArtifactInvokeRouteErrorToHttpErrorEffect(jsonError),
-    ))).resolves.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
+    const jsonResponse = await Effect.runPromise(executionArtifactRuntimeRouteErrorToResponseEffect(jsonError));
+    expect(jsonResponse.status).toBe(400);
+    await expect(jsonResponse.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
     });
 
     const validationError = new ExecutionArtifactInvokePayloadError({
       message: "Invalid execution artifact invoke payload.",
     });
-    await expect(Effect.runPromise(Effect.flip(
-      executionArtifactInvokeRouteErrorToHttpErrorEffect(validationError),
-    ))).resolves.toMatchObject({
-      status: 400,
-      message: "Invalid execution artifact invoke payload.",
+    const validationResponse = await Effect.runPromise(
+      executionArtifactRuntimeRouteErrorToResponseEffect(validationError),
+    );
+    expect(validationResponse.status).toBe(400);
+    await expect(validationResponse.json()).resolves.toEqual({
+      error: "Invalid execution artifact invoke payload.",
     });
   });
 });

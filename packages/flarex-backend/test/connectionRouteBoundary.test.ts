@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
-  connectionRouteErrorToHttpError,
-  connectionRouteErrorToHttpErrorEffect,
   ConnectionRouteValidationError,
   decodeConnectionInvalidationRequest,
   decodeConnectionInvalidationRoutePayload,
@@ -17,6 +15,8 @@ import {
   connectionRouteOperationErrorToHttpErrorEffect,
   ConnectionRouteOperationError,
 } from "../src/connection/RouteOperationError";
+import { createBackendHarness } from "./backendHarness";
+import type { Env } from "../src/types";
 
 describe("connection route boundary", () => {
   it("decodes connection invalidation route payloads through a named Effect boundary", async () => {
@@ -139,53 +139,47 @@ describe("connection route boundary", () => {
     )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed connection route errors at the adapter boundary", () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    expect(connectionRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("maps typed connection route errors through the ConnectionDO adapter edge", async () => {
+    const harness = await createBackendHarness();
+    try {
+      const env = await harness.mf.getBindings<Env>();
+      const connection = env.CONNECTIONS.getByName("connection:route-boundary:session-a");
 
-    const validationError = new ConnectionRouteValidationError({
-      message: "Invalidation queryId must be an integer.",
-    });
-    expect(connectionRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "Invalidation queryId must be an integer.",
-    });
+      const malformedJson = await connection.fetch("https://flarex.internal/invalidate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      });
+      expect(malformedJson.status).toBe(400);
+      await expect(malformedJson.json()).resolves.toEqual({
+        error: "Request body must be JSON.",
+      });
 
-    const deliveryPayloadError = new LiveQueryDeliveryChangePayloadError({
-      message: "deliveries[0].deploymentId must be a non-empty string.",
-    });
-    expect(connectionRouteErrorToHttpError(deliveryPayloadError)).toMatchObject({
-      status: 400,
-      message: "deliveries[0].deploymentId must be a non-empty string.",
-    });
+      const invalidInvalidation = await connection.fetch("https://flarex.internal/invalidate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ queryId: "42" }),
+      });
+      expect(invalidInvalidation.status).toBe(400);
+      await expect(invalidInvalidation.json()).resolves.toEqual({
+        error: "Invalidation queryId must be an integer.",
+      });
+
+      const invalidDelivery = await connection.fetch("https://flarex.internal/deliver/live-query", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deliveries: [{ queryId: 1 }] }),
+      });
+      expect(invalidDelivery.status).toBe(400);
+      await expect(invalidDelivery.json()).resolves.toEqual({
+        error: "deliveries[0].deploymentId must be a non-empty string.",
+      });
+    } finally {
+      await harness.dispose();
+    }
   });
 
-  it("maps typed connection route errors through named adapter effects", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    await expect(Effect.runPromise(Effect.flip(connectionRouteErrorToHttpErrorEffect(jsonError))))
-      .resolves.toMatchObject({
-        status: 400,
-        message: "Request body must be JSON.",
-      });
-
-    const validationError = new ConnectionRouteValidationError({
-      message: "Invalidation queryId must be an integer.",
-    });
-    await expect(Effect.runPromise(Effect.flip(connectionRouteErrorToHttpErrorEffect(validationError))))
-      .resolves.toMatchObject({
-        status: 400,
-        message: "Invalidation queryId must be an integer.",
-      });
-
+  it("maps typed connection operation errors through named adapter effects", async () => {
     const operationError = connectionRouteOperationError(
       "deliver-live-query",
       new Error("socket send failed"),

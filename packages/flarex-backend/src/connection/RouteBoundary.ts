@@ -1,15 +1,9 @@
-import {
-  liveQueryDeliveryChangePayloadErrorToHttpError,
-  type LiveQueryDeliveryChange,
-  type LiveQueryDeliveryChangePayloadError,
+import type {
+  LiveQueryDeliveryChange,
+  LiveQueryDeliveryChangePayloadError,
 } from "../liveQueryDelivery";
 import { Effect } from "effect";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { QueryId } from "../syncProtocol";
 import {
   ConnectionRouteValidationError,
@@ -28,48 +22,38 @@ export type ConnectionRouteError =
   | ConnectionRouteValidationError
   | LiveQueryDeliveryChangePayloadError;
 
-export function decodeConnectionInvalidationRequest(
+export const decodeConnectionInvalidationRequest = Effect.fn(
+  "ConnectionRouteBoundary.decodeInvalidationRequest",
+)(function* (
   request: Request,
-): Effect.Effect<QueryId, ConnectionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<QueryId, ConnectionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeConnectionInvalidationRoutePayload),
   );
-}
+});
 
-export function decodeConnectionInvalidationRoutePayload(
+export const decodeConnectionInvalidationRoutePayload = Effect.fn(
+  "ConnectionRouteBoundary.decodeInvalidationPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<QueryId, ConnectionRouteValidationError> {
-  return decodeConnectionInvalidationPayload(value);
-}
+): Effect.fn.Return<QueryId, ConnectionRouteValidationError> {
+  return yield* decodeConnectionInvalidationPayload(value);
+});
 
-export function decodeConnectionLiveQueryDeliveryRequest(
+export const decodeConnectionLiveQueryDeliveryRequest = Effect.fn(
+  "ConnectionRouteBoundary.decodeLiveQueryDeliveryRequest",
+)(function* (
   request: Request,
-): Effect.Effect<LiveQueryDeliveryChange[], ConnectionRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<LiveQueryDeliveryChange[], ConnectionRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeConnectionLiveQueryDeliveryRoutePayload),
   );
-}
+});
 
-export function decodeConnectionLiveQueryDeliveryRoutePayload(
-  value: unknown,
-): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-  return decodeConnectionLiveQueryDeliveryPayload(value);
-}
-
-export function connectionRouteErrorToHttpError(error: ConnectionRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof ConnectionRouteValidationError) {
-    return new HttpError(400, error.message);
-  }
-  return liveQueryDeliveryChangePayloadErrorToHttpError(error);
-}
-
-export const connectionRouteErrorToHttpErrorEffect = Effect.fn(
-  "ConnectionRouteBoundary.connectionRouteErrorToHttpError",
+export const decodeConnectionLiveQueryDeliveryRoutePayload = Effect.fn(
+  "ConnectionRouteBoundary.decodeLiveQueryDeliveryPayload",
 )(function* (
-  error: ConnectionRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(connectionRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+  return yield* decodeConnectionLiveQueryDeliveryPayload(value);
 });

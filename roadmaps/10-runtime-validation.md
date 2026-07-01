@@ -1893,7 +1893,7 @@ ConnectionDO already uses the typed Effect route decoders for `/invalidate`
 and `/deliver/live-query`. The removed Promise/throwing wrappers were
 compatibility surfaces rather than production routing. Removing them keeps
 connection request validation in typed channels and leaves HTTP conversion at
-`connectionRouteErrorToHttpErrorEffect(...)` and
+the ConnectionDO adapter edge, including
 `connectionInternalRouteErrorToResponseEffect(...)`.
 
 Convex references:
@@ -1953,7 +1953,7 @@ The artifact runtime invoke route already uses the typed Effect route decoder in
 surfaces exercised by tests rather than production runtime routing. Removing
 them keeps artifact runtime request validation in typed `RequestJsonError` /
 `ExecutionArtifactInvokePayloadError` channels and leaves HTTP conversion at
-`executionArtifactInvokeRouteErrorToHttpErrorEffect(...)`.
+the artifact runtime adapter edge.
 
 Convex references:
 
@@ -2791,9 +2791,8 @@ Previous completed checkpoint: `6e9fe45` Type active deployment store reads.
 
 What changed:
 
-- Runtime invoke request compatibility readers now recover through the named
-  `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` adapter while the
-  Effect decoder keeps `RequestJsonError` and
+- Runtime invoke request compatibility readers now recover through the
+  artifact runtime adapter while the Effect decoder keeps `RequestJsonError` and
   `ExecutionArtifactInvokePayloadError` typed before HTTP mapping.
 - Service-binding runtime failures now convert to `HttpError` through the named
   `serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect(...)` adapter.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: R-5 delivery and live-query route boundaries in this checkpoint commit.
-- Active checkpoint: R-6 connection and artifact runtime route boundaries, migrating `connection/RouteBoundary.ts`, `connectionDO.ts`, `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and `artifactRuntime.ts` to typed connection sync/change payloads, artifact invoke route inputs, and one response mapper per adapter.
+- Previous completed checkpoint: R-6 connection and artifact runtime route boundaries in this checkpoint commit.
+- Active checkpoint: O-1 ConnectionDO runtime boundary, keeping WebSocket upgrade custom while schema-checking connection message JSON and route requests with typed Effect errors.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,22 +52,31 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-5 delivery and live-query route boundaries:
+Next recommended checkpoint after R-6 connection and artifact runtime route boundaries:
 
-1. Migrate connection and artifact runtime route boundaries in
-   `connection/RouteBoundary.ts`, `connectionDO.ts`,
-   `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and
-   `artifactRuntime.ts`.
-2. Decode connection sync/change payloads and artifact invoke route inputs
-   through typed Effect boundaries.
-3. Keep route error channels typed until ConnectionDO, artifact runtime, and
-   Worker adapter edges map them to HTTP responses.
-4. Continue avoiding deployment storage, artifact materializer/cache,
-   source-package behavior, executor-http, unrelated ExecutionDO internals, and
-   `ValidatorJson` changes unless the next selected route/service batch owns
-   that boundary directly.
+1. Continue into O-1 by tightening `connectionDO.ts` runtime inputs that were
+   intentionally left as adapter/runtime edges during R-6.
+2. Keep WebSocket upgrade and websocket state orchestration custom, but decode
+   connection message JSON through named Effect boundaries before sync handling.
+3. Preserve route request decoding and typed `ConnectionRouteError` mapping at
+   the ConnectionDO adapter edge.
+4. Continue avoiding PartitionDO SQL/OCC, deployment storage, scheduler/delivery
+   runtime loops, artifact materializer/cache, executor-http, protocol parser
+   compatibility wrappers, and `ValidatorJson` unless O-1 owns that boundary
+   directly.
 
-Current Goal 351 slice:
+Current Goal 352 slice:
+
+1. Audit ConnectionDO websocket message parsing and route request handling for
+   remaining untyped JSON/runtime bridge boundaries.
+2. Add named Effect decoders for owned connection message JSON shapes while
+   leaving websocket upgrade/session lifecycle behavior unchanged.
+3. Keep HTTP/websocket response mapping at ConnectionDO adapter edges and keep
+   operation/domain failures typed until those edges.
+4. Preserve connection route, dispatch, sync, and websocket behavior through
+   focused tests before ticking O-1.
+
+Completed Goal 351 slice:
 
 1. Convert connection route and artifact runtime route request handling to
    named `Effect.fn(...)` decoders.
@@ -1206,10 +1215,10 @@ Completed Goal 293 slice:
 
 Completed Goal 292 slice:
 
-1. Add named artifact runtime invoke route adapter effect
-   `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` and route
+1. Add named artifact runtime invoke route adapter coverage and route
    `readExecutionArtifactInvokePayload(...)` plus
-   `parseExecutionArtifactInvokePayload(...)` through it.
+   `parseExecutionArtifactInvokePayload(...)` through the then-current
+   compatibility adapter.
 2. Add named service-binding runtime adapter effect
    `serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect(...)` so
    runtime client failures convert to `HttpError` only at the client adapter
@@ -1297,11 +1306,10 @@ Completed Goal 289 slice:
 
 Completed Goal 288 slice:
 
-1. Add named connection route and operation HTTP adapter effects:
-   `connectionRouteErrorToHttpErrorEffect(...)` and
-   `connectionRouteOperationErrorToHttpErrorEffect(...)`.
+1. Add named connection route and operation HTTP adapter coverage for route
+   failures and `connectionRouteOperationErrorToHttpErrorEffect(...)`.
 2. Route ConnectionDO compatibility readers and parse wrappers through the
-   named route adapter effect while preserving typed request JSON,
+   then-current route adapter while preserving typed request JSON,
    invalidation payload, and live-query delivery payload failure channels.
 3. Route the ConnectionDO internal JSON route runner through a named response
    adapter effect while preserving one `Effect.runPromise` edge and the

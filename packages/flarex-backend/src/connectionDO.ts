@@ -2,10 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
-  connectionRouteErrorToHttpError,
-  connectionRouteErrorToHttpErrorEffect,
   decodeConnectionInvalidationRequest,
   decodeConnectionLiveQueryDeliveryRequest,
+  ConnectionRouteValidationError,
   type ConnectionRouteError,
 } from "./connection/RouteBoundary";
 import {
@@ -19,7 +18,13 @@ import {
   connectionRouteOperationErrorToHttpErrorEffect,
   ConnectionRouteOperationError,
 } from "./connection/RouteOperationError";
-import { errorResponse, HttpError, json } from "./http";
+import {
+  errorResponse,
+  HttpError,
+  json,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+} from "./http";
 import { Effect } from "effect";
 import {
   executeInvoke,
@@ -27,6 +32,7 @@ import {
 } from "./invoke";
 import {
   addLiveQueryDeliverySkipReason,
+  liveQueryDeliveryChangePayloadErrorToHttpError,
   liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliverySkipReasons,
@@ -742,6 +748,24 @@ function connectionInternalRouteErrorToHttpError(
   }
   return connectionRouteErrorToHttpError(error);
 }
+
+function connectionRouteErrorToHttpError(error: ConnectionRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof ConnectionRouteValidationError) {
+    return new HttpError(400, error.message);
+  }
+  return liveQueryDeliveryChangePayloadErrorToHttpError(error);
+}
+
+const connectionRouteErrorToHttpErrorEffect = Effect.fn(
+  "ConnectionDO.connectionRouteErrorToHttpError",
+)(function* (
+  error: ConnectionRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(connectionRouteErrorToHttpError(error));
+});
 
 const connectionInternalRouteErrorToHttpErrorEffect = Effect.fn(
   "ConnectionDO.connectionInternalRouteErrorToHttpError",

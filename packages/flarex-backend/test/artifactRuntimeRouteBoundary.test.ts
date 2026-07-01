@@ -5,8 +5,8 @@ import {
   decodeExecutionArtifactInvokePayload,
   decodeExecutionArtifactInvokeRoutePayload,
   ExecutionArtifactInvokePayloadError,
-  executionArtifactInvokeRouteErrorToHttpError,
 } from "../src/artifactRuntime/RouteBoundary";
+import { executionArtifactRuntimeRouteErrorToResponseEffect } from "../src/artifactRuntime";
 
 describe("artifact runtime route boundary", () => {
   it("decodes execution artifact invoke payloads", async () => {
@@ -27,15 +27,15 @@ describe("artifact runtime route boundary", () => {
       .rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
   });
 
-  it("maps typed invalid payload failures to HttpError at the adapter edge", () => {
-    const httpError = executionArtifactInvokeRouteErrorToHttpError(
+  it("maps typed invalid payload failures through the runtime response adapter", async () => {
+    const response = await Effect.runPromise(executionArtifactRuntimeRouteErrorToResponseEffect(
       new ExecutionArtifactInvokePayloadError({
         message: "Invalid execution artifact invoke payload.",
       }),
-    );
-    expect(httpError).toMatchObject({
-      status: 400,
-      message: "Invalid execution artifact invoke payload.",
+    ));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid execution artifact invoke payload.",
     });
   });
 

@@ -1961,9 +1961,8 @@ Connection invalidation and live-query delivery request decoding belongs in
 `connection/RouteBoundary.ts` and `connection/Requests.ts` as Effect-returning
 decoders. ConnectionDO remains the runtime owner for route selection, query
 reruns, websocket state, and dispatch into invalidation/live-query handlers.
-HTTP conversion for request decode failures remains at
-`connectionRouteErrorToHttpError(...)` /
-`connectionRouteErrorToHttpErrorEffect(...)`; operation failures remain at
+HTTP conversion for request decode failures remains at the ConnectionDO adapter
+edge; operation failures remain at
 `connectionRouteOperationErrorToHttpError(...)` /
 `connectionRouteOperationErrorToHttpErrorEffect(...)`.
 
@@ -2011,7 +2010,7 @@ What changed:
 - `artifactRuntime/Requests.ts` no longer exports the throwing
   `parseExecutionArtifactInvokePayloadBody(...)` compatibility wrapper.
 - The artifact runtime invoke boundary now exposes Effect-returning request
-  and payload decoders plus the named route HTTP adapters.
+  and payload decoders; the artifact runtime adapter owns HTTP mapping.
 - Tests now exercise `RequestJsonError` and
   `ExecutionArtifactInvokePayloadError` channels directly before the adapter
   mapping assertions.
@@ -2023,9 +2022,8 @@ Artifact runtime invoke request decoding belongs in
 Effect-returning decoders. Runtime route orchestration remains in
 `artifactRuntime/RuntimeRoute.ts`, including authorization, header validation,
 source-package resolution, materializer/cache calls, and artifact invocation.
-HTTP conversion for invoke request decode failures remains at
-`executionArtifactInvokeRouteErrorToHttpError(...)` /
-`executionArtifactInvokeRouteErrorToHttpErrorEffect(...)`.
+HTTP conversion for invoke request decode failures remains at the artifact
+runtime adapter edge.
 
 Convex references:
 
@@ -2855,8 +2853,7 @@ Previous completed checkpoint: `6e9fe45` Type active deployment store reads.
 
 What changed:
 
-- `artifactRuntime/RouteBoundary.ts` now exposes a named
-  `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` adapter for
+- `artifactRuntime/RouteBoundary.ts` now exposes named Effect decoders for
   runtime invoke request compatibility callers.
 - `artifactRuntime.ts` now exposes named adapter effects for service-binding
   runtime failures and internal runtime route response conversion.

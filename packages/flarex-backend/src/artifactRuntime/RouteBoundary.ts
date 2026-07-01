@@ -1,10 +1,5 @@
 import { Effect } from "effect";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { ExecutionArtifactInvokePayload } from "../artifactRuntime";
 import {
   decodeExecutionArtifactInvokePayloadBody,
@@ -20,33 +15,20 @@ export type ExecutionArtifactInvokeRouteError =
   | RequestJsonError
   | ExecutionArtifactInvokePayloadError;
 
-export function decodeExecutionArtifactInvokePayload(
+export const decodeExecutionArtifactInvokePayload = Effect.fn(
+  "ArtifactRuntimeRouteBoundary.decodeInvokePayloadRequest",
+)(function* (
   request: Request,
-): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokeRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<ExecutionArtifactInvokePayload, ExecutionArtifactInvokeRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeExecutionArtifactInvokeRoutePayload),
   );
-}
+});
 
-export function decodeExecutionArtifactInvokeRoutePayload(
-  value: unknown,
-): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
-  return decodeExecutionArtifactInvokePayloadBody(value);
-}
-
-export function executionArtifactInvokeRouteErrorToHttpError(
-  error: ExecutionArtifactInvokeRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const executionArtifactInvokeRouteErrorToHttpErrorEffect = Effect.fn(
-  "ArtifactRuntimeRouteBoundary.executionArtifactInvokeRouteErrorToHttpError",
+export const decodeExecutionArtifactInvokeRoutePayload = Effect.fn(
+  "ArtifactRuntimeRouteBoundary.decodeInvokePayload",
 )(function* (
-  error: ExecutionArtifactInvokeRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(executionArtifactInvokeRouteErrorToHttpError(error));
+  value: unknown,
+): Effect.fn.Return<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
+  return yield* decodeExecutionArtifactInvokePayloadBody(value);
 });

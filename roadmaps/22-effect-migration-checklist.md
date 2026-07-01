@@ -12,7 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.
+- Previous completed checkpoint: R-6 connection and artifact runtime route
+  boundaries in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -271,10 +272,11 @@ The Effect migration is complete only when all of these are true:
     `test/publicDeliveryWakeDispatchBoundary.test.ts`,
     `test/publicLiveQueryDeliveryDispatchBoundary.test.ts`,
     selected `test/sync.test.ts` Worker/DeliveryDO route-boundary cases.
-- [ ] R-6. Connection and artifact runtime route boundaries:
+- [x] R-6. Connection and artifact runtime route boundaries:
   `connection/RouteBoundary.ts`, `connectionDO.ts`,
   `artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`,
   `artifactRuntime.ts`.
+  - Completed by: this R-6 checkpoint commit.
   - Goal: typed connection sync/change payloads, artifact invoke route inputs,
     and one response mapper per adapter.
   - Focus tests:
@@ -282,6 +284,7 @@ The Effect migration is complete only when all of these are true:
     `test/connectionRouteDispatchBoundary.test.ts`,
     `test/artifactRuntimeRouteBoundary.test.ts`,
     `test/artifactRuntimeRoute.test.ts`,
+    `test/artifactRuntimeRequests.test.ts`,
     `test/artifactRuntime.test.ts`.
 
 ### Phase 5: Durable Object Runtime Boundaries
@@ -427,12 +430,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with R-6:
+Start with O-1:
 
-Migrate connection and artifact runtime route boundaries in
-`connection/RouteBoundary.ts`, `connectionDO.ts`,
-`artifactRuntime/RouteBoundary.ts`, `artifactRuntime/RuntimeRoute.ts`, and
-`artifactRuntime.ts` to typed connection sync/change payloads, artifact invoke
-route inputs, and one response mapper per adapter; update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `R-6`, then commit.
+Tighten `ConnectionDO` runtime boundaries while keeping WebSocket upgrade and
+session lifecycle custom: schema-check connection message JSON and route
+requests with typed Effect errors, keep HTTP/websocket response mapping at the
+ConnectionDO adapter edge, update `effect-ts-migration-draft/your-proposal.md`
+and relevant roadmaps, validate, run only the EffectTS quality checker, tick
+`O-1`, then commit.

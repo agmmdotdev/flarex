@@ -1,7 +1,6 @@
 import type { BackendExecutionArtifactStore } from "./artifactStore.ts";
 import {
   ExecutionArtifactInvokePayloadError,
-  executionArtifactInvokeRouteErrorToHttpError,
 } from "./artifactRuntime/RouteBoundary.ts";
 import {
   ExecutionArtifactRuntimeAuthorizationError,
@@ -16,7 +15,12 @@ import {
 } from "./artifactRuntime/Errors.ts";
 import { Data, Effect, Schema } from "effect";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
-import { HttpError, readResponseJsonOrNullEffect, RequestJsonError } from "./http.ts";
+import {
+  HttpError,
+  readResponseJsonOrNullEffect,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+} from "./http.ts";
 import type {
   ActiveDeploymentStatus,
   CommittedWrite,
@@ -418,6 +422,15 @@ function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRo
     return Response.json({ error: error.message }, { status: error.status });
   }
   return Response.json({ error: error.message }, { status: error.status });
+}
+
+function executionArtifactInvokeRouteErrorToHttpError(
+  error: RequestJsonError | ExecutionArtifactInvokePayloadError,
+): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return new HttpError(400, error.message);
 }
 
 export const executionArtifactRuntimeRouteErrorToResponseEffect = Effect.fn(
