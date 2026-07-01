@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Deployment-Scoped Invoke Route Adapter Edge
+
+Previous completed checkpoint: `03cd604` Route execution partition errors at
+deployment edge.
+
+What changed:
+
+- Deployment-scoped public invoke failures now stay typed through
+  `Worker.routeDeployment` instead of being converted to `Response` inside the
+  `invoke` branch.
+- The deployment route adapter now converts invoke execution, invoke
+  validation, and invoke dispatch failures with the existing
+  `invokeErrorResponse(...)` contract.
+- Non-invoke deployment route failures still map through the deployment route
+  HTTP mapper.
+
+Why it changed:
+
+Invoke is the last `/deployments/:id/...` branch with a branch-local response
+conversion. Moving that conversion to the deployment route adapter keeps route
+validation and execution failures typed until the Worker boundary while
+preserving invoke's custom response behavior for partition and validation
+errors.
+
+Known limitations:
+
+- The top-level `/invoke` Worker route still uses its own public Worker adapter
+  branch.
+- Invoke execution internals, generated DeploymentDO HttpApi handlers,
+  PartitionDO SQL/OCC behavior, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/publicWorkerRoutePathBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Worker Execution And Partition Route Edge
 
 Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed

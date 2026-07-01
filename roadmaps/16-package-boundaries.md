@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Deployment-Scoped Invoke Route Adapter Edge
+
+Previous completed checkpoint: `03cd604` Route execution partition errors at
+deployment edge.
+
+What changed:
+
+- `Worker.routeDeployment` now carries deployment-scoped invoke failures to the
+  public Worker deployment route adapter.
+- `PublicWorkerDeploymentRouteError` is split into invoke and non-invoke route
+  failures so invoke-only execution/runtime errors are converted through
+  `invokeErrorResponse(...)` while non-invoke route failures continue through
+  the deployment `HttpError` mapper.
+- The deployment route adapter owns the response conversion for all
+  `/deployments/:id/...` route families.
+
+Boundary decision:
+
+Invoke's response shape is different from ordinary Worker route errors because
+it may preserve partition error bodies. The boundary still belongs at the
+Worker deployment route adapter; the adapter chooses invoke response mapping
+only for invoke failures and keeps the non-invoke HTTP mapper narrow.
+
+Known limitations:
+
+- Top-level `/invoke` still has its own Worker adapter branch.
+- Invoke service/domain internals, generated DeploymentDO handlers, package
+  metadata, service bindings, and Durable Object SQL/OCC are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/publicWorkerRoutePathBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Worker Execution And Partition Route Edge
 
 Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed

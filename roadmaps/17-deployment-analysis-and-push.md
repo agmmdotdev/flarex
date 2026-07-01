@@ -1,5 +1,44 @@
 # Deployment Analysis And Push
 
+## Deployment-Scoped Invoke Route Adapter Edge
+
+Previous completed checkpoint: `03cd604` Route execution partition errors at
+deployment edge.
+
+What changed:
+
+- Deployment-scoped invoke now propagates typed invoke route, execution, and
+  dispatch failures out of `Worker.routeDeployment`.
+- The deployment route adapter converts invoke failures with
+  `invokeErrorResponse(...)` and non-invoke deployment route failures with the
+  existing deployment HTTP mapper.
+- The public deployment route edge now covers push, invoke, execution,
+  partition, active deployment read, scheduler, and sync subroutes.
+
+Why it changed:
+
+Deployment-scoped invoke depends on active deployment metadata and public
+deployment routing, so it belongs in the same route-edge migration as the push
+and execution paths. This checkpoint removes the last branch-local response
+conversion inside `routeDeployment` without changing invoke execution
+semantics.
+
+Known limitations:
+
+- Top-level `/invoke` remains a separate public Worker adapter branch.
+- This checkpoint does not change analyzer behavior, push state transitions,
+  invoke service/domain internals, DeploymentDO generated HttpApi handlers,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/publicWorkerRoutePathBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Worker Execution And Partition Route Edge
 
 Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed

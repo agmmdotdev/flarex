@@ -4,7 +4,10 @@ import {
   DeploymentPushAction,
 } from "flarex-protocol/deployment";
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
-import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
+import {
+  InvokeProtocolValidationError,
+  type PublicInvokeRequestBody,
+} from "flarex-protocol/invoke";
 import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
@@ -111,6 +114,8 @@ import {
   decodePublicInvokeRouteRequest,
   invokeRequestFromPublicInvokeBodyEffect,
   MissingInvokeDeploymentError,
+  MissingInvokePartitionKeyError,
+  MissingInvokePathError,
   publicInvokeDeploymentIdEffect,
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
@@ -258,7 +263,10 @@ const routePublicWorker = Effect.fn("Worker.routePublicWorker")(
 
   if (parts[0] === "deployments") {
     return yield* routeDeployment(request, env, parts, url).pipe(
-      Effect.mapError(publicWorkerDeploymentRouteErrorToHttpError),
+      Effect.matchEffect({
+        onFailure: error => Effect.succeed(publicWorkerDeploymentRouteErrorToResponse(error)),
+        onSuccess: response => Effect.succeed(response),
+      }),
     );
   }
 
@@ -310,7 +318,13 @@ type PublicWorkerDeploymentPushRouteError =
   | PublicWorkerDispatchError
   | MissingDeploymentPushIdError;
 
-type PublicWorkerDeploymentRouteError =
+type PublicWorkerInvokeRouteError =
+  | Parameters<typeof publicInvokeRouteErrorToHttpError>[0]
+  | InvokeActiveDeploymentLoadError
+  | InvokeExecutionError
+  | PublicWorkerDispatchError;
+
+type PublicWorkerDeploymentNonInvokeRouteError =
   | MissingPublicDeploymentIdError
   | MissingPublicPartitionKeyError
   | PublicWorkerDeploymentPushRouteError
@@ -319,6 +333,10 @@ type PublicWorkerDeploymentRouteError =
   | PublicWorkerDeploymentSyncRouteError
   | PublicWorkerDispatchError
   | HttpError;
+
+type PublicWorkerDeploymentRouteError =
+  | PublicWorkerDeploymentNonInvokeRouteError
+  | PublicWorkerInvokeRouteError;
 
 const routeDeployment = Effect.fn("Worker.routeDeployment")(
   function* (
@@ -335,12 +353,7 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
       return yield* routeDeploymentActiveRead(env, deploymentId);
     }
     if (parts[2] === "invoke" && request.method === "POST") {
-      return yield* routePublicInvoke(request, env, deploymentId).pipe(
-        Effect.matchEffect({
-          onFailure: error => Effect.succeed(publicWorkerInvokeRouteErrorToResponse(error)),
-          onSuccess: response => Effect.succeed(response),
-        }),
-      );
+      return yield* routePublicInvoke(request, env, deploymentId);
     }
     if (parts[2] === "executions") {
       return yield* routeExecutionEffect(request, env, deploymentId, parts.slice(3));
@@ -366,8 +379,17 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
   },
 );
 
-function publicWorkerDeploymentRouteErrorToHttpError(
+function publicWorkerDeploymentRouteErrorToResponse(
   error: PublicWorkerDeploymentRouteError,
+): Response {
+  if (isPublicWorkerInvokeRouteError(error)) {
+    return publicWorkerInvokeRouteErrorToResponse(error);
+  }
+  return errorResponse(publicWorkerDeploymentRouteErrorToHttpError(error));
+}
+
+function publicWorkerDeploymentRouteErrorToHttpError(
+  error: PublicWorkerDeploymentNonInvokeRouteError,
 ): HttpError {
   if (error instanceof HttpError) {
     return error;
@@ -413,6 +435,17 @@ function publicDeploymentRoutePathErrorToHttpError(
     return publicExecutionRoutePathErrorToHttpError(error);
   }
   return publicRoutePathErrorToHttpError(error);
+}
+
+function isPublicWorkerInvokeRouteError(
+  error: PublicWorkerDeploymentRouteError,
+): error is PublicWorkerInvokeRouteError {
+  if (isInvokeExecutionError(error)) return true;
+  if (error instanceof InvokeProtocolValidationError) return true;
+  if (error instanceof MissingInvokeDeploymentError) return true;
+  if (error instanceof MissingInvokePathError) return true;
+  if (error instanceof MissingInvokePartitionKeyError) return true;
+  return error instanceof PublicWorkerDispatchError && error.source === "invoke-execute";
 }
 
 const PUBLIC_SCHEDULER_ROUTE_PATHS = [
