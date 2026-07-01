@@ -5,8 +5,10 @@ import {
 } from "flarex-protocol/deployment";
 import { errorResponse, HttpError, json } from "../http";
 import {
-  decodeDeploymentApiRequestForRoute,
+  decodeDeploymentApiRouteInput,
+  deploymentApiRouteInputToRequest,
   deploymentRouteErrorToHttpError,
+  type DeploymentApiRouteInput,
   type DeploymentRouteError,
 } from "./HttpApiRouteBoundary";
 
@@ -29,15 +31,12 @@ export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
     handleApiRequest: (request: Request) => Promise<Response>,
   ): Effect.fn.Return<Response, DeploymentInternalRouteError> {
     const url = new URL(request.url);
-    const apiRequest = yield* decodeDeploymentApiRequestForRoute(request);
-    if (apiRequest !== null) {
-      return yield* Effect.tryPromise({
-        try: () => handleApiRequest(apiRequest),
-        catch: cause =>
-          cause instanceof DeploymentProtocolValidationError
-            ? cause
-            : deploymentRouteOperationError("http-api", cause),
-      });
+    const apiRouteInput = yield* decodeDeploymentApiRouteInput(request);
+    if (apiRouteInput !== null) {
+      return yield* dispatchDeploymentApiRouteInputViaRequestCompatibility(
+        apiRouteInput,
+        handleApiRequest,
+      );
     }
     if (url.pathname === DeploymentRoute.health) {
       return json({ service: "flarex-deployment", status: "ok" });
@@ -45,6 +44,22 @@ export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
     return json({ error: "Not found." }, { status: 404 });
   },
 );
+
+export const dispatchDeploymentApiRouteInputViaRequestCompatibility = Effect.fn(
+  "DeploymentDO.dispatchApiRouteInputViaRequestCompatibility",
+)(function* (
+  apiRouteInput: DeploymentApiRouteInput,
+  handleApiRequest: (request: Request) => Promise<Response>,
+): Effect.fn.Return<Response, DeploymentRouteOperationError | DeploymentProtocolValidationError> {
+  const apiRequest = deploymentApiRouteInputToRequest(apiRouteInput);
+  return yield* Effect.tryPromise({
+    try: () => handleApiRequest(apiRequest),
+    catch: cause =>
+      cause instanceof DeploymentProtocolValidationError
+        ? cause
+        : deploymentRouteOperationError("http-api", cause),
+  });
+});
 
 export function runDeploymentDurableObjectRoute(
   effect: Effect.Effect<Response, DeploymentInternalRouteError>,

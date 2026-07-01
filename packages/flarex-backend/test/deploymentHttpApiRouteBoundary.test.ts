@@ -20,6 +20,7 @@ import {
   deploymentRouteErrorToHttpErrorEffect,
 } from "../src/deployment/HttpApiRouteBoundary";
 import {
+  dispatchDeploymentApiRouteInputViaRequestCompatibility,
   deploymentInternalRouteErrorToResponseEffect,
   DeploymentRouteOperationError,
   routeDeploymentDurableObject,
@@ -414,6 +415,73 @@ describe("deployment HttpApi route boundary", () => {
     expect(notFound.status).toBe(404);
     await expect(notFound.json()).resolves.toEqual({
       error: "Not found.",
+    });
+  });
+
+  it("dispatches typed DeploymentDO route inputs through the request compatibility adapter", async () => {
+    const startRouteInput = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: {
+          sourcePackage: sourcePackage(),
+          analysis: { schema: {}, functions: {} },
+          diagnostics: [{ level: "warn", message: "compat dispatch" }],
+        },
+      },
+    )));
+    if (startRouteInput?._tag !== "DeploymentApiStartAnalyzedPushRoute") {
+      throw new Error("Expected analyzed start route input.");
+    }
+
+    const response = await Effect.runPromise(dispatchDeploymentApiRouteInputViaRequestCompatibility(
+      startRouteInput,
+      async request => {
+        const body: unknown = await request.json();
+        return Response.json({
+          method: request.method,
+          url: request.url,
+          body,
+        });
+      },
+    ));
+    await expect(response.json()).resolves.toMatchObject({
+      method: "POST",
+      url: `https://deployment.test${DeploymentRoute.startAnalyzedPush}`,
+      body: {
+        sourcePackage: sourcePackage(),
+        diagnostics: [{ level: "warn", message: "compat dispatch" }],
+      },
+    });
+
+    const protocolFailure = await Effect.runPromise(Effect.flip(
+      dispatchDeploymentApiRouteInputViaRequestCompatibility(
+        startRouteInput,
+        async () => {
+          throw new DeploymentProtocolValidationError({
+            schema: "DeploymentGeneratedResponse",
+            message: "Generated deployment response failed validation.",
+            cause: null,
+          });
+        },
+      ),
+    ));
+    expect(protocolFailure).toBeInstanceOf(DeploymentProtocolValidationError);
+    expect(protocolFailure.message).toBe("Generated deployment response failed validation.");
+
+    const operationFailure = await Effect.runPromise(Effect.flip(
+      dispatchDeploymentApiRouteInputViaRequestCompatibility(
+        startRouteInput,
+        async () => {
+          throw new Error("deployment handler failed");
+        },
+      ),
+    ));
+    expect(operationFailure).toBeInstanceOf(DeploymentRouteOperationError);
+    expect(operationFailure).toMatchObject({
+      operation: "http-api",
+      status: 500,
+      message: "deployment handler failed",
     });
   });
 

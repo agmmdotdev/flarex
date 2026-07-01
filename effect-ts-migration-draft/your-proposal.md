@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c5df8a2` Type deployment start response adapter.
-- Active checkpoint: typed DeploymentDO API route input, introducing a decoded route-input boundary before the existing generated HttpApi request compatibility adapter.
+- Previous completed checkpoint: `203ca2f` Type deployment route input boundary.
+- Active checkpoint: DeploymentDO typed route-input compatibility dispatch, moving the internal route adapter onto decoded route inputs while keeping generated HttpApi request compatibility isolated.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,12 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the typed DeploymentDO API route input:
+Next recommended checkpoint after the DeploymentDO route-input compatibility dispatch:
 
-1. Decide whether `routeDeploymentDurableObject(...)` should dispatch typed
-   decoded route inputs directly to generated handler effects for deployment
-   mutation routes, or keep the generated web-handler request compatibility
-   path until the HttpApi lifecycle cost is clearer.
+1. Reassess direct generated handler dispatch for mutation routes now that
+   `routeDeploymentDurableObject(...)` owns typed route inputs and the
+   generated web-handler request bridge is isolated behind a named adapter.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -63,7 +62,25 @@ Next recommended checkpoint after the typed DeploymentDO API route input:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 334 slice:
+Current Goal 335 slice:
+
+1. Route `routeDeploymentDurableObject(...)` through
+   `decodeDeploymentApiRouteInput(...)` instead of hiding typed route input
+   behind the request compatibility decoder.
+2. Add `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`, a named
+   Effect adapter that converts typed route input into the generated HttpApi
+   `Request` compatibility path and maps generated handler failures to typed
+   internal route failures.
+3. Add focused tests for the compatibility adapter's success path, generated
+   protocol failure propagation, and generated handler operation failure
+   mapping.
+4. Leave direct generated handler dispatch, generated handler logic,
+   DeploymentService/store lifecycle logic, public Worker deployment dispatch,
+   artifact materializer/cache, source-package analyzer semantics, PartitionDO
+   SQL/OCC, executor-http, protocol parser compatibility wrappers, and
+   `ValidatorJson` unchanged.
+
+Completed Goal 334 slice:
 
 1. Add `DeploymentApiRouteInput`, a typed union for DeploymentDO API routes:
    pass-through read routes, analyzed start-push bodies, finish-push bodies,

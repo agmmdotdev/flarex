@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## DeploymentDO Route Input Compatibility Dispatch
+
+Previous completed checkpoint: `203ca2f` Type deployment route input boundary.
+
+What changed:
+
+- DeploymentDO push routing now enters through typed decoded route inputs.
+- The generated HttpApi request bridge is isolated in
+  `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`.
+- The compatibility adapter preserves generated protocol failure propagation
+  and maps generated handler operation failures to typed internal route errors.
+- Focused tests cover analyzed start-push compatibility dispatch with decoded
+  body payloads.
+
+Why it changed:
+
+The deployment push route surface now has typed decoded inputs. This checkpoint
+makes the Durable Object route adapter consume those inputs directly while
+keeping the generated web-handler compatibility path as the only remaining
+request-rebuild edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO route-boundary migration checkpoint.
+
+How Flarex differs:
+
+- Flarex still routes push lifecycle requests through a generated HttpApi web
+  handler. The compatibility bridge is explicit now, which prepares a later
+  direct-dispatch decision without changing current push lifecycle behavior.
+
+Known limitations:
+
+- Direct generated handler dispatch, generated handler logic,
+  DeploymentService/store lifecycle logic, public Worker deployment dispatch,
+  artifact materializer/cache, source-package analyzer semantics,
+  DeploymentPushStore lifecycle state changes, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Typed DeploymentDO API Route Input
 
 Previous completed checkpoint: `c5df8a2` Type deployment start response
