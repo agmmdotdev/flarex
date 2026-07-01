@@ -1,5 +1,62 @@
 # Package Boundaries
 
+## Scheduler And Connection Bridge Decoder Boundary
+
+Previous completed checkpoint: `09529e6` Decode deployment storage rows with
+Effect.
+
+What changed:
+
+- Added the scheduler wake failure-body decoder in
+  `packages/flarex-backend/src/scheduler/DeliveryWakeBoundary.ts`.
+- Replaced the local connection invalidation payload shape check in
+  `packages/flarex-backend/src/connection/Requests.ts` with a hoisted Effect
+  Schema decoder.
+- Left `connectionDO.ts` as the Durable Object adapter and kept connection
+  WebSocket/route parsing delegated to backend-local boundary modules.
+
+Boundary decision:
+
+These decoders stay in `flarex-backend`, not `flarex-protocol`, because they
+describe backend Durable Object adapter bridge behavior. The scheduler failure
+body accepts arbitrary remote response text, and the connection invalidation
+payload is an internal route payload for backend live-query coordination rather
+than a public SDK transport contract.
+
+Convex comparison:
+
+Convex sync protocol types live in `crates/convex/sync_types/src/types/mod.rs`
+and JSON conversion lives in `crates/convex/sync_types/src/types/json.rs`, with
+the browser sync protocol mirrored in
+`npm-packages/convex/src/browser/sync/protocol.ts`. Scheduled-job metadata is
+serialized through typed model structures in
+`crates/model/src/scheduled_jobs/types.rs`. Flarex keeps this checkpoint
+backend-local because Cloudflare DO route and WebSocket adapters are the
+current bridge boundary.
+
+Known limitations:
+
+- No new shared protocol exports were added.
+- This checkpoint does not change executor-http package boundaries, public SDK
+  contracts, or `ValidatorJson`.
+- `connection/MessageBoundary.ts` still preserves a legacy compatibility parser
+  after schema decode for exact validation text.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerDeliveryWakeBoundary.test.ts test/connectionMessageBoundary.test.ts test/connectionRouteBoundary.test.ts test/connectionRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
+Full backend test note: `corepack pnpm --filter flarex-backend test` timed out
+after 304 seconds without returning output; the leftover validation processes
+were stopped after confirming their command lines.
+
 ## Deployment Storage Row Decoder Boundary
 
 Previous completed checkpoint: `91ebf29` Decode PartitionDO storage rows with

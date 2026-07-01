@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import {
   decodeLiveQueryDeliveryChangesFromBody,
   type LiveQueryDeliveryChange,
@@ -10,14 +10,30 @@ export class ConnectionRouteValidationError extends Data.TaggedError("Connection
   readonly message: string;
 }> {}
 
+const ConnectionQueryId = Schema.declare<QueryId>(
+  (value): value is QueryId => typeof value === "number" && Number.isInteger(value),
+  { title: "ConnectionQueryId" },
+);
+
+const ConnectionInvalidationPayload = Schema.Struct({
+  queryId: ConnectionQueryId,
+});
+
+const decodeUnknownConnectionInvalidationPayload = Schema.decodeUnknownEffect(
+  ConnectionInvalidationPayload,
+);
+
 export const decodeConnectionInvalidationPayload = Effect.fn(
   "ConnectionRequests.decodeInvalidationPayload",
 )(function* (
   value: unknown,
 ): Effect.fn.Return<QueryId, ConnectionRouteValidationError> {
-  return yield* connectionRouteValidationResultToEffect(
-    normalizeConnectionInvalidationPayload(value),
+  const decoded = yield* decodeUnknownConnectionInvalidationPayload(value).pipe(
+    Effect.mapError(() =>
+      connectionRouteValidationFailure("Invalidation queryId must be an integer."),
+    ),
   );
+  return decoded.queryId;
 });
 
 export const decodeConnectionLiveQueryDeliveryPayload = Effect.fn(
@@ -28,49 +44,8 @@ export const decodeConnectionLiveQueryDeliveryPayload = Effect.fn(
   return yield* decodeLiveQueryDeliveryChangesFromBody(value);
 });
 
-function normalizeConnectionInvalidationPayload(
-  value: unknown,
-): ConnectionRouteValidationResult<QueryId> {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { queryId?: unknown }).queryId === "number" &&
-    Number.isInteger((value as { queryId: number }).queryId)
-  ) {
-    return connectionRouteValidationSuccess((value as { queryId: number }).queryId);
-  }
-  return connectionRouteValidationFailure("Invalidation queryId must be an integer.");
-}
-
-type ConnectionRouteValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: ConnectionRouteValidationError;
-    };
-
-function connectionRouteValidationSuccess<A>(value: A): ConnectionRouteValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
-
-function connectionRouteValidationFailure<A = never>(
+function connectionRouteValidationFailure(
   message: string,
-): ConnectionRouteValidationResult<A> {
-  return {
-    success: false,
-    error: new ConnectionRouteValidationError({ message }),
-  };
-}
-
-function connectionRouteValidationResultToEffect<A>(
-  result: ConnectionRouteValidationResult<A>,
-): Effect.Effect<A, ConnectionRouteValidationError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+): ConnectionRouteValidationError {
+  return new ConnectionRouteValidationError({ message });
 }

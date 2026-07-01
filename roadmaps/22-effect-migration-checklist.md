@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: S-2 Deployment storage row decoding in this
-  checkpoint commit.
+- Previous completed checkpoint: S-3 Scheduler/connection JSON bridge decoding
+  in this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -368,14 +368,18 @@ The Effect migration is complete only when all of these are true:
     `test/deploymentStorageSchema.test.ts`,
     `test/deploymentService.test.ts`,
     `test/deploymentValidation.test.ts`.
-- [ ] S-3. Scheduler/connection JSON bridge helpers: convert message/body
+- [x] S-3. Scheduler/connection JSON bridge helpers: convert message/body
   parsing to typed decoder functions with boundary tests.
+  - Completed by: this S-3 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/scheduler/DeliveryWakeBoundary.ts`,
-    `packages/flarex-backend/src/connectionDO.ts`.
+    `packages/flarex-backend/src/connectionDO.ts`,
+    `packages/flarex-backend/src/connection/Requests.ts`.
   - Focus tests:
     `test/schedulerDeliveryWakeBoundary.test.ts`,
-    connection tests.
+    `test/connectionMessageBoundary.test.ts`,
+    `test/connectionRouteBoundary.test.ts`,
+    `test/connectionRequests.test.ts`.
 
 ### Phase 7: Executor HTTP Adapter
 
@@ -447,10 +451,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with S-3:
+Start with E-1:
 
-Convert scheduler delivery wake and connection message/body JSON bridge
-helpers to typed decoder functions with boundary tests; update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
-with the S-3 focused tests, run only the EffectTS quality checker if Effect
-code changes, tick `S-3`, then commit.
+Split `packages/executor-http/src/index.ts` into route registration, request
+decoders, route effects, error mapping, and response helpers without changing
+public routes; update `effect-ts-migration-draft/your-proposal.md` and relevant
+roadmaps, validate with executor-http focused tests and gates, run only the
+EffectTS quality checker if Effect code changes, tick `E-1`, then commit.

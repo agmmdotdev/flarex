@@ -1,5 +1,61 @@
 # Runtime Validation
 
+## Scheduler And Connection JSON Bridge Runtime Boundary
+
+Previous completed checkpoint: `09529e6` Decode deployment storage rows with
+Effect.
+
+What changed:
+
+- Scheduler delivery wake failure responses now hydrate from text through
+  `decodeSchedulerDeliveryWakeFailureBodyText(...)`, returning `null`,
+  decoded JSON, or the original plain text without throwing.
+- Connection invalidation payloads now validate `queryId` with an Effect
+  Schema decoder and preserve the existing
+  `ConnectionRouteValidationError` message for invalid bodies.
+- Boundary tests now cover scheduler failure body decoding and connection
+  invalidation missing/non-object payload failures directly.
+
+Why it changed:
+
+The S-3 runtime boundary keeps remaining bridge parsing visible as named Effect
+decoders instead of inline unchecked casts. That preserves current runtime
+behavior while making the scheduler/connection JSON boundary auditable for the
+final migration exit criteria.
+
+Convex comparison:
+
+Convex keeps sync message and scheduled-job wire forms around typed structures
+in `crates/convex/sync_types/src/types/mod.rs`,
+`crates/convex/sync_types/src/types/json.rs`,
+`npm-packages/convex/src/browser/sync/protocol.ts`, and
+`crates/model/src/scheduled_jobs/types.rs`. Flarex's Cloudflare runtime still
+crosses Worker/DO JSON text boundaries, so runtime validation happens at those
+adapter bridges.
+
+Known limitations:
+
+- This checkpoint does not change SchedulerDO alarm/drain behavior,
+  ConnectionDO session/invocation behavior, live-query delivery fanout, or
+  executor-http.
+- The WebSocket client message compatibility helper remains to preserve legacy
+  parse error text after schema decoding.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerDeliveryWakeBoundary.test.ts test/connectionMessageBoundary.test.ts test/connectionRouteBoundary.test.ts test/connectionRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
+Full backend test note: `corepack pnpm --filter flarex-backend test` timed out
+after 304 seconds without returning output; the leftover validation processes
+were stopped after confirming their command lines.
+
 ## Deployment Storage Row Runtime Boundary
 
 Previous completed checkpoint: `91ebf29` Decode PartitionDO storage rows with

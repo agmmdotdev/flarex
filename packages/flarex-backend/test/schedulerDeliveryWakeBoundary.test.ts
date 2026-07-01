@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  decodeSchedulerDeliveryWakeFailureBodyText,
   schedulerDeliveryWakeBoundaryErrorToHttpError,
   SchedulerDeliveryWakeRequestError,
   wakeDeliveryEffect,
@@ -75,6 +76,18 @@ describe("scheduler delivery wake boundary", () => {
       error: "Ack failed.",
       failure: failure.failure,
     });
+  });
+
+  it("decodes failed wake response bodies through a typed Effect bridge", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeliveryWakeFailureBodyText("")))
+      .resolves.toBeNull();
+    await expect(Effect.runPromise(decodeSchedulerDeliveryWakeFailureBodyText(JSON.stringify({
+      error: "Delivery wake failed.",
+    })))).resolves.toEqual({
+      error: "Delivery wake failed.",
+    });
+    await expect(Effect.runPromise(decodeSchedulerDeliveryWakeFailureBodyText("plain failure")))
+      .resolves.toBe("plain failure");
   });
 
   it("keeps wake request failures typed until adapter mapping", async () => {

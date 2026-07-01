@@ -62,7 +62,7 @@ export const wakeDeliveryEffect = Effect.fn("SchedulerDeliveryWake.wakeDelivery"
             cause,
           }),
       });
-      const result = responseBodyFromText(text);
+      const result = yield* decodeSchedulerDeliveryWakeFailureBodyText(text);
       if (isDeliveryDrainFailureResult(result)) {
         return {
           woken: false,
@@ -98,6 +98,20 @@ export function isSchedulerDeliveryWakeBoundaryError(
     error instanceof SchedulerResponseError;
 }
 
+export const decodeSchedulerDeliveryWakeFailureBodyText = Effect.fn(
+  "SchedulerDeliveryWake.decodeFailureBodyText",
+)(function* (
+  text: string,
+): Effect.fn.Return<unknown> {
+  if (text.length === 0) return null;
+  return yield* Effect.try({
+    try: () => JSON.parse(text) as unknown,
+    catch: () => text,
+  }).pipe(
+    Effect.catch((fallback: string) => Effect.succeed(fallback)),
+  );
+});
+
 export function schedulerDeliveryWakeBoundaryErrorToHttpError(
   error: SchedulerDeliveryWakeBoundaryError,
 ): HttpError {
@@ -124,15 +138,6 @@ export function isDeliveryDrainFailureResult(
     isDeliveryDrainFailureSummary(summary) &&
     deliveryDrainFailureDetailsMatch(failure, summary.failure)
   );
-}
-
-function responseBodyFromText(text: string): unknown {
-  if (text.length === 0) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
 }
 
 function responseBodyError(value: unknown): string {

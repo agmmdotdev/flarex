@@ -1,5 +1,71 @@
 # Sync And Subscriptions
 
+## Scheduler And Connection JSON Bridge Decoders
+
+Previous completed checkpoint: `09529e6` Decode deployment storage rows with
+Effect.
+
+What changed:
+
+- Scheduler delivery wake non-OK response body parsing moved into the named
+  Effect bridge `decodeSchedulerDeliveryWakeFailureBodyText(...)`.
+- Connection invalidation route payloads now decode through a hoisted Effect
+  Schema decoder in `connection/Requests.ts`.
+- `connectionDO.ts` was audited and already delegates WebSocket message JSON
+  parsing to `connection/MessageBoundary.ts` and route body JSON parsing to
+  `connection/RouteBoundary.ts`.
+- Added direct boundary tests for empty, JSON, and plain-text scheduler wake
+  failure bodies plus missing/non-object invalidation payloads.
+
+Why it changed:
+
+S-3 localizes the remaining scheduler wake and connection invalidation JSON
+bridge parsing behind typed Effect decoder functions. The route and WebSocket
+adapters keep their existing response behavior while JSON shape failures stay
+typed until the adapter edge.
+
+Convex references:
+
+- `crates/convex/sync_types/src/types/mod.rs` for typed `ClientMessage` and
+  `ServerMessage` sync protocol structures.
+- `crates/convex/sync_types/src/types/json.rs` for explicit JSON conversion
+  into and out of those sync message types.
+- `npm-packages/convex/src/browser/sync/protocol.ts` for the TypeScript sync
+  protocol message union and client/server wire-message parsing helpers.
+- `crates/model/src/scheduled_jobs/types.rs` for scheduled job serialization
+  through typed scheduled-job metadata and `CanonicalizedUdfPath`.
+
+How Flarex differs:
+
+- Convex owns a canonical sync protocol and scheduled-job model around typed
+  Rust and TypeScript structures. Flarex currently receives Worker and Durable
+  Object route/WebSocket JSON, so the typed boundary sits at the
+  SchedulerDO/ConnectionDO adapter bridge.
+
+Known limitations:
+
+- `connection/MessageBoundary.ts` still calls the legacy
+  `parseClientMessage(...)` compatibility helper after schema decoding to
+  preserve exact validation messages.
+- `connectionDO.ts` still has runtime try/catch blocks for invocation/session
+  behavior; those are not S-3 JSON parsing boundaries.
+- `executor-http` remains untouched until E-1.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerDeliveryWakeBoundary.test.ts test/connectionMessageBoundary.test.ts test/connectionRouteBoundary.test.ts test/connectionRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+git diff --check
+```
+
+Full backend test note: `corepack pnpm --filter flarex-backend test` timed out
+after 304 seconds without returning output; the leftover validation processes
+were stopped after confirming their command lines.
+
 ## Delivery Wake Request Effects
 
 Previous completed checkpoint: `54144cd` Type execution request payload

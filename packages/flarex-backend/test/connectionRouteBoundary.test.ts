@@ -38,6 +38,16 @@ describe("connection route boundary", () => {
   it("keeps invalid invalidation bodies typed before HTTP mapping", async () => {
     await expect(Effect.runPromise(decodeConnectionInvalidationRequest(jsonRequest({ queryId: "42" }))))
       .rejects.toBeInstanceOf(ConnectionRouteValidationError);
+    await expect(Effect.runPromise(decodeConnectionInvalidationRoutePayload({})))
+      .rejects.toMatchObject({
+        _tag: "ConnectionRouteValidationError",
+        message: "Invalidation queryId must be an integer.",
+      });
+    await expect(Effect.runPromise(decodeConnectionInvalidationRoutePayload(null)))
+      .rejects.toMatchObject({
+        _tag: "ConnectionRouteValidationError",
+        message: "Invalidation queryId must be an integer.",
+      });
   });
 
   it("keeps malformed invalidation JSON typed before HTTP mapping", async () => {
