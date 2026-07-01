@@ -126,6 +126,18 @@ describe("deployment validation", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(failure.message).toBe("Push diagnostic at index 0 has an invalid level.");
+
+    await expectDeploymentValidationEffectFailure(
+      decodeAnalyzedStartPushRequest({
+        sourcePackage: {
+          modules: "not-modules",
+          functions: [],
+          execution: "convex/_generated/server.ts",
+        },
+        error: "analysis failed",
+      } as unknown as ProtocolAnalyzedStartPushRequest),
+      "Source package modules must be an array.",
+    );
   });
 
   it("normalizes analyzed start-push protocol success requests", () => {
@@ -294,6 +306,21 @@ describe("deployment validation", () => {
       throw new Error("Expected DeploymentValidationError.");
     }
     expect(failure.message).toBe("A push without analysis must include an error message.");
+
+    await expectDeploymentValidationEffectFailure(
+      decodeStartAnalyzedPushInput({
+        sourcePackage: sourcePackage(),
+        analysis: {
+          schema: simpleSchema(),
+          functions: simpleFunctions(),
+        },
+        codegenAnalysis: {
+          schema: { ...simpleSchema(), version: 2 },
+          functions: [],
+        },
+      }),
+      "Codegen analysis schema must match deployment analysis schema.",
+    );
   });
 
   it("normalizes deployment schema metadata", () => {

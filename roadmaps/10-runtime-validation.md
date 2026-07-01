@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Deployment Start-Push Ingress Validation Boundary
+
+Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.
+
+What changed:
+
+- `decodeSourcePackage(...)`, `decodeDiagnostics(...)`,
+  `decodeAnalyzedStartPushRequest(...)`, and
+  `decodeStartAnalyzedPushInput(...)` now perform their validation as direct
+  Effect pipelines.
+- Throwing compatibility helpers still exist, but they now run the typed
+  decoders at the compatibility edge.
+- The start-push service input decoder still handles failed-analysis pushes,
+  successful analyzed pushes, diagnostics normalization, and generated codegen
+  fallback.
+
+Why it changed:
+
+Start-push ingress is a runtime validation boundary between protocol payloads,
+analyzer output, and deployment service input. This checkpoint removes another
+result-first validation path from that boundary while keeping existing
+callers' compatibility APIs intact.
+
+Known limitations:
+
+- Schema, function metadata, analysis, and codegen-analysis internals still
+  retain compatibility normalizers beneath their Effect wrappers.
+- DeploymentDO SQL schema, push lifecycle transitions, stored row decoding,
+  public deployment route contracts, public invoke/execution dispatch,
+  PartitionDO SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Stored Push-Row Validation Boundary
 
 Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.

@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Deployment Start-Push Ingress Validation Boundary
+
+Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.
+
+What changed:
+
+- The deployment package now owns direct Effect decoders for source-package,
+  diagnostics, analyzed start-push protocol, and start-analyzed service-input
+  validation.
+- Compatibility helpers keep their existing synchronous API shape by running
+  those decoders only at the compatibility edge.
+- Deployment service and route callers continue receiving the same domain
+  structures and typed `DeploymentValidationError` failures.
+
+Boundary decision:
+
+Protocol payload conversion and deployment service-input normalization belong
+in `deployment/Validation`. Deployment routes and service handlers own final
+adapter mapping. The validation boundary does not depend on `HttpError` and
+does not mutate DeploymentDO storage.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO storage layout, push lifecycle
+  semantics, public route request schemas, stored row decoding, public
+  execution/invoke dispatch, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Stored Push-Row Validation Boundary
 
 Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.

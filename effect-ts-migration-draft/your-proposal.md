@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment stored push-row validation boundary.
+- Previous completed checkpoint: Deployment start-push ingress validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment stored push-row validation checkpoint:
+Next recommended checkpoint after the deployment start-push ingress validation checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the deployment stored push-row validation chec
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 262 slice:
+
+1. Convert deployment start-push ingress validation to direct Effect pipelines
+   for `decodeSourcePackage(...)`, `decodeDiagnostics(...)`,
+   `decodeAnalyzedStartPushRequest(...)`, and
+   `decodeStartAnalyzedPushInput(...)`.
+2. Keep the throwing compatibility helpers `validateSourcePackage(...)`,
+   `validateDiagnostics(...)`, `analyzedStartPushRequest(...)`, and
+   `startAnalyzedPushInput(...)` by running the typed decoders at the
+   compatibility edge.
+3. Preserve protocol-to-domain normalization for analyzed and failed
+   start-push requests, including generated codegen fallback in the service
+   input decoder.
+4. Add direct typed failure coverage for malformed protocol source packages
+   and codegen analysis mismatches.
+5. Leave DeploymentDO SQL schema, push lifecycle state transitions, stored row
+   decoding, deployment route contracts, public invoke/execution dispatch,
+   PartitionDO SQL/OCC, protocol schemas, executor-http, and `ValidatorJson`
+   semantics unchanged.
 
 Completed Goal 261 slice:
 

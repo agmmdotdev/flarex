@@ -39,13 +39,75 @@ export interface DeploymentPushStatusRow extends Record<string, string | number 
 
 export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourcePackage")(
   function* (sourcePackage: PushSourcePackage): Effect.fn.Return<PushSourcePackage, DeploymentValidationError> {
-    const result = normalizeSourcePackage(sourcePackage);
-    return yield* deploymentValidationResultToEffect(result);
+    if (!isRecord(sourcePackage)) {
+      return yield* deploymentValidationFailureEffect("Source package must be an object.");
+    }
+    if (!Array.isArray(sourcePackage.modules)) {
+      return yield* deploymentValidationFailureEffect("Source package modules must be an array.");
+    }
+    if (!Array.isArray(sourcePackage.functions)) {
+      return yield* deploymentValidationFailureEffect("Source package functions must be an array.");
+    }
+    if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
+      return yield* deploymentValidationFailureEffect("Source package execution module is required.");
+    }
+    const seen = new Set<string>();
+    const modules = [];
+    for (const module of sourcePackage.modules) {
+      if (!isRecord(module)) {
+        return yield* deploymentValidationFailureEffect("Source package module must be an object.");
+      }
+      if (typeof module.path !== "string" || module.path.length === 0) {
+        return yield* deploymentValidationFailureEffect("Source package module has an invalid path.");
+      }
+      if (seen.has(module.path)) {
+        return yield* deploymentValidationFailureEffect(`Duplicate source module path: ${module.path}.`);
+      }
+      seen.add(module.path);
+      if (module.environment !== "isolate") {
+        return yield* deploymentValidationFailureEffect(
+          `Source module ${module.path} has unsupported environment ${module.environment}.`,
+        );
+      }
+      if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
+        return yield* deploymentValidationFailureEffect(`Source module ${module.path} has an invalid sha256.`);
+      }
+      if (module.source !== undefined && typeof module.source !== "string") {
+        return yield* deploymentValidationFailureEffect(`Source module ${module.path} source must be a string.`);
+      }
+      if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
+        return yield* deploymentValidationFailureEffect(`Source module ${module.path} sourceMap must be a string.`);
+      }
+      modules.push({ ...module });
+    }
+    modules.sort((left, right) => left.path.localeCompare(right.path));
+    if (!seen.has(sourcePackage.execution)) {
+      return yield* deploymentValidationFailureEffect(
+        `Source package execution module ${sourcePackage.execution} is missing.`,
+      );
+    }
+    if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
+      return yield* deploymentValidationFailureEffect(
+        `Source package schema module ${sourcePackage.schema} is missing.`,
+      );
+    }
+    const functions = [...sourcePackage.functions].sort();
+    for (const fn of functions) {
+      if (typeof fn !== "string" || !seen.has(fn)) {
+        return yield* deploymentValidationFailureEffect(`Source package function module ${String(fn)} is missing.`);
+      }
+    }
+    return {
+      modules,
+      functions,
+      ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+      execution: sourcePackage.execution,
+    };
   },
 );
 
 export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
-  return unwrapDeploymentValidation(normalizeSourcePackage(sourcePackage));
+  return Effect.runSync(decodeSourcePackage(sourcePackage));
 }
 
 export type DeploymentValidationResult<A> =
@@ -83,140 +145,43 @@ function unwrapDeploymentValidation<A>(result: DeploymentValidationResult<A>): A
   throw result.error;
 }
 
-function normalizeSourcePackage(sourcePackage: PushSourcePackage): DeploymentValidationResult<PushSourcePackage> {
-  if (!isRecord(sourcePackage)) {
-    return deploymentValidationFailure("Source package must be an object.");
-  }
-  if (!Array.isArray(sourcePackage.modules)) {
-    return deploymentValidationFailure("Source package modules must be an array.");
-  }
-  if (!Array.isArray(sourcePackage.functions)) {
-    return deploymentValidationFailure("Source package functions must be an array.");
-  }
-  if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
-    return deploymentValidationFailure("Source package execution module is required.");
-  }
-  const seen = new Set<string>();
-  const modules = [];
-  for (const module of sourcePackage.modules) {
-    if (!isRecord(module)) {
-      return deploymentValidationFailure("Source package module must be an object.");
-    }
-    if (typeof module.path !== "string" || module.path.length === 0) {
-      return deploymentValidationFailure("Source package module has an invalid path.");
-    }
-    if (seen.has(module.path)) {
-      return deploymentValidationFailure(`Duplicate source module path: ${module.path}.`);
-    }
-    seen.add(module.path);
-    if (module.environment !== "isolate") {
-      return deploymentValidationFailure(
-        `Source module ${module.path} has unsupported environment ${module.environment}.`,
-      );
-    }
-    if (typeof module.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(module.sha256)) {
-      return deploymentValidationFailure(`Source module ${module.path} has an invalid sha256.`);
-    }
-    if (module.source !== undefined && typeof module.source !== "string") {
-      return deploymentValidationFailure(`Source module ${module.path} source must be a string.`);
-    }
-    if (module.sourceMap !== undefined && typeof module.sourceMap !== "string") {
-      return deploymentValidationFailure(`Source module ${module.path} sourceMap must be a string.`);
-    }
-    modules.push({ ...module });
-  }
-  modules.sort((left, right) => left.path.localeCompare(right.path));
-  if (!seen.has(sourcePackage.execution)) {
-    return deploymentValidationFailure(`Source package execution module ${sourcePackage.execution} is missing.`);
-  }
-  if (sourcePackage.schema !== undefined && !seen.has(sourcePackage.schema)) {
-    return deploymentValidationFailure(`Source package schema module ${sourcePackage.schema} is missing.`);
-  }
-  const functions = [...sourcePackage.functions].sort();
-  for (const fn of functions) {
-    if (typeof fn !== "string" || !seen.has(fn)) {
-      return deploymentValidationFailure(`Source package function module ${String(fn)} is missing.`);
-    }
-  }
-  return deploymentValidationSuccess({
-    modules,
-    functions,
-    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-    execution: sourcePackage.execution,
-  });
-}
-
-export function validateDiagnostics(value: unknown): PushDiagnostic[] {
-  return unwrapDeploymentValidation(normalizeDiagnostics(value));
-}
-
 export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnostics")(
   function* (value: unknown): Effect.fn.Return<PushDiagnostic[], DeploymentValidationError> {
-    const result = normalizeDiagnostics(value);
-    return yield* deploymentValidationResultToEffect(result);
+    if (value === undefined) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      return yield* deploymentValidationFailureEffect("Push diagnostics must be an array.");
+    }
+    const diagnostics: PushDiagnostic[] = [];
+    for (const [index, diagnostic] of value.slice(-100).entries()) {
+      if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
+        return yield* deploymentValidationFailureEffect(`Push diagnostic at index ${index} must be an object.`);
+      }
+      const record = diagnostic as Partial<PushDiagnostic>;
+      if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
+        return yield* deploymentValidationFailureEffect(`Push diagnostic at index ${index} has an invalid level.`);
+      }
+      if (typeof record.message !== "string") {
+        return yield* deploymentValidationFailureEffect(`Push diagnostic at index ${index} has an invalid message.`);
+      }
+      diagnostics.push({
+        level: record.level,
+        message: record.message,
+      });
+    }
+    return diagnostics;
   },
 );
 
-function normalizeDiagnostics(value: unknown): DeploymentValidationResult<PushDiagnostic[]> {
-  if (value === undefined) {
-    return deploymentValidationSuccess([]);
-  }
-  if (!Array.isArray(value)) {
-    return deploymentValidationFailure("Push diagnostics must be an array.");
-  }
-  const diagnostics: PushDiagnostic[] = [];
-  for (const [index, diagnostic] of value.slice(-100).entries()) {
-    if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
-      return deploymentValidationFailure(`Push diagnostic at index ${index} must be an object.`);
-    }
-    const record = diagnostic as Partial<PushDiagnostic>;
-    if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
-      return deploymentValidationFailure(`Push diagnostic at index ${index} has an invalid level.`);
-    }
-    if (typeof record.message !== "string") {
-      return deploymentValidationFailure(`Push diagnostic at index ${index} has an invalid message.`);
-    }
-    diagnostics.push({
-      level: record.level,
-      message: record.message,
-    });
-  }
-  return deploymentValidationSuccess(diagnostics);
+export function validateDiagnostics(value: unknown): PushDiagnostic[] {
+  return Effect.runSync(decodeDiagnostics(value));
 }
 
 export function analyzedStartPushRequest(
   request: ProtocolAnalyzedStartPushRequest,
 ): AnalyzedStartPushRequest {
-  return unwrapDeploymentValidation(normalizeAnalyzedStartPushRequest(request));
-}
-
-function normalizeAnalyzedStartPushRequest(
-  request: ProtocolAnalyzedStartPushRequest,
-): DeploymentValidationResult<AnalyzedStartPushRequest> {
-  const sourcePackageResult = normalizeSourcePackage(request.sourcePackage as PushSourcePackage);
-  if (!sourcePackageResult.success) return sourcePackageResult;
-  const sourcePackage = sourcePackageResult.value;
-  const diagnostics = request.diagnostics === undefined
-    ? undefined
-    : normalizeDiagnostics(request.diagnostics);
-  if (diagnostics !== undefined && !diagnostics.success) return diagnostics;
-  if (request.analysis === undefined) {
-    const error = request.error;
-    if (error === undefined) {
-      return deploymentValidationFailure("A push without analysis must include an error message.");
-    }
-    return deploymentValidationSuccess({
-      sourcePackage,
-      error,
-      ...(diagnostics === undefined ? {} : { diagnostics: diagnostics.value }),
-    });
-  }
-  return deploymentValidationSuccess({
-    sourcePackage,
-    analysis: request.analysis,
-    ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
-    ...(diagnostics === undefined ? {} : { diagnostics: diagnostics.value }),
-  });
+  return Effect.runSync(decodeAnalyzedStartPushRequest(request));
 }
 
 export const decodeAnalyzedStartPushRequest = Effect.fn(
@@ -224,7 +189,27 @@ export const decodeAnalyzedStartPushRequest = Effect.fn(
 )(function* (
   request: ProtocolAnalyzedStartPushRequest,
 ): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentValidationError> {
-  return yield* deploymentValidationResultToEffect(normalizeAnalyzedStartPushRequest(request));
+  const sourcePackage = yield* decodeSourcePackage(request.sourcePackage as PushSourcePackage);
+  const diagnostics = request.diagnostics === undefined
+    ? undefined
+    : yield* decodeDiagnostics(request.diagnostics);
+  if (request.analysis === undefined) {
+    const error = request.error;
+    if (error === undefined) {
+      return yield* deploymentValidationFailureEffect("A push without analysis must include an error message.");
+    }
+    return {
+      sourcePackage,
+      error,
+      ...(diagnostics === undefined ? {} : { diagnostics }),
+    };
+  }
+  return {
+    sourcePackage,
+    analysis: request.analysis,
+    ...(request.codegenAnalysis === undefined ? {} : { codegenAnalysis: request.codegenAnalysis }),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+  };
 });
 
 export type StartAnalyzedPushServiceInput = {
@@ -243,42 +228,7 @@ export type StartAnalyzedPushServiceInput = {
 export function startAnalyzedPushInput(
   request: AnalyzedStartPushRequest,
 ): StartAnalyzedPushServiceInput {
-  return unwrapDeploymentValidation(normalizeStartAnalyzedPushInput(request));
-}
-
-function normalizeStartAnalyzedPushInput(
-  request: AnalyzedStartPushRequest,
-): DeploymentValidationResult<StartAnalyzedPushServiceInput> {
-  const sourcePackageResult = normalizeSourcePackage(request.sourcePackage);
-  if (!sourcePackageResult.success) return sourcePackageResult;
-  const sourcePackage = sourcePackageResult.value;
-  const error = request.error;
-  const analysis = request.analysis === undefined ? undefined : normalizeAnalysis(request.analysis);
-  if (analysis !== undefined && !analysis.success) return analysis;
-  const diagnostics = normalizeDiagnostics(request.diagnostics);
-  if (!diagnostics.success) return diagnostics;
-  if (analysis === undefined) {
-    if (typeof error !== "string" || error.length === 0) {
-      return deploymentValidationFailure("A push without analysis must include an error message.");
-    }
-    return deploymentValidationSuccess({
-      sourcePackage,
-      error,
-      diagnostics: diagnostics.value,
-    });
-  }
-  const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
-  const codegenAnalysis = normalizeCodegenAnalysis(
-    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis.value),
-    analysis.value,
-  );
-  if (!codegenAnalysis.success) return codegenAnalysis;
-  return deploymentValidationSuccess({
-    sourcePackage,
-    analysis: analysis.value,
-    codegenAnalysis: codegenAnalysis.value,
-    diagnostics: diagnostics.value,
-  });
+  return Effect.runSync(decodeStartAnalyzedPushInput(request));
 }
 
 export const decodeStartAnalyzedPushInput = Effect.fn(
@@ -286,7 +236,31 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
 )(function* (
   request: AnalyzedStartPushRequest,
 ): Effect.fn.Return<StartAnalyzedPushServiceInput, DeploymentValidationError> {
-  return yield* deploymentValidationResultToEffect(normalizeStartAnalyzedPushInput(request));
+  const sourcePackage = yield* decodeSourcePackage(request.sourcePackage);
+  const error = request.error;
+  const analysis = request.analysis === undefined ? undefined : yield* decodeAnalysis(request.analysis);
+  const diagnostics = yield* decodeDiagnostics(request.diagnostics);
+  if (analysis === undefined) {
+    if (typeof error !== "string" || error.length === 0) {
+      return yield* deploymentValidationFailureEffect("A push without analysis must include an error message.");
+    }
+    return {
+      sourcePackage,
+      error,
+      diagnostics,
+    };
+  }
+  const hasCodegenAnalysis = Object.prototype.hasOwnProperty.call(request, "codegenAnalysis");
+  const codegenAnalysis = yield* decodeCodegenAnalysis(
+    hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
+    analysis,
+  );
+  return {
+    sourcePackage,
+    analysis,
+    codegenAnalysis,
+    diagnostics,
+  };
 });
 
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {

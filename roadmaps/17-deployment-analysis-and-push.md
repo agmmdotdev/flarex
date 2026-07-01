@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Deployment Start-Push Ingress Validation Boundary
+
+Previous completed checkpoint: `1fd4cea` Type deployment stored push row validation.
+
+What changed:
+
+- Source package, diagnostics, analyzed start-push request, and
+  start-analyzed service-input validation now run through direct Effect
+  decoder pipelines in `deployment/Validation.ts`.
+- Compatibility helpers remain for synchronous callers, but no longer own a
+  separate result-first implementation for these ingress paths.
+- Typed tests cover malformed protocol source packages and codegen-analysis
+  mismatches before adapter mapping.
+
+Why it changed:
+
+The deployment push lifecycle receives protocol payloads and analyzer output
+before storing candidate deployment state. That ingress boundary should emit
+typed `DeploymentValidationError` failures at source and let route/service
+adapters map them, rather than relying on separate sync parser logic.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, artifact availability checks, storage schema, route contracts,
+  stored push-row decoding, or analyzer behavior.
+- Schema, functions, analysis, and codegen-analysis internals still keep
+  compatibility normalizers beneath their Effect wrappers while the migration
+  continues.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Stored Push-Row Validation Boundary
 
 Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.
