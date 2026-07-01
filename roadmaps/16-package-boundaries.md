@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Execution Active Metadata Load Boundary
+
+Previous completed checkpoint: `50a23a4` Type execution start scope validation.
+
+What changed:
+
+- ExecutionDO start now consumes the shared invoke
+  `loadActiveFunctionMetadataEffect(...)` boundary directly.
+- `InvokeActiveDeploymentLoadError` and
+  `InvokeActiveFunctionMetadataNotFoundError` stay in the execution
+  service/domain error channel until the ExecutionDO route adapter maps them to
+  existing invoke HTTP responses.
+- Transaction setup/begin failures remain owned by
+  `ExecutionRouteOperationError`.
+
+Boundary decision:
+
+Invoke runtime/validation owns active deployment and function metadata lookup
+semantics. ExecutionDO owns session lifecycle and transaction setup. The
+internal route adapter owns HTTP response conversion for typed runtime,
+validation, and operation failures.
+
+Known limitations:
+
+- This checkpoint does not change public execution dispatch, request protocol
+  schemas, executor-http, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Start Scope Validation Boundary
 
 Previous completed checkpoint: `c25d975` Type execution finish return validation.

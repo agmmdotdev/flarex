@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Execution Active Metadata Load Boundary
+
+Previous completed checkpoint: `50a23a4` Type execution start scope validation.
+
+What changed:
+
+- ExecutionDO start now loads active deployment/function metadata through
+  `loadActiveFunctionMetadataEffect(...)` instead of the compatibility throwing
+  `loadActiveFunctionMetadata(...)` wrapper inside
+  `routeExecutionOperation("start", ...)`.
+- `InvokeActiveDeploymentLoadError` and
+  `InvokeActiveFunctionMetadataNotFoundError` are part of the ExecutionDO
+  service error channel and map once at the internal route adapter edge.
+- SingleShardTransaction schema setup and transaction begin failures remain in
+  `ExecutionRouteOperationError`.
+
+Why it changed:
+
+Active deployment and active function metadata lookup are invoke-runtime
+boundary failures, not transaction operation failures. This checkpoint keeps
+those failures in typed invoke channels until the ExecutionDO response adapter,
+while preserving the public `/executions/start` response status and body.
+
+Known limitations:
+
+- Execution syscall, finish, abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, DeploymentDO, SchedulerDO,
+  DeliveryDO, ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Start Scope Validation Boundary
 
 Previous completed checkpoint: `c25d975` Type execution finish return validation.

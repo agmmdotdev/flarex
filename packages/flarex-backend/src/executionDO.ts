@@ -32,12 +32,15 @@ import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http
 import {
   idValidatorForSchema,
   invokeErrorResponse,
+  InvokeActiveDeploymentLoadError,
+  InvokeActiveFunctionMetadataNotFoundError,
+  invokeActiveDeploymentLoadErrorToHttpError,
   invokeValidationErrorToHttpError,
   InvokePartitionValidationError,
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
   isInvokableKind,
-  loadActiveFunctionMetadata,
+  loadActiveFunctionMetadataEffect,
   readerFor,
   resolveFunctionExecutionScopeEffect,
   tableForName,
@@ -104,8 +107,10 @@ export class ExecutionDO extends DurableObject<Env> {
     return Effect.gen(function* () {
       yield* requireNoActiveExecutionSession("start", self.session);
 
-      const active = yield* routeExecutionOperation("start", () =>
-        loadActiveFunctionMetadata(self.env, request.deploymentId, request.path)
+      const active = yield* loadActiveFunctionMetadataEffect(
+        self.env,
+        request.deploymentId,
+        request.path,
       );
       const schema = active.deployment.analysis.schema;
       const metadata = active.metadata;
@@ -372,6 +377,8 @@ function routeExecutionOperation<A>(
 
 type ExecutionServiceError =
   | ExecutionSessionError
+  | InvokeActiveDeploymentLoadError
+  | InvokeActiveFunctionMetadataNotFoundError
   | InvokePartitionValidationError
   | InvokeTableNotFoundError
   | InvokeReturnValidationError
@@ -394,6 +401,10 @@ function runExecutionRoute(
         ExecutionProtocolValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         ExecutionSessionError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeActiveDeploymentLoadError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeActiveFunctionMetadataNotFoundError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokePartitionValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -421,6 +432,12 @@ function executionInternalRouteErrorToResponse(
   }
   if (error instanceof ExecutionSessionError) {
     return invokeErrorResponse(executionSessionErrorToHttpError(error));
+  }
+  if (error instanceof InvokeActiveDeploymentLoadError) {
+    return invokeErrorResponse(invokeActiveDeploymentLoadErrorToHttpError(error));
+  }
+  if (error instanceof InvokeActiveFunctionMetadataNotFoundError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokePartitionValidationError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));

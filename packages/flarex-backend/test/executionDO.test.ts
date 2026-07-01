@@ -421,6 +421,20 @@ describe("ExecutionDO sessions", () => {
     });
   });
 
+  it("maps missing active deployment loads at the execution adapter edge", async () => {
+    const response = await startExecutionResponse("execution-missing-active-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "user:u1",
+      args: null,
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to load active deployment execution-missing-active-deployment.",
+    });
+  });
+
   it("rejects execution sessions without partition metadata", async () => {
     await activateDeployment("execution-route-policy-deployment", lessonSchema(), {
       functions: [
