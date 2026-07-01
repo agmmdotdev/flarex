@@ -115,6 +115,34 @@ export const activeDeploymentStatusFromStoreParts = Effect.fn(
   };
 });
 
+export const activeDeploymentExecutionArtifactRefFromMeta = Effect.fn(
+  "DeploymentPushStore.activeDeploymentExecutionArtifactRefFromMeta",
+)(function* (
+  activePushId: string,
+  rawExecutionArtifactRef: string | null,
+): Effect.fn.Return<ExecutionArtifactRef, DeploymentActiveDeploymentInvalidError> {
+  if (rawExecutionArtifactRef === null) {
+    return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
+      message: `Active push ${activePushId} has no execution artifact reference.`,
+    }));
+  }
+  return yield* Effect.try({
+    try: () => validateExecutionArtifactRef(JSON.parse(rawExecutionArtifactRef)),
+    catch: cause => new DeploymentActiveDeploymentInvalidError({
+      message: cause instanceof Error ? cause.message : String(cause),
+    }),
+  });
+});
+
+export const activeDeploymentActivatedAtFromMeta = Effect.fn(
+  "DeploymentPushStore.activeDeploymentActivatedAtFromMeta",
+)(function* (
+  rawActivatedAt: string | null,
+  fallbackUpdatedAt: number,
+): Effect.fn.Return<number> {
+  return Number(rawActivatedAt ?? fallbackUpdatedAt);
+});
+
 export const deploymentFinishPushStoreDecision = Effect.fn(
   "DeploymentPushStore.deploymentFinishPushStoreDecision",
 )(function* (
@@ -288,12 +316,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             DeploymentActiveDeploymentInvalidError | DeploymentSqlError
           > {
             const rawExecutionArtifactRef = yield* readActiveMeta("active_execution_artifact_ref");
-            if (rawExecutionArtifactRef === null) {
-              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
-                message: `Active push ${activePushId} has no execution artifact reference.`,
-              }));
-            }
-            return yield* parseExecutionArtifactRefEffect(rawExecutionArtifactRef);
+            return yield* activeDeploymentExecutionArtifactRefFromMeta(activePushId, rawExecutionArtifactRef);
           },
         );
 
@@ -302,7 +325,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             fallbackUpdatedAt: number,
           ): Effect.fn.Return<number, DeploymentSqlError> {
             const activeActivatedAt = yield* readActiveMeta("active_activated_at");
-            return Number(activeActivatedAt ?? fallbackUpdatedAt);
+            return yield* activeDeploymentActivatedAtFromMeta(activeActivatedAt, fallbackUpdatedAt);
           },
         );
 
@@ -603,16 +626,3 @@ function pushStatusRowFromStartAnalyzedPushStoreInput(input: StartAnalyzedPushSt
     updated_at: input.now,
   };
 }
-
-const parseExecutionArtifactRefEffect = Effect.fn("DeploymentPushStore.parseExecutionArtifactRef")(
-  function* (
-    raw: string,
-  ): Effect.fn.Return<ExecutionArtifactRef, DeploymentActiveDeploymentInvalidError> {
-    return yield* Effect.try({
-      try: () => validateExecutionArtifactRef(JSON.parse(raw)),
-      catch: cause => new DeploymentActiveDeploymentInvalidError({
-        message: cause instanceof Error ? cause.message : String(cause),
-      }),
-    });
-  },
-);

@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Active Deployment Metadata Parsing Effects
+
+Previous completed checkpoint: `4ab505a` Type deployment store finish
+decisions.
+
+What changed:
+
+- `deployment/Store.ts` now exports
+  `activeDeploymentExecutionArtifactRefFromMeta(...)` for raw active artifact
+  ref metadata decoding.
+- `deployment/Store.ts` now exports
+  `activeDeploymentActivatedAtFromMeta(...)` for raw activation-time metadata
+  conversion.
+- `DeploymentPushStore.getActiveDeployment(...)` now routes metadata reads
+  through those helpers before assembling `ActiveDeploymentStatus`.
+
+Boundary decision:
+
+Raw active deployment metadata parsing belongs in `DeploymentPushStore`,
+because the values come from Durable Object storage. Generated response-class
+validation remains in `DeploymentApiHandlers`; service not-found conversion
+remains in `DeploymentService`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's store/service/API package boundary around active deployment
+  metadata.
+
+How Flarex differs:
+
+- Convex does not expose Flarex's Durable Object `meta` table split. Flarex
+  keeps raw metadata parsing inside the store package and HTTP response mapping
+  outside it.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, service preflight, transaction SQL, artifact
+  store implementation, PartitionDO SQL/OCC behavior, executor-http route,
+  protocol parser compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Store Finish Decision Effects
 
 Previous completed checkpoint: `9c2902a` Type deployment read response

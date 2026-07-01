@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9c2902a` Type deployment read response adapters.
-- Active checkpoint: validate and review the deployment store finish decision and active status assembly batch, keeping store-owned rejection semantics typed and named.
+- Previous completed checkpoint: `4ab505a` Type deployment store finish decisions.
+- Active checkpoint: validate and review the active deployment metadata parsing batch, keeping raw metadata decoding named and typed at the store source.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment store finish decision effects:
+Next recommended checkpoint after the active deployment metadata parsing effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially active deployment storage metadata
-   parsing and transaction-side schema/function application helpers.
+   service/domain failures, especially transaction-side schema/function
+   application helpers.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,26 @@ Next recommended checkpoint after the deployment store finish decision effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 326 slice:
+
+1. Add `activeDeploymentExecutionArtifactRefFromMeta(...)`, a named
+   DeploymentPushStore Effect helper that decodes raw
+   `active_execution_artifact_ref` metadata and emits typed
+   `DeploymentActiveDeploymentInvalidError` failures at the store metadata
+   source.
+2. Add `activeDeploymentActivatedAtFromMeta(...)`, a named Effect helper that
+   preserves the existing activation-time conversion and fallback behavior for
+   `active_activated_at` metadata.
+3. Route active deployment reads through the named metadata helpers before
+   `activeDeploymentStatusFromStoreParts(...)` assembles the response value.
+4. Add direct helper coverage for execution artifact ref success, missing ref,
+   malformed ref, activation-time metadata success, fallback, and current
+   malformed-number behavior.
+5. Leave DeploymentDO routing, generated DeploymentApi response mapping,
+   public Worker deployment dispatch, service preflight, transaction SQL,
+   artifact store implementation, PartitionDO SQL/OCC, executor-http,
+   protocol parser compatibility, and `ValidatorJson` unchanged.
 
 Completed Goal 325 slice:
 

@@ -25,6 +25,8 @@ import {
 import {
   DeploymentPushStore,
   DeploymentSqlError,
+  activeDeploymentActivatedAtFromMeta,
+  activeDeploymentExecutionArtifactRefFromMeta,
   activeDeploymentStatusFromStoreParts,
   deploymentFinishPushStoreDecision,
   type AbandonPushStoreInput,
@@ -2117,6 +2119,49 @@ describe("DeploymentService", () => {
       analysis: activePush.analysis,
       codegenAnalysis: activePush.codegenAnalysis,
     });
+  });
+
+  it("decodes active execution artifact ref metadata through a named Effect helper", async () => {
+    const ref = executionArtifactRef();
+
+    await expect(Effect.runPromise(activeDeploymentExecutionArtifactRefFromMeta(
+      "push-active-ref-meta",
+      JSON.stringify(ref),
+    ))).resolves.toEqual(ref);
+
+    const missing = await Effect.runPromise(activeDeploymentExecutionArtifactRefFromMeta(
+      "push-active-ref-missing",
+      null,
+    ).pipe(
+      Effect.catchTag("DeploymentActiveDeploymentInvalidError", error => Effect.succeed(error)),
+    ));
+    expect(missing).toBeInstanceOf(DeploymentActiveDeploymentInvalidError);
+    if (!(missing instanceof DeploymentActiveDeploymentInvalidError)) {
+      throw new Error("Expected DeploymentActiveDeploymentInvalidError.");
+    }
+    expect(missing.message).toBe("Active push push-active-ref-missing has no execution artifact reference.");
+
+    const malformed = await Effect.runPromise(activeDeploymentExecutionArtifactRefFromMeta(
+      "push-active-ref-malformed",
+      JSON.stringify({ ...ref, artifactId: "bad-ref" }),
+    ).pipe(
+      Effect.catchTag("DeploymentActiveDeploymentInvalidError", error => Effect.succeed(error)),
+    ));
+    expect(malformed).toBeInstanceOf(DeploymentActiveDeploymentInvalidError);
+    if (!(malformed instanceof DeploymentActiveDeploymentInvalidError)) {
+      throw new Error("Expected DeploymentActiveDeploymentInvalidError.");
+    }
+    expect(malformed.message).toBe("Stored execution artifact reference has an invalid artifact ID.");
+  });
+
+  it("decodes active activated-at metadata through a named Effect helper", async () => {
+    await expect(Effect.runPromise(activeDeploymentActivatedAtFromMeta("3175000", 1)))
+      .resolves.toBe(3_175_000);
+    await expect(Effect.runPromise(activeDeploymentActivatedAtFromMeta(null, 3_180_000)))
+      .resolves.toBe(3_180_000);
+
+    const malformed = await Effect.runPromise(activeDeploymentActivatedAtFromMeta("not-a-number", 3_180_000));
+    expect(Number.isNaN(malformed)).toBe(true);
   });
 
   it("reports invalid active deployment metadata as typed storage metadata failure", async () => {
