@@ -1,5 +1,55 @@
 # Postgres Executor
 
+## Live Query Callback Protocol Contracts
+
+Previous completed checkpoint: `b3badab` Decide executor HTTP adapter
+direction.
+
+What changed:
+
+- Added shared `flarex-protocol/live-query` Effect decoders for the backend
+  callback payloads produced by executor HTTP live-query helper code:
+  delivery fanout bodies and DeliveryDO wake bodies.
+- Kept `@flarex/executor-http` callback POST behavior unchanged.
+- Switched backend callback route payload validation to the shared protocol
+  decoder module.
+
+Why it changed:
+
+The executor HTTP adapter posts live-query callback transport bodies into the
+backend Worker/DO sync routes. C-1a gives those callback payloads a protocol
+home before the next protocol cleanup slices move more migrated route contracts
+out of backend-local modules.
+
+Convex references:
+
+- `crates/convex/sync_types/src/types/mod.rs` for shared sync transport types.
+- `crates/convex/sync_types/src/types/json.rs` for sync JSON conversion.
+- `crates/local_backend/src/router.rs` for keeping HTTP route wiring outside
+  transport type definitions.
+
+How Flarex differs:
+
+- Convex sync transport is primarily websocket protocol state. Flarex's
+  Postgres/executor lane still uses backend HTTP callbacks for live-query
+  delivery and wake coordination, so the protocol contract starts with those
+  callback bodies.
+
+Known limitations:
+
+- Executor HTTP callback helpers still construct JSON bodies directly.
+- C-1 remains open for scheduler, connection, partition, artifact runtime, and
+  executor HTTP body contract exports.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/live-query.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Executor HTTP Elysia Adapter Decision
 
 Previous completed checkpoint: `72127aa` Centralize executor live query helper

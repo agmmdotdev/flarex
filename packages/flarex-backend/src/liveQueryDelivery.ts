@@ -1,14 +1,21 @@
 import { HttpError } from "./http";
 import { Data, Effect } from "effect";
-import type { LiveQueryDeliveryChange } from "flarex";
+import {
+  decodeLiveQueryDeliveryChangesBodyEffect,
+  LiveQueryDeliveryChangePayloadError,
+  type LiveQueryDeliveryChange,
+} from "flarex-protocol/live-query";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
   LiveQueryDeliveryResponseError,
   liveQueryDeliveryResponseErrorToHttpError,
 } from "./liveQueryDeliveryResponses";
-import type { Env, Json } from "./types";
+import type { Env } from "./types";
 
-export type { LiveQueryDeliveryChange } from "flarex";
+export {
+  LiveQueryDeliveryChangePayloadError,
+  type LiveQueryDeliveryChange,
+} from "flarex-protocol/live-query";
 
 const LIVE_QUERY_DELIVERY_SKIP_REASONS = [
   "wrongDeployment",
@@ -54,12 +61,6 @@ export class LiveQueryDeliveryTargetError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export class LiveQueryDeliveryChangePayloadError extends Data.TaggedError(
-  "LiveQueryDeliveryChangePayloadError",
-)<{
-  readonly message: string;
-}> {}
-
 export class LiveQueryDeliveryConnectionFetchError extends Data.TaggedError(
   "LiveQueryDeliveryConnectionFetchError",
 )<{
@@ -78,17 +79,7 @@ export type LiveQueryDeliveryFanoutError =
 export function liveQueryDeliveryChangesFromBody(
   body: unknown,
 ): LiveQueryDeliveryChange[] {
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    Array.isArray(body) ||
-    !Array.isArray((body as { deliveries?: unknown }).deliveries)
-  ) {
-    throw new Error("Live query delivery body must be an object with a deliveries array.");
-  }
-  return (body as { deliveries: unknown[] }).deliveries.map((value, index) =>
-    liveQueryDeliveryChangeFromUnknown(value, `deliveries[${index}]`),
-  );
+  return Effect.runSync(decodeLiveQueryDeliveryChangesBodyEffect(body));
 }
 
 export const decodeLiveQueryDeliveryChangesFromBody = Effect.fn(
@@ -97,12 +88,7 @@ export const decodeLiveQueryDeliveryChangesFromBody = Effect.fn(
   function* (
     body: unknown,
   ): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-    return yield* Effect.try({
-      try: () => liveQueryDeliveryChangesFromBody(body),
-      catch: error => new LiveQueryDeliveryChangePayloadError({
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    });
+    return yield* decodeLiveQueryDeliveryChangesBodyEffect(body);
   },
 );
 
@@ -264,53 +250,6 @@ function validateLiveQueryDeliveryTarget(
   return Effect.void;
 }
 
-function liveQueryDeliveryChangeFromUnknown(
-  value: unknown,
-  path: string,
-): LiveQueryDeliveryChange {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  const kind = record.kind;
-  if (kind === "failed") {
-    return {
-      kind: "failed",
-      deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
-      connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
-      queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),
-      functionPath: requiredDeliveryString(record.functionPath, `${path}.functionPath`),
-      argsJson: deliveryJson(record.argsJson, `${path}.argsJson`),
-      previousResultHash: requiredDeliveryString(
-        record.previousResultHash,
-        `${path}.previousResultHash`,
-      ),
-      errorMessage: requiredDeliveryString(record.errorMessage, `${path}.errorMessage`),
-      errorData:
-        record.errorData === undefined
-          ? null
-          : deliveryJson(record.errorData, `${path}.errorData`),
-    };
-  }
-  if (kind !== undefined && kind !== "updated") {
-    throw new Error(`${path}.kind must be "updated" or "failed".`);
-  }
-  return {
-    kind: "updated",
-    deploymentId: requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
-    connectionId: requiredDeliveryString(record.connectionId, `${path}.connectionId`),
-    queryId: requiredDeliveryInteger(record.queryId, `${path}.queryId`),
-    functionPath: requiredDeliveryString(record.functionPath, `${path}.functionPath`),
-    argsJson: deliveryJson(record.argsJson, `${path}.argsJson`),
-    resultJson: deliveryJson(record.resultJson, `${path}.resultJson`),
-    previousResultHash: requiredDeliveryString(
-      record.previousResultHash,
-      `${path}.previousResultHash`,
-    ),
-    resultHash: requiredDeliveryString(record.resultHash, `${path}.resultHash`),
-  };
-}
-
 export function liveQueryDeliveryResultFromUnknown(
   value: unknown,
   connectionId: string,
@@ -320,16 +259,6 @@ export function liveQueryDeliveryResultFromUnknown(
       Effect.catch(liveQueryDeliveryResultPayloadErrorToHttpErrorEffect),
     ),
   );
-}
-
-function requiredDeliveryString(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new Error(`${field} must be a non-empty string.`);
-}
-
-function requiredDeliveryInteger(value: unknown, field: string): number {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  throw new Error(`${field} must be an integer.`);
 }
 
 export const decodeConnectionLiveQueryDeliveryResultPayload = Effect.fn(
@@ -529,11 +458,6 @@ function normalizeParsedSkipReasons(
   };
 }
 
-function deliveryJson(value: unknown, field: string): Json {
-  if (isDeliveryJson(value)) return value;
-  throw new Error(`${field} must be a JSON value.`);
-}
-
 function failResultPayload<A = never>(
   connectionId: string,
   message: string,
@@ -547,18 +471,4 @@ function failResultPayload<A = never>(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isDeliveryJson(value: unknown): value is Json {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return true;
-  }
-  if (Array.isArray(value)) return value.every(isDeliveryJson);
-  if (typeof value !== "object" || value === null) return false;
-  return Object.values(value as Record<string, unknown>).every(isDeliveryJson);
 }

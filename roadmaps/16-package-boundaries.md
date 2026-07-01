@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## Live Query Protocol Package Boundary
+
+Previous completed checkpoint: `b3badab` Decide executor HTTP adapter
+direction.
+
+What changed:
+
+- Added the `flarex-protocol/live-query` export path for backend live-query
+  delivery callback and DeliveryDO wake transport contracts.
+- Kept backend HTTP route modules responsible for `Request` body reads and HTTP
+  response mapping.
+- Kept `flarex-protocol` responsible only for schema-backed transport payload
+  decoders and tagged payload errors.
+
+Boundary decision:
+
+`flarex-protocol` now owns the callback JSON contract for live-query delivery
+fanout and delivery wake notifications. `flarex-backend` owns Cloudflare
+Worker/DO route adaptation, route deployment IDs, HTTP error mapping, and
+delivery fanout behavior. `@flarex/executor-http` still owns backend callback
+posting mechanics and does not gain backend or DO dependencies.
+
+Convex comparison:
+
+Convex keeps reusable sync wire structures in
+`crates/convex/sync_types/src/types/mod.rs` and JSON conversion in
+`crates/convex/sync_types/src/types/json.rs`, while routers stay under local
+backend/application modules. Flarex mirrors that by moving the callback payload
+schema to `flarex-protocol` while leaving route handlers in backend packages.
+
+Known limitations:
+
+- This is C-1a, not the whole C-1 protocol cleanup. Remaining migrated
+  backend/executor route families still need protocol export decisions.
+- This checkpoint does not move execution behavior, delivery queues, scheduler
+  wake logic, or user validation into `flarex-protocol`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/live-query.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Executor HTTP Adapter Decision
 
 Previous completed checkpoint: `72127aa` Centralize executor live query helper

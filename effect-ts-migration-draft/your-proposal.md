@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: E-4 executor-http adapter decision in this checkpoint commit.
-- Active checkpoint: C-1 protocol Effect decoder exports, ensuring `flarex-protocol` exports Effect decoders for transport contracts used by migrated backend/executor routes.
+- Previous completed checkpoint: C-1a live-query callback protocol decoders in this checkpoint commit.
+- Active checkpoint: C-1b scheduler route protocol decoders, exporting scheduler public/internal route transport decoders from `flarex-protocol` while keeping backend route adapters responsible for request JSON reads and HTTP response mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,18 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after E-4 executor-http adapter decision:
+Next recommended checkpoint after C-1a live-query callback protocol decoders:
 
-1. Audit `packages/flarex-protocol/src` exports against migrated backend and
-   executor route/body decoders.
-2. Select the smallest coherent transport contract family whose decoder export
-   removes duplicated validation pressure in migrated routes.
-3. Add Effect-returning protocol decoders while keeping throwing `parseX(...)`
-   APIs as compatibility wrappers.
-4. Validate `flarex-protocol` plus every affected backend/executor package
-   before ticking C-1.
+1. Audit scheduler route request shapes in
+   `packages/flarex-backend/src/scheduler/RouteBoundary.ts` and
+   related public/internal boundary wrappers.
+2. Add scheduler transport schemas and Effect-returning decoders to
+   `flarex-protocol` without moving backend request body reads or response
+   mapping.
+3. Delegate backend scheduler payload validation to the protocol decoders while
+   preserving current status and body behavior.
+4. Validate `flarex-protocol` plus focused scheduler backend gates before
+   ticking C-1b.
 
-Current Goal 363 slice:
+Current Goal 364 slice:
+
+1. Audit scheduler route body contracts and their current typed backend
+   boundary errors.
+2. Add protocol-owned scheduler request schemas and Effect decoders.
+3. Keep backend route adapters as the JSON read and HTTP response mapping
+   edges.
+4. Validate protocol plus scheduler focused backend tests before ticking C-1b.
+
+Completed Goal 363 slice:
 
 1. Audit `flarex-protocol` transport contract exports against migrated route
    users.

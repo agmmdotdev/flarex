@@ -1,5 +1,63 @@
 # Sync And Subscriptions
 
+## Live Query Callback Protocol Decoders
+
+Previous completed checkpoint: `b3badab` Decide executor HTTP adapter
+direction.
+
+What changed:
+
+- Added `flarex-protocol/live-query` as the shared transport contract module
+  for backend live-query delivery callback bodies and DeliveryDO wake bodies.
+- Moved typed payload error classes and Effect-returning decoders for those
+  callback contracts into `flarex-protocol`.
+- Kept backend route modules as compatibility import paths while delegating
+  payload validation to protocol decoders.
+- Added protocol tests for typed delivery callback and wake payload success and
+  failure channels.
+
+Why it changed:
+
+C-1a starts the protocol cleanup with the sync/subscription callback family that
+is already migrated at backend route boundaries and posted by executor HTTP
+helpers. The transport contract now has one shared source instead of being
+owned by backend-local modules.
+
+Convex references:
+
+- `crates/convex/sync_types/src/types/mod.rs` for central sync message
+  transport types.
+- `crates/convex/sync_types/src/types/json.rs` for explicit JSON conversion at
+  sync protocol boundaries.
+- `npm-packages/convex/src/browser/sync/protocol.ts` for TypeScript sync wire
+  message typing.
+
+How Flarex differs:
+
+- Convex has a canonical sync wire protocol. Flarex currently uses Worker/DO
+  HTTP callback routes for delivery fanout and DeliveryDO wakeups, so this
+  checkpoint introduces a protocol module for those callback payloads without
+  changing the Cloudflare routing topology.
+
+Known limitations:
+
+- C-1 remains open. Scheduler route contracts, connection message/invalidation
+  contracts, partition route contracts, artifact runtime contracts, and
+  executor HTTP body contracts still need protocol export decisions.
+- `ValidatorJson` is unchanged.
+- Executor HTTP still constructs callback request bodies directly; this
+  checkpoint exports shared decoders and keeps body construction behavior
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/live-query.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Executor HTTP Backend Live Query Helper Bridge
 
 Previous completed checkpoint: `9c25517` Type executor HTTP body validation.

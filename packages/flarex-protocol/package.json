@@ -11,6 +11,7 @@
     "./execution": "./src/execution.ts",
     "./invoke": "./src/invoke.ts",
     "./json": "./src/json.ts",
+    "./live-query": "./src/live-query.ts",
     "./registry": "./src/registry.ts"
   },
   "scripts": {

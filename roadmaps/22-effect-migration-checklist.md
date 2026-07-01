@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: E-4 Executor HTTP adapter decision in this
-  checkpoint commit.
+- Previous completed checkpoint: C-1a Live-query callback protocol decoders in
+  this checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -435,6 +435,26 @@ The Effect migration is complete only when all of these are true:
     `packages/flarex-protocol/src/*.ts`.
   - Gate:
     `corepack pnpm --filter flarex-protocol typecheck`.
+  - [x] C-1a. Export backend live-query callback transport decoders for
+    delivery fanout bodies and DeliveryDO wake bodies.
+    - Completed by: this C-1a checkpoint commit.
+    - Files:
+      `packages/flarex-protocol/src/live-query.ts`,
+      `packages/flarex-protocol/test/live-query.test.ts`,
+      `packages/flarex-backend/src/liveQueryDelivery.ts`,
+      `packages/flarex-backend/src/delivery/WakeRequest.ts`.
+    - Tests:
+      `packages/flarex-protocol/test/live-query.test.ts`,
+      `packages/flarex-backend/test/liveQueryDelivery.test.ts`,
+      `packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/deliveryRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts`.
+  - [ ] C-1b. Export scheduler route transport decoders for migrated
+    scheduler public/internal route request bodies.
+  - [ ] C-1c. Export connection message, invalidation, and connection delivery
+    transport decoders used by migrated ConnectionDO routes.
+  - [ ] C-1d. Export remaining partition, artifact runtime, and executor HTTP
+    body transport decoders or document why a contract must stay package-local.
 - [ ] C-2. Keep throwing `parseX(...)` APIs as compatibility wrappers over
   hoisted schema decoders.
   - Tests:
@@ -474,11 +494,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with C-1:
+Start with C-1b:
 
-Ensure `flarex-protocol` exports Effect decoders for every transport contract
-used by migrated backend/executor routes. Start with the smallest coherent
-contract family that removes duplicated local transport validation pressure,
-update `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps,
-validate protocol plus affected package gates, run only the EffectTS quality
-checker if Effect code changes, tick `C-1`, then commit.
+Export scheduler route transport decoders for migrated scheduler
+public/internal route request bodies. Keep Worker/SchedulerDO request JSON
+reading and HTTP response mapping in backend route adapters, update
+`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
+protocol plus affected backend scheduler gates, run only the EffectTS quality
+checker if Effect code changes, tick `C-1b`, then commit.
