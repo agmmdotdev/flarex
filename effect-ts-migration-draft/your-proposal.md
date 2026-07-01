@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Registry route-service adapter effects.
-- Active checkpoint: validate and review the Registry route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: Deployment HttpApi route-service adapter effects.
+- Active checkpoint: validate and review the Deployment HttpApi route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Registry route-service adapter effects:
+Next recommended checkpoint after the Deployment HttpApi route-service adapter effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
    carry the named adapter-effect pattern into remaining deployment route
@@ -60,6 +60,25 @@ Next recommended checkpoint after the Registry route-service adapter effects:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 295 slice:
+
+1. Add explicit `DeploymentRouteError` for Deployment HttpApi route JSON and
+   protocol failures.
+2. Add named `deploymentRouteErrorToHttpErrorEffect(...)` and route
+   `deploymentApiRequestForRoute(...)`, generated route request readers, and
+   compatibility parse wrappers through it while preserving typed
+   `RequestJsonError | DeploymentProtocolValidationError` decoder channels.
+3. Route DeploymentDO internal recovery through the named
+   `deploymentInternalRouteErrorToResponseEffect(...)` adapter so typed
+   route/protocol/operation failures convert to HTTP responses at one Durable
+   Object edge.
+4. Add direct coverage for named Deployment route adapter mapping and named
+   Deployment internal response mapping.
+5. Leave generated Deployment HttpApi handlers, DeploymentService/store
+   behavior, active deployment metadata, push lifecycle writes, public Worker
+   routing, PartitionDO SQL/OCC, executor-http, and `ValidatorJson`
+   unchanged.
 
 Completed Goal 294 slice:
 

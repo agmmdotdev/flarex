@@ -3,10 +3,11 @@ import {
   DeploymentProtocolValidationError,
   DeploymentRoute,
 } from "flarex-protocol/deployment";
-import { errorResponse, HttpError, json, RequestJsonError } from "../http";
+import { errorResponse, HttpError, json } from "../http";
 import {
   decodeDeploymentApiRequestForRoute,
   deploymentRouteErrorToHttpError,
+  type DeploymentRouteError,
 } from "./HttpApiRouteBoundary";
 
 export class DeploymentRouteOperationError extends Data.TaggedError(
@@ -19,8 +20,7 @@ export class DeploymentRouteOperationError extends Data.TaggedError(
 }> {}
 
 export type DeploymentInternalRouteError =
-  | RequestJsonError
-  | DeploymentProtocolValidationError
+  | DeploymentRouteError
   | DeploymentRouteOperationError;
 
 export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
@@ -51,14 +51,7 @@ export function runDeploymentDurableObjectRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: error =>
-          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
-        DeploymentProtocolValidationError: error =>
-          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
-        DeploymentRouteOperationError: error =>
-          Effect.succeed(deploymentInternalRouteErrorToResponse(error)),
-      }),
+      Effect.catch(deploymentInternalRouteErrorToResponseEffect),
     ),
   );
 }
@@ -71,6 +64,14 @@ export function deploymentInternalRouteErrorToResponse(
   }
   return errorResponse(deploymentRouteErrorToHttpError(error));
 }
+
+export const deploymentInternalRouteErrorToResponseEffect = Effect.fn(
+  "DeploymentInternalRouteBoundary.deploymentInternalRouteErrorToResponse",
+)(function* (
+  error: DeploymentInternalRouteError,
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(deploymentInternalRouteErrorToResponse(error));
+});
 
 function deploymentRouteOperationError(
   operation: DeploymentRouteOperationError["operation"],

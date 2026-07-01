@@ -16,6 +16,7 @@ import {
   decodeDeploymentFinishPushRouteRequest,
   decodeDeploymentFinishPushRoutePayload,
   deploymentApiRequestForRoute,
+  deploymentRouteErrorToHttpErrorEffect,
   parseDeploymentAnalyzedStartPushRouteRequest,
   parseDeploymentAnalyzedStartPushRouteRequestEffect,
   parseDeploymentAbandonPushRouteRequest,
@@ -27,6 +28,8 @@ import {
   readDeploymentFinishPushRouteRequest,
 } from "../src/deployment/HttpApiRouteBoundary";
 import {
+  deploymentInternalRouteErrorToResponseEffect,
+  DeploymentRouteOperationError,
   routeDeploymentDurableObject,
   runDeploymentDurableObjectRoute,
 } from "../src/deployment/InternalRouteBoundary";
@@ -346,6 +349,31 @@ describe("deploymentApiRequestForRoute", () => {
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
+  it("maps Deployment route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      deploymentRouteErrorToHttpErrorEffect(jsonError),
+    ))).resolves.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new DeploymentProtocolValidationError({
+      schema: "FinishPushRequest",
+      message: "Finish push activate flag must be a boolean.",
+      cause: null,
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      deploymentRouteErrorToHttpErrorEffect(protocolError),
+    ))).resolves.toMatchObject({
+      status: 400,
+      message: "Finish push activate flag must be a boolean.",
+    });
+  });
+
   it("leaves non-API routes and fallback health methods on DeploymentDO", async () => {
     await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.health, {
       method: "POST",
@@ -451,6 +479,33 @@ describe("deploymentApiRequestForRoute", () => {
     expect(notFound.status).toBe(404);
     await expect(notFound.json()).resolves.toEqual({
       error: "Not found.",
+    });
+  });
+
+  it("maps DeploymentDO route failures through a named response adapter effect", async () => {
+    const protocolResponse = await Effect.runPromise(deploymentInternalRouteErrorToResponseEffect(
+      new DeploymentProtocolValidationError({
+        schema: "DeploymentGeneratedResponse",
+        message: "Generated deployment response failed validation.",
+        cause: null,
+      }),
+    ));
+    expect(protocolResponse.status).toBe(400);
+    await expect(protocolResponse.json()).resolves.toEqual({
+      error: "Generated deployment response failed validation.",
+    });
+
+    const operationResponse = await Effect.runPromise(deploymentInternalRouteErrorToResponseEffect(
+      new DeploymentRouteOperationError({
+        operation: "http-api",
+        status: 503,
+        message: "Deployment handler unavailable.",
+        cause: new Error("Deployment handler unavailable."),
+      }),
+    ));
+    expect(operationResponse.status).toBe(503);
+    await expect(operationResponse.json()).resolves.toEqual({
+      error: "Deployment handler unavailable.",
     });
   });
 });

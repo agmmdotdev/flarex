@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Deployment HttpApi Route-Service Adapter Effects
+
+Previous completed checkpoint: `3a0cb19` Type registry route adapters.
+
+What changed:
+
+- Deployment HttpApi route JSON/protocol failures now have an explicit
+  `DeploymentRouteError` alias.
+- Deployment generated-route compatibility readers and parse wrappers now
+  recover through the named `deploymentRouteErrorToHttpErrorEffect(...)`
+  adapter while typed decoders still expose
+  `RequestJsonError | DeploymentProtocolValidationError`.
+- DeploymentDO internal route recovery now uses the named
+  `deploymentInternalRouteErrorToResponseEffect(...)` adapter for the Durable
+  Object HTTP response edge.
+- Focused tests cover named route adapter mapping and named internal response
+  mapping directly.
+
+Why it changed:
+
+DeploymentDO is the largest schema-first Durable Object boundary in the current
+migration. Generated HttpApi handlers and service/store methods are already
+typed, but route compatibility readers and the DO response mapper still had
+inline conversions. Naming those adapters keeps request/protocol failures typed
+until the route or DO edge that owns HTTP conversion.
+
+Known limitations:
+
+- This checkpoint does not change generated Deployment HttpApi handlers,
+  DeploymentService/store behavior, active deployment metadata, push lifecycle
+  writes, public Worker routing, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentService.test.ts test/deploymentValidation.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Route-Service Adapter Effects
 
 Previous completed checkpoint: `ae593cd` Type internal execution route

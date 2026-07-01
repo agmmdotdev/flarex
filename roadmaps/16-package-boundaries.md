@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Deployment HttpApi Route-Service Adapter Effects
+
+Previous completed checkpoint: `3a0cb19` Type registry route adapters.
+
+What changed:
+
+- `deployment/HttpApiRouteBoundary.ts` now exposes an explicit route error
+  alias and named route-to-`HttpError` adapter effect.
+- `deployment/InternalRouteBoundary.ts` now exposes a named response adapter
+  effect for DeploymentDO route, protocol, and generated-handler operation
+  failures.
+- Tests assert those adapter effects directly while preserving existing
+  generated Deployment HttpApi and DeploymentDO route behavior.
+
+Boundary decision:
+
+Deployment request decoding belongs to `deployment/HttpApiRouteBoundary.ts`.
+Generated endpoint orchestration remains in `deployment/HttpApiHandlers.ts`.
+Deployment service and storage behavior remain behind `DeploymentService` and
+`DeploymentPushStore`. HTTP response conversion for DeploymentDO fallback and
+generated-handler failures belongs to `deployment/InternalRouteBoundary.ts`,
+not protocol schemas, store code, public Worker routing, PartitionDO,
+executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No generated Deployment HttpApi handler, DeploymentService/store, active
+  deployment metadata, push lifecycle write, public Worker route, service
+  binding configuration, executor-http, or SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentService.test.ts test/deploymentValidation.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Route-Service Adapter Effects
 
 Previous completed checkpoint: `ae593cd` Type internal execution route
