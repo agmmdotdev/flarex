@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Worker Execution And Partition Route Edge
+
+Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed
+to route edge.
+
+What changed:
+
+- Public execution and partition route failures now stay typed until the outer
+  deployment route HTTP mapper.
+- Shared malformed JSON failures are mapped once at the deployment route edge.
+- Execution protocol validation, public execution path errors, and partition
+  payload validation errors now join the same adapter-edge conversion as the
+  previous deployment push/sync dispatch batch.
+
+Why it changed:
+
+Execution and partition routes are runtime validation boundaries for user
+function sessions and partition transaction requests. Keeping their typed
+failure channels intact until the Worker adapter preserves validation
+provenance and avoids branch-local `HttpError` conversion in the middle of
+`routeDeployment`.
+
+Known limitations:
+
+- Public invoke still uses a response-oriented compatibility branch.
+- This checkpoint does not change generated DeploymentDO HttpApi handlers,
+  PartitionDO SQL/OCC behavior, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/executionDO.test.ts test/transaction.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/partitionFlow.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Public Worker Deployment Dispatch Route Boundary
 
 Previous completed checkpoint: `039bb9c` Extract deployment store transaction

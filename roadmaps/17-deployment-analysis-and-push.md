@@ -1,5 +1,45 @@
 # Deployment Analysis And Push
 
+## Public Worker Execution And Partition Route Edge
+
+Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed
+to route edge.
+
+What changed:
+
+- Public execution and partition branches under `/deployments/:id/...` now
+  propagate typed route errors to the outer deployment route mapper.
+- The deployment route mapper now handles public execution path errors,
+  execution protocol errors, partition payload errors, and shared malformed
+  JSON errors alongside the deployment push and dispatch errors from the prior
+  checkpoint.
+- Public response status/body behavior is preserved; this is an adapter
+  boundary migration, not a deployment lifecycle behavior change.
+
+Why it changed:
+
+The deployment route edge is now coherent for push, execution, partition,
+active deployment read, scheduler, and sync subroutes. This keeps deployment
+analysis/push work aligned with the broader Effect migration: route and
+protocol packages emit typed failures, while public HTTP conversion happens at
+the Worker adapter edge.
+
+Known limitations:
+
+- Public invoke remains response-oriented for now because it maps into the
+  invoke adapter-error response shape.
+- This checkpoint does not change analyzer behavior, push state transitions,
+  DeploymentDO generated HttpApi handlers, PartitionDO SQL/OCC, executor-http,
+  or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/executionDO.test.ts test/transaction.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/partitionFlow.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Public Worker Deployment Dispatch Route Boundary
 
 Previous completed checkpoint: `039bb9c` Extract deployment store transaction

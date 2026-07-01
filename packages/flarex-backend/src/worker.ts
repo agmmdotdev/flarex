@@ -3,6 +3,7 @@ import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
 } from "flarex-protocol/deployment";
+import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
 import {
   R2BackendExecutionArtifactStore,
@@ -89,7 +90,13 @@ import {
 } from "./deployment/PublicPushDispatchBoundary";
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
-import { errorResponse, HttpError, json, RequestJsonError } from "./http";
+import {
+  errorResponse,
+  HttpError,
+  json,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+} from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvokeEffect,
@@ -120,6 +127,7 @@ import {
 } from "./liveQueryDelivery/RouteBoundary";
 import {
   decodePartitionCommitRequest,
+  PartitionRoutePayloadError,
   partitionRouteErrorToHttpError,
 } from "./partition/RouteBoundary";
 import {
@@ -306,6 +314,8 @@ type PublicWorkerDeploymentRouteError =
   | MissingPublicDeploymentIdError
   | MissingPublicPartitionKeyError
   | PublicWorkerDeploymentPushRouteError
+  | PublicWorkerExecutionRouteError
+  | PublicWorkerPartitionRouteError
   | PublicWorkerDeploymentSyncRouteError
   | PublicWorkerDispatchError
   | HttpError;
@@ -333,14 +343,17 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
       );
     }
     if (parts[2] === "executions") {
-      return yield* routeExecutionEffect(request, env, deploymentId, parts.slice(3)).pipe(
-        Effect.mapError(publicWorkerExecutionRouteErrorToHttpError),
-      );
+      return yield* routeExecutionEffect(request, env, deploymentId, parts.slice(3));
     }
     if (parts[2] === "partitions") {
       const partitionKey = yield* publicPartitionKeyFromPartsEffect(parts);
-      return yield* routePartitionEffect(request, env, deploymentId, partitionKey, parts.slice(4), originalUrl).pipe(
-        Effect.mapError(publicWorkerPartitionRouteErrorToHttpError),
+      return yield* routePartitionEffect(
+        request,
+        env,
+        deploymentId,
+        partitionKey,
+        parts.slice(4),
+        originalUrl,
       );
     }
     if (parts[2] === "sync") {
@@ -365,20 +378,41 @@ function publicWorkerDeploymentRouteErrorToHttpError(
   if (
     error instanceof MissingPublicDeploymentIdError ||
     error instanceof MissingPublicPartitionKeyError ||
-    error instanceof MissingDeploymentPushIdError
+    error instanceof MissingDeploymentPushIdError ||
+    error instanceof MissingExecutionSessionIdError ||
+    error instanceof MissingExecutionActionError
   ) {
-    return publicRoutePathErrorToHttpError(error);
+    return publicDeploymentRoutePathErrorToHttpError(error);
   }
-  if (isPublicDeploymentPushRoutePayloadError(error)) {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  if (error instanceof DeploymentProtocolValidationError) {
     return publicDeploymentRouteErrorToHttpError(error);
+  }
+  if (error instanceof ExecutionProtocolValidationError) {
+    return executionStartRouteErrorToHttpError(error);
+  }
+  if (error instanceof PartitionRoutePayloadError) {
+    return partitionRouteErrorToHttpError(error);
   }
   return publicWorkerDeploymentSyncRouteErrorToHttpError(error);
 }
 
-function isPublicDeploymentPushRoutePayloadError(
-  error: PublicWorkerDeploymentRouteError,
-): error is Parameters<typeof publicDeploymentRouteErrorToHttpError>[0] {
-  return error instanceof RequestJsonError || error instanceof DeploymentProtocolValidationError;
+function publicDeploymentRoutePathErrorToHttpError(
+  error:
+    | MissingPublicDeploymentIdError
+    | MissingPublicPartitionKeyError
+    | MissingDeploymentPushIdError
+    | PublicExecutionRoutePathError,
+): HttpError {
+  if (
+    error instanceof MissingExecutionSessionIdError ||
+    error instanceof MissingExecutionActionError
+  ) {
+    return publicExecutionRoutePathErrorToHttpError(error);
+  }
+  return publicRoutePathErrorToHttpError(error);
 }
 
 const PUBLIC_SCHEDULER_ROUTE_PATHS = [
@@ -635,21 +669,6 @@ const routeExecutionEffect = Effect.fn("Worker.routeExecution")(
   },
 );
 
-function publicWorkerExecutionRouteErrorToHttpError(
-  error: PublicWorkerExecutionRouteError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  if (
-    error instanceof MissingExecutionSessionIdError ||
-    error instanceof MissingExecutionActionError
-  ) {
-    return publicExecutionRoutePathErrorToHttpError(error);
-  }
-  return executionStartRouteErrorToHttpError(error);
-}
-
 const routePublicExecutionStart = Effect.fn("Worker.routePublicExecutionStart")(
   function* (
     request: Request,
@@ -811,15 +830,6 @@ const routePublicPartitionCommit = Effect.fn("Worker.routePublicPartitionCommit"
     return yield* commitPublicPartitionEffect(partition, commit);
   },
 );
-
-function publicWorkerPartitionRouteErrorToHttpError(
-  error: PublicWorkerPartitionRouteError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  return partitionRouteErrorToHttpError(error);
-}
 
 const routePublicPartitionSchemaCache = Effect.fn("Worker.routePublicPartitionSchemaCache")(
   function* (

@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Public Worker Execution And Partition Route Edge
+
+Previous completed checkpoint: `8c94424` Keep deployment dispatch errors typed
+to route edge.
+
+What changed:
+
+- `Worker.routeDeployment` now carries execution and partition route errors to
+  the public Worker deployment route mapper instead of converting them inside
+  the `executions` and `partitions` branches.
+- The outer deployment route mapper owns shared `RequestJsonError`,
+  execution protocol error, public execution path error, and partition payload
+  error conversion.
+- Execution and partition dispatch helpers continue to report typed failures
+  from their own route/dispatch packages.
+
+Boundary decision:
+
+The public Worker deployment route is now the adapter boundary for deployment
+subroutes that return `HttpError`. Route families emit typed errors; the
+Worker route adapter decides public status/body mapping once.
+
+Known limitations:
+
+- Public invoke remains a compatibility branch that directly turns invoke
+  failures into a response because invoke has a separate adapter-error shape.
+- No Durable Object SQL/OCC, generated API, package metadata, or service
+  binding boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/executionDO.test.ts test/transaction.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/partitionFlow.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Public Worker Deployment Dispatch Route Boundary
 
 Previous completed checkpoint: `039bb9c` Extract deployment store transaction

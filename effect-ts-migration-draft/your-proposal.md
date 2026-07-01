@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public Worker deployment dispatch route boundary.
+- Previous completed checkpoint: Public Worker execution and partition route edge.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,33 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public Worker deployment dispatch route boundary:
+Next recommended checkpoint after the public Worker execution and partition route edge:
 
-1. Prefer a deeper deployment route/service path next: either continue public
-   Worker deployment routing by moving execution/partition subroutes toward
-   typed route errors, or move a DeploymentDO generated HttpApi handler group
-   toward one adapter HTTP mapping edge.
+1. Prefer the remaining public Worker invoke route response boundary or a
+   generated DeploymentDO HttpApi handler group next. The public Worker
+   deployment route now carries push, execution, partition, active read,
+   scheduler, and sync route errors to its adapter mapper; invoke still has a
+   response-oriented compatibility branch.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 278 slice:
+
+1. Widen `Worker.routeDeployment` again so public execution and partition route
+   failures stay typed until `publicWorkerDeploymentRouteErrorToHttpError(...)`.
+2. Remove early `Effect.mapError(...)` calls from the `executions` and
+   `partitions` branches while preserving their public response statuses and
+   bodies.
+3. Centralize outer route mapping for shared `RequestJsonError`, deployment
+   protocol errors, execution protocol errors, partition payload errors, public
+   deployment path errors, and public execution path errors.
+4. Leave public invoke's response-oriented compatibility branch, generated
+   DeploymentDO HttpApi handlers, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged for later batches.
 
 Completed Goal 277 slice:
 
