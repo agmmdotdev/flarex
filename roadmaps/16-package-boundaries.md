@@ -1,5 +1,64 @@
 # Package Boundaries
 
+## Public Scheduler Route Boundary Effects
+
+Previous completed checkpoint: `e509217` Type public invoke delivery route
+boundaries.
+
+What changed:
+
+- `scheduler/PublicRouteBoundary.ts` no longer exports public
+  Promise-returning scheduler maintenance request wrappers.
+- `scheduler/PublicRouteBoundary.ts` no longer exports public throwing
+  `parsePublicScheduler*Request(...)` compatibility wrappers.
+- The public scheduler boundary now exposes only Effect-returning public
+  scheduler request decoders and the public scheduler route HTTP adapter.
+- Trigger subscription request decoding remains an alias to the rerun
+  subscription decoder.
+- Tests now exercise scheduler request decoder success/failure channels
+  directly and keep HTTP mapping assertions at the named adapter edge.
+
+Boundary decision:
+
+Public scheduler route request decoding belongs in
+`scheduler/PublicRouteBoundary.ts`. Public Worker orchestration and dispatch
+remain in `worker.ts` and `scheduler/PublicDispatchBoundary.ts`. Internal
+SchedulerDO maintenance route decoding remains in the internal scheduler route
+boundary. HTTP conversion remains in
+`publicSchedulerRouteErrorToHttpError(...)` /
+`publicSchedulerRouteErrorToHttpErrorEffect(...)`, not per-wrapper Promise
+helpers or throwing parser wrappers.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's Cloudflare Worker maintenance scheduler adapter surface around
+  existing scheduler request decoders.
+
+How Flarex differs:
+
+- Convex does not have these exact Cloudflare Worker maintenance scheduler
+  adapters. Flarex keeps Worker route splitting, scheduler dispatch, and
+  Durable Object maintenance behavior in their existing modules while
+  preserving typed validation before HTTP response mapping.
+
+Known limitations:
+
+- No scheduler dispatch/runtime/persistence behavior, DeliveryDO behavior,
+  ConnectionDO behavior, live-query behavior, executor-http route, PartitionDO
+  SQL/OCC behavior, deployment route, or `ValidatorJson` boundary changed.
+- Internal scheduler route compatibility wrappers remain for now.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts test/schedulerDelivery.test.ts test/schedulerConnections.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke/Delivery Route Boundary Effects
 
 Previous completed checkpoint: `faec11b` Type public execution route

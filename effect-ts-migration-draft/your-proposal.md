@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `faec11b` Type public execution route boundaries.
-- Active checkpoint: validate and review the public invoke/delivery/live-query route boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `e509217` Type public invoke delivery route boundaries.
+- Active checkpoint: validate and review the public scheduler route boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public invoke/delivery/live-query route boundary effects:
+Next recommended checkpoint after the public scheduler route boundary effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,24 @@ Next recommended checkpoint after the public invoke/delivery/live-query route bo
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 305 slice:
+
+1. Remove public Promise-returning scheduler maintenance request wrappers from
+   `scheduler/PublicRouteBoundary.ts`.
+2. Remove public throwing `parsePublicScheduler*Request(...)` compatibility
+   wrappers from the same scheduler route boundary.
+3. Keep production public Worker scheduler routing on
+   `decodePublicScheduler*Request(...)` Effect decoders and the named public
+   scheduler route HTTP adapter.
+4. Keep trigger subscription request decoding as the existing alias to the
+   rerun subscription decoder so public trigger/rerun behavior does not drift.
+5. Update public scheduler route-boundary tests to assert typed success,
+   typed `RequestJsonError`, and typed `SchedulerRoutePayloadError` channels
+   directly, then separately assert existing HTTP adapter mapping.
+6. Leave scheduler dispatch/runtime/persistence behavior, DeliveryDO behavior,
+   ConnectionDO behavior, live-query behavior, executor-http, PartitionDO
+   SQL/OCC, deployment behavior, and `ValidatorJson` unchanged.
 
 Completed Goal 304 slice:
 

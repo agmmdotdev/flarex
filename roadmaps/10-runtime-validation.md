@@ -1,5 +1,68 @@
 # Runtime Validation
 
+## Public Scheduler Route Boundary Effects
+
+Previous completed checkpoint: `e509217` Type public invoke delivery route
+boundaries.
+
+What changed:
+
+- Removed public Promise-returning scheduler maintenance request wrappers from
+  `scheduler/PublicRouteBoundary.ts`.
+- Removed public throwing `parsePublicScheduler*Request(...)` compatibility
+  wrappers from the same public scheduler route boundary.
+- Kept public Worker scheduler routing on Effect decoders:
+  `decodePublicSchedulerDeliveryReconcileRequest(...)`,
+  `decodePublicSchedulerConnectionReconcileRequest(...)`,
+  `decodePublicSchedulerDeadLetterDeliveriesRequest(...)`,
+  `decodePublicSchedulerCleanupConnectionsRequest(...)`,
+  `decodePublicSchedulerRerunSubscriptionsRequest(...)`, and
+  `decodePublicSchedulerTriggerSubscriptionsRequest(...)`.
+- Kept trigger subscription decoding as the existing alias to the rerun
+  subscription decoder.
+- Updated route-boundary tests to assert typed success and typed failure
+  channels directly before the existing adapter mapping assertions.
+
+Why it changed:
+
+The public Worker scheduler routes already use typed Effect decoders. The
+remaining public Promise/throw wrappers were compatibility surfaces exercised
+by tests rather than production routing. Removing them keeps public scheduler
+validation aligned with the migration quality bar: request/body decoders return
+typed `RequestJsonError` or `SchedulerRoutePayloadError` failures, and HTTP
+conversion stays at the named route adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a
+  Cloudflare-specific Worker maintenance scheduler adapter cleanup around
+  existing Flarex scheduler request decoders.
+
+How Flarex differs:
+
+- Flarex exposes Cloudflare Worker maintenance scheduler routes that dispatch
+  into SchedulerDO/DeliveryDO/ConnectionDO workflows. This checkpoint narrows
+  only the public Worker request adapter surface; it does not change scheduler
+  maintenance runtime, persistence, or Durable Object behavior.
+
+Known limitations:
+
+- This checkpoint does not change scheduler dispatch/runtime/persistence
+  behavior, DeliveryDO behavior, ConnectionDO behavior, live-query behavior,
+  executor-http, PartitionDO SQL/OCC, deployment behavior, or `ValidatorJson`.
+- Internal scheduler route compatibility wrappers remain until that boundary
+  is selected directly.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts test/schedulerDelivery.test.ts test/schedulerConnections.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke/Delivery Route Boundary Effects
 
 Previous completed checkpoint: `faec11b` Type public execution route
