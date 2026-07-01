@@ -32,6 +32,7 @@ import {
   deploymentAbandonPushResponseForHttpApi,
   deploymentFinishPushResponseForHttpApi,
   deploymentPushStatusResponseForHttpApi,
+  deploymentStartAnalyzedPushResponseForHttpApi,
   deploymentAbandonFailureResponseEffect,
   deploymentAbandonPushHandler,
   deploymentFinishFailureResponseEffect,
@@ -57,7 +58,11 @@ import {
   DeploymentValidationError,
 } from "../src/deployment/Errors";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
-import { DeploymentService, type DeploymentServiceApi } from "../src/deployment/Service";
+import {
+  DeploymentService,
+  type DeploymentServiceApi,
+  type StartAnalyzedPushInput,
+} from "../src/deployment/Service";
 import {
   DeploymentPushStore,
   DeploymentSqlError,
@@ -601,6 +606,59 @@ describe("DeploymentApiHandlers", () => {
     )));
     expect(malformedPushProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
     expect(parseDeploymentErrorResponse(malformedPushProtocol)).toEqual({
+      error: "Deployment push response did not match the deployment protocol.",
+    });
+  });
+
+  it("maps start service responses through a named HTTP API adapter", async () => {
+    await expect(Effect.runPromise(deploymentStartAnalyzedPushResponseForHttpApi(
+      deploymentTestService(),
+      startAnalyzedPushInput(),
+    ))).resolves.toMatchObject({
+      pushId: "generated-push",
+      state: "analyzed",
+    });
+
+    const invalidStartInput = await Effect.runPromise(Effect.flip(deploymentStartAnalyzedPushResponseForHttpApi(
+      deploymentTestService({
+        startAnalyzedPush: () => Effect.fail(new DeploymentValidationError({
+          message: "Deployment analysis must be an object.",
+        })),
+      }),
+      startAnalyzedPushInput(),
+    )));
+    expect(invalidStartInput).toBeInstanceOf(DeploymentBadRequestErrorResponse);
+    expect(parseDeploymentErrorResponse(invalidStartInput)).toEqual({
+      error: "Deployment analysis must be an object.",
+    });
+
+    const startStorage = await Effect.runPromise(Effect.flip(deploymentStartAnalyzedPushResponseForHttpApi(
+      deploymentTestService({
+        startAnalyzedPush: () => Effect.fail(new DeploymentStoredPushMissingError({
+          operation: "startPush",
+          pushId: "push-start-storage-adapter",
+          stage: "stored",
+        })),
+      }),
+      startAnalyzedPushInput(),
+    )));
+    expect(startStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(startStorage)).toEqual({
+      error: "Deployment storage error.",
+    });
+
+    const invalidStartProtocol = await Effect.runPromise(Effect.flip(deploymentStartAnalyzedPushResponseForHttpApi(
+      deploymentTestService({
+        startAnalyzedPush: () =>
+          Effect.succeed({
+            ...pushStatus("push-start-malformed-adapter"),
+            state: "missing-state",
+          } as unknown as PushStatus),
+      }),
+      startAnalyzedPushInput(),
+    )));
+    expect(invalidStartProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(invalidStartProtocol)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -1757,6 +1815,18 @@ function pushStatus(pushId: string, state: PushStatus["state"] = "analyzed"): Pu
     diagnostics: [],
     createdAt: 1,
     updatedAt: 2,
+  };
+}
+
+function startAnalyzedPushInput(
+  overrides: Partial<StartAnalyzedPushInput> = {},
+): StartAnalyzedPushInput {
+  return {
+    sourcePackage: sourcePackage(),
+    analysis: deploymentAnalysis(),
+    codegenAnalysis: deploymentCodegenAnalysis(),
+    diagnostics: [],
+    ...overrides,
   };
 }
 

@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## Generated Deployment HttpApi Start Response Adapter Effects
+
+Previous completed checkpoint: `23a2cb3` Type deployment finish abandon
+adapters.
+
+What changed:
+
+- Analyzed start-push service responses now flow through
+  `deploymentStartAnalyzedPushResponseForHttpApi(...)`.
+- The start response adapter accepts already validated service input, maps
+  typed service failures, and validates the declared push-status response.
+- The generated start handler now composes input validation with the response
+  adapter while preserving declared bad-request and storage error channels.
+- Direct adapter tests cover success, validation failure, storage failure, and
+  malformed service responses.
+
+Why it changed:
+
+The generated HttpApi start handler was the last deployment mutation handler
+with service response mapping inline. This checkpoint completes the generated
+mutation adapter batch by keeping input validation and service-response
+validation as separate typed Effect boundaries.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  generated Deployment HttpApi response-adapter cleanup.
+
+How Flarex differs:
+
+- Flarex starts deployment pushes from analyzed source-package metadata. The
+  generated HttpApi adapter validates that response before it leaves the
+  Durable Object route surface.
+
+Known limitations:
+
+- DeploymentDO route decoding, public Worker deployment dispatch,
+  DeploymentService/store lifecycle logic, artifact materializer/cache,
+  source-package analyzer semantics, PartitionDO SQL/OCC, executor-http,
+  protocol parser compatibility wrappers, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Deployment HttpApi Finish And Abandon Adapter Effects
 
 Previous completed checkpoint: `f49d45d` Type deployment handler input

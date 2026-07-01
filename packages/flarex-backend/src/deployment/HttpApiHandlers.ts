@@ -136,6 +136,13 @@ export const deploymentPushStatusResponseForHttpApi = Effect.fn(
   return yield* decodePushStatusForHttpApi(status);
 });
 
+export const deploymentStartAnalyzedPushResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.deploymentStartAnalyzedPushResponseForHttpApi",
+)(function* (deployment: DeploymentServiceApi, input: StartAnalyzedPushInput) {
+  const status = yield* mapDeploymentStartFailure(deployment.startAnalyzedPush(input));
+  return yield* decodePushStatusForHttpApi(status);
+});
+
 export const deploymentFinishPushResponseForHttpApi = Effect.fn(
   "DeploymentApiHandlers.deploymentFinishPushResponseForHttpApi",
 )(function* (deployment: DeploymentServiceApi, pushId: string) {
@@ -160,11 +167,8 @@ export const deploymentStartAnalyzedPushHandler = Effect.fn(
   deployment: DeploymentServiceApi,
   payload: ProtocolAnalyzedStartPushRequest,
 ) {
-  return yield* decodeStartAnalyzedPushHandlerInput(payload).pipe(
-    Effect.flatMap(input => deployment.startAnalyzedPush(input)),
-    mapDeploymentStartFailure,
-    Effect.flatMap(decodePushStatusForHttpApi),
-  );
+  const input = yield* mapDeploymentStartFailure(decodeStartAnalyzedPushHandlerInput(payload));
+  return yield* deploymentStartAnalyzedPushResponseForHttpApi(deployment, input);
 });
 
 export const deploymentFinishPushHandler = Effect.fn("DeploymentApiHandlers.finishPush")(
