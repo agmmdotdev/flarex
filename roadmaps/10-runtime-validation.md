@@ -1,5 +1,60 @@
 # Runtime Validation
 
+## Public Deployment Response Adapter
+
+Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
+
+What changed:
+
+- Public deployment route failures now convert directly to `Response` inside
+  `publicWorkerDeploymentRouteErrorToResponseEffect(...)`.
+- The intermediate public deployment
+  `publicWorkerDeploymentRouteErrorToHttpErrorEffect(...)` was removed.
+- `PublicWorkerDeploymentNonInvokeRouteError` no longer includes `HttpError`;
+  deployment route failures stay typed until the Worker response adapter edge.
+- `PublicWorkerDispatchError` remains a typed dispatch failure and is converted
+  to a response only inside the public deployment Worker adapter branch.
+- The concrete migration checklist ticks `P-2` and sets `P-3` as the next
+  active checkpoint.
+
+Why it changed:
+
+P-1 typed the public deployment push route inputs. P-2 moves the public
+deployment Worker error path closer to the target shape: typed failures flow to
+one response mapper at the route adapter edge instead of failing through an
+intermediate `HttpError` effect.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex public
+  Worker response-adapter migration checkpoint.
+
+How Flarex differs:
+
+- Flarex still uses shared `HttpError` compatibility helpers for other Worker
+  route families. The public deployment branch now converts to responses at its
+  own adapter edge while preserving existing response JSON.
+
+Known limitations:
+
+- Shared Worker-level `HttpError` cleanup remains for later Worker route error
+  phases. Public start/finish artifact service response schemas, generated
+  handler logic, DeploymentService/store lifecycle logic, artifact
+  materializer/cache semantics, source analyzer behavior, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRouteDispatchError.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicPassThroughDispatchBoundary.test.ts test/publicWorkerRoutePathBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicWorkerRouteDispatchError.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicWorkerRoutePathBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Push Route Inputs
 
 Previous completed checkpoint: `3095319` Remove deployment request bridge.

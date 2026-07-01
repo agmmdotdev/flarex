@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `3095319` Remove deployment request bridge.
+- Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -134,8 +134,7 @@ The Effect migration is complete only when all of these are true:
 
 - [x] P-1. Replace public deployment start/finish/abandon body compatibility
   wrappers with typed Effect route-input objects.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `d4d1fc7` Type public push route inputs.
   - Files:
     `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/PublicPushDispatchBoundary.ts`,
@@ -144,8 +143,10 @@ The Effect migration is complete only when all of these are true:
     `test/publicDeploymentPushRouteBoundary.test.ts`,
     `test/publicDeploymentPushDispatchBoundary.test.ts`,
     `test/push.test.ts`.
-- [ ] P-2. Move public deployment Worker HTTP response mapping to one adapter
+- [x] P-2. Move public deployment Worker HTTP response mapping to one adapter
   edge and stop exposing `HttpError` from public deployment dispatch logic.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/worker.ts`,
     `packages/flarex-backend/src/deployment/PublicPushDispatchBoundary.ts`,
@@ -394,11 +395,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with P-2:
+Start with P-3:
 
-Move public deployment Worker HTTP response mapping to one adapter edge and stop
-exposing `HttpError` from public deployment dispatch logic. Preserve start
-pending, analyzed start, read push, finish, abandon, scheduler handoff, and
-deployment id/path error behavior; update `effect-ts-migration-draft/your-proposal.md`
-and relevant roadmaps, validate, run only the EffectTS quality checker, tick
-`P-2`, then commit.
+Schema-check public start artifact and finish artifact service boundary
+responses through typed Effect decoders in `PublicStartArtifactBoundary`,
+`PublicFinishArtifactBoundary`, and `backendAnalyzerResponse`; update
+`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
+run only the EffectTS quality checker, tick `P-3`, then commit.

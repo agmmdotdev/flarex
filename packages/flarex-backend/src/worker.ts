@@ -344,8 +344,7 @@ type PublicWorkerDeploymentNonInvokeRouteError =
   | PublicWorkerExecutionRouteError
   | PublicWorkerPartitionRouteError
   | PublicWorkerDeploymentSyncRouteError
-  | PublicWorkerDispatchError
-  | HttpError;
+  | PublicWorkerDispatchError;
 
 type PublicWorkerDeploymentRouteError =
   | PublicWorkerDeploymentNonInvokeRouteError
@@ -400,20 +399,8 @@ const publicWorkerDeploymentRouteErrorToResponseEffect = Effect.fn(
   if (isPublicWorkerInvokeRouteError(error)) {
     return yield* publicWorkerInvokeRouteErrorToResponseEffect(error);
   }
-  const httpError = yield* Effect.flip(publicWorkerDeploymentRouteErrorToHttpErrorEffect(error));
-  return errorResponse(httpError);
-});
-
-const publicWorkerDeploymentRouteErrorToHttpErrorEffect = Effect.fn(
-  "Worker.publicWorkerDeploymentRouteErrorToHttpError",
-)(function* (
-  error: PublicWorkerDeploymentNonInvokeRouteError,
-): Effect.fn.Return<never, HttpError> {
-  if (error instanceof HttpError) {
-    return yield* Effect.fail(error);
-  }
   if (error instanceof PublicWorkerDispatchError) {
-    return yield* publicWorkerDispatchErrorToHttpErrorEffect(error);
+    return errorResponse(publicWorkerDispatchErrorToHttpError(error));
   }
   if (
     error instanceof MissingPublicDeploymentIdError ||
@@ -422,18 +409,18 @@ const publicWorkerDeploymentRouteErrorToHttpErrorEffect = Effect.fn(
     error instanceof MissingExecutionSessionIdError ||
     error instanceof MissingExecutionActionError
   ) {
-    return yield* Effect.fail(publicDeploymentRoutePathErrorToHttpError(error));
+    return errorResponse(publicDeploymentRoutePathErrorToHttpError(error));
   }
   if (error instanceof RequestJsonError || error instanceof DeploymentProtocolValidationError) {
-    return yield* publicDeploymentRouteErrorToHttpErrorEffect(error);
+    return errorResponse(publicDeploymentRouteErrorToHttpError(error));
   }
   if (error instanceof ExecutionProtocolValidationError) {
-    return yield* executionStartRouteErrorToHttpErrorEffect(error);
+    return errorResponse(executionStartRouteErrorToHttpError(error));
   }
   if (error instanceof PartitionRoutePayloadError) {
-    return yield* partitionRouteErrorToHttpErrorEffect(error);
+    return errorResponse(partitionRouteErrorToHttpError(error));
   }
-  return yield* Effect.fail(publicWorkerDeploymentSyncRouteErrorToHttpError(error));
+  return errorResponse(publicWorkerDeploymentSyncRouteErrorToHttpError(error));
 });
 
 function publicDeploymentRoutePathErrorToHttpError(

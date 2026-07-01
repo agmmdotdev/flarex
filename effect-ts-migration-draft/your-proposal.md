@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `3095319` Remove deployment request bridge.
-- Active checkpoint: P-1 public deployment push route inputs, replacing public start/finish/abandon body compatibility wrappers with typed Effect route-input objects.
+- Previous completed checkpoint: `d4d1fc7` Type public push route inputs.
+- Active checkpoint: P-2 public deployment Worker response mapping, moving deployment route failures directly to one response adapter edge without exposing `HttpError` from public deployment dispatch logic.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,10 +52,10 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after P-1 public deployment push route inputs:
+Next recommended checkpoint after P-2 public deployment Worker response mapping:
 
-1. Move public deployment Worker HTTP response mapping to one adapter edge and
-   stop exposing `HttpError` from public deployment dispatch logic.
+1. Schema-check public start artifact and finish artifact service boundary
+   responses through typed Effect decoders.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -65,7 +65,29 @@ Next recommended checkpoint after P-1 public deployment push route inputs:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 340 slice:
+Current Goal 341 slice:
+
+1. Remove the intermediate
+   `publicWorkerDeploymentRouteErrorToHttpErrorEffect(...)` mapping from the
+   public deployment Worker route branch.
+2. Remove `HttpError` from `PublicWorkerDeploymentNonInvokeRouteError`; public
+   deployment non-invoke route failures now stay typed until
+   `publicWorkerDeploymentRouteErrorToResponseEffect(...)`.
+3. Convert `PublicWorkerDispatchError` to `Response` inside
+   `publicWorkerDeploymentRouteErrorToResponseEffect(...)`, keeping
+   `PublicRouteDispatchError.ts` typed/error-only.
+4. Keep existing shared `HttpError` helpers for other Worker route families
+   until their checklist phases own them.
+5. Preserve focused public push, scheduler handoff, dispatch error, and
+   deployment path-error tests.
+6. Tick `P-2` in `roadmaps/22-effect-migration-checklist.md` and move the next
+   active checkpoint to `P-3`.
+7. Leave public push route input shape, generated handler logic,
+   DeploymentService/store lifecycle logic, artifact materializer/cache
+   semantics, source analyzer behavior, PartitionDO SQL/OCC, executor-http,
+   protocol parser compatibility wrappers, and `ValidatorJson` unchanged.
+
+Completed Goal 340 slice:
 
 1. Add tagged public deployment push route-input objects for read, source-only
    start, analyzed start, finish, and abandon routes.
