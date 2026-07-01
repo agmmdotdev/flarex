@@ -1,5 +1,58 @@
 # Runtime Validation
 
+## Typed DeploymentDO API Route Input
+
+Previous completed checkpoint: `c5df8a2` Type deployment start response
+adapter.
+
+What changed:
+
+- DeploymentDO API route decoding now has a typed `DeploymentApiRouteInput`
+  union for read routes, analyzed start-push bodies, finish-push bodies, and
+  abandon-push bodies.
+- `decodeDeploymentApiRouteInput(...)` validates mutation request bodies into
+  typed route input values before compatibility conversion.
+- `decodeDeploymentApiRequestForRoute(...)` remains the generated HttpApi web
+  handler compatibility adapter by turning typed route inputs back into
+  canonical `Request` values.
+- Route-boundary tests now assert the typed route input payloads and push ids
+  before request compatibility conversion.
+
+Why it changed:
+
+The migration is moving the Durable Object route surface away from request-only
+adapter plumbing and toward typed decoded inputs. This checkpoint creates that
+typed boundary without changing generated HttpApi runtime behavior or public
+HTTP responses.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO route-boundary migration checkpoint.
+
+How Flarex differs:
+
+- Flarex currently routes DeploymentDO requests through Effect HttpApi. The new
+  typed route input preserves the generated-handler compatibility path while
+  preparing a future direct typed dispatch decision.
+
+Known limitations:
+
+- Generated handler logic, DeploymentService/store lifecycle logic, public
+  Worker deployment dispatch, artifact materializer/cache, source-package
+  analyzer semantics, PartitionDO SQL/OCC, executor-http, protocol parser
+  compatibility wrappers, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Deployment HttpApi Start Response Adapter Effects
 
 Previous completed checkpoint: `23a2cb3` Type deployment finish abandon

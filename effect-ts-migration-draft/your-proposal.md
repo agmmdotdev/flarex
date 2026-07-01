@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `23a2cb3` Type deployment finish abandon adapters.
-- Active checkpoint: generated analyzed start-push response adapter, separating input validation from the service-response edge while preserving typed HttpApi failure mapping.
+- Previous completed checkpoint: `c5df8a2` Type deployment start response adapter.
+- Active checkpoint: typed DeploymentDO API route input, introducing a decoded route-input boundary before the existing generated HttpApi request compatibility adapter.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the generated Deployment HttpApi start response adapter:
+Next recommended checkpoint after the typed DeploymentDO API route input:
 
-1. Reassess DeploymentDO route decoding and generated HttpApi payload entry so
-   the Durable Object route surface can avoid duplicate protocol validation
-   while preserving the current typed request/body error mapping.
+1. Decide whether `routeDeploymentDurableObject(...)` should dispatch typed
+   decoded route inputs directly to generated handler effects for deployment
+   mutation routes, or keep the generated web-handler request compatibility
+   path until the HttpApi lifecycle cost is clearer.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -62,7 +63,25 @@ Next recommended checkpoint after the generated Deployment HttpApi start respons
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 333 slice:
+Current Goal 334 slice:
+
+1. Add `DeploymentApiRouteInput`, a typed union for DeploymentDO API routes:
+   pass-through read routes, analyzed start-push bodies, finish-push bodies,
+   and abandon-push bodies.
+2. Add `decodeDeploymentApiRouteInput(...)`, a named Effect decoder that reads
+   and validates mutation request bodies once into typed route input values.
+3. Keep `decodeDeploymentApiRequestForRoute(...)` as the existing
+   compatibility adapter by converting typed route input back into canonical
+   generated HttpApi `Request` values.
+4. Add route-boundary tests proving typed route inputs preserve read routes,
+   analyzed start payloads, finish/abandon push ids, and mutation bodies before
+   request compatibility conversion.
+5. Leave generated handler logic, DeploymentService/store lifecycle logic,
+   public Worker deployment dispatch, artifact materializer/cache,
+   source-package analyzer semantics, PartitionDO SQL/OCC, executor-http,
+   protocol parser compatibility wrappers, and `ValidatorJson` unchanged.
+
+Completed Goal 333 slice:
 
 1. Add `deploymentStartAnalyzedPushResponseForHttpApi(...)`, a named Effect
    adapter that accepts validated `StartAnalyzedPushInput`, runs

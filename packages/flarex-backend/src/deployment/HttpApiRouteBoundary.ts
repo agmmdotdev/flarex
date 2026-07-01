@@ -23,33 +23,93 @@ const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(
 
 export type DeploymentRouteError = RequestJsonError | DeploymentProtocolValidationError;
 
+export type DeploymentApiRouteInput =
+  | {
+    readonly _tag: "DeploymentApiReadRoute";
+    readonly request: Request;
+  }
+  | {
+    readonly _tag: "DeploymentApiStartAnalyzedPushRoute";
+    readonly url: URL;
+    readonly body: AnalyzedStartPushRequest;
+  }
+  | {
+    readonly _tag: "DeploymentApiFinishPushRoute";
+    readonly url: URL;
+    readonly pushId: string;
+    readonly body: FinishPushRequest;
+  }
+  | {
+    readonly _tag: "DeploymentApiAbandonPushRoute";
+    readonly url: URL;
+    readonly pushId: string;
+    readonly body: AbandonPushRequest;
+  };
+
 export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decodeApiRequestForRoute")(
   function* (request: Request) {
+    const routeInput = yield* decodeDeploymentApiRouteInput(request);
+    return routeInput === null ? null : deploymentApiRouteInputToRequest(routeInput);
+  },
+);
+
+export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRouteInput")(
+  function* (request: Request): Effect.fn.Return<DeploymentApiRouteInput | null, DeploymentRouteError> {
     const url = new URL(request.url);
     if (isDeploymentApiReadRoute(request, url)) {
-      return request;
+      return {
+        _tag: "DeploymentApiReadRoute",
+        request,
+      };
     }
     if (url.pathname === DeploymentRoute.startAnalyzedPush && request.method === "POST") {
       const body = yield* decodeDeploymentAnalyzedStartPushRouteRequest(request);
-      return jsonRequest(url, body);
+      return {
+        _tag: "DeploymentApiStartAnalyzedPushRoute",
+        url,
+        body,
+      };
     }
 
     const pushMatch = url.pathname.match(deploymentPushRoutePattern);
     if (pushMatch === null) {
       return null;
     }
+    const pushId = pushMatch[1];
+    if (pushId === undefined) {
+      return null;
+    }
     const action = pushMatch[2];
     if (action === DeploymentPushAction.finish && request.method === "POST") {
       const body = yield* decodeDeploymentFinishPushRouteRequest(request);
-      return jsonRequest(url, body);
+      return {
+        _tag: "DeploymentApiFinishPushRoute",
+        url,
+        pushId,
+        body,
+      };
     }
     if (action === DeploymentPushAction.abandon && request.method === "POST") {
       const body = yield* decodeDeploymentAbandonPushRouteRequest(request);
-      return jsonRequest(url, body);
+      return {
+        _tag: "DeploymentApiAbandonPushRoute",
+        url,
+        pushId,
+        body,
+      };
     }
     return null;
   },
 );
+
+export function deploymentApiRouteInputToRequest(
+  routeInput: DeploymentApiRouteInput,
+): Request {
+  if (routeInput._tag === "DeploymentApiReadRoute") {
+    return routeInput.request;
+  }
+  return jsonRequest(routeInput.url, routeInput.body);
+}
 
 export function decodeDeploymentAnalyzedStartPushRouteRequest(
   request: Request,

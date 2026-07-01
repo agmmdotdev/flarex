@@ -8,7 +8,9 @@ import {
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
+  deploymentApiRouteInputToRequest,
   decodeDeploymentApiRequestForRoute,
+  decodeDeploymentApiRouteInput,
   decodeDeploymentAnalyzedStartPushRouteRequest,
   decodeDeploymentAnalyzedStartPushRoutePayload,
   decodeDeploymentAbandonPushRouteRequest,
@@ -29,6 +31,72 @@ describe("deployment HttpApi route boundary", () => {
     await expectEffectApiRequest(DeploymentRoute.health, { method: "GET" });
     await expectEffectApiRequest(DeploymentRoute.activeDeployment, { method: "GET" });
     await expectEffectApiRequest(`${DeploymentRoute.push}/push-read`, { method: "GET" });
+  });
+
+  it("decodes DeploymentDO API routes to typed route inputs before request compatibility", async () => {
+    const health = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      DeploymentRoute.health,
+      { method: "GET" },
+    )));
+    expect(health).toMatchObject({ _tag: "DeploymentApiReadRoute" });
+    if (health?._tag !== "DeploymentApiReadRoute") {
+      throw new Error("Expected read route input.");
+    }
+    expect(deploymentApiRouteInputToRequest(health).url).toBe(
+      `https://deployment.test${DeploymentRoute.health}`,
+    );
+
+    const start = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      DeploymentRoute.startAnalyzedPush,
+      {
+        method: "POST",
+        body: {
+          sourcePackage: sourcePackage(),
+          analysis: { schema: {}, functions: {} },
+          diagnostics: [{ level: "warn", message: "typed route input" }],
+        },
+      },
+    )));
+    expect(start).toMatchObject({
+      _tag: "DeploymentApiStartAnalyzedPushRoute",
+      body: {
+        sourcePackage: sourcePackage(),
+        diagnostics: [{ level: "warn", message: "typed route input" }],
+      },
+    });
+    if (start?._tag !== "DeploymentApiStartAnalyzedPushRoute") {
+      throw new Error("Expected analyzed start route input.");
+    }
+    await expect(deploymentApiRouteInputToRequest(start).json()).resolves.toMatchObject({
+      sourcePackage: sourcePackage(),
+      diagnostics: [{ level: "warn", message: "typed route input" }],
+    });
+
+    const finish = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      `${DeploymentRoute.push}/push-finish-typed/${DeploymentPushAction.finish}`,
+      {
+        method: "POST",
+        body: { activate: true },
+      },
+    )));
+    expect(finish).toMatchObject({
+      _tag: "DeploymentApiFinishPushRoute",
+      pushId: "push-finish-typed",
+      body: { activate: true },
+    });
+
+    const abandon = await Effect.runPromise(decodeDeploymentApiRouteInput(jsonRequest(
+      `${DeploymentRoute.push}/push-abandon-typed/${DeploymentPushAction.abandon}`,
+      {
+        method: "POST",
+        body: { reason: "typed route abandon" },
+      },
+    )));
+    expect(abandon).toMatchObject({
+      _tag: "DeploymentApiAbandonPushRoute",
+      pushId: "push-abandon-typed",
+      body: { reason: "typed route abandon" },
+    });
   });
 
   it("canonicalizes analyzed start-push requests through Effect decoders", async () => {
