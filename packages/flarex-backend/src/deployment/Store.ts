@@ -1,10 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { validateExecutionArtifactRef } from "flarex/artifacts";
 import { rejectedFinishPushResponse } from "../pushResponses.ts";
 import {
   decodePushStatusFromRow,
   type DeploymentPushStatusRow,
 } from "./Validation";
+import { decodeDeploymentStorageExecutionArtifactRefJson } from "./StorageRows";
 import type {
   ActiveDeploymentStatus,
   DeploymentAnalysis,
@@ -197,17 +197,7 @@ export const activeDeploymentExecutionArtifactRefFromMeta = Effect.fn(
   activePushId: string,
   rawExecutionArtifactRef: string | null,
 ): Effect.fn.Return<ExecutionArtifactRef, DeploymentActiveDeploymentInvalidError> {
-  if (rawExecutionArtifactRef === null) {
-    return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
-      message: `Active push ${activePushId} has no execution artifact reference.`,
-    }));
-  }
-  return yield* Effect.try({
-    try: () => validateExecutionArtifactRef(JSON.parse(rawExecutionArtifactRef)),
-    catch: cause => new DeploymentActiveDeploymentInvalidError({
-      message: cause instanceof Error ? cause.message : String(cause),
-    }),
-  });
+  return yield* decodeDeploymentStorageExecutionArtifactRefJson(activePushId, rawExecutionArtifactRef);
 });
 
 export const activeDeploymentActivatedAtFromMeta = Effect.fn(

@@ -1317,7 +1317,7 @@ describe("deployment validation", () => {
       throw new Error("Expected decodePushStatusFromRow to fail.");
     }
     expect(failure.error).toBeInstanceOf(DeploymentValidationError);
-    expect(failure.error.message).toBe("Source package must be an object.");
+    expect(failure.error.message).toBe("Stored push source_package_json must match stored schema.");
   });
 
   it("exposes typed stored push row validation failures", async () => {
@@ -1340,7 +1340,7 @@ describe("deployment validation", () => {
     );
     await expectDeploymentValidationEffectFailure(
       decodePushStatusFromRow(pushRow({ source_package_json: "null" })),
-      "Source package must be an object.",
+      "Stored push source_package_json must match stored schema.",
     );
     await expectDeploymentValidationEffectFailure(
       decodePushStatusFromRow(pushRow({

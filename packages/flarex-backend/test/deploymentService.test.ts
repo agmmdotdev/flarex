@@ -274,7 +274,7 @@ describe("DeploymentService", () => {
       if (!(error instanceof DeploymentValidationError)) {
         throw new Error("Expected DeploymentValidationError.");
       }
-      expect(error.message).toBe("Source package must be an object.");
+      expect(error.message).toBe("Stored push source_package_json must match stored schema.");
     } finally {
       await runtime.dispose();
     }
@@ -1158,7 +1158,7 @@ describe("DeploymentService", () => {
       if (!(typedSchemaError instanceof DeploymentValidationError)) {
         throw new Error("Expected DeploymentValidationError.");
       }
-      expect(typedSchemaError.message).toBe("Schema must be an object.");
+      expect(typedSchemaError.message).toBe("Stored push schema_json must match stored schema.");
     } finally {
       await typedSchemaRuntime.dispose();
     }

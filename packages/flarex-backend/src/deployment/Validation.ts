@@ -1,5 +1,12 @@
 import { Effect } from "effect";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
+import {
+  decodeDeploymentStorageCodegenAnalysisJson,
+  decodeDeploymentStorageDiagnosticsJson,
+  decodeDeploymentStorageFunctionsJson,
+  decodeDeploymentStorageSchemaJson,
+  decodeDeploymentStorageSourcePackageJson,
+} from "./StorageRows";
 import type {
   AnalyzedSourcePosition,
   AnalyzedStartPushRequest,
@@ -230,11 +237,11 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
 export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePushStatusFromRow")(
   function* (row: DeploymentPushStatusRow): Effect.fn.Return<PushStatus, DeploymentValidationError> {
     const state = yield* decodePushState(row.state);
-    const sourcePackageJson = yield* decodeStoredJson("source_package_json", row.source_package_json);
-    const sourcePackage = yield* decodeSourcePackage(sourcePackageJson as PushSourcePackage);
+    const sourcePackageJson = yield* decodeDeploymentStorageSourcePackageJson(row.source_package_json);
+    const sourcePackage = yield* decodeSourcePackage(sourcePackageJson);
     const diagnosticsJson = row.diagnostics_json === null
       ? []
-      : yield* decodeStoredJson("diagnostics_json", row.diagnostics_json);
+      : yield* decodeDeploymentStorageDiagnosticsJson(row.diagnostics_json);
     const diagnostics = yield* decodeDiagnostics(diagnosticsJson);
 
     let storedAnalysis: DeploymentAnalysis | undefined;
@@ -244,8 +251,8 @@ export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePus
           "Stored push analysis must include both schema_json and functions_json.",
         );
       }
-      const schema = yield* decodeStoredJson("schema_json", row.schema_json);
-      const functions = yield* decodeStoredJson("functions_json", row.functions_json);
+      const schema = yield* decodeDeploymentStorageSchemaJson(row.schema_json);
+      const functions = yield* decodeDeploymentStorageFunctionsJson(row.functions_json);
       storedAnalysis = yield* decodeAnalysis({
         schema,
         functions,
@@ -254,7 +261,7 @@ export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePus
 
     const storedCodegenAnalysis = row.codegen_analysis_json === null
       ? undefined
-      : yield* decodeStoredJson("codegen_analysis_json", row.codegen_analysis_json);
+      : yield* decodeDeploymentStorageCodegenAnalysisJson(row.codegen_analysis_json);
     const codegenAnalysis = storedAnalysis === undefined
       ? undefined
       : storedCodegenAnalysis === undefined
@@ -334,18 +341,6 @@ const decodePushState = Effect.fn("DeploymentValidation.decodePushState")(functi
     return value;
   }
   return yield* deploymentValidationFailureEffect(`Unknown stored push state ${value}.`);
-});
-
-const decodeStoredJson = Effect.fn("DeploymentValidation.decodeStoredJson")(function* (
-  field: string,
-  raw: string,
-): Effect.fn.Return<unknown, DeploymentValidationError> {
-  return yield* Effect.try({
-    try: () => JSON.parse(raw) as unknown,
-    catch: () => new DeploymentValidationError({
-      message: `Stored push ${field} must be valid JSON.`,
-    }),
-  });
 });
 
 function deploymentValidationFailureEffect(message: string): Effect.Effect<never, DeploymentValidationError> {

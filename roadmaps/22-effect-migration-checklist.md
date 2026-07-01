@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: S-1 PartitionDO storage row decoding in this
+- Previous completed checkpoint: S-2 Deployment storage row decoding in this
   checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -355,13 +355,16 @@ The Effect migration is complete only when all of these are true:
     `test/transaction.test.ts`,
     `test/sync.test.ts`,
     `test/occ.test.ts`.
-- [ ] S-2. Deployment store/storage rows: schema-check execution artifact refs,
+- [x] S-2. Deployment store/storage rows: schema-check execution artifact refs,
   deployment analysis, push status, and storage schema boundaries.
+  - Completed by: this S-2 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/deployment/Store.ts`,
+    `packages/flarex-backend/src/deployment/StorageRows.ts`,
     `packages/flarex-backend/src/deployment/StorageSchema.ts`,
     `packages/flarex-backend/src/deployment/Validation.ts`.
   - Focus tests:
+    `test/deploymentStorageRows.test.ts`,
     `test/deploymentStorageSchema.test.ts`,
     `test/deploymentService.test.ts`,
     `test/deploymentValidation.test.ts`.
@@ -444,10 +447,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with S-2:
+Start with S-3:
 
-Schema-check deployment store/storage rows for execution artifact refs,
-deployment analysis, push status, and storage schema boundaries; update
+Convert scheduler delivery wake and connection message/body JSON bridge
+helpers to typed decoder functions with boundary tests; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
-with the S-2 focused tests, run only the EffectTS quality checker if Effect
-code changes, tick `S-2`, then commit.
+with the S-3 focused tests, run only the EffectTS quality checker if Effect
+code changes, tick `S-3`, then commit.

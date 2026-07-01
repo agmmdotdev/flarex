@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Deployment Storage Row Decoder Boundary
+
+Previous completed checkpoint: `91ebf29` Decode PartitionDO storage rows with
+Effect.
+
+What changed:
+
+- Added `packages/flarex-backend/src/deployment/StorageRows.ts` as the backend
+  package boundary for deployment-owned persisted JSON rows.
+- `deployment/Validation.ts` now hydrates stored push row JSON through
+  storage decoders before running deployment semantic validation.
+- `deployment/Store.ts` now delegates active execution artifact ref JSON
+  decoding to the deployment storage boundary.
+- Added `test/deploymentStorageRows.test.ts` for direct decoder coverage.
+
+Boundary decision:
+
+Deployment storage row formats stay in `flarex-backend` because they describe
+Durable Object SQLite columns, not public protocol contracts. The row schemas
+check persisted family shape, while public transport schemas and detailed
+deployment semantics remain in their existing protocol and backend validation
+modules.
+
+Convex comparison:
+
+Convex keeps schema metadata, analyzed functions, module paths, function names,
+and validator JSON behind typed model objects in
+`crates/common/src/bootstrap_model/schema_metadata.rs`,
+`crates/model/src/modules/module_versions.rs`, and
+`crates/convex/sync_types/src/udf_path.rs`. Flarex's Cloudflare backend uses
+SQLite JSON columns for equivalent deployment push state, so the package
+boundary is backend-local row hydration.
+
+Known limitations:
+
+- This checkpoint does not add new `flarex-protocol` exports.
+- This checkpoint does not alter deployment DDL, deployment route boundaries,
+  executor-http, or artifact runtime package boundaries.
+- `ValidatorJson` remains parsed by the backend validation module after row
+  hydration; Effect Schema is not replacing user validator semantics here.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentStorageRows.test.ts test/deploymentStorageSchema.test.ts test/deploymentService.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## PartitionDO Storage Row Decoder Boundary
 
 Previous completed checkpoint: `564a342` Dispatch registry routes directly.

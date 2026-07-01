@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: S-1 PartitionDO storage row decoding in this checkpoint commit.
-- Active checkpoint: S-2 deployment store/storage row decoding, schema-checking execution artifact refs, deployment analysis, push status, and storage schema boundaries.
+- Previous completed checkpoint: S-2 deployment store/storage row decoding in this checkpoint commit.
+- Active checkpoint: S-3 scheduler/connection JSON bridge helpers, converting delivery wake and connection message/body parsing to typed decoder functions with boundary tests.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,18 +52,28 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after S-1 PartitionDO storage row decoding:
+Next recommended checkpoint after S-2 deployment store/storage row decoding:
 
-1. Audit deployment store/storage row JSON parsing for execution artifact refs,
-   deployment analysis, push status, and storage schema boundaries.
-2. Add schema-backed Effect decoders at the deployment persistence boundary
-   without changing deployment lifecycle behavior or response bodies.
-3. Preserve deployment storage, service, and validation behavior through the
-   S-2 focused tests before ticking S-2.
-4. Continue avoiding executor-http, public Worker route remapping, and
-   `ValidatorJson` unless S-2 owns that boundary directly.
+1. Audit scheduler delivery wake and connection message/body JSON bridge
+   helpers for untyped parsing.
+2. Add typed Effect decoder functions at those bridge boundaries without
+   changing SchedulerDO, DeliveryDO, or ConnectionDO route behavior.
+3. Preserve scheduler delivery wake and connection behavior through the S-3
+   focused tests before ticking S-3.
+4. Continue avoiding executor-http, deployment storage, public Worker route
+   remapping, and broad service rewrites unless S-3 owns that boundary
+   directly.
 
-Current Goal 357 slice:
+Current Goal 358 slice:
+
+1. Audit `scheduler/DeliveryWakeBoundary.ts` and `connectionDO.ts` for
+   remaining untyped JSON bridge parsing.
+2. Replace owned bridge casts/parsing with typed Effect decoder functions.
+3. Keep scheduler wake, delivery reconnect, and connection route response
+   behavior unchanged.
+4. Preserve behavior through the S-3 focused tests before ticking S-3.
+
+Completed Goal 357 slice:
 
 1. Audit `deployment/Store.ts`, `deployment/StorageSchema.ts`, and
    `deployment/Validation.ts` for untyped persisted JSON reads and related

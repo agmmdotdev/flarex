@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Deployment Storage Row Runtime Boundary
+
+Previous completed checkpoint: `91ebf29` Decode PartitionDO storage rows with
+Effect.
+
+What changed:
+
+- Deployment push status hydration now parses persisted push row JSON through
+  `deployment/StorageRows.ts`.
+- Active deployment metadata now validates the stored execution artifact ref
+  through a named storage decoder before `validateExecutionArtifactRef(...)`.
+- Row-family shape failures remain typed as `DeploymentValidationError` for
+  stored push rows and `DeploymentActiveDeploymentInvalidError` for active
+  deployment metadata.
+
+Why it changed:
+
+S-2 localizes deployment persisted JSON parsing at the Durable Object storage
+boundary. Runtime code now distinguishes invalid row-family shape from deeper
+deployment analysis, function metadata, partition, codegen, and `ValidatorJson`
+semantic failures.
+
+Convex comparison:
+
+Convex keeps schema/module/function metadata typed around
+`crates/common/src/bootstrap_model/schema_metadata.rs`,
+`crates/model/src/modules/module_versions.rs`, and
+`crates/convex/sync_types/src/udf_path.rs`. Flarex stores deployment push
+analysis and active metadata as DO SQLite JSON columns, so runtime validation
+must decode those columns before semantic validation.
+
+Known limitations:
+
+- Deployment HTTP route body decoding and response mapping are unchanged.
+- The persisted row schemas intentionally remain top-level row-family shape
+  checks; nested deployment semantics still belong to the existing deployment
+  validators.
+- This checkpoint does not change `StorageSchema.ts` DDL.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentStorageRows.test.ts test/deploymentStorageSchema.test.ts test/deploymentService.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## PartitionDO Storage Row Runtime Boundary
 
 Previous completed checkpoint: `564a342` Dispatch registry routes directly.

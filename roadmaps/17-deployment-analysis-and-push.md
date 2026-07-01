@@ -1,5 +1,70 @@
 # Deployment Analysis And Push
 
+## Deployment Storage Row Decoders
+
+Previous completed checkpoint: `91ebf29` Decode PartitionDO storage rows with
+Effect.
+
+What changed:
+
+- Added `deployment/StorageRows.ts` with hoisted Effect Schema decoders for
+  deployment-owned persisted JSON row families.
+- `decodePushStatusFromRow(...)` now hydrates `source_package_json`,
+  `schema_json`, `functions_json`, `codegen_analysis_json`, and
+  `diagnostics_json` through storage-boundary decoders before running the
+  existing deployment semantic validators.
+- Active deployment metadata now decodes `active_execution_artifact_ref`
+  through the same storage boundary before validating the execution artifact
+  identity.
+- Added direct storage-row tests and kept deployment service/validation tests
+  focused on the split between row-family shape failures and deeper semantic
+  validation failures.
+
+Why it changed:
+
+S-2 removes deployment store JSON parsing from the general validation module
+and turns persisted deployment row hydration into an explicit Effect boundary.
+The row schemas intentionally check top-level persisted family shape only, so
+`ValidatorJson`, function partition, schema placement, and codegen semantic
+checks remain owned by the existing deployment validators.
+
+Convex sources inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs` serializes schema
+  metadata and deserializes it back into `DatabaseSchema`.
+- `crates/model/src/modules/module_versions.rs` stores analyzed function
+  metadata, validator JSON strings, and typed source positions around module
+  versions.
+- `crates/convex/sync_types/src/udf_path.rs` keeps canonical module/function
+  paths typed instead of treating function identity as arbitrary JSON.
+
+Cloudflare difference:
+
+Convex keeps deployment schema/module/function metadata in typed model layers
+and only serializes specific fields such as schema or validator JSON. Flarex's
+Cloudflare deployment store persists push analysis and active metadata in
+Durable Object SQLite JSON columns, so row hydration must validate the JSON
+family shape before handing values to backend semantic validators.
+
+Known limitations:
+
+- This checkpoint does not migrate public deployment route bodies, executor
+  HTTP, artifact runtime boundaries, or deployment service response mapping.
+- This checkpoint does not replace `ValidatorJson` semantics with Effect
+  Schema; it only validates persisted row-family shape before the existing
+  `ValidatorJson` parser runs.
+- Deployment storage schema DDL did not need a table/column migration; S-2
+  validates how existing columns are hydrated.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentStorageRows.test.ts test/deploymentStorageSchema.test.ts test/deploymentService.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Worker Route Family Error Propagation
 
 Previous completed checkpoint: `8312909` Tag public worker route errors.
