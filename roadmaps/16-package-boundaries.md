@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## DeliveryDO Internal Route Adapter Effects
+
+Previous completed checkpoint: `f020e80` Type scheduler route adapters.
+
+What changed:
+
+- `delivery/InternalRouteBoundary.ts` now owns DeliveryDO internal route
+  HTTP/response adapter mapping without importing Cloudflare runtime globals.
+- `deliveryDO.ts` now routes `runDeliveryRoute(...)` recovery through the
+  named response adapter.
+- Tests assert the named internal route HTTP and response adapters directly
+  while preserving DeliveryDO route behavior through Miniflare.
+
+Boundary decision:
+
+Delivery wake request decoding remains in `delivery/RouteBoundary.ts`.
+Pending-drain state validation remains in `delivery/PendingDrainState.ts`.
+Delivery operation failures remain in `delivery/RouteOperationError.ts`.
+Drain orchestration, persistence, alarm retry, and the concrete
+`DeliveryDrainFailureError` remain in `deliveryDO.ts`. HTTP response conversion
+for internal DeliveryDO route failures belongs to
+`delivery/InternalRouteBoundary.ts`, not the drain scheduler, public Worker
+wake dispatch, SchedulerDO, executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No DeliveryDO claim/fanout/ack scheduling, pending-drain storage,
+  alarm/retry behavior, public Worker wake dispatch, service binding
+  configuration, SchedulerDO behavior, executor-http route, PartitionDO
+  SQL/OCC behavior, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryDO.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Response/Internal Route Adapter Effects
 
 Previous completed checkpoint: `d0094a8` Type live query fanout adapters.

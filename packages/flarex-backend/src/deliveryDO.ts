@@ -1,14 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   decodeDeliveryWakeRequest,
-  deliveryWakeRouteErrorToHttpError,
   type DeliveryWakeRequest,
   type DeliveryWakeRouteError,
 } from "./delivery/RouteBoundary";
 import {
   DeliveryRouteOperationError,
   deliveryRouteOperationError,
-  deliveryRouteOperationErrorToHttpError,
   type DeliveryRouteOperation,
 } from "./delivery/RouteOperationError";
 import {
@@ -20,10 +18,13 @@ import {
 import {
   decodePendingDeliveryDrainFromStorage,
   DeliveryPendingDrainStateError,
-  deliveryPendingDrainStateErrorToHttpError,
   type PendingDeliveryDrain,
 } from "./delivery/PendingDrainState";
-import { HttpError, errorResponse, json } from "./http";
+import {
+  deliveryInternalRouteErrorToResponseEffect,
+  type DeliveryInternalRouteError,
+} from "./delivery/InternalRouteBoundary";
+import { HttpError, json } from "./http";
 import { Data, Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
@@ -559,47 +560,14 @@ function routeDeliveryDrainResult<A extends object>(
   );
 }
 
-type DeliveryInternalRouteError =
-  | DeliveryWakeRouteError
-  | DeliveryRouteOperationError
-  | DeliveryPendingDrainStateError
-  | DeliveryDrainFailureError;
-
 function runDeliveryRoute(
   effect: Effect.Effect<Response, DeliveryInternalRouteError>,
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: recoverDeliveryInternalRouteError,
-        DeliveryWakePayloadError: recoverDeliveryInternalRouteError,
-        DeliveryRouteOperationError: recoverDeliveryInternalRouteError,
-        DeliveryPendingDrainStateError: recoverDeliveryInternalRouteError,
-        DeliveryDrainFailureError: recoverDeliveryInternalRouteError,
-      }),
+      Effect.catch(deliveryInternalRouteErrorToResponseEffect),
     ),
   );
-}
-
-function recoverDeliveryInternalRouteError(
-  error: DeliveryInternalRouteError,
-): Effect.Effect<Response> {
-  return Effect.succeed(deliveryInternalRouteErrorToResponse(error));
-}
-
-function deliveryInternalRouteErrorToResponse(
-  error: DeliveryInternalRouteError,
-): Response {
-  if (error instanceof DeliveryDrainFailureError) {
-    return json(error.result, { status: 500 });
-  }
-  if (error instanceof DeliveryRouteOperationError) {
-    return errorResponse(deliveryRouteOperationErrorToHttpError(error));
-  }
-  if (error instanceof DeliveryPendingDrainStateError) {
-    return errorResponse(deliveryPendingDrainStateErrorToHttpError(error));
-  }
-  return errorResponse(deliveryWakeRouteErrorToHttpError(error));
 }
 
 function errorMessage(error: unknown): string {

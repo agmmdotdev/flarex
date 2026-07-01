@@ -1,4 +1,12 @@
+import { Effect } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
+import {
+  deliveryInternalRouteErrorToHttpErrorEffect,
+  deliveryInternalRouteErrorToResponseEffect,
+} from "../src/delivery/InternalRouteBoundary";
+import {
+  DeliveryPendingDrainStateError,
+} from "../src/delivery/PendingDrainState";
 import type { Env } from "../src/types";
 import {
   createBackendHarness,
@@ -10,6 +18,63 @@ describe("DeliveryDO", () => {
 
   afterAll(async () => {
     await Promise.all(harnesses.map(harness => harness.dispose()));
+  });
+
+  it("maps typed internal route errors through named adapter effects", async () => {
+    const error = new DeliveryPendingDrainStateError({
+      message: "pending delivery drain state is invalid.",
+    });
+
+    await expect(Effect.runPromise(
+      deliveryInternalRouteErrorToHttpErrorEffect(error),
+    )).rejects.toMatchObject({
+      status: 500,
+      message: "pending delivery drain state is invalid.",
+    });
+
+    const response = await Effect.runPromise(
+      deliveryInternalRouteErrorToResponseEffect(error),
+    );
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "pending delivery drain state is invalid.",
+    });
+  });
+
+  it("maps structural drain failures through the named response adapter", async () => {
+    const response = await Effect.runPromise(
+      deliveryInternalRouteErrorToResponseEffect({
+        _tag: "DeliveryDrainFailureError",
+        result: {
+          deploymentId: "deployment-a",
+          error: "claim failed",
+          summary: {
+            batches: 0,
+            claimed: 0,
+            acked: 0,
+            delivered: 0,
+            skipped: 0,
+            pendingAck: 0,
+            hasMore: false,
+          },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      deploymentId: "deployment-a",
+      error: "claim failed",
+      summary: {
+        batches: 0,
+        claimed: 0,
+        acked: 0,
+        delivered: 0,
+        skipped: 0,
+        pendingAck: 0,
+        hasMore: false,
+      },
+    });
   });
 
   it("maps typed executor claim failures into the drain failure envelope", async () => {

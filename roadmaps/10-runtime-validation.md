@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## DeliveryDO Internal Route Adapter Effects
+
+Previous completed checkpoint: `f020e80` Type scheduler route adapters.
+
+What changed:
+
+- DeliveryDO internal route recovery now uses the named
+  `deliveryInternalRouteErrorToResponseEffect(...)` adapter instead of an
+  inline tag table.
+- `delivery/InternalRouteBoundary.ts` owns DeliveryDO HTTP/response adapter
+  mapping without importing Cloudflare runtime globals.
+- Non-drain delivery route failures now have a named
+  `deliveryInternalRouteErrorToHttpErrorEffect(...)` adapter.
+- Focused tests cover the named Delivery internal route HTTP and response
+  adapters directly.
+
+Why it changed:
+
+DeliveryDO already had typed wake, operation, pending-drain, and drain-failure
+errors, but route recovery still used an inline tag table in the Durable Object
+module. Moving the adapter into a small Cloudflare-free module keeps HTTP
+conversion at the internal route edge and lets tests assert the adapter without
+importing `cloudflare:workers`.
+
+Known limitations:
+
+- This checkpoint does not change DeliveryDO claim/fanout/ack scheduling,
+  pending-drain storage, alarm/retry behavior, public Worker wake dispatch,
+  SchedulerDO behavior, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryDO.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Response/Internal Route Adapter Effects
 
 Previous completed checkpoint: `d0094a8` Type live query fanout adapters.
