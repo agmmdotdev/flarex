@@ -1,5 +1,62 @@
 # OCC And Transactions
 
+## PartitionDO Storage Row Decoders
+
+Previous completed checkpoint: `564a342` Dispatch registry routes directly.
+
+What changed:
+
+- Added `partition/StorageRows.ts` with schema-backed Effect decoders for
+  PartitionDO storage row JSON.
+- Replaced untyped storage-row `JSON.parse(...) as ...` casts for idempotency
+  commit responses, subscription read sets, table placement, table validators,
+  write-log document writes, write-log index writes, document values, and index
+  fields.
+- Added direct storage decoder tests for typed success and typed failure
+  channels.
+
+What did not change:
+
+- PartitionDO SQL table layout, OCC conflict checks, commit ordering,
+  idempotency replay semantics, subscription invalidation, owner validation,
+  document/index history, and HTTP response bodies are unchanged.
+- This checkpoint does not extract PartitionDO transaction logic into a service
+  layer and does not migrate deployment storage, executor-http, or
+  `ValidatorJson` user validation semantics.
+
+Convex sources inspected:
+
+- `crates/database/src/reads.rs` keeps typed `ReadSet` structures around
+  indexed/search reads.
+- `crates/database/src/write_log.rs` keeps pending writes and write-log
+  staleness checks typed before conflict detection.
+- `crates/database/src/committer.rs` validates commits against both persisted
+  write log state and pending writes before computing document/index writes.
+
+Cloudflare difference:
+
+Flarex stores read sets, writes, placement, validators, documents, and index
+fields as JSON blobs in Durable Object SQLite row columns. The Effect decoder
+boundary therefore sits at row hydration, while Convex keeps equivalent
+structures typed in Rust throughout the database path.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionFlow.test.ts test/transaction.test.ts test/occ.test.ts test/partitionStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "coalesces concurrent fresh pending delivery reconciles|does not coalesce concurrent pending delivery reconciles with different parameters" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
+Known validation note:
+
+- One full `test/sync.test.ts` run hit Miniflare/undici `ECONNRESET` timeouts
+  in the two pending-delivery coalescing tests; the exact failed tests passed
+  on targeted rerun.
+
 ## Partition Route Request Effects
 
 Previous completed checkpoint: `e752f33` Type registry create request boundary.

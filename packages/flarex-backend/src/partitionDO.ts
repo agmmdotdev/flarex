@@ -20,6 +20,16 @@ import {
   type PartitionSubscriptionRegistrationRequest,
   type PartitionSubscriptionTargetRequest,
 } from "./partition/RouteBoundary";
+import {
+  decodePartitionStorageCommitResponseJsonSync,
+  decodePartitionStorageCommittedWritesJsonSync,
+  decodePartitionStorageDocumentJsonSync,
+  decodePartitionStorageIndexFieldsJsonSync,
+  decodePartitionStorageIndexWritesJsonSync,
+  decodePartitionStorageReadSetJsonSync,
+  decodePartitionStorageTablePlacementJsonSync,
+  decodePartitionStorageTableValidatorJsonSync,
+} from "./partition/StorageRows";
 import { Data, Effect } from "effect";
 import type {
   BeginResponse,
@@ -277,7 +287,12 @@ export class PartitionDO extends DurableObject<Env> {
           idempotencyKey,
         )
         .toArray()[0];
-      if (cached) return { ...(JSON.parse(cached.result_json) as CommitResponse), replayed: true };
+      if (cached) {
+        return {
+          ...decodePartitionStorageCommitResponseJsonSync(cached.result_json),
+          replayed: true,
+        };
+      }
     }
 
     const result = await this.ctx.storage.transaction(async () => {
@@ -392,7 +407,7 @@ export class PartitionDO extends DurableObject<Env> {
       )
       .toArray();
     return rows.flatMap(row => {
-      const readSet = JSON.parse(row.read_set_json) as ReadSet;
+      const readSet = decodePartitionStorageReadSetJsonSync(row.read_set_json);
       const conflict = findReadSetConflict(readSet, [
         { ts: commitTs, writes, indexWrites },
       ]);
@@ -433,7 +448,7 @@ export class PartitionDO extends DurableObject<Env> {
         )
         .toArray()[0];
       if (!row) throw new HttpError(400, `Write references unknown table id ${write.tableId}.`);
-      const placement = JSON.parse(row.partition_rule_json) as TablePlacement;
+      const placement = decodePartitionStorageTablePlacementJsonSync(row.partition_rule_json);
       if (write.value === null) {
         const current = this.getCurrentDocument(write.tableId, write.id);
         if (current !== null) {
@@ -453,7 +468,7 @@ export class PartitionDO extends DurableObject<Env> {
         }
         continue;
       }
-      const validator = JSON.parse(row.schema_json ?? "null") as ValidatorJson | null;
+      const validator = decodePartitionStorageTableValidatorJsonSync(row.schema_json ?? "null");
       if (validator !== null) {
         try {
           validateJsonValue(validator, write.value, `$document(${row.table_name})`, {
@@ -688,8 +703,8 @@ export class PartitionDO extends DurableObject<Env> {
       readSet,
       rows.map(row => ({
         ts: row.ts,
-        writes: JSON.parse(row.writes_json) as CommittedWrite[],
-        indexWrites: JSON.parse(row.index_writes_json) as IndexWrite[],
+        writes: decodePartitionStorageCommittedWritesJsonSync(row.writes_json),
+        indexWrites: decodePartitionStorageIndexWritesJsonSync(row.index_writes_json),
       })),
     );
     if (conflict) throw conflict;
@@ -790,7 +805,12 @@ export class PartitionDO extends DurableObject<Env> {
       )
       .toArray()[0];
     return row
-      ? { tableId: row.table_id, id: row.id, ts: row.ts, value: JSON.parse(row.json_value) as Json }
+      ? {
+          tableId: row.table_id,
+          id: row.id,
+          ts: row.ts,
+          value: decodePartitionStorageDocumentJsonSync(row.json_value),
+        }
       : null;
   }
 
@@ -819,7 +839,7 @@ export class PartitionDO extends DurableObject<Env> {
       tableId: row.table_id,
       id: row.id,
       ts: row.ts,
-      value: JSON.parse(row.json_value ?? "null") as Json,
+      value: decodePartitionStorageDocumentJsonSync(row.json_value ?? "null"),
     };
   }
 
@@ -849,7 +869,7 @@ export class PartitionDO extends DurableObject<Env> {
       tableId: row.table_id,
       id: row.id,
       ts: row.ts,
-      value: JSON.parse(row.json_value ?? "null") as Json,
+      value: decodePartitionStorageDocumentJsonSync(row.json_value ?? "null"),
     };
   }
 
@@ -933,7 +953,7 @@ export class PartitionDO extends DurableObject<Env> {
         indexId: row.index_id,
         tableId: row.table_id,
         name: row.index_name,
-        fields: JSON.parse(row.fields_json) as string[],
+        fields: decodePartitionStorageIndexFieldsJsonSync(row.fields_json),
         state: row.state as NonNullable<SchemaIndex["state"]>,
       }));
   }

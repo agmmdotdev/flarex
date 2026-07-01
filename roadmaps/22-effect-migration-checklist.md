@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: O-4 RegistryDO direct dispatch in this
+- Previous completed checkpoint: S-1 PartitionDO storage row decoding in this
   checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -340,14 +340,17 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 6: Storage And Persistence JSON Decoding
 
-- [ ] S-1. PartitionDO storage rows: replace untyped `JSON.parse(...) as ...`
+- [x] S-1. PartitionDO storage rows: replace untyped `JSON.parse(...) as ...`
   casts for read sets, writes, indexes, documents, placement, and schema cache
   with schema-backed Effect decoders.
+  - Completed by: this S-1 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/partitionDO.ts`,
+    `packages/flarex-backend/src/partition/StorageRows.ts`,
     `packages/flarex-backend/src/partition/Requests.ts`,
     `packages/flarex-backend/src/types.ts`.
   - Focus tests:
+    `test/partitionStorageRows.test.ts`,
     `test/partitionFlow.test.ts`,
     `test/transaction.test.ts`,
     `test/sync.test.ts`,
@@ -441,10 +444,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with S-1:
+Start with S-2:
 
-Replace untyped `PartitionDO` storage row `JSON.parse(...) as ...` casts for
-read sets, writes, indexes, documents, placement, and schema cache with
-schema-backed Effect decoders; update `effect-ts-migration-draft/your-proposal.md`
-and relevant roadmaps, validate with the S-1 focused tests, run only the
-EffectTS quality checker if Effect code changes, tick `S-1`, then commit.
+Schema-check deployment store/storage rows for execution artifact refs,
+deployment analysis, push status, and storage schema boundaries; update
+`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
+with the S-2 focused tests, run only the EffectTS quality checker if Effect
+code changes, tick `S-2`, then commit.

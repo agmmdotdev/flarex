@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## PartitionDO Storage Row Decoder Boundary
+
+Previous completed checkpoint: `564a342` Dispatch registry routes directly.
+
+What changed:
+
+- Added `packages/flarex-backend/src/partition/StorageRows.ts` as the backend
+  package boundary for PartitionDO-owned persisted JSON rows.
+- `partitionDO.ts` now calls storage decoder wrappers for idempotency results,
+  subscription read sets, table placement, table validators, write-log writes,
+  write-log index writes, document JSON values, and index fields.
+- Direct tests in `test/partitionStorageRows.test.ts` cover the reusable
+  Effect decoders separately from PartitionDO HTTP behavior.
+
+Boundary decision:
+
+Partition storage row validation belongs in `flarex-backend` because these
+SQLite row shapes are Durable Object persistence details, not public protocol
+contracts. Reusing protocol schemas is appropriate for shared JSON,
+`TablePlacement`, and `ValidatorJson` shapes, but this checkpoint does not move
+PartitionDO row formats into `flarex-protocol`.
+
+Convex comparison:
+
+Convex keeps read sets and write logs typed around
+`crates/database/src/reads.rs`, `crates/database/src/write_log.rs`, and
+`crates/database/src/committer.rs`. The Cloudflare backend persists equivalent
+runtime state as JSON blobs in DO SQLite, so the package boundary is a typed
+hydration module inside the backend package.
+
+Known limitations:
+
+- The sync wrappers remain because the current Durable Object SQLite read path
+  is synchronous. The Effect-returning decoders are the reusable boundary; the
+  wrappers are adapter compatibility.
+- This checkpoint does not change `types.ts`, protocol package exports,
+  deployment storage, executor-http, or `ValidatorJson` validation semantics.
+- One full `test/sync.test.ts` run hit Miniflare/undici `ECONNRESET` timeouts
+  in the two pending-delivery coalescing tests; the exact failed tests passed
+  on targeted rerun.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionFlow.test.ts test/transaction.test.ts test/occ.test.ts test/partitionStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "coalesces concurrent fresh pending delivery reconciles|does not coalesce concurrent pending delivery reconciles with different parameters" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## RegistryDO Direct Dispatch Runtime Boundary
 
 Previous completed checkpoint: `e900024` Type delivery scheduler alarm

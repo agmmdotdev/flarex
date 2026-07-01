@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: O-4 RegistryDO direct dispatch in this checkpoint commit.
-- Active checkpoint: S-1 PartitionDO storage row decoding, replacing untyped `JSON.parse(...) as ...` casts for read sets, writes, indexes, documents, placement, and schema cache with schema-backed Effect decoders.
+- Previous completed checkpoint: S-1 PartitionDO storage row decoding in this checkpoint commit.
+- Active checkpoint: S-2 deployment store/storage row decoding, schema-checking execution artifact refs, deployment analysis, push status, and storage schema boundaries.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,19 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after O-4 RegistryDO direct dispatch:
+Next recommended checkpoint after S-1 PartitionDO storage row decoding:
 
-1. Audit `PartitionDO` storage row JSON parsing for read sets, writes, indexes,
-   documents, placement, and schema cache.
-2. Add schema-backed Effect decoders at the persistence boundary without
-   changing SQL/OCC semantics or commit behavior.
-3. Preserve partition flow, transaction, sync, and OCC behavior through focused
-   tests before ticking S-1.
-4. Continue avoiding deployment storage, executor-http, protocol parser
-   compatibility wrappers, and `ValidatorJson` unless S-1 owns that boundary
-   directly.
+1. Audit deployment store/storage row JSON parsing for execution artifact refs,
+   deployment analysis, push status, and storage schema boundaries.
+2. Add schema-backed Effect decoders at the deployment persistence boundary
+   without changing deployment lifecycle behavior or response bodies.
+3. Preserve deployment storage, service, and validation behavior through the
+   S-2 focused tests before ticking S-2.
+4. Continue avoiding executor-http, public Worker route remapping, and
+   `ValidatorJson` unless S-2 owns that boundary directly.
 
-Current Goal 356 slice:
+Current Goal 357 slice:
+
+1. Audit `deployment/Store.ts`, `deployment/StorageSchema.ts`, and
+   `deployment/Validation.ts` for untyped persisted JSON reads and related
+   compatibility parsers.
+2. Replace owned deployment storage casts with schema-backed Effect decoders
+   that fail at the storage boundary.
+3. Keep deployment status transitions, artifact references, validation
+   semantics, and HTTP response bodies unchanged.
+4. Preserve behavior through the S-2 focused tests before ticking S-2.
+
+Completed Goal 356 slice:
 
 1. Audit `PartitionDO` row reads and related partition request/types modules
    for untyped storage JSON casts.
