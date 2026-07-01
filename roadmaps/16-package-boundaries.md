@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Public Invoke Protocol Request Effect Decoder
+
+Previous completed checkpoint: `7e3dd43` Add execution protocol effect decoders.
+
+What changed:
+
+- `flarex-protocol/invoke` owns the Effect-returning public invoke request
+  decoder.
+- Backend `invoke/Requests.ts` owns conversion from the protocol body to the
+  backend invoke request, including missing deployment/path/partition-key
+  domain failures and omitted-args defaulting.
+- Throwing public invoke protocol parsing remains a compatibility adapter, not
+  the source API used by migrated Effect decode paths.
+
+Boundary decision:
+
+The protocol package owns transport request shape and emits
+`InvokeProtocolValidationError` at the first failing boundary. The backend
+invoke request layer owns route/body deployment id selection and backend
+request normalization. The public invoke route boundary owns request-body JSON
+reading and final HTTP conversion. Invoke execution owns runtime behavior.
+
+Known limitations:
+
+- This checkpoint does not change invoke execution services, active deployment
+  loading, artifact runtime dispatch, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/invokeRequests.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Execution Protocol Request Effect Decoders
 
 Previous completed checkpoint: `8b4346f` Validate artifact runtime invoke responses.

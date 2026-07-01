@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 import {
+  decodePublicInvokeRequestBodyEffect,
   InvokeProtocolValidationError,
   parsePublicInvokeRequestBody,
   type PublicInvokeRequestBody,
@@ -20,7 +21,7 @@ export const decodePublicInvokePayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PublicInvokeRequestBody, InvokeProtocolValidationError> {
-  return yield* protocolParserResultToEffect(() => parsePublicInvokeRequestBody(value));
+  return yield* decodePublicInvokeRequestBodyEffect(value);
 });
 
 export function parsePublicInvokePayload(value: unknown): PublicInvokeRequestBody {
@@ -60,18 +61,3 @@ export const invokeRequestFromPublicInvokeBodyEffect = Effect.fn(
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
   };
 });
-
-function protocolParserResultToEffect<T>(
-  parse: () => T,
-): Effect.Effect<T, InvokeProtocolValidationError> {
-  return Effect.suspend(() => {
-    try {
-      return Effect.succeed(parse());
-    } catch (error) {
-      if (error instanceof InvokeProtocolValidationError) {
-        return Effect.fail(error);
-      }
-      return Effect.die(error);
-    }
-  });
-}

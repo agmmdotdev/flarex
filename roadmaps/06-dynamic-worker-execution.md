@@ -1,5 +1,39 @@
 # Dynamic Worker Execution
 
+## Public Invoke Protocol Request Effect Decoder
+
+Previous completed checkpoint: `7e3dd43` Add execution protocol effect decoders.
+
+What changed:
+
+- Public invoke transport payloads now have a protocol-owned Effect decoder.
+- Backend invoke request helpers use that decoder directly before resolving
+  route/body deployment id and normalizing the backend `InvokeRequest`.
+- Omitted invoke args still default to `null` at the backend invoke request
+  boundary, and missing path or empty partition key remain typed backend
+  route/domain failures before HTTP mapping.
+
+Why it changed:
+
+Direct dynamic-worker invoke execution starts at the public Worker invoke
+payload. That payload should fail as a typed protocol error at the first
+boundary instead of depending on a throwing parser wrapped in backend-local
+try/catch logic.
+
+Known limitations:
+
+- This checkpoint does not change invoke execution, active-deployment loading,
+  artifact runtime dispatch, execution sessions, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/invokeRequests.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Execution Protocol Request Effect Decoders
 
 Previous completed checkpoint: `8b4346f` Validate artifact runtime invoke responses.

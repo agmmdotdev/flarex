@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { JsonValue, type Json } from "./json";
 
 export class InvokeProtocolValidationError extends Schema.TaggedErrorClass<InvokeProtocolValidationError>()(
@@ -69,41 +69,64 @@ export const InvokeResponseSchema = Schema.Struct({
 });
 export type InvokeResponse = typeof InvokeResponseSchema.Type;
 
-const decodePublicInvokeRequestBody = Schema.decodeUnknownSync(
+const decodeUnknownPublicInvokeRequestBody = Schema.decodeUnknownEffect(
   PublicInvokeRequestBodySchema,
 );
 
+export const decodePublicInvokeRequestBodyEffect = Effect.fn(
+  "InvokeProtocol.decodePublicInvokeRequestBody",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PublicInvokeRequestBody, InvokeProtocolValidationError> {
+  if (!isRecordValue(value)) {
+    return yield* invokeProtocolValidationFailure(
+      "PublicInvokeRequestBody",
+      "Invoke request body must be an object.",
+      value,
+    );
+  }
+  const body = yield* decodeUnknownPublicInvokeRequestBody(value).pipe(
+    Effect.mapError(cause =>
+      new InvokeProtocolValidationError({
+        schema: "PublicInvokeRequestBody",
+        message:
+          "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
+        cause,
+      })
+    ),
+  );
+  return {
+    ...(body.deploymentId === undefined
+      ? {}
+      : { deploymentId: body.deploymentId }),
+    ...(body.path === undefined ? {} : { path: body.path }),
+    ...(body.args === undefined ? {} : { args: body.args }),
+    ...(body.partitionKey === undefined
+      ? {}
+      : { partitionKey: body.partitionKey }),
+    ...(body.kind === undefined ? {} : { kind: body.kind }),
+    ...(body.idempotencyKey === undefined
+      ? {}
+      : { idempotencyKey: body.idempotencyKey }),
+  };
+});
+
 export function parsePublicInvokeRequestBody(value: unknown): PublicInvokeRequestBody {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvokeProtocolValidationError({
-      schema: "PublicInvokeRequestBody",
-      message: "Invoke request body must be an object.",
-      cause: value,
-    });
-  }
-  try {
-    const body = decodePublicInvokeRequestBody(value);
-    return {
-      ...(body.deploymentId === undefined
-        ? {}
-        : { deploymentId: body.deploymentId }),
-      ...(body.path === undefined ? {} : { path: body.path }),
-      ...(body.args === undefined ? {} : { args: body.args }),
-      ...(body.partitionKey === undefined
-        ? {}
-        : { partitionKey: body.partitionKey }),
-      ...(body.kind === undefined ? {} : { kind: body.kind }),
-      ...(body.idempotencyKey === undefined
-        ? {}
-        : { idempotencyKey: body.idempotencyKey }),
-    };
-  } catch (cause) {
-    if (cause instanceof InvokeProtocolValidationError) throw cause;
-    throw new InvokeProtocolValidationError({
-      schema: "PublicInvokeRequestBody",
-      message:
-        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodePublicInvokeRequestBodyEffect(value));
+}
+
+function invokeProtocolValidationFailure(
+  schema: string,
+  message: string,
+  cause: unknown,
+): Effect.Effect<never, InvokeProtocolValidationError> {
+  return Effect.fail(new InvokeProtocolValidationError({
+    schema,
+    message,
+    cause,
+  }));
+}
+
+function isRecordValue(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

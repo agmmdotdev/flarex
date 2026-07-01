@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
+  decodePublicInvokeRequestBodyEffect,
   InvokeResponseSchema,
   InvokeProtocolValidationError,
   parsePublicInvokeRequestBody,
@@ -46,6 +47,27 @@ describe("invoke protocol schemas", () => {
       path: "health",
     })).toEqual({
       path: "health",
+    });
+  });
+
+  it("exposes typed invoke request decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
+      kind: "action",
+    }))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
+
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect(null)))
+      .rejects.toMatchObject({
+        schema: "PublicInvokeRequestBody",
+        message: "Invoke request body must be an object.",
+      });
+
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
+      path: "users:get",
+      args: { [Symbol("hidden")]: "value" },
+    }))).rejects.toMatchObject({
+      schema: "PublicInvokeRequestBody",
+      message:
+        "Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.",
     });
   });
 
