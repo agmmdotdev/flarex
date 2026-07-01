@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: R-6 connection and artifact runtime route boundaries in this checkpoint commit.
-- Active checkpoint: O-1 ConnectionDO runtime boundary, keeping WebSocket upgrade custom while schema-checking connection message JSON and route requests with typed Effect errors.
+- Previous completed checkpoint: O-1 ConnectionDO runtime boundary in this checkpoint commit.
+- Active checkpoint: O-2 ExecutionDO runtime boundary, keeping one `runPromise` in fetch while moving session/action failures to tagged errors and keeping invoke response mapping at the DO edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,25 +52,36 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-6 connection and artifact runtime route boundaries:
+Next recommended checkpoint after O-1 ConnectionDO runtime boundary:
 
-1. Continue into O-1 by tightening `connectionDO.ts` runtime inputs that were
-   intentionally left as adapter/runtime edges during R-6.
-2. Keep WebSocket upgrade and websocket state orchestration custom, but decode
-   connection message JSON through named Effect boundaries before sync handling.
-3. Preserve route request decoding and typed `ConnectionRouteError` mapping at
-   the ConnectionDO adapter edge.
-4. Continue avoiding PartitionDO SQL/OCC, deployment storage, scheduler/delivery
-   runtime loops, artifact materializer/cache, executor-http, protocol parser
-   compatibility wrappers, and `ValidatorJson` unless O-1 owns that boundary
-   directly.
+1. Continue into O-2 by tightening `ExecutionDO` runtime/session/action failure
+   boundaries without adding extra runtime bridges.
+2. Keep one `Effect.runPromise(...)` in `ExecutionDO.fetch(...)` and keep invoke
+   response mapping at the Durable Object adapter edge.
+3. Move session/action failures to tagged errors at their source boundary,
+   preserving current status/body behavior through focused ExecutionDO tests.
+4. Continue avoiding ConnectionDO websocket/session behavior, PartitionDO
+   SQL/OCC, deployment storage, scheduler/delivery runtime loops,
+   artifact materializer/cache, executor-http, protocol parser compatibility
+   wrappers, and `ValidatorJson` unless O-2 owns that boundary directly.
 
-Current Goal 352 slice:
+Current Goal 353 slice:
+
+1. Audit `ExecutionDO` fetch/session/action handling for remaining untyped
+   runtime failures and nested runtime boundaries.
+2. Convert owned session/action failures to tagged errors emitted at the source
+   boundary.
+3. Keep invoke response mapping and HTTP response conversion at the ExecutionDO
+   adapter edge.
+4. Preserve execution start/action/syscall/finish response behavior through
+   focused ExecutionDO/session/invoke tests before ticking O-2.
+
+Completed Goal 352 slice:
 
 1. Audit ConnectionDO websocket message parsing and route request handling for
    remaining untyped JSON/runtime bridge boundaries.
-2. Add named Effect decoders for owned connection message JSON shapes while
-   leaving websocket upgrade/session lifecycle behavior unchanged.
+2. Add schema-backed named Effect decoders for owned connection message JSON
+   shapes while leaving websocket upgrade/session lifecycle behavior unchanged.
 3. Keep HTTP/websocket response mapping at ConnectionDO adapter edges and keep
    operation/domain failures typed until those edges.
 4. Preserve connection route, dispatch, sync, and websocket behavior through

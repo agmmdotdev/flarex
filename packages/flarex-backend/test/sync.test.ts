@@ -6758,6 +6758,26 @@ describe("sync protocol", () => {
     });
     ws.close();
   });
+
+  it("maps invalid websocket client messages to FatalError at the ConnectionDO edge", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-message-boundary-deployment");
+
+    const ws = await openSync(harness, "sync-message-boundary-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: "invalid",
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toEqual({
+      type: "FatalError",
+      error: "ModifyQuerySet.modifications must be an array.",
+    });
+    ws.close();
+  });
 });
 
 async function createSyncHarness(

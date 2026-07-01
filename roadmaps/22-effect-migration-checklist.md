@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: R-6 connection and artifact runtime route
-  boundaries in this checkpoint commit.
+- Previous completed checkpoint: O-1 ConnectionDO runtime boundary in this
+  checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -289,14 +289,18 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 5: Durable Object Runtime Boundaries
 
-- [ ] O-1. ConnectionDO: keep WebSocket upgrade custom, but schema-check
+- [x] O-1. ConnectionDO: keep WebSocket upgrade custom, but schema-check
   message JSON and route requests with typed Effect errors.
+  - Completed by: this O-1 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/connectionDO.ts`,
+    `packages/flarex-backend/src/connection/MessageBoundary.ts`,
     `packages/flarex-backend/src/connection/*`.
   - Focus tests:
+    `test/connectionMessageBoundary.test.ts`,
     `test/connectionRouteBoundary.test.ts`,
-    `test/connectionRouteDispatchBoundary.test.ts`.
+    `test/connectionRouteDispatchBoundary.test.ts`,
+    selected `test/sync.test.ts` websocket message boundary cases.
 - [ ] O-2. ExecutionDO: keep one `runPromise` in fetch, move session/action
   failures to tagged errors, and keep invoke response mapping at the DO edge.
   - Files:
@@ -430,11 +434,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with O-1:
+Start with O-2:
 
-Tighten `ConnectionDO` runtime boundaries while keeping WebSocket upgrade and
-session lifecycle custom: schema-check connection message JSON and route
-requests with typed Effect errors, keep HTTP/websocket response mapping at the
-ConnectionDO adapter edge, update `effect-ts-migration-draft/your-proposal.md`
+Tighten `ExecutionDO` runtime boundaries while keeping one `runPromise` in
+fetch: move session/action failures to tagged errors, keep invoke response
+mapping at the DO edge, update `effect-ts-migration-draft/your-proposal.md`
 and relevant roadmaps, validate, run only the EffectTS quality checker, tick
-`O-1`, then commit.
+`O-2`, then commit.

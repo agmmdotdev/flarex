@@ -1,5 +1,39 @@
 # Runtime Validation
 
+## ConnectionDO WebSocket Message Boundary
+
+Previous completed checkpoint: `8bace85` Type connection route boundaries.
+
+What changed:
+
+- Added `connection/MessageBoundary.ts` with hoisted Effect Schema decoders
+  and named `Effect.fn(...)` boundaries for websocket client messages.
+- `ConnectionDO.webSocketMessage(...)` now enters a named Effect route helper
+  that decodes socket JSON and sync protocol message shape before dispatching
+  to existing sync handling.
+- Invalid websocket message JSON, binary messages, and schema/protocol shape
+  errors now flow through typed `ConnectionClientMessageError` before the
+  ConnectionDO websocket adapter maps them to the existing `FatalError`
+  response text.
+- Existing `/invalidate` and `/deliver/live-query` route request decoding
+  remains at the typed route boundary added by R-6.
+
+Why it changed:
+
+O-1 tightens the remaining ConnectionDO message JSON runtime boundary without
+changing websocket upgrade, connection lease, heartbeat, force-reconnect,
+active query state, mutation queueing, or sync transition behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionMessageBoundary.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "invalid websocket client messages|stale query-set base versions" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery And Live-Query Route Adapter Split
 
 Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.

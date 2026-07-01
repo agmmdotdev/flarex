@@ -1,5 +1,51 @@
 # Package Boundaries
 
+## ConnectionDO WebSocket Message Boundary
+
+Previous completed checkpoint: `8bace85` Type connection route boundaries.
+
+What changed:
+
+- `connection/MessageBoundary.ts` owns schema-backed typed websocket client
+  message decoding for ConnectionDO.
+- `ConnectionDO.webSocketMessage(...)` now runs a named
+  `ConnectionDO.routeWebSocketMessage` Effect boundary before existing sync
+  message handling.
+- `syncProtocol.ts` keeps the throwing `parseClientMessage(...)`
+  compatibility parser, but ConnectionDO no longer calls it directly from an
+  untyped `JSON.parse(...)` path; schema failures use it only to preserve
+  existing `FatalError` text.
+- The ConnectionDO websocket adapter remains the only place that converts
+  typed message or handler failures into `FatalError` websocket responses.
+
+Boundary decision:
+
+Connection message transport decoding belongs in `connection/MessageBoundary.ts`
+as hoisted Effect Schema transport contracts.
+ConnectionDO remains the runtime owner for websocket upgrade, session state,
+identity/query-set versions, active query registration, mutation queueing,
+force-reconnect, heartbeat, and transition emission. This keeps the sync
+protocol parser reusable while making the DO runtime boundary typed.
+
+Known limitations:
+
+- ConnectionDO still has sync runtime precondition throws inside message
+  handling, query execution, and mutation execution. O-1 wraps those at the
+  websocket adapter edge as typed handler failures but does not convert each
+  runtime precondition into separate domain errors.
+- Storage row decoding, executor-http, PartitionDO SQL/OCC, deployment storage,
+  scheduler/delivery runtime loops, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionMessageBoundary.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "invalid websocket client messages|stale query-set base versions" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery And Live-Query Route Adapter Split
 
 Previous completed checkpoint: `5d8a317` Type scheduler route boundaries.

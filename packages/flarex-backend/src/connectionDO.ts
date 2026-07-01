@@ -2,6 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
+  decodeConnectionClientMessage,
+  type ConnectionClientMessageError,
+} from "./connection/MessageBoundary";
+import {
   decodeConnectionInvalidationRequest,
   decodeConnectionLiveQueryDeliveryRequest,
   ConnectionRouteValidationError,
@@ -25,7 +29,7 @@ import {
   RequestJsonError,
   requestJsonErrorToHttpError,
 } from "./http";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import {
   executeInvoke,
   loadActiveDeployment,
@@ -42,7 +46,6 @@ import {
   partitionObjectName,
 } from "./routing";
 import {
-  parseClientMessage,
   type AddQuery,
   type ClientMessage,
   type MutationRequest,
@@ -134,15 +137,10 @@ export class ConnectionDO extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    try {
-      const parsed = parseClientMessage(parseSocketMessage(message));
-      await this.handleClientMessage(ws, parsed);
-    } catch (error) {
-      send(ws, {
-        type: "FatalError",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    return runConnectionWebSocketMessage(
+      routeConnectionWebSocketMessage(message, parsed => this.handleClientMessage(ws, parsed)),
+      error => send(ws, { type: "FatalError", error }),
+    );
   }
 
   async webSocketClose(): Promise<void> {
@@ -726,6 +724,48 @@ const routeConnectionLiveQueryDelivery = Effect.fn("ConnectionDO.routeLiveQueryD
   },
 );
 
+class ConnectionWebSocketMessageHandlerError extends Data.TaggedError(
+  "ConnectionWebSocketMessageHandlerError",
+)<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+type ConnectionWebSocketMessageError =
+  | ConnectionWebSocketMessageHandlerError
+  | ConnectionClientMessageError;
+
+const routeConnectionWebSocketMessage = Effect.fn("ConnectionDO.routeWebSocketMessage")(
+  function* (
+    message: string | ArrayBuffer,
+    handleMessage: (message: ClientMessage) => Promise<void>,
+  ): Effect.fn.Return<void, ConnectionWebSocketMessageError> {
+    const parsed = yield* decodeConnectionClientMessage(message);
+    return yield* Effect.tryPromise({
+      try: () => handleMessage(parsed),
+      catch: cause => new ConnectionWebSocketMessageHandlerError({
+        message: errorMessage(cause),
+        cause,
+      }),
+    });
+  },
+);
+
+function runConnectionWebSocketMessage(
+  effect: Effect.Effect<void, ConnectionWebSocketMessageError>,
+  sendFatalError: (error: string) => void,
+): Promise<void> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.catch(error =>
+        Effect.sync(() => {
+          sendFatalError(error.message);
+        })
+      ),
+    ),
+  );
+}
+
 type ConnectionInternalRouteError =
   | ConnectionRouteError
   | ConnectionRouteOperationError;
@@ -883,11 +923,6 @@ function connectionNameFromRequest(request: Request): string {
   const value = request.headers.get("x-flarex-connection");
   if (value !== null && value.length > 0) return value;
   throw new Error("Sync request is missing connection name.");
-}
-
-function parseSocketMessage(message: string | ArrayBuffer): unknown {
-  if (typeof message !== "string") throw new Error("Binary sync messages are not supported.");
-  return JSON.parse(message) as unknown;
 }
 
 function argsObjectForInvoke(args: Json[]): Json {
