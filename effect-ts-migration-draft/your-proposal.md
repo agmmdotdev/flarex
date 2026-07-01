@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: C-1d remaining protocol contract cleanup in this checkpoint commit.
-- Active checkpoint: C-2 parse compatibility wrappers, keeping throwing `parseX(...)` APIs as wrappers over hoisted Effect/schema decoders.
+- Previous completed checkpoint: C-2 parse compatibility wrappers in this checkpoint commit.
+- Active checkpoint: C-3 decoder compiler hoisting, auditing protocol/backend runtime paths for reusable Schema decoder/encoder compiler calls that still compile inside hot request handlers.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,15 +52,27 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after C-1d remaining protocol contract cleanup:
+Next recommended checkpoint after C-2 parser compatibility cleanup:
 
-1. Audit `flarex-protocol` parser exports and identify throwing `parseX(...)`
-   wrappers that still own validation instead of delegating to Effect/schema
-   decoders.
-2. Keep throwing parser APIs only as sync compatibility wrappers around hoisted
-   decoders.
-3. Preserve protocol error names/messages and backend compatibility imports.
-4. Validate protocol tests and affected backend gates before ticking C-2.
+1. Audit protocol/backend runtime paths for inline `Schema.decodeUnknown*` and
+   encoder compiler calls that are reusable rather than one-off tests.
+2. Hoist safe repeated compiler calls to module scope without changing route,
+   storage, or HTTP response behavior.
+3. Preserve protocol error names/messages, backend compatibility imports, and
+   `ValidatorJson` ownership.
+4. Validate focused protocol/backend gates before ticking C-3.
+
+Completed Goal 367 slice:
+
+1. Audited `flarex-protocol` throwing parser exports and found remaining
+   sync-owned validation in deployment deep payload parsers.
+2. Added Effect-returning decoders for `PushSourcePackage`,
+   `DeploymentAnalysis`, and `DeploymentCodegenAnalysis`.
+3. Kept `parsePushSourcePackage(...)`, `parseDeploymentAnalysis(...)`, and
+   `parseDeploymentCodegenAnalysis(...)` as throwing compatibility wrappers
+   over the exported Effect decoders.
+4. Validated typed success/failure channels plus compatibility parsing before
+   ticking C-2.
 
 Completed Goal 366 slice:
 

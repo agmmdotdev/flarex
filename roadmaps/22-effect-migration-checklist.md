@@ -482,7 +482,7 @@ The Effect migration is complete only when all of these are true:
       `packages/flarex-backend/test/connectionRouteDispatchBoundary.test.ts`.
   - [x] C-1d. Export remaining partition, artifact runtime, and executor HTTP
     body transport decoders or document why a contract must stay package-local.
-    - Completed by: this C-1d checkpoint commit.
+    - Completed by: `c314a78` Export remaining protocol decoders.
     - Files:
       `packages/flarex-protocol/src/partition.ts`,
       `packages/flarex-protocol/test/partition.test.ts`,
@@ -506,9 +506,23 @@ The Effect migration is complete only when all of these are true:
       `packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts`,
       `packages/flarex-backend/test/artifactRuntimeRoute.test.ts`,
       `packages/executor-http/test/http.test.ts`.
-- [ ] C-2. Keep throwing `parseX(...)` APIs as compatibility wrappers over
+- [x] C-2. Keep throwing `parseX(...)` APIs as compatibility wrappers over
   hoisted schema decoders.
+  - Completed by: this C-2 checkpoint commit.
+  - Files:
+    `packages/flarex-protocol/src/deployment.ts`,
+    `packages/flarex-protocol/test/deployment.test.ts`,
+    `effect-ts-migration-draft/your-proposal.md`,
+    `roadmaps/22-effect-migration-checklist.md`,
+    `roadmaps/16-package-boundaries.md`.
+  - Decision:
+    Deployment deep payload parsers (`parsePushSourcePackage(...)`,
+    `parseDeploymentAnalysis(...)`, and
+    `parseDeploymentCodegenAnalysis(...)`) remain throwing compatibility APIs,
+    but now delegate to exported Effect decoders with
+    `DeploymentProtocolValidationError` typed failure channels.
   - Tests:
+    `packages/flarex-protocol/test/deployment.test.ts`,
     `packages/flarex-protocol/test/*.test.ts`.
 - [ ] C-3. Hoist all reusable Schema decoder/encoder compiler calls to module
   scope; do not compile schemas inside hot request handlers.
@@ -545,10 +559,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with C-2:
+Start with C-3:
 
-Keep throwing `parseX(...)` APIs as compatibility wrappers over hoisted schema
-decoders. Audit `flarex-protocol` parser exports, convert any wrapper that owns
-validation into an Effect decoder plus sync wrapper, validate protocol tests,
-run only the EffectTS quality checker if Effect code changes, tick `C-2`, then
+Hoist all reusable Schema decoder/encoder compiler calls to module scope; do
+not compile schemas inside hot request handlers. Audit protocol/backend runtime
+paths for inline `Schema.decodeUnknown*` or encoder compiler calls, convert the
+safe repeated cases to module-level constants, validate focused package gates,
+run only the EffectTS quality checker if Effect code changes, tick `C-3`, then
 commit.

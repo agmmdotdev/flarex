@@ -479,11 +479,11 @@ const decodeUnknownAnalyzedStartPushRequest = Schema.decodeUnknownEffect(Analyze
 const decodeUnknownActiveDeploymentStatus = Schema.decodeUnknownEffect(ActiveDeploymentStatus);
 const decodeUnknownDeploymentErrorResponse = Schema.decodeUnknownEffect(DeploymentErrorResponse);
 const decodeUnknownDeploymentHealthResponse = Schema.decodeUnknownEffect(DeploymentHealthResponse);
-const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
-const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
+const decodeUnknownDeploymentAnalysis = Schema.decodeUnknownEffect(DeploymentAnalysis);
+const decodeUnknownDeploymentCodegenAnalysis = Schema.decodeUnknownEffect(DeploymentCodegenAnalysis);
 const decodeUnknownFinishPushRequest = Schema.decodeUnknownEffect(FinishPushRequest);
 const decodeUnknownFinishPushResponse = Schema.decodeUnknownEffect(FinishPushResponse);
-const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
+const decodeUnknownPushSourcePackage = Schema.decodeUnknownEffect(PushSourcePackage);
 const decodeUnknownStartPushRequest = Schema.decodeUnknownEffect(StartPushRequest);
 const decodeUnknownPushStatus = Schema.decodeUnknownEffect(PushStatus);
 
@@ -577,6 +577,54 @@ export const decodeStartPushRequestEffect = Effect.fn(
   );
 });
 
+export const decodePushSourcePackageEffect = Effect.fn(
+  "DeploymentProtocol.decodePushSourcePackage",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PushSourcePackage, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownPushSourcePackage(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "PushSourcePackage",
+        message: "Source package must include modules, functions, and execution fields with valid module entries.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeDeploymentAnalysisEffect = Effect.fn(
+  "DeploymentProtocol.decodeDeploymentAnalysis",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<DeploymentAnalysis, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownDeploymentAnalysis(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "DeploymentAnalysis",
+        message: "Deployment analysis did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeDeploymentCodegenAnalysisEffect = Effect.fn(
+  "DeploymentProtocol.decodeDeploymentCodegenAnalysis",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<DeploymentCodegenAnalysis, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownDeploymentCodegenAnalysis(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "DeploymentCodegenAnalysis",
+        message: "Deployment codegen analysis did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
 export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
   return Effect.runSync(decodeAbandonPushRequestEffect(value));
 }
@@ -586,15 +634,7 @@ export function parseFinishPushRequest(value: unknown): FinishPushRequest {
 }
 
 export function parsePushSourcePackage(value: unknown): PushSourcePackage {
-  try {
-    return decodePushSourcePackage(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "PushSourcePackage",
-      message: "Source package must include modules, functions, and execution fields with valid module entries.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodePushSourcePackageEffect(value));
 }
 
 export function parseStartPushRequest(value: unknown): StartPushRequest {
@@ -602,27 +642,11 @@ export function parseStartPushRequest(value: unknown): StartPushRequest {
 }
 
 export function parseDeploymentAnalysis(value: unknown): DeploymentAnalysis {
-  try {
-    return decodeDeploymentAnalysis(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "DeploymentAnalysis",
-      message: "Deployment analysis did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeDeploymentAnalysisEffect(value));
 }
 
 export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodegenAnalysis {
-  try {
-    return decodeDeploymentCodegenAnalysis(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "DeploymentCodegenAnalysis",
-      message: "Deployment codegen analysis did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeDeploymentCodegenAnalysisEffect(value));
 }
 
 export function parseDeploymentErrorResponse(value: unknown): DeploymentErrorResponse {

@@ -2,7 +2,7 @@
 
 ## Remaining Protocol Contract Cleanup
 
-Previous completed checkpoint: this C-1d checkpoint commit.
+Previous completed checkpoint: `c314a78` Export remaining protocol decoders.
 
 What changed:
 
@@ -48,6 +48,48 @@ corepack pnpm --filter flarex-protocol exec vitest run test/partition.test.ts te
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+```
+
+## Protocol Parser Compatibility Cleanup
+
+Previous completed checkpoint: `c314a78` Export remaining protocol decoders.
+
+The shared deployment protocol now owns Effect-returning decoders for the
+remaining deep payload parser surfaces:
+
+- `decodePushSourcePackageEffect(...)`
+- `decodeDeploymentAnalysisEffect(...)`
+- `decodeDeploymentCodegenAnalysisEffect(...)`
+
+The existing throwing helpers stay as compatibility APIs:
+
+- `parsePushSourcePackage(...)`
+- `parseDeploymentAnalysis(...)`
+- `parseDeploymentCodegenAnalysis(...)`
+
+Those parser helpers no longer own sync schema validation directly. They call
+the Effect decoders with `Effect.runSync(...)`, preserving
+`DeploymentProtocolValidationError` names/messages for existing backend and
+test imports while giving migrated paths a typed protocol failure channel.
+
+Package responsibility:
+
+- `flarex-protocol` owns transport/API protocol schemas, deep payload Effect
+  decoders, and protocol validation errors.
+- Backend route/storage adapters may keep compatibility parser imports until
+  their route-boundary checkpoints move to Effect-returning decoders.
+- `ValidatorJson` remains the user document/function validation surface and is
+  unchanged by this protocol parser cleanup.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+git diff --check
 ```
 
 ## Live Query Protocol Package Boundary

@@ -4,10 +4,13 @@ import {
   decodeAbandonPushRequestEffect,
   decodeActiveDeploymentStatusEffect,
   decodeAnalyzedStartPushRequestEffect,
+  decodeDeploymentAnalysisEffect,
+  decodeDeploymentCodegenAnalysisEffect,
   decodeDeploymentErrorResponseEffect,
   decodeDeploymentHealthResponseEffect,
   decodeFinishPushRequestEffect,
   decodeFinishPushResponseEffect,
+  decodePushSourcePackageEffect,
   decodePushStatusEffect,
   decodeStartPushRequestEffect,
   DeploymentApi,
@@ -29,6 +32,7 @@ import {
   parseActiveDeploymentStatus,
   parseFinishPushRequest,
   parseFinishPushResponse,
+  parsePushSourcePackage,
   parsePushStatus,
   parseStartPushRequest,
   RejectedFinishPushSuccess,
@@ -125,8 +129,42 @@ describe("deployment protocol schemas", () => {
   });
 
   it("parses deep deployment analysis and codegen analysis payloads", () => {
+    expect(parsePushSourcePackage(sourcePackage())).toEqual(sourcePackage());
     expect(parseDeploymentAnalysis(deploymentAnalysis())).toEqual(deploymentAnalysis());
     expect(parseDeploymentCodegenAnalysis(deploymentCodegenAnalysis())).toEqual(deploymentCodegenAnalysis());
+  });
+
+  it("decodes deep deployment payloads through Effect before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodePushSourcePackageEffect(sourcePackage())))
+      .resolves.toEqual(sourcePackage());
+    await expect(Effect.runPromise(decodeDeploymentAnalysisEffect(deploymentAnalysis())))
+      .resolves.toEqual(deploymentAnalysis());
+    await expect(Effect.runPromise(decodeDeploymentCodegenAnalysisEffect(deploymentCodegenAnalysis())))
+      .resolves.toEqual(deploymentCodegenAnalysis());
+
+    await expect(Effect.runPromise(decodePushSourcePackageEffect({
+      ...sourcePackage(),
+      modules: "not-modules",
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package must include modules, functions, and execution fields with valid module entries.",
+    });
+
+    await expect(Effect.runPromise(decodeDeploymentAnalysisEffect({
+      ...deploymentAnalysis(),
+      functions: "not-functions",
+    }))).rejects.toMatchObject({
+      schema: "DeploymentAnalysis",
+      message: "Deployment analysis did not match the deployment protocol.",
+    });
+
+    await expect(Effect.runPromise(decodeDeploymentCodegenAnalysisEffect({
+      ...deploymentCodegenAnalysis(),
+      functions: "not-functions",
+    }))).rejects.toMatchObject({
+      schema: "DeploymentCodegenAnalysis",
+      message: "Deployment codegen analysis did not match the deployment protocol.",
+    });
   });
 
   it("exposes typed response decode failures before compatibility parsing", async () => {
