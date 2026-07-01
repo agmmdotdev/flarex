@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 import { HttpError } from "../http";
+import { invokeErrorResponse } from "../invoke";
 import { PartitionRequestError } from "../transaction";
 
 export type PublicWorkerDispatchSource =
@@ -41,6 +42,22 @@ export class PublicWorkerDispatchError
     readonly cause: unknown;
   }> {}
 
+export class PublicWorkerJsonRouteError
+  extends Data.TaggedError("PublicWorkerJsonRouteError")<{
+    readonly adapterError: HttpError;
+    readonly cause: unknown;
+  }> {}
+
+export class PublicWorkerInvokeAdapterRouteError
+  extends Data.TaggedError("PublicWorkerInvokeAdapterRouteError")<{
+    readonly adapterError: HttpError | PartitionRequestError;
+    readonly cause: unknown;
+  }> {}
+
+export type PublicWorkerRouteError =
+  | PublicWorkerJsonRouteError
+  | PublicWorkerInvokeAdapterRouteError;
+
 export function publicWorkerDispatchError(
   source: PublicWorkerDispatchSource,
   cause: unknown,
@@ -65,6 +82,30 @@ export function publicWorkerDispatchErrorToHttpError(
   error: PublicWorkerDispatchError,
 ): HttpError {
   return new HttpError(error.status, error.message);
+}
+
+export function publicWorkerJsonRouteError(
+  adapterError: HttpError,
+  cause: unknown = adapterError,
+): PublicWorkerJsonRouteError {
+  return new PublicWorkerJsonRouteError({ adapterError, cause });
+}
+
+export function publicWorkerInvokeRouteError(
+  adapterError: HttpError | PartitionRequestError,
+  cause: unknown = adapterError,
+): PublicWorkerInvokeAdapterRouteError {
+  return new PublicWorkerInvokeAdapterRouteError({ adapterError, cause });
+}
+
+export function publicWorkerRouteErrorToResponse(error: PublicWorkerRouteError): Response {
+  if (error instanceof PublicWorkerInvokeAdapterRouteError) {
+    return invokeErrorResponse(error.adapterError);
+  }
+  return Response.json(
+    { error: error.adapterError.message },
+    { status: error.adapterError.status },
+  );
 }
 
 export const publicWorkerDispatchErrorToHttpErrorEffect = Effect.fn(

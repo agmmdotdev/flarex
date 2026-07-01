@@ -6,11 +6,43 @@ import {
   publicWorkerDispatchErrorToAdapterError,
   publicWorkerDispatchErrorToHttpError,
   publicWorkerDispatchErrorToHttpErrorEffect,
+  PublicWorkerInvokeAdapterRouteError,
+  PublicWorkerJsonRouteError,
   PublicWorkerDispatchError,
+  publicWorkerRouteErrorToResponse,
 } from "../src/worker/PublicRouteDispatchError";
 import { Effect } from "effect";
 
 describe("public Worker route dispatch errors", () => {
+  it("maps tagged Worker route errors at the adapter edge", async () => {
+    const jsonRouteError = new PublicWorkerJsonRouteError({
+      adapterError: new HttpError(400, "Missing deployment id."),
+      cause: new Error("missing deployment"),
+    });
+    const jsonResponse = publicWorkerRouteErrorToResponse(jsonRouteError);
+
+    expect(jsonResponse.status).toBe(400);
+    await expect(jsonResponse.json()).resolves.toEqual({
+      error: "Missing deployment id.",
+    });
+
+    const partitionFailure = new PartitionRequestError(409, {
+      code: "OCC_CONFLICT",
+      error: "Read set changed.",
+    });
+    const invokeRouteError = new PublicWorkerInvokeAdapterRouteError({
+      adapterError: partitionFailure,
+      cause: partitionFailure,
+    });
+    const invokeResponse = publicWorkerRouteErrorToResponse(invokeRouteError);
+
+    expect(invokeResponse.status).toBe(409);
+    await expect(invokeResponse.json()).resolves.toEqual({
+      code: "OCC_CONFLICT",
+      error: "Read set changed.",
+    });
+  });
+
   it("preserves downstream HttpError status and message as a typed dispatch failure", () => {
     const cause = new HttpError(503, "Execution DO unavailable.");
     const error = publicWorkerDispatchError("execution-start", cause);

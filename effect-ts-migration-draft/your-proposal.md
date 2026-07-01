@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
-- Active checkpoint: W-1 Worker route error model, replacing `type PublicWorkerRouteError = HttpError` with a tagged Worker route error union and one Worker-level response adapter.
+- Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.
+- Active checkpoint: W-2 Worker route family typed errors, converting deployment, scheduler, invoke, execution, partition, live-query, and delivery-wake branches in `routePublicWorker(...)` to return typed route errors until the Worker adapter edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,10 +52,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after P-3 public artifact boundary validation:
+Next recommended checkpoint after W-1 Worker route error model:
 
-1. Replace `type PublicWorkerRouteError = HttpError` with a tagged Worker route
-   error union and one Worker-level response adapter.
+1. Convert deployment, scheduler, invoke, execution, partition, live-query, and
+   delivery-wake branches in `routePublicWorker(...)` to return typed route
+   errors until the Worker adapter edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -65,16 +66,30 @@ Next recommended checkpoint after P-3 public artifact boundary validation:
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 343 slice:
+Current Goal 344 slice:
+
+1. Convert the remaining `routePublicWorker(...)` branch-local compatibility
+   catches into typed route errors consumed by the Worker adapter.
+2. Keep deployment, scheduler, invoke, execution, partition, live-query, and
+   delivery-wake branch status/body behavior unchanged.
+3. Expand affected public route tests around representative route-family
+   failures rather than changing domain/storage behavior.
+4. Leave DeploymentService/store lifecycle, analyzer/artifact semantics,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility wrappers,
+   and `ValidatorJson` unchanged unless W-2 owns that boundary directly.
+
+Completed Goal 343 slice:
 
 1. Replace `type PublicWorkerRouteError = HttpError` with a tagged Worker route
    error union.
 2. Add or reuse one Worker-level response adapter for public route failures.
-3. Keep public deployment route failures typed through the Worker route branch
-   and preserve existing response body/status behavior.
-4. Extend affected public route error/path tests before broad Worker route
+3. Convert public invoke, registry, scheduler, and deployments branch catches
+   to fail with tagged Worker route adapter errors before one response mapper.
+4. Preserve invoke-specific partition error response bodies and standard Worker
+   `{ error }` response bodies through direct adapter tests.
+5. Extend affected public route error/path tests before broad Worker route
    family changes.
-5. Leave route-family dispatch logic, DeploymentService/store lifecycle,
+6. Leave route-family dispatch logic, DeploymentService/store lifecycle,
    analyzer/artifact semantics, PartitionDO SQL/OCC, executor-http, protocol
    parser compatibility wrappers, and `ValidatorJson` unchanged unless W-1
    owns that boundary directly.

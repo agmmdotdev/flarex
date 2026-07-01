@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Worker Route Error Adapter
+
+Previous completed checkpoint: `a1c1871` Validate public artifact boundaries.
+
+What changed:
+
+- The top-level public Worker route effect now fails with tagged
+  `PublicWorkerRouteError` values instead of aliasing the route error channel
+  to `HttpError`.
+- `route(...)` owns one Worker-level typed-error-to-`Response` adapter.
+- Public invoke, registry, scheduler, and deployment branch catches now convert
+  existing compatibility HTTP/partition adapter errors into tagged Worker route
+  errors before the response adapter runs.
+- The concrete migration checklist ticks `W-1` and sets `W-2` as the next
+  active checkpoint.
+
+Why it changed:
+
+W-1 creates the Worker adapter seam needed before W-2 moves each public route
+family's native typed errors all the way to the Worker edge. Existing HTTP
+status/body behavior is preserved, including invoke partition error bodies.
+
+Known limitations:
+
+- Branch-family internals still use compatibility `*ToHttpError(...)` helpers.
+  W-2 owns moving deployment, scheduler, invoke, execution, partition,
+  live-query, and delivery-wake branch errors directly to the Worker adapter.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRouteDispatchError.test.ts test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Artifact Boundary Validation
 
 Previous completed checkpoint: `656d1ea` Map public deployment errors at adapter.
