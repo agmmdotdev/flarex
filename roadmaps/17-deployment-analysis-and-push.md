@@ -1,5 +1,58 @@
 # Deployment Analysis And Push
 
+## Public Deployment Push Route Inputs
+
+Previous completed checkpoint: `3095319` Remove deployment request bridge.
+
+What changed:
+
+- Public deployment start, analyzed start, finish, abandon, and read push
+  Worker routes now flow through tagged route-input objects.
+- Source-only start keeps its existing analyzer-not-configured behavior while
+  moving JSON parsing and protocol parsing behind named Effect route-input
+  conversions.
+- Finish keeps malformed JSON and artifact verification ordering while moving
+  finish payload validation behind a route-input-to-dispatch conversion.
+- Public push dispatch tests now assert preserved internal DeploymentDO routes
+  from typed route inputs.
+
+Why it changed:
+
+This completes `P-1` in the concrete migration checklist. The public deployment
+push route path now has typed Effect route inputs for the start/finish/abandon
+body boundary, making the next `P-2` HTTP-error adapter cleanup smaller and
+more direct.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex public
+  deployment push migration checkpoint.
+
+How Flarex differs:
+
+- Flarex public push requests can perform analyzer and artifact checks before
+  forwarding to the DeploymentDO. The new route-input types preserve that
+  sequencing while reducing loose body dispatch.
+
+Known limitations:
+
+- Public deployment Worker HTTP response mapping still uses the current
+  `HttpError` compatibility path. Generated handler logic, DeploymentService/store
+  lifecycle logic, artifact materializer/cache semantics, source-package
+  analyzer behavior, DeploymentPushStore lifecycle state changes, PartitionDO
+  SQL/OCC, executor-http, protocol parser compatibility, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## DeploymentDO Request Bridge Demotion
 
 Previous completed checkpoint: `34a6022` Map deployment reads directly.

@@ -1,11 +1,15 @@
 import { Effect } from "effect";
 import {
-  type AbandonPushRequest,
-  type AnalyzedStartPushRequest,
   DeploymentPushAction,
   DeploymentRoute,
-  type FinishPushRequest,
 } from "flarex-protocol/deployment";
+import type {
+  PublicDeploymentAbandonPushRouteInput,
+  PublicDeploymentAnalyzedStartPushRouteInput,
+  PublicDeploymentFinishPushDispatchRouteInput,
+  PublicDeploymentFinishPushRouteInput,
+  PublicDeploymentReadPushRouteInput,
+} from "./PublicPushRouteBoundary";
 import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchSource,
@@ -30,12 +34,12 @@ export const readDeploymentPushEffect = Effect.fn(
   "Worker.readDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  pushId: string,
+  input: PublicDeploymentReadPushRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* dispatchDeploymentPushEffect(
     deployment,
     "deployment-read-push",
-    deploymentPushPath(pushId),
+    deploymentPushPath(input.pushId),
   );
 });
 
@@ -43,12 +47,12 @@ export const readDeploymentPushForFinishArtifactEffect = Effect.fn(
   "Worker.readDeploymentPushForFinishArtifact",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  pushId: string,
+  input: PublicDeploymentFinishPushRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* dispatchDeploymentPushEffect(
     deployment,
     "deployment-finish-push-artifact",
-    deploymentPushPath(pushId),
+    deploymentPushPath(input.pushId),
   );
 });
 
@@ -56,14 +60,13 @@ export const abandonDeploymentPushEffect = Effect.fn(
   "Worker.abandonDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  pushId: string,
-  body: AbandonPushRequest,
+  input: PublicDeploymentAbandonPushRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* dispatchDeploymentPushEffect(
     deployment,
     "deployment-abandon-push",
-    deploymentPushPath(pushId, DeploymentPushAction.abandon),
-    jsonPost(body),
+    deploymentPushPath(input.pushId, DeploymentPushAction.abandon),
+    jsonPost(input.body),
   );
 });
 
@@ -71,14 +74,13 @@ export const finishDeploymentPushEffect = Effect.fn(
   "Worker.finishDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  pushId: string,
-  body: FinishPushRequest,
+  input: PublicDeploymentFinishPushDispatchRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* dispatchDeploymentPushEffect(
     deployment,
     "deployment-finish-push",
-    deploymentPushPath(pushId, DeploymentPushAction.finish),
-    jsonPost(body),
+    deploymentPushPath(input.pushId, DeploymentPushAction.finish),
+    jsonPost(input.body),
   );
 });
 
@@ -86,11 +88,11 @@ export const startDeploymentPushEffect = Effect.fn(
   "Worker.startDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  analyzed: AnalyzedStartPushRequest,
+  input: PublicDeploymentAnalyzedStartPushRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* forwardAnalyzedStartPushEffect(
     deployment,
-    analyzed,
+    input,
     "deployment-start-push",
   );
 });
@@ -99,25 +101,25 @@ export const startAnalyzedDeploymentPushEffect = Effect.fn(
   "Worker.startAnalyzedDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
-  body: AnalyzedStartPushRequest,
+  input: PublicDeploymentAnalyzedStartPushRouteInput,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* forwardAnalyzedStartPushEffect(
     deployment,
-    body,
+    input,
     "deployment-start-analyzed-push",
   );
 });
 
 function forwardAnalyzedStartPushEffect(
   deployment: PublicDeploymentPushDispatchTarget,
-  body: AnalyzedStartPushRequest,
+  input: PublicDeploymentAnalyzedStartPushRouteInput,
   operation: PublicDeploymentPushDispatchOperation,
 ): Effect.Effect<Response, PublicWorkerDispatchError> {
   return dispatchDeploymentPushEffect(
     deployment,
     operation,
     DeploymentRoute.startAnalyzedPush,
-    jsonPost(body),
+    jsonPost(input.body),
   );
 }
 

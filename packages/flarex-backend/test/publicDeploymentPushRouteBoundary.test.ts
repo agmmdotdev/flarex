@@ -3,16 +3,16 @@ import { describe, expect, it } from "vitest";
 import { DeploymentProtocolValidationError } from "flarex-protocol/deployment";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
-  decodePublicAbandonPushRequest,
+  decodePublicAbandonPushRouteInput,
   decodePublicAbandonPushRoutePayload,
-  decodePublicAnalyzedStartPushRequest,
+  decodePublicAnalyzedStartPushRouteInput,
   decodePublicAnalyzedStartPushRoutePayload,
-  decodePublicFinishPushRequest,
-  decodePublicFinishPushJson,
+  decodePublicFinishPushRouteInput,
   decodePublicFinishPushRoutePayload,
-  decodePublicStartPushRequest,
-  decodePublicStartPushJson,
+  decodePublicStartPushRouteInput,
   decodePublicStartPushRoutePayload,
+  publicFinishPushDispatchRouteInputFromRouteInput,
+  publicStartPushRequestFromRouteInput,
   publicDeploymentRouteErrorToHttpError,
   publicDeploymentRouteErrorToHttpErrorEffect,
 } from "../src/deployment/PublicPushRouteBoundary";
@@ -23,21 +23,24 @@ describe("public deployment push route boundary", () => {
     error: "analysis failed",
   };
 
-  it("reads source-only start-push JSON separately from protocol parsing", async () => {
+  it("decodes source-only start-push requests to raw route input before protocol parsing", async () => {
     const body = {
       sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
     };
 
-    await expect(Effect.runPromise(decodePublicStartPushJson(jsonRequest(body))))
-      .resolves
-      .toEqual(body);
-    await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest(body))))
+    const routeInput = await Effect.runPromise(decodePublicStartPushRouteInput(jsonRequest(body)));
+    expect(routeInput).toEqual({
+      _tag: "PublicDeploymentStartPushRouteInput",
+      rawBody: body,
+    });
+    await expect(Effect.runPromise(publicStartPushRequestFromRouteInput(routeInput)))
       .resolves
       .toEqual(body);
     await expect(Effect.runPromise(decodePublicStartPushRoutePayload(body)))
       .resolves
       .toEqual(body);
-    await expect(Effect.runPromise(decodePublicStartPushRequest(jsonRequest({}))))
+    const invalidRouteInput = await Effect.runPromise(decodePublicStartPushRouteInput(jsonRequest({})));
+    await expect(Effect.runPromise(publicStartPushRequestFromRouteInput(invalidRouteInput)))
       .rejects
       .toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodePublicStartPushRoutePayload({})))
@@ -46,14 +49,17 @@ describe("public deployment push route boundary", () => {
   });
 
   it("decodes public analyzed start-push bodies with the deployment protocol parser", async () => {
-    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(jsonRequest(analyzedStartBody))))
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRouteInput(jsonRequest(analyzedStartBody))))
       .resolves
-      .toEqual(analyzedStartBody);
+      .toEqual({
+        _tag: "PublicDeploymentAnalyzedStartPushRouteInput",
+        body: analyzedStartBody,
+      });
     await expect(Effect.runPromise(decodePublicAnalyzedStartPushRoutePayload(analyzedStartBody)))
       .resolves
       .toEqual(analyzedStartBody);
 
-    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRouteInput(jsonRequest({
       error: "missing source package",
     })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodePublicAnalyzedStartPushRoutePayload({
@@ -62,71 +68,77 @@ describe("public deployment push route boundary", () => {
   });
 
   it("decodes public finish and abandon bodies with deployment protocol parsers", async () => {
-    await expect(Effect.runPromise(decodePublicFinishPushJson(jsonRequest({ activate: true }))))
+    const finishRouteInput = await Effect.runPromise(
+      decodePublicFinishPushRouteInput(jsonRequest({ activate: false }), "push-1"),
+    );
+    expect(finishRouteInput).toEqual({
+      _tag: "PublicDeploymentFinishPushRouteInput",
+      pushId: "push-1",
+      rawBody: { activate: false },
+    });
+    await expect(Effect.runPromise(publicFinishPushDispatchRouteInputFromRouteInput(finishRouteInput)))
       .resolves
-      .toEqual({ activate: true });
-    await expect(Effect.runPromise(decodePublicFinishPushRequest(jsonRequest({
-      activate: false,
-    })))).resolves.toEqual({ activate: false });
+      .toEqual({
+        _tag: "PublicDeploymentFinishPushDispatchRouteInput",
+        pushId: "push-1",
+        body: { activate: false },
+      });
     await expect(Effect.runPromise(decodePublicFinishPushRoutePayload({
       activate: true,
     }))).resolves.toEqual({ activate: true });
-    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePublicAbandonPushRouteInput(jsonRequest({
       reason: "typed boundary",
-    })))).resolves.toEqual({ reason: "typed boundary" });
+    }), "push-2"))).resolves.toEqual({
+      _tag: "PublicDeploymentAbandonPushRouteInput",
+      pushId: "push-2",
+      body: { reason: "typed boundary" },
+    });
     await expect(Effect.runPromise(decodePublicAbandonPushRoutePayload({
       reason: "typed parser",
     }))).resolves.toEqual({ reason: "typed parser" });
 
-    await expect(Effect.runPromise(decodePublicFinishPushRequest(jsonRequest({
-      activate: "yes",
-    })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    const invalidFinishRouteInput = await Effect.runPromise(
+      decodePublicFinishPushRouteInput(jsonRequest({ activate: "yes" }), "push-3"),
+    );
+    await expect(Effect.runPromise(publicFinishPushDispatchRouteInputFromRouteInput(invalidFinishRouteInput)))
+      .rejects
+      .toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodePublicFinishPushRoutePayload({
       activate: "yes",
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
-    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePublicAbandonPushRouteInput(jsonRequest({
       reason: 123,
-    })))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    }), "push-4"))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodePublicAbandonPushRoutePayload({
       reason: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
   it("keeps malformed JSON in the typed RequestJsonError channel", async () => {
-    await expect(Effect.runPromise(decodePublicStartPushJson(new Request("https://worker.test", {
+    await expect(Effect.runPromise(decodePublicStartPushRouteInput(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{",
     })))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodePublicStartPushRequest(new Request("https://worker.test", {
+    await expect(Effect.runPromise(decodePublicFinishPushRouteInput(new Request("https://worker.test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }), "push-1"))).rejects.toBeInstanceOf(RequestJsonError);
+    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRouteInput(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{",
     })))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodePublicFinishPushJson(new Request("https://worker.test", {
+    await expect(Effect.runPromise(decodePublicAbandonPushRouteInput(new Request("https://worker.test", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{",
-    })))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodePublicFinishPushRequest(new Request("https://worker.test", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{",
-    })))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodePublicAnalyzedStartPushRequest(new Request("https://worker.test", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{",
-    })))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodePublicAbandonPushRequest(new Request("https://worker.test", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{",
-    })))).rejects.toBeInstanceOf(RequestJsonError);
+    }), "push-2"))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("keeps deployment protocol parser failures typed before adapter mapping", async () => {
-    await expect(Effect.runPromise(decodePublicAbandonPushRequest(jsonRequest(null))))
+    await expect(Effect.runPromise(decodePublicAbandonPushRouteInput(jsonRequest(null), "push-1")))
       .rejects
       .toBeInstanceOf(DeploymentProtocolValidationError);
   });

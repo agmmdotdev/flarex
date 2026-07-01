@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `34a6022` Map deployment reads directly.
+- Previous completed checkpoint: `3095319` Remove deployment request bridge.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -122,8 +122,7 @@ The Effect migration is complete only when all of these are true:
     push not-found, storage failure mapping.
 - [x] D-6. Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
   after all DeploymentDO API routes dispatch directly.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `3095319` Remove deployment request bridge.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/HttpApiWebHandler.ts`,
@@ -133,8 +132,10 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 2: Public Deployment Push Worker Routes
 
-- [ ] P-1. Replace public deployment start/finish/abandon body compatibility
+- [x] P-1. Replace public deployment start/finish/abandon body compatibility
   wrappers with typed Effect route-input objects.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/deployment/PublicPushRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/PublicPushDispatchBoundary.ts`,
@@ -393,9 +394,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with P-1:
+Start with P-2:
 
-Replace public deployment start/finish/abandon body compatibility wrappers with
-typed Effect route-input objects in the public Worker deployment push boundary,
-update `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps,
-validate, run only the EffectTS quality checker, tick `P-1`, then commit.
+Move public deployment Worker HTTP response mapping to one adapter edge and stop
+exposing `HttpError` from public deployment dispatch logic. Preserve start
+pending, analyzed start, read push, finish, abandon, scheduler handoff, and
+deployment id/path error behavior; update `effect-ts-migration-draft/your-proposal.md`
+and relevant roadmaps, validate, run only the EffectTS quality checker, tick
+`P-2`, then commit.

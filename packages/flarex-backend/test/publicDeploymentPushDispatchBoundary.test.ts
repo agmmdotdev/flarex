@@ -10,6 +10,12 @@ import {
   startAnalyzedDeploymentPushEffect,
   startDeploymentPushEffect,
 } from "../src/deployment/PublicPushDispatchBoundary";
+import {
+  publicDeploymentAnalyzedStartPushRouteInput,
+  publicDeploymentReadPushRouteInput,
+  type PublicDeploymentAbandonPushRouteInput,
+  type PublicDeploymentFinishPushDispatchRouteInput,
+} from "../src/deployment/PublicPushRouteBoundary";
 import type {
   AbandonPushRequest,
   AnalyzedStartPushRequest,
@@ -116,7 +122,10 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: null,
         body: undefined,
       },
-      run: deployment => readDeploymentPushEffect(deployment, pushId),
+      run: deployment => readDeploymentPushEffect(
+        deployment,
+        publicDeploymentReadPushRouteInput(pushId),
+      ),
     },
     {
       source: "deployment-finish-push-artifact",
@@ -126,7 +135,14 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: null,
         body: undefined,
       },
-      run: deployment => readDeploymentPushForFinishArtifactEffect(deployment, pushId),
+      run: deployment => readDeploymentPushForFinishArtifactEffect(
+        deployment,
+        {
+          _tag: "PublicDeploymentFinishPushRouteInput",
+          pushId,
+          rawBody: finish,
+        },
+      ),
     },
     {
       source: "deployment-abandon-push",
@@ -136,7 +152,10 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: "application/json",
         body: JSON.stringify(abandon),
       },
-      run: deployment => abandonDeploymentPushEffect(deployment, pushId, abandon),
+      run: deployment => abandonDeploymentPushEffect(
+        deployment,
+        abandonRouteInput(pushId, abandon),
+      ),
     },
     {
       source: "deployment-finish-push",
@@ -146,7 +165,10 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: "application/json",
         body: JSON.stringify(finish),
       },
-      run: deployment => finishDeploymentPushEffect(deployment, pushId, finish),
+      run: deployment => finishDeploymentPushEffect(
+        deployment,
+        finishDispatchRouteInput(pushId, finish),
+      ),
     },
     {
       source: "deployment-start-push",
@@ -156,7 +178,10 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: "application/json",
         body: JSON.stringify(analyzed),
       },
-      run: deployment => startDeploymentPushEffect(deployment, analyzed),
+      run: deployment => startDeploymentPushEffect(
+        deployment,
+        publicDeploymentAnalyzedStartPushRouteInput(analyzed),
+      ),
     },
     {
       source: "deployment-start-analyzed-push",
@@ -166,7 +191,10 @@ function deploymentPushOperations(): DeploymentPushOperation[] {
         contentType: "application/json",
         body: JSON.stringify(analyzed),
       },
-      run: deployment => startAnalyzedDeploymentPushEffect(deployment, analyzed),
+      run: deployment => startAnalyzedDeploymentPushEffect(
+        deployment,
+        publicDeploymentAnalyzedStartPushRouteInput(analyzed),
+      ),
     },
   ];
 }
@@ -200,8 +228,30 @@ function abandonRequest(): AbandonPushRequest {
   return { reason: "typed dispatch test" };
 }
 
+function abandonRouteInput(
+  pushId: string,
+  body: AbandonPushRequest,
+): PublicDeploymentAbandonPushRouteInput {
+  return {
+    _tag: "PublicDeploymentAbandonPushRouteInput",
+    pushId,
+    body,
+  };
+}
+
 function finishRequest(): FinishPushRequest {
   return { activate: true };
+}
+
+function finishDispatchRouteInput(
+  pushId: string,
+  body: FinishPushRequest,
+): PublicDeploymentFinishPushDispatchRouteInput {
+  return {
+    _tag: "PublicDeploymentFinishPushDispatchRouteInput",
+    pushId,
+    body,
+  };
 }
 
 function analyzedStartPushRequest(): AnalyzedStartPushRequest {

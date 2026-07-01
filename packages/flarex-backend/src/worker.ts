@@ -80,12 +80,19 @@ import {
   PublicLiveQueryDeliveryAuthorizationError,
 } from "./worker/PublicLiveQueryDeliveryAuthorization";
 import {
-  decodePublicAbandonPushRequest,
-  decodePublicAnalyzedStartPushRequest,
-  decodePublicFinishPushJson,
-  decodePublicFinishPushRoutePayload,
-  decodePublicStartPushJson,
-  decodePublicStartPushRoutePayload,
+  decodePublicAbandonPushRouteInput,
+  decodePublicAnalyzedStartPushRouteInput,
+  decodePublicFinishPushRouteInput,
+  decodePublicStartPushRouteInput,
+  publicDeploymentAnalyzedStartPushRouteInput,
+  publicDeploymentReadPushRouteInput,
+  publicFinishPushDispatchRouteInputFromRouteInput,
+  publicStartPushRequestFromRouteInput,
+  type PublicDeploymentAbandonPushRouteInput,
+  type PublicDeploymentAnalyzedStartPushRouteInput,
+  type PublicDeploymentFinishPushRouteInput,
+  type PublicDeploymentReadPushRouteInput,
+  type PublicDeploymentStartPushRouteInput,
   type PublicDeploymentRouteError,
   publicDeploymentRouteErrorToHttpError,
   publicDeploymentRouteErrorToHttpErrorEffect,
@@ -590,10 +597,12 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
     const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
     const path = yield* publicDeploymentPushPathFromPartsEffect(parts, request.method);
     if (path.kind === "start" && request.method === "POST") {
-      return yield* routeDeploymentStartPush(request, env, deployment, deploymentId);
+      const routeInput = yield* decodePublicStartPushRouteInput(request);
+      return yield* routeDeploymentStartPush(routeInput, env, deployment, deploymentId);
     }
     if (path.kind === "startAnalyzed" && request.method === "POST") {
-      return yield* routeDeploymentAnalyzedStartPush(request, deployment);
+      const routeInput = yield* decodePublicAnalyzedStartPushRouteInput(request);
+      return yield* routeDeploymentAnalyzedStartPush(routeInput, deployment);
     }
     if (path.kind !== "push") {
       return json({ error: "Push route not found." }, { status: 404 });
@@ -601,13 +610,15 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
     const pushId = decodeURIComponent(path.encodedPushId);
     const action = deploymentPushActionFromPath(path.action);
     if (path.action === undefined && request.method === "GET") {
-      return yield* routeDeploymentReadPush(deployment, pushId);
+      return yield* routeDeploymentReadPush(deployment, publicDeploymentReadPushRouteInput(pushId));
     }
     if (action === DeploymentPushAction.finish && request.method === "POST") {
-      return yield* routeDeploymentFinishPush(request, env, deployment, pushId);
+      const routeInput = yield* decodePublicFinishPushRouteInput(request, pushId);
+      return yield* routeDeploymentFinishPush(routeInput, env, deployment);
     }
     if (action === DeploymentPushAction.abandon && request.method === "POST") {
-      return yield* routeDeploymentAbandonPush(request, deployment, pushId);
+      const routeInput = yield* decodePublicAbandonPushRouteInput(request, pushId);
+      return yield* routeDeploymentAbandonPush(routeInput, deployment);
     }
     return json({ error: "Push route not found." }, { status: 404 });
   },
@@ -616,49 +627,44 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
 const routeDeploymentReadPush = Effect.fn("Worker.routeDeploymentReadPush")(
   function* (
     deployment: DurableObjectStub,
-    pushId: string,
+    input: PublicDeploymentReadPushRouteInput,
   ) {
-    return yield* readDeploymentPushEffect(deployment, pushId);
+    return yield* readDeploymentPushEffect(deployment, input);
   },
 );
 
 const routeDeploymentAbandonPush = Effect.fn("Worker.routeDeploymentAbandonPush")(
   function* (
-    request: Request,
+    input: PublicDeploymentAbandonPushRouteInput,
     deployment: DurableObjectStub,
-    pushId: string,
   ) {
-    const body = yield* decodePublicAbandonPushRequest(request);
-    return yield* abandonDeploymentPushEffect(deployment, pushId, body);
+    return yield* abandonDeploymentPushEffect(deployment, input);
   },
 );
 
 const routeDeploymentFinishPush = Effect.fn("Worker.routeDeploymentFinishPush")(
   function* (
-    request: Request,
+    input: PublicDeploymentFinishPushRouteInput,
     env: Env,
     deployment: DurableObjectStub,
-    pushId: string,
   ) {
-    const rawBody = yield* decodePublicFinishPushJson(request);
     const missingArtifact = yield* verifyStoredPushArtifactEffect(
       artifactStoreFromEnv(env),
-      readDeploymentPushForFinishArtifactEffect(deployment, pushId),
+      readDeploymentPushForFinishArtifactEffect(deployment, input),
     );
     if (missingArtifact !== undefined) return missingArtifact;
-    const body = yield* decodePublicFinishPushRoutePayload(rawBody);
-    return yield* finishDeploymentPushEffect(deployment, pushId, body);
+    const dispatchInput = yield* publicFinishPushDispatchRouteInputFromRouteInput(input);
+    return yield* finishDeploymentPushEffect(deployment, dispatchInput);
   },
 );
 
 const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
   function* (
-    request: Request,
+    input: PublicDeploymentStartPushRouteInput,
     env: Env,
     deployment: DurableObjectStub,
     deploymentId: string,
   ) {
-    const rawBody = yield* decodePublicStartPushJson(request);
     const analyzer = env.FLAREX_ANALYZER;
     if (analyzer === undefined) {
       return json(
@@ -669,20 +675,22 @@ const routeDeploymentStartPush = Effect.fn("Worker.routeDeploymentStartPush")(
         { status: 501 },
       );
     }
-    const body = yield* decodePublicStartPushRoutePayload(rawBody);
+    const body = yield* publicStartPushRequestFromRouteInput(input);
     const analyzed = yield* analyzeSourcePackageEffect(analyzer, deploymentId, body);
     yield* persistAnalyzedSourcePackageEffect(artifactStoreFromEnv(env), analyzed);
-    return yield* startDeploymentPushEffect(deployment, analyzed);
+    return yield* startDeploymentPushEffect(
+      deployment,
+      publicDeploymentAnalyzedStartPushRouteInput(analyzed),
+    );
   },
 );
 
 const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyzedStartPush")(
   function* (
-    request: Request,
+    input: PublicDeploymentAnalyzedStartPushRouteInput,
     deployment: DurableObjectStub,
   ) {
-    const body = yield* decodePublicAnalyzedStartPushRequest(request);
-    return yield* startAnalyzedDeploymentPushEffect(deployment, body);
+    return yield* startAnalyzedDeploymentPushEffect(deployment, input);
   },
 );
 
