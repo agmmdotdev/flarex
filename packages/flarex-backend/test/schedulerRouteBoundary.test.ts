@@ -56,6 +56,8 @@ import {
   routeSchedulerContinueConnectionCleanup,
   routeSchedulerEffectJsonResult,
   runSchedulerRoute,
+  schedulerInternalRouteErrorToHttpErrorEffect,
+  schedulerInternalRouteErrorToResponseEffect,
 } from "../src/scheduler/InternalRouteBoundary";
 import type { Env } from "../src/types";
 
@@ -669,6 +671,28 @@ describe("scheduler route boundary", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error: "pending connection cleanup limit must be a positive integer.",
+    });
+  });
+
+  it("maps scheduler internal route errors through the named response adapter", async () => {
+    await expect(Effect.runPromise(schedulerInternalRouteErrorToHttpErrorEffect(
+      new SchedulerPendingStateError({
+        message: "pending scheduler state is invalid.",
+      }),
+    ))).rejects.toMatchObject({
+      status: 500,
+      message: "pending scheduler state is invalid.",
+    });
+
+    const response = await Effect.runPromise(schedulerInternalRouteErrorToResponseEffect(
+      new SchedulerPendingStateError({
+        message: "pending scheduler state is invalid.",
+      }),
+    ));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "pending scheduler state is invalid.",
     });
   });
 

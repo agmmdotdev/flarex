@@ -7,8 +7,8 @@ import {
   decodeSchedulerPendingDeploymentsPayload,
   decodeSchedulerPendingDeploymentsResponse,
   decodeSchedulerWakeDeliveryJsonResponse,
-  schedulerResponseErrorToHttpError,
-  schedulerResponsePayloadErrorToHttpError,
+  schedulerResponseErrorToHttpErrorEffect,
+  schedulerResponsePayloadErrorToHttpErrorEffect,
 } from "../src/scheduler/Responses";
 
 describe("scheduler response boundaries", () => {
@@ -86,7 +86,7 @@ describe("scheduler response boundaries", () => {
     await expect(
       Effect.runPromise(
         decodeSchedulerPendingDeploymentsResponse(new Response("unavailable", { status: 503 })).pipe(
-          Effect.mapError(schedulerResponseErrorToHttpError),
+          Effect.catch(schedulerResponseErrorToHttpErrorEffect),
         ),
       ),
     ).rejects.toMatchObject({
@@ -105,7 +105,7 @@ describe("scheduler response boundaries", () => {
           reconnectConnectionIds: [42],
           hasMore: false,
         }).pipe(
-          Effect.mapError(schedulerResponsePayloadErrorToHttpError),
+          Effect.catch(schedulerResponsePayloadErrorToHttpErrorEffect),
         ),
       ),
     ).rejects.toMatchObject({

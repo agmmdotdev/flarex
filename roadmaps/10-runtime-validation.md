@@ -1,5 +1,46 @@
 # Runtime Validation
 
+## Scheduler Response/Internal Route Adapter Effects
+
+Previous completed checkpoint: `d0094a8` Type live query fanout adapters.
+
+What changed:
+
+- Scheduler downstream response and response-payload failures now expose named
+  HTTP adapter effects.
+- Scheduler response tests now recover through named adapter effects instead
+  of local `Effect.mapError(...)` conversions.
+- `runSchedulerRoute(...)` now recovers through the named
+  `schedulerInternalRouteErrorToResponseEffect(...)` adapter instead of an
+  inline tag table.
+- Focused tests cover named scheduler response adapters and the scheduler
+  internal route response adapter directly.
+
+Why it changed:
+
+SchedulerDO already kept route, pending state, runtime, maintenance, wake, and
+response failures typed, but its response tests and internal route runner still
+performed inline adapter conversion. Naming those adapters keeps HTTP
+conversion at the scheduler response or internal route edge without changing
+maintenance/runtime behavior.
+
+Known limitations:
+
+- This checkpoint does not change SchedulerDO maintenance/runtime behavior,
+  pending state persistence, public Worker scheduler dispatch,
+  DeliveryDO/ConnectionDO behavior, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerForceReconnectBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Live-Query Delivery Fanout Adapter Effects
 
 Previous completed checkpoint: `9942f6b` Type partition route adapters.

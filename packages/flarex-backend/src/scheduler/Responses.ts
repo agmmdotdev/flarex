@@ -370,11 +370,27 @@ export function schedulerResponseErrorToHttpError(error: SchedulerResponseError)
   return new HttpError(502, error.message);
 }
 
+export const schedulerResponseErrorToHttpErrorEffect = Effect.fn(
+  "SchedulerResponses.responseErrorToHttpError",
+)(function* (
+  error: SchedulerResponseError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(schedulerResponseErrorToHttpError(error));
+});
+
 export function schedulerResponsePayloadErrorToHttpError(
   error: SchedulerResponsePayloadError,
 ): HttpError {
   return new HttpError(error.status, error.message);
 }
+
+export const schedulerResponsePayloadErrorToHttpErrorEffect = Effect.fn(
+  "SchedulerResponses.responsePayloadErrorToHttpError",
+)(function* (
+  error: SchedulerResponsePayloadError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(schedulerResponsePayloadErrorToHttpError(error));
+});
 
 function pendingDeploymentFromUnknown(
   value: unknown,

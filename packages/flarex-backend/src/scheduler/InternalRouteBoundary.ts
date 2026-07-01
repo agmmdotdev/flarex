@@ -77,30 +77,20 @@ export function runSchedulerRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: recoverSchedulerInternalRouteError,
-        SchedulerRoutePayloadError: recoverSchedulerInternalRouteError,
-        SchedulerPendingStateError: recoverSchedulerInternalRouteError,
-        SchedulerResponseError: recoverSchedulerInternalRouteError,
-        SchedulerResponsePayloadError: recoverSchedulerInternalRouteError,
-        SchedulerContinuationCursorError: recoverSchedulerInternalRouteError,
-        SchedulerConnectionTargetError: recoverSchedulerInternalRouteError,
-        SchedulerMaintenanceRequestError: recoverSchedulerInternalRouteError,
-        SchedulerDeliveryWakeRequestError: recoverSchedulerInternalRouteError,
-        SchedulerForceReconnectRequestError: recoverSchedulerInternalRouteError,
-        SchedulerRouteOperationError: recoverSchedulerInternalRouteError,
-      }),
+      Effect.catch(schedulerInternalRouteErrorToResponseEffect),
     ),
   );
 }
 
-function recoverSchedulerInternalRouteError(
+export const schedulerInternalRouteErrorToResponseEffect = Effect.fn(
+  "SchedulerInternalRouteBoundary.errorToResponse",
+)(function* (
   error: SchedulerInternalRouteError,
-): Effect.Effect<Response> {
-  return Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)));
-}
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)));
+});
 
-function schedulerInternalRouteErrorToHttpError(
+export function schedulerInternalRouteErrorToHttpError(
   error: SchedulerInternalRouteError,
 ): HttpError {
   if (error instanceof SchedulerRouteOperationError) {
@@ -129,3 +119,11 @@ function schedulerInternalRouteErrorToHttpError(
   }
   return schedulerRouteErrorToHttpError(error);
 }
+
+export const schedulerInternalRouteErrorToHttpErrorEffect = Effect.fn(
+  "SchedulerInternalRouteBoundary.errorToHttpError",
+)(function* (
+  error: SchedulerInternalRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(schedulerInternalRouteErrorToHttpError(error));
+});

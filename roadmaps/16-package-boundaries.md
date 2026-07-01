@@ -1,5 +1,46 @@
 # Package Boundaries
 
+## Scheduler Response/Internal Route Adapter Effects
+
+Previous completed checkpoint: `d0094a8` Type live query fanout adapters.
+
+What changed:
+
+- `scheduler/Responses.ts` now exposes named HTTP adapter effects for
+  downstream scheduler response and response-payload failures.
+- `scheduler/InternalRouteBoundary.ts` now exposes named internal route
+  HTTP/response adapter effects and routes `runSchedulerRoute(...)` through the
+  named response adapter.
+- Tests assert those adapter effects directly while preserving the existing
+  scheduler route response behavior.
+
+Boundary decision:
+
+Scheduler request decoding remains in `scheduler/RouteBoundary.ts`.
+Downstream executor/DO response decoding remains in `scheduler/Responses.ts`.
+Scheduler maintenance, wake, reconnect, pending state, and runtime behavior
+remain in their existing scheduler modules. HTTP response conversion for
+internal scheduler route failures belongs to `scheduler/InternalRouteBoundary.ts`,
+not the runtime helpers, public Worker scheduler dispatch, DeliveryDO,
+ConnectionDO, executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No SchedulerDO maintenance/runtime behavior, pending state persistence,
+  public Worker scheduler dispatch, service binding configuration,
+  DeliveryDO/ConnectionDO behavior, executor-http route, PartitionDO SQL/OCC
+  behavior, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerResponses.test.ts test/schedulerRouteBoundary.test.ts test/schedulerMaintenanceBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/schedulerForceReconnectBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Live-Query Delivery Fanout Adapter Effects
 
 Previous completed checkpoint: `9942f6b` Type partition route adapters.
