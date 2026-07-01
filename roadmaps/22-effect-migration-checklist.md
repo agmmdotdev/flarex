@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: C-1c Connection protocol decoders in this
+- Previous completed checkpoint: C-1d Remaining protocol contract cleanup in this
   checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -466,7 +466,7 @@ The Effect migration is complete only when all of these are true:
       `packages/flarex-backend/test/schedulerResponses.test.ts`.
   - [x] C-1c. Export connection message, invalidation, and connection delivery
     transport decoders used by migrated ConnectionDO routes.
-    - Completed by: this C-1c checkpoint commit.
+    - Completed by: `88dbc91` Export connection protocol decoders.
     - Files:
       `packages/flarex-protocol/src/connection.ts`,
       `packages/flarex-protocol/test/connection.test.ts`,
@@ -480,8 +480,32 @@ The Effect migration is complete only when all of these are true:
       `packages/flarex-backend/test/connectionMessageBoundary.test.ts`,
       `packages/flarex-backend/test/connectionRouteBoundary.test.ts`,
       `packages/flarex-backend/test/connectionRouteDispatchBoundary.test.ts`.
-  - [ ] C-1d. Export remaining partition, artifact runtime, and executor HTTP
+  - [x] C-1d. Export remaining partition, artifact runtime, and executor HTTP
     body transport decoders or document why a contract must stay package-local.
+    - Completed by: this C-1d checkpoint commit.
+    - Files:
+      `packages/flarex-protocol/src/partition.ts`,
+      `packages/flarex-protocol/test/partition.test.ts`,
+      `packages/flarex-protocol/src/artifact-runtime.ts`,
+      `packages/flarex-protocol/test/artifact-runtime.test.ts`,
+      `packages/flarex-backend/src/partition/Requests.ts`,
+      `packages/flarex-backend/src/artifactRuntime/Requests.ts`,
+      `packages/flarex-protocol/src/index.ts`,
+      `packages/flarex-protocol/package.json`,
+      `roadmaps/16-package-boundaries.md`.
+    - Decision:
+      `@flarex/executor-http` request body decoders remain package-local for
+      now because they validate adapter input ports owned by `@flarex/executor`
+      and preserve route-local bad-request envelopes.
+    - Tests:
+      `packages/flarex-protocol/test/partition.test.ts`,
+      `packages/flarex-protocol/test/artifact-runtime.test.ts`,
+      `packages/flarex-backend/test/partitionRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/publicPartitionSchemaCacheRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/artifactRuntimeRequests.test.ts`,
+      `packages/flarex-backend/test/artifactRuntimeRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/artifactRuntimeRoute.test.ts`,
+      `packages/executor-http/test/http.test.ts`.
 - [ ] C-2. Keep throwing `parseX(...)` APIs as compatibility wrappers over
   hoisted schema decoders.
   - Tests:
@@ -521,11 +545,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with C-1d:
+Start with C-2:
 
-Export remaining partition, artifact runtime, and executor HTTP body transport
-decoders or document why a contract must stay package-local. Keep package
-runtime adapters and response mapping behavior unchanged, update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
-affected protocol/backend/executor gates, run only the EffectTS quality checker
-if Effect code changes, tick `C-1d`, then commit.
+Keep throwing `parseX(...)` APIs as compatibility wrappers over hoisted schema
+decoders. Audit `flarex-protocol` parser exports, convert any wrapper that owns
+validation into an Effect decoder plus sync wrapper, validate protocol tests,
+run only the EffectTS quality checker if Effect code changes, tick `C-2`, then
+commit.

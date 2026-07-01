@@ -1,0 +1,103 @@
+import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  decodeExecutionArtifactInvokePayloadBodyEffect,
+  ExecutionArtifactInvokePayloadError,
+} from "../src/artifact-runtime";
+
+describe("artifact runtime protocol payload decoders", () => {
+  it("decodes execution artifact invoke payloads", async () => {
+    const payload = testPayload();
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect(payload)))
+      .resolves
+      .toEqual(payload);
+  });
+
+  it("keeps execution artifact invoke payload failures typed", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      deploymentId: "deployment-a",
+      ref: { artifactId: "artifact-a" },
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect(null)))
+      .rejects.toMatchObject({
+        _tag: "ExecutionArtifactInvokePayloadError",
+        message: "Invalid execution artifact invoke payload.",
+      });
+  });
+
+  it("rejects invalid nested execution artifact references", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      ref: {},
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+
+  it("rejects invalid nested invoke requests", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      request: {},
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      request: {
+        args: {},
+      },
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      request: {
+        path: "users:get",
+      },
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      request: {
+        path: "users:get",
+        args: {},
+        kind: "subscription",
+      },
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+
+  it("rejects invalid present source packages", async () => {
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      sourcePackage: {},
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+  });
+});
+
+function testPayload() {
+  return {
+    deploymentId: "deployment-a",
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact_1234567890abcdef1234567890abcdef",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage: {
+      modules: [
+        {
+          path: "_flarex/execution.js",
+          environment: "isolate",
+          sha256: "a".repeat(64),
+          source: "export default {};",
+        },
+      ],
+      functions: [],
+      execution: "_flarex/execution.js",
+    },
+    request: {
+      path: "users:get",
+      args: { id: "1:user" },
+      partitionKey: "user:1",
+      kind: "query",
+    },
+  };
+}

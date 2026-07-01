@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Remaining Protocol Contract Cleanup
+
+Previous completed checkpoint: this C-1d checkpoint commit.
+
+What changed:
+
+- Added `flarex-protocol/partition` for PartitionDO route body contracts:
+  schema-cache, commit, subscription registration, subscription target, and
+  connection unregister payloads.
+- Added `flarex-protocol/artifact-runtime` for the execution artifact runtime
+  invoke body contract.
+- Kept backend route modules responsible for `Request` JSON reads, public route
+  path injection, Durable Object runtime behavior, and HTTP response mapping.
+- Documented `@flarex/executor-http` request body decoders as package-local for
+  this cleanup checkpoint.
+
+Boundary decision:
+
+Partition and artifact runtime payloads are shared transport contracts between
+Worker/DO/runtime boundaries, so their typed Effect decoders now belong in
+`flarex-protocol`. The backend packages keep compatibility import paths and
+adapt protocol DTOs back into mutable backend runtime types where needed.
+
+`@flarex/executor-http` body decoders stay package-local for now. They validate
+the HTTP adapter's calls into `@flarex/executor` input ports, preserve
+route-local `{ error: "bad_request", message }` envelopes, and depend on
+executor-owned maintenance/session/live-query input types. Hoisting them into
+`flarex-protocol` would make the protocol package depend on executor adapter
+implementation details instead of a stable shared wire contract.
+
+Known limitations:
+
+- This is the final C-1 protocol export cleanup, not the final migration exit.
+  C-2 still needs to audit throwing `parseX(...)` compatibility wrappers.
+- Partition route search parameters remain backend route-adapter parsing, not
+  JSON transport body contracts.
+- Executor HTTP can get a dedicated protocol package later if its adapter input
+  contracts become stable cross-package wire contracts rather than
+  executor-port DTOs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/partition.test.ts test/artifact-runtime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

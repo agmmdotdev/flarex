@@ -7,12 +7,14 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./artifact-runtime": "./src/artifact-runtime.ts",
     "./connection": "./src/connection.ts",
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",
     "./invoke": "./src/invoke.ts",
     "./json": "./src/json.ts",
     "./live-query": "./src/live-query.ts",
+    "./partition": "./src/partition.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts"
   },

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: C-1c connection protocol decoders in this checkpoint commit.
-- Active checkpoint: C-1d remaining protocol contract cleanup, exporting or intentionally documenting partition, artifact runtime, and executor HTTP body transport decoders while keeping package runtime adapters responsible for runtime edges.
+- Previous completed checkpoint: C-1d remaining protocol contract cleanup in this checkpoint commit.
+- Active checkpoint: C-2 parse compatibility wrappers, keeping throwing `parseX(...)` APIs as wrappers over hoisted Effect/schema decoders.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,16 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after C-1c connection protocol decoders:
+Next recommended checkpoint after C-1d remaining protocol contract cleanup:
 
-1. Audit partition, artifact runtime, and executor HTTP request body decoders
-   that still live outside `flarex-protocol`.
-2. Export the transport contracts that are shared backend/executor API
-   boundaries, and explicitly document package-local contracts where hoisting
-   would blur runtime ownership.
-3. Keep runtime adapters, WebSocket/session behavior, and HTTP response mapping
-   unchanged.
-4. Validate affected protocol/backend/executor gates before ticking C-1d.
+1. Audit `flarex-protocol` parser exports and identify throwing `parseX(...)`
+   wrappers that still own validation instead of delegating to Effect/schema
+   decoders.
+2. Keep throwing parser APIs only as sync compatibility wrappers around hoisted
+   decoders.
+3. Preserve protocol error names/messages and backend compatibility imports.
+4. Validate protocol tests and affected backend gates before ticking C-2.
+
+Completed Goal 366 slice:
+
+1. Audited partition, artifact runtime, and executor HTTP request body decoder
+   ownership.
+2. Exported protocol-owned partition route payload decoders and artifact
+   runtime invoke payload decoders.
+3. Kept backend partition and artifact runtime modules as compatibility import
+   paths while preserving request JSON reads and response mapping.
+4. Documented executor-http request body decoders as package-local because they
+   validate `@flarex/executor` adapter input ports and route-local bad-request
+   envelopes.
+5. Validated affected protocol, backend, and executor-http gates before
+   ticking C-1d.
 
 Completed Goal 365 slice:
 
