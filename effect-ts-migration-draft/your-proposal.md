@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f6f5fa0` Type public deployment push route boundary.
-- Active checkpoint: validate and review the public execution start/action route boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `faec11b` Type public execution route boundaries.
+- Active checkpoint: validate and review the public invoke/delivery/live-query route boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public execution route boundary effects:
+Next recommended checkpoint after the public invoke/delivery/live-query route boundary effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,36 @@ Next recommended checkpoint after the public execution route boundary effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 304 slice:
+
+1. Remove the public Promise-returning `readPublicInvokeRequest(...)` wrapper
+   from `invoke/PublicInvokeRouteBoundary.ts`.
+2. Remove public throwing `parsePublicInvokeRouteRequest(...)` and
+   `parsePublicInvokeRouteRequestEffect(...)` wrappers from the invoke route
+   boundary.
+3. Remove the public Promise-returning
+   `readPublicDeliveryWakeRequest(...)` wrapper from
+   `delivery/PublicWakeRouteBoundary.ts`.
+4. Remove public throwing `parsePublicDeliveryWakeRequest(...)` and
+   `parsePublicDeliveryWakeRequestEffect(...)` wrappers from the delivery wake
+   route boundary.
+5. Remove the public Promise-returning
+   `readPublicLiveQueryDeliveryRequest(...)` wrapper from
+   `liveQueryDelivery/RouteBoundary.ts`.
+6. Remove public throwing `parsePublicLiveQueryDeliveryRequest(...)` and
+   `parsePublicLiveQueryDeliveryRequestEffect(...)` wrappers from the live
+   query delivery route boundary.
+7. Keep production public Worker routing on `decodePublicInvokeRouteRequest(...)`,
+   `decodePublicDeliveryWakeRequest(...)`, and
+   `decodePublicLiveQueryDeliveryRequest(...)` plus their route-payload Effect
+   decoders.
+8. Update public invoke, delivery wake, and live query delivery route-boundary
+   tests to assert typed success/failure channels directly, then separately
+   assert existing HTTP adapter mapping.
+9. Leave public dispatch behavior, DeliveryDO behavior, live query delivery
+   application behavior, invoke execution dispatch, PartitionDO SQL/OCC,
+   executor-http, deployment behavior, and `ValidatorJson` unchanged.
 
 Completed Goal 303 slice:
 

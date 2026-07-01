@@ -33,36 +33,12 @@ export type PublicInvokeRouteError =
   | MissingInvokePathError
   | MissingInvokePartitionKeyError;
 
-export async function readPublicInvokeRequest(
-  request: Request,
-): Promise<PublicInvokeRequestBody> {
-  return await Effect.runPromise(
-    decodePublicInvokeRouteRequest(request).pipe(
-      Effect.catch(publicInvokeRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodePublicInvokeRouteRequest(
   request: Request,
 ): Effect.Effect<PublicInvokeRequestBody, RequestJsonError | InvokeProtocolValidationError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodePublicInvokeRoutePayload),
   );
-}
-
-export function parsePublicInvokeRouteRequest(
-  value: unknown,
-): PublicInvokeRequestBody {
-  return Effect.runSync(parsePublicInvokeRouteRequestEffect(value).pipe(
-    Effect.catch(publicInvokeRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePublicInvokeRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<PublicInvokeRequestBody, InvokeProtocolValidationError> {
-  return decodePublicInvokeRoutePayload(value);
 }
 
 export function decodePublicInvokeRoutePayload(

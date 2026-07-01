@@ -5,11 +5,8 @@ import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   decodePublicLiveQueryDeliveryRequest,
   decodePublicLiveQueryDeliveryRoutePayload,
-  parsePublicLiveQueryDeliveryRequest,
-  parsePublicLiveQueryDeliveryRequestEffect,
   publicLiveQueryDeliveryRouteErrorToHttpError,
   publicLiveQueryDeliveryRouteErrorToHttpErrorEffect,
-  readPublicLiveQueryDeliveryRequest,
 } from "../src/liveQueryDelivery/RouteBoundary";
 
 describe("public live query delivery route boundary", () => {
@@ -42,7 +39,7 @@ describe("public live query delivery route boundary", () => {
   });
 
   it("decodes updated and failed delivery requests", async () => {
-    await expect(readPublicLiveQueryDeliveryRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRequest(jsonRequest({
       deliveries: [
         {
           deploymentId: "deployment-a",
@@ -66,7 +63,7 @@ describe("public live query delivery route boundary", () => {
           errorData: { code: "QUERY_FAILED" },
         },
       ],
-    }))).resolves.toEqual([
+    })))).resolves.toEqual([
       {
         kind: "updated",
         deploymentId: "deployment-a",
@@ -111,18 +108,13 @@ describe("public live query delivery route boundary", () => {
     ]);
   });
 
-  it("maps invalid delivery envelopes to 400", () => {
-    try {
-      parsePublicLiveQueryDeliveryRequest({});
-      throw new Error("Expected parsePublicLiveQueryDeliveryRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
+  it("keeps invalid delivery envelopes typed before adapter mapping", async () => {
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRoutePayload({})))
+      .rejects.toMatchObject({
+        _tag: "LiveQueryDeliveryChangePayloadError",
         message: "Live query delivery body must be an object with a deliveries array.",
       });
-    }
-    try {
-      parsePublicLiveQueryDeliveryRequest({
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRoutePayload({
         deliveries: [
           {
             deploymentId: "deployment-a",
@@ -135,32 +127,14 @@ describe("public live query delivery route boundary", () => {
             resultHash: "result",
           },
         ],
-      });
-      throw new Error("Expected parsePublicLiveQueryDeliveryRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
+      }))).rejects.toMatchObject({
+        _tag: "LiveQueryDeliveryChangePayloadError",
         message: "deliveries[0].queryId must be an integer.",
       });
-    }
-  });
-
-  it("preserves malformed JSON as the shared JSON body error", async () => {
-    await expect(readPublicLiveQueryDeliveryRequest(new Request(
-      "https://flarex.test/deployments/deployment-a/sync/deliver-live-query",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{",
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
   });
 
   it("exposes typed public live query delivery failures before HTTP mapping", async () => {
-    await expect(Effect.runPromise(parsePublicLiveQueryDeliveryRequestEffect({})))
+    await expect(Effect.runPromise(decodePublicLiveQueryDeliveryRoutePayload({})))
       .rejects.toMatchObject({
         _tag: "LiveQueryDeliveryChangePayloadError",
         message: "Live query delivery body must be an object with a deliveries array.",

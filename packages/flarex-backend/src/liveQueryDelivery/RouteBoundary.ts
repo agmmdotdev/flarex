@@ -14,34 +14,12 @@ import {
 
 export type LiveQueryDeliveryRouteError = RequestJsonError | LiveQueryDeliveryChangePayloadError;
 
-export async function readPublicLiveQueryDeliveryRequest(
-  request: Request,
-): Promise<LiveQueryDeliveryChange[]> {
-  return Effect.runPromise(decodePublicLiveQueryDeliveryRequest(request).pipe(
-    Effect.catch(publicLiveQueryDeliveryRouteErrorToHttpErrorEffect),
-  ));
-}
-
 export function decodePublicLiveQueryDeliveryRequest(
   request: Request,
 ): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryRouteError> {
   return readJsonEffect(request).pipe(
     Effect.flatMap(decodePublicLiveQueryDeliveryRoutePayload),
   );
-}
-
-export function parsePublicLiveQueryDeliveryRequest(
-  value: unknown,
-): LiveQueryDeliveryChange[] {
-  return Effect.runSync(parsePublicLiveQueryDeliveryRequestEffect(value).pipe(
-    Effect.catch(publicLiveQueryDeliveryRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePublicLiveQueryDeliveryRequestEffect(
-  value: unknown,
-): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-  return decodePublicLiveQueryDeliveryRoutePayload(value);
 }
 
 export function decodePublicLiveQueryDeliveryRoutePayload(

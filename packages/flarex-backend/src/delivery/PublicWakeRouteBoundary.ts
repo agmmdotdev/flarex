@@ -14,15 +14,6 @@ import {
   type DeliveryWakePayloadError,
 } from "./WakeRequest";
 
-export async function readPublicDeliveryWakeRequest(
-  request: Request,
-  deploymentId: string,
-): Promise<DeliveryWakeRequest> {
-  return Effect.runPromise(decodePublicDeliveryWakeRequest(request, deploymentId).pipe(
-    Effect.catch(publicDeliveryWakeRouteErrorToHttpErrorEffect),
-  ));
-}
-
 export function decodePublicDeliveryWakeRequest(
   request: Request,
   deploymentId: string,
@@ -30,22 +21,6 @@ export function decodePublicDeliveryWakeRequest(
   return readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicDeliveryWakeRoutePayload(value, deploymentId)),
   );
-}
-
-export function parsePublicDeliveryWakeRequest(
-  value: unknown,
-  deploymentId: string,
-): DeliveryWakeRequest {
-  return Effect.runSync(parsePublicDeliveryWakeRequestEffect(value, deploymentId).pipe(
-    Effect.catch(publicDeliveryWakeRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePublicDeliveryWakeRequestEffect(
-  value: unknown,
-  deploymentId: string,
-): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
-  return decodePublicDeliveryWakeRoutePayload(value, deploymentId);
 }
 
 export function decodePublicDeliveryWakeRoutePayload(

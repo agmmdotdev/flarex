@@ -1,5 +1,64 @@
 # Package Boundaries
 
+## Public Invoke/Delivery Route Boundary Effects
+
+Previous completed checkpoint: `faec11b` Type public execution route
+boundaries.
+
+What changed:
+
+- `invoke/PublicInvokeRouteBoundary.ts` no longer exports public
+  Promise-returning or throwing route request wrappers.
+- `delivery/PublicWakeRouteBoundary.ts` no longer exports public
+  Promise-returning or throwing route request wrappers.
+- `liveQueryDelivery/RouteBoundary.ts` no longer exports public
+  Promise-returning or throwing route request wrappers.
+- Tests now exercise invoke, delivery wake, and live query delivery route
+  decoder success/failure channels directly and keep HTTP mapping assertions at
+  the named adapter edges.
+
+Boundary decision:
+
+Public invoke route decoding belongs in `invoke/PublicInvokeRouteBoundary.ts`.
+Public delivery wake decoding belongs in `delivery/PublicWakeRouteBoundary.ts`.
+Public live query delivery decoding belongs in
+`liveQueryDelivery/RouteBoundary.ts`. Public Worker orchestration and Durable
+Object dispatch remain in `worker.ts` and the existing dispatch boundary
+modules. HTTP conversion remains at the named route adapters:
+`publicInvokeRouteErrorToHttpError(...)`,
+`publicDeliveryWakeRouteErrorToHttpError(...)`, and
+`publicLiveQueryDeliveryRouteErrorToHttpError(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's Cloudflare Worker adapter surface around existing request decoders.
+
+How Flarex differs:
+
+- Convex does not have these exact Cloudflare Worker public route adapters.
+  Flarex keeps Worker route splitting and Durable Object/service dispatch in
+  the public Worker layer while preserving typed validation before HTTP
+  response mapping.
+
+Known limitations:
+
+- No public dispatch behavior, DeliveryDO behavior, live query delivery
+  application behavior, invoke execution dispatch, PartitionDO SQL/OCC
+  behavior, executor-http route, deployment route, or `ValidatorJson` boundary
+  changed.
+- Lower-level payload parser compatibility wrappers remain for now.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicInvokeRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/invokeRequests.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Execution Route Boundary Effects
 
 Previous completed checkpoint: `f6f5fa0` Type public deployment push route
