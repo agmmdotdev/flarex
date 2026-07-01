@@ -136,6 +136,24 @@ export const deploymentPushStatusResponseForHttpApi = Effect.fn(
   return yield* decodePushStatusForHttpApi(status);
 });
 
+export const deploymentFinishPushResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.deploymentFinishPushResponseForHttpApi",
+)(function* (deployment: DeploymentServiceApi, pushId: string) {
+  const response = yield* mapDeploymentFinishFailure(deployment.finishPush(pushId));
+  return yield* decodeFinishPushResponseForHttpApi(response);
+});
+
+export const deploymentAbandonPushResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.deploymentAbandonPushResponseForHttpApi",
+)(function* (
+  deployment: DeploymentServiceApi,
+  pushId: string,
+  payload: AbandonPushRequest,
+) {
+  const status = yield* mapDeploymentAbandonFailure(deployment.abandonPush(pushId, payload));
+  return yield* decodePushStatusForHttpApi(status);
+});
+
 export const deploymentStartAnalyzedPushHandler = Effect.fn(
   "DeploymentApiHandlers.startAnalyzedPush",
 )(function* (
@@ -151,9 +169,7 @@ export const deploymentStartAnalyzedPushHandler = Effect.fn(
 
 export const deploymentFinishPushHandler = Effect.fn("DeploymentApiHandlers.finishPush")(
   function* (deployment: DeploymentServiceApi, pushId: string) {
-    return yield* mapDeploymentFinishFailure(deployment.finishPush(pushId)).pipe(
-      Effect.flatMap(decodeFinishPushResponseForHttpApi),
-    );
+    return yield* deploymentFinishPushResponseForHttpApi(deployment, pushId);
   },
 );
 
@@ -163,9 +179,7 @@ export const deploymentAbandonPushHandler = Effect.fn("DeploymentApiHandlers.aba
     pushId: string,
     payload: AbandonPushRequest,
   ) {
-    return yield* mapDeploymentAbandonFailure(deployment.abandonPush(pushId, payload)).pipe(
-      Effect.flatMap(decodePushStatusForHttpApi),
-    );
+    return yield* deploymentAbandonPushResponseForHttpApi(deployment, pushId, payload);
   },
 );
 

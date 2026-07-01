@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `456e952` Type public deployment route adapter.
-- Active checkpoint: validate and review the generated Deployment HttpApi handler-input batch, removing full duplicate protocol payload decoding while keeping unexpressed protocol invariants in a named Effect guard.
+- Previous completed checkpoint: `f49d45d` Type deployment handler input guard.
+- Active checkpoint: finish and abandon generated Deployment HttpApi response adapters, moving service failure mapping and protocol response validation into named Effect boundaries.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,12 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the generated Deployment HttpApi handler-input effects:
+Next recommended checkpoint after the generated Deployment HttpApi finish/abandon response adapters:
 
-1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially the next generated HttpApi/service
-   adapter slice that moves finish/abandon handler input and response mapping
-   toward named Effect boundaries without duplicating protocol decoding.
+1. Continue the generated Deployment HttpApi/service adapter migration with the
+   remaining start handler service-response edge, then reassess whether
+   DeploymentDO route decoding can enter through generated HttpApi payloads
+   without duplicating protocol validation.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -63,7 +63,29 @@ Next recommended checkpoint after the generated Deployment HttpApi handler-input
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 331 slice:
+Current Goal 332 slice:
+
+1. Add `deploymentFinishPushResponseForHttpApi(...)`, a named Effect adapter
+   that runs `DeploymentService.finishPush(...)`, maps typed service failures,
+   and validates the declared finish-push response protocol before the
+   generated handler returns.
+2. Add `deploymentAbandonPushResponseForHttpApi(...)`, a named Effect adapter
+   that runs `DeploymentService.abandonPush(...)`, maps typed service failures,
+   and validates the declared push-status response protocol before the
+   generated handler returns.
+3. Route `deploymentFinishPushHandler(...)` and
+   `deploymentAbandonPushHandler(...)` through those named adapters so handler
+   wrappers stay thin.
+4. Add direct adapter tests for finish/abandon typed success, typed service
+   failures, and malformed service responses that must become declared storage
+   errors at the generated HttpApi boundary.
+5. Leave generated start-push input behavior, DeploymentDO route decoding,
+   public Worker deployment dispatch, DeploymentService/store lifecycle logic,
+   artifact materializer/cache, source-package analyzer semantics, PartitionDO
+   SQL/OCC, executor-http, protocol parser compatibility wrappers, and
+   `ValidatorJson` unchanged.
+
+Completed Goal 331 slice:
 
 1. Remove `decodeDeploymentAnalyzedStartPushPayload(...)` from
    `decodeStartAnalyzedPushHandlerInput(...)` so the generated HttpApi handler

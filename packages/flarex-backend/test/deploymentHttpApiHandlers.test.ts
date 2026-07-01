@@ -29,6 +29,8 @@ import {
   decodeActiveDeploymentStatusForHttpApi,
   decodeFinishPushResponseForHttpApi,
   decodePushStatusForHttpApi,
+  deploymentAbandonPushResponseForHttpApi,
+  deploymentFinishPushResponseForHttpApi,
   deploymentPushStatusResponseForHttpApi,
   deploymentAbandonFailureResponseEffect,
   deploymentAbandonPushHandler,
@@ -599,6 +601,92 @@ describe("DeploymentApiHandlers", () => {
     )));
     expect(malformedPushProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
     expect(parseDeploymentErrorResponse(malformedPushProtocol)).toEqual({
+      error: "Deployment push response did not match the deployment protocol.",
+    });
+  });
+
+  it("maps finish and abandon service responses through named HTTP API adapters", async () => {
+    const service = deploymentTestService();
+
+    await expect(Effect.runPromise(deploymentFinishPushResponseForHttpApi(
+      service,
+      "push-finish-adapter",
+    ))).resolves.toMatchObject({
+      result: "activated",
+      push: {
+        pushId: "push-finish-adapter",
+        state: "activated",
+      },
+    });
+
+    await expect(Effect.runPromise(deploymentAbandonPushResponseForHttpApi(
+      service,
+      "push-abandon-adapter",
+      { reason: "adapter abandon" },
+    ))).resolves.toMatchObject({
+      pushId: "push-abandon-adapter",
+      state: "abandoned",
+      error: "adapter abandon",
+    });
+
+    const missingFinish = await Effect.runPromise(Effect.flip(deploymentFinishPushResponseForHttpApi(
+      deploymentTestService({
+        finishPush: pushId => Effect.fail(new DeploymentPushNotFoundError({ pushId })),
+      }),
+      "push-finish-missing-adapter",
+    )));
+    expect(missingFinish).toBeInstanceOf(DeploymentNotFoundErrorResponse);
+    expect(parseDeploymentErrorResponse(missingFinish)).toEqual({
+      error: "Unknown push: push-finish-missing-adapter",
+    });
+
+    const invalidFinishProtocol = await Effect.runPromise(Effect.flip(deploymentFinishPushResponseForHttpApi(
+      deploymentTestService({
+        finishPush: pushId =>
+          Effect.succeed({
+            result: "activated",
+            push: {
+              ...pushStatus(pushId, "activated"),
+              state: "missing-state",
+            },
+          } as unknown as FinishPushResponse),
+      }),
+      "push-finish-malformed-adapter",
+    )));
+    expect(invalidFinishProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(invalidFinishProtocol)).toEqual({
+      error: "Finish push response did not match the deployment protocol.",
+    });
+
+    const activeAbandon = await Effect.runPromise(Effect.flip(deploymentAbandonPushResponseForHttpApi(
+      deploymentTestService({
+        abandonPush: pushId => Effect.fail(new DeploymentPushInvalidStateError({
+          action: "abandon",
+          pushId,
+          state: "activated",
+        })),
+      }),
+      "push-abandon-active-adapter",
+      {},
+    )));
+    expect(activeAbandon).toBeInstanceOf(DeploymentConflictErrorResponse);
+    expect(parseDeploymentErrorResponse(activeAbandon)).toEqual({
+      error: "Cannot abandon push push-abandon-active-adapter in state activated.",
+    });
+
+    const invalidAbandonProtocol = await Effect.runPromise(Effect.flip(deploymentAbandonPushResponseForHttpApi(
+      deploymentTestService({
+        abandonPush: pushId =>
+          Effect.succeed({
+            ...pushStatus(pushId, "abandoned"),
+            state: "missing-state",
+          } as unknown as PushStatus),
+      }),
+      "push-abandon-malformed-adapter",
+      {},
+    )));
+    expect(invalidAbandonProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(invalidAbandonProtocol)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
