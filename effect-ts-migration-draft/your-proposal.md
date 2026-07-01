@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `a5843f5` Type deployment route compatibility dispatch.
-- Active checkpoint: direct DeploymentDO mutation route-input dispatch adapter, proving typed decoded mutation inputs can call generated handler effects and map HTTP responses without rebuilding requests.
+- Previous completed checkpoint: `55f0739` Plan concrete Effect migration checklist.
+- Active checkpoint: D-4 DeploymentDO mutation direct wiring, routing start/finish/abandon production requests through typed route inputs and generated handler effects while keeping read routes on the generated request bridge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,12 +52,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the direct DeploymentDO mutation route-input dispatch adapter:
+Next recommended checkpoint after D-4 DeploymentDO mutation direct wiring:
 
-1. Decide whether to wire `routeDeploymentDurableObject(...)` to the direct
-   mutation dispatch adapter for start/finish/abandon routes, while keeping
-   read routes on the generated web-handler bridge or introducing equivalent
-   direct read response mapping.
+1. Add direct read response mapping for `GET /active` and `GET /push/:pushId`
+   so DeploymentDO read routes no longer depend on generated web-handler
+   request rebuilding.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -67,7 +66,24 @@ Next recommended checkpoint after the direct DeploymentDO mutation route-input d
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 336 slice:
+Current Goal 337 slice:
+
+1. Wire `routeDeploymentDurableObject(...)` mutation route inputs directly to
+   `dispatchDeploymentApiMutationRouteInputDirect(...)`.
+2. Provide `DeploymentService` at the `DeploymentDO.fetch(...)` runtime edge
+   from the existing deployment layer.
+3. Keep read routes on `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`.
+4. Add route-boundary tests proving start/finish/abandon mutation routes bypass
+   the generated handler bridge and read routes still use it.
+5. Tick `D-4` in `roadmaps/22-effect-migration-checklist.md` and move the
+   next active checkpoint to `D-5`.
+6. Leave direct read mapping, generated handler logic, DeploymentService/store
+   lifecycle logic, public Worker deployment dispatch, artifact
+   materializer/cache, source-package analyzer semantics, PartitionDO SQL/OCC,
+   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+   unchanged.
+
+Completed Goal 336 slice:
 
 1. Add `dispatchDeploymentApiMutationRouteInputDirect(...)`, a named Effect
    adapter that accepts typed start/finish/abandon route inputs plus

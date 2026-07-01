@@ -31,7 +31,7 @@ import {
   runDeploymentDurableObjectRoute,
 } from "../src/deployment/InternalRouteBoundary";
 import { DeploymentPushInvalidStateError } from "../src/deployment/Errors";
-import type { DeploymentServiceApi } from "../src/deployment/Service";
+import { DeploymentService, type DeploymentServiceApi } from "../src/deployment/Service";
 import type { DeploymentAnalysis, DeploymentCodegenAnalysis, PushStatus } from "../src/types";
 
 describe("deployment HttpApi route boundary", () => {
@@ -335,75 +335,65 @@ describe("deployment HttpApi route boundary", () => {
   });
 
   it("maps DeploymentDO adapter route failures at one Effect edge", async () => {
-    const malformed = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest(DeploymentRoute.startAnalyzedPush, {
-          method: "POST",
-          body: "{",
-        }),
-        async () => Response.json({ ok: true }),
-      ),
+    const malformed = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.startAnalyzedPush, {
+        method: "POST",
+        body: "{",
+      }),
+      async () => Response.json({ ok: true }),
     );
     expect(malformed.status).toBe(400);
     await expect(malformed.json()).resolves.toEqual({
       error: "Request body must be JSON.",
     });
 
-    const invalid = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest(DeploymentRoute.startAnalyzedPush, {
-          method: "POST",
-          body: { sourcePackage: 123 },
-        }),
-        async () => Response.json({ ok: true }),
-      ),
+    const invalid = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.startAnalyzedPush, {
+        method: "POST",
+        body: { sourcePackage: 123 },
+      }),
+      async () => Response.json({ ok: true }),
     );
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({
       error: "A push without analysis must include an error message.",
     });
 
-    const handlerFailure = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest(`${DeploymentRoute.push}/push-handler-failure`, {
-          method: "GET",
-        }),
-        async () => {
-          throw new Error("deployment handler failed");
-        },
-      ),
+    const handlerFailure = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-handler-failure`, {
+        method: "GET",
+      }),
+      async () => {
+        throw new Error("deployment handler failed");
+      },
     );
     expect(handlerFailure.status).toBe(500);
     await expect(handlerFailure.json()).resolves.toEqual({
       error: "deployment handler failed",
     });
 
-    const handlerProtocolFailure = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest(`${DeploymentRoute.push}/push-handler-protocol-failure`, {
-          method: "GET",
-        }),
-        async () => {
-          throw new DeploymentProtocolValidationError({
-            schema: "DeploymentGeneratedResponse",
-            message: "Generated deployment response failed validation.",
-            cause: new Error("invalid generated deployment response"),
-          });
-        },
-      ),
+    const handlerProtocolFailure = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-handler-protocol-failure`, {
+        method: "GET",
+      }),
+      async () => {
+        throw new DeploymentProtocolValidationError({
+          schema: "DeploymentGeneratedResponse",
+          message: "Generated deployment response failed validation.",
+          cause: new Error("invalid generated deployment response"),
+        });
+      },
     );
     expect(handlerProtocolFailure.status).toBe(400);
     await expect(handlerProtocolFailure.json()).resolves.toEqual({
       error: "Generated deployment response failed validation.",
     });
 
-    const health = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest(DeploymentRoute.health, {
-          method: "POST",
-        }),
-        async () => Response.json({ ok: true }),
-      ),
+    const health = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.health, {
+        method: "POST",
+      }),
+      async () => Response.json({ ok: true }),
     );
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toEqual({
@@ -411,18 +401,110 @@ describe("deployment HttpApi route boundary", () => {
       status: "ok",
     });
 
-    const notFound = await runDeploymentDurableObjectRoute(
-      routeDeploymentDurableObject(
-        jsonRequest("/not-found", {
-          method: "GET",
-        }),
-        async () => Response.json({ ok: true }),
-      ),
+    const notFound = await runDeploymentRoute(
+      jsonRequest("/not-found", {
+        method: "GET",
+      }),
+      async () => Response.json({ ok: true }),
     );
     expect(notFound.status).toBe(404);
     await expect(notFound.json()).resolves.toEqual({
       error: "Not found.",
     });
+  });
+
+  it("routes DeploymentDO mutations directly while keeping reads on the generated handler bridge", async () => {
+    let generatedHandlerCalls = 0;
+    const generatedHandler = async () => {
+      generatedHandlerCalls += 1;
+      throw new Error("generated handler should not handle mutation routes");
+    };
+
+    const start = await runDeploymentRoute(
+      jsonRequest(DeploymentRoute.startAnalyzedPush, {
+        method: "POST",
+        body: {
+          sourcePackage: sourcePackage(),
+          analysis: deploymentAnalysis(),
+          codegenAnalysis: deploymentCodegenAnalysis(),
+          diagnostics: [{ level: "warn", message: "direct route" }],
+        },
+      }),
+      generatedHandler,
+      deploymentTestService({
+        startAnalyzedPush: () => Effect.succeed(pushStatus("push-direct-route")),
+      }),
+    );
+    expect(start.status).toBe(200);
+    await expect(start.json()).resolves.toMatchObject({
+      pushId: "push-direct-route",
+      state: "analyzed",
+    });
+
+    const finish = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-direct-route/${DeploymentPushAction.finish}`, {
+        method: "POST",
+        body: {},
+      }),
+      generatedHandler,
+      deploymentTestService({
+        finishPush: pushId => Effect.succeed({
+          result: "activated",
+          push: pushStatus(pushId, "activated"),
+        }),
+      }),
+    );
+    expect(finish.status).toBe(200);
+    await expect(finish.json()).resolves.toMatchObject({
+      result: "activated",
+      push: {
+        pushId: "push-direct-route",
+        state: "activated",
+      },
+    });
+
+    const abandon = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-direct-route/${DeploymentPushAction.abandon}`, {
+        method: "POST",
+        body: { reason: "cancelled" },
+      }),
+      generatedHandler,
+      deploymentTestService({
+        abandonPush: (pushId, request) => Effect.succeed({
+          ...pushStatus(pushId, "abandoned"),
+          error: request.reason ?? "Push abandoned before activation.",
+        }),
+      }),
+    );
+    expect(abandon.status).toBe(200);
+    await expect(abandon.json()).resolves.toMatchObject({
+      pushId: "push-direct-route",
+      state: "abandoned",
+      error: "cancelled",
+    });
+
+    expect(generatedHandlerCalls).toBe(0);
+
+    const read = await runDeploymentRoute(
+      jsonRequest(`${DeploymentRoute.push}/push-read-bridge`, {
+        method: "GET",
+      }),
+      async request => {
+        generatedHandlerCalls += 1;
+        return Response.json({
+          method: request.method,
+          url: request.url,
+          routedBy: "generated-handler",
+        });
+      },
+    );
+    expect(read.status).toBe(200);
+    await expect(read.json()).resolves.toEqual({
+      method: "GET",
+      url: "https://deployment.test/push/push-read-bridge",
+      routedBy: "generated-handler",
+    });
+    expect(generatedHandlerCalls).toBe(1);
   });
 
   it("dispatches typed DeploymentDO route inputs through the request compatibility adapter", async () => {
@@ -624,6 +706,18 @@ function jsonRequest(path: string, options: RequestOptions): Request {
       ? {}
       : { body: typeof options.body === "string" ? options.body : JSON.stringify(options.body) }),
   });
+}
+
+function runDeploymentRoute(
+  request: Request,
+  handleApiRequest: (request: Request) => Promise<Response>,
+  service: DeploymentServiceApi = deploymentTestService(),
+): Promise<Response> {
+  return runDeploymentDurableObjectRoute(
+    routeDeploymentDurableObject(request, handleApiRequest).pipe(
+      Effect.provideService(DeploymentService, DeploymentService.of(service)),
+    ),
+  );
 }
 
 function sourcePackage() {

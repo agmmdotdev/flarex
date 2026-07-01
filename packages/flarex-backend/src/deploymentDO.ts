@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import {
   routeDeploymentDurableObject,
   runDeploymentDurableObjectRoute,
@@ -26,7 +27,7 @@ export class DeploymentDO extends DurableObject<Env> {
       routeDeploymentDurableObject(
         request,
         apiRequest => this.deploymentApi.handler(apiRequest),
-      ),
+      ).pipe(Effect.provide(this.deploymentLayer)),
     );
   }
 }

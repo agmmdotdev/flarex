@@ -20,7 +20,7 @@ import {
   type DeploymentApiRouteInput,
   type DeploymentRouteError,
 } from "./HttpApiRouteBoundary";
-import type { DeploymentServiceApi } from "./Service";
+import { DeploymentService, type DeploymentServiceApi } from "./Service";
 
 export class DeploymentRouteOperationError extends Data.TaggedError(
   "DeploymentRouteOperationError",
@@ -46,10 +46,14 @@ export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
   function* (
     request: Request,
     handleApiRequest: (request: Request) => Promise<Response>,
-  ): Effect.fn.Return<Response, DeploymentInternalRouteError> {
+  ): Effect.fn.Return<Response, DeploymentInternalRouteError, DeploymentService> {
     const url = new URL(request.url);
     const apiRouteInput = yield* decodeDeploymentApiRouteInput(request);
     if (apiRouteInput !== null) {
+      if (isDeploymentApiMutationRouteInput(apiRouteInput)) {
+        const deployment = yield* DeploymentService;
+        return yield* dispatchDeploymentApiMutationRouteInputDirect(apiRouteInput, deployment);
+      }
       return yield* dispatchDeploymentApiRouteInputViaRequestCompatibility(
         apiRouteInput,
         handleApiRequest,
@@ -170,4 +174,12 @@ function deploymentGeneratedMutationValueToResponse(value: object): Response {
 
 function isRejectedFinishPushResponse(value: object): value is { readonly result: "rejected" } {
   return "result" in value && value.result === "rejected";
+}
+
+function isDeploymentApiMutationRouteInput(
+  apiRouteInput: DeploymentApiRouteInput,
+): apiRouteInput is DeploymentApiMutationRouteInput {
+  return apiRouteInput._tag === "DeploymentApiStartAnalyzedPushRoute"
+    || apiRouteInput._tag === "DeploymentApiFinishPushRoute"
+    || apiRouteInput._tag === "DeploymentApiAbandonPushRoute";
 }

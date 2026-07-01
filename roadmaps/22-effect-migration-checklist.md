@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `2aa931c` Type deployment direct mutation
-  dispatch.
+- Previous completed checkpoint: `55f0739` Plan concrete Effect migration
+  checklist.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -93,9 +93,11 @@ The Effect migration is complete only when all of these are true:
   route inputs without wiring production requests yet.
   - Completed by: `2aa931c` Type deployment direct mutation dispatch.
   - Focus tests: `test/deploymentHttpApiRouteBoundary.test.ts`.
-- [ ] D-4. Wire `routeDeploymentDurableObject(...)` mutation routes
+- [x] D-4. Wire `routeDeploymentDurableObject(...)` mutation routes
   `start/finish/abandon` to `dispatchDeploymentApiMutationRouteInputDirect(...)`
   and keep read routes on the compatibility bridge.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
     `packages/flarex-backend/src/deploymentDO.ts`,
@@ -389,10 +391,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with D-4:
+Start with D-5:
 
-Wire `routeDeploymentDurableObject(...)` mutation routes to
-`dispatchDeploymentApiMutationRouteInputDirect(...)`, keep read routes on the
-compatibility bridge, preserve all HTTP behavior, update
+Add direct read response mapping for DeploymentDO `GET /active` and
+`GET /push/:pushId`, remove read-route dependence on generated web-handler
+request rebuilding, preserve all HTTP behavior, update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, then commit.
+run only the EffectTS quality checker, tick `D-5`, then commit.
