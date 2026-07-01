@@ -15,12 +15,6 @@ export { DeliveryWakePayloadError, type DeliveryWakeRequest } from "./WakeReques
 
 export type DeliveryWakeRouteError = RequestJsonError | DeliveryWakePayloadError;
 
-export async function readDeliveryWakeRequest(
-  request: Request,
-): Promise<DeliveryWakeRequest> {
-  return runDeliveryWakeRouteEffect(decodeDeliveryWakeRequest(request));
-}
-
 export function decodeDeliveryWakeRequest(
   request: Request,
 ): Effect.Effect<DeliveryWakeRequest, DeliveryWakeRouteError> {
@@ -29,30 +23,10 @@ export function decodeDeliveryWakeRequest(
   );
 }
 
-export function parseDeliveryWakeRequest(value: unknown): DeliveryWakeRequest {
-  return Effect.runSync(parseDeliveryWakeRequestEffect(value).pipe(
-    Effect.catch(deliveryWakeRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseDeliveryWakeRequestEffect(
-  value: unknown,
-): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
-  return decodeDeliveryWakeRoutePayload(value);
-}
-
 export function decodeDeliveryWakeRoutePayload(
   value: unknown,
 ): Effect.Effect<DeliveryWakeRequest, DeliveryWakePayloadError> {
   return decodeDeliveryWakePayload(value);
-}
-
-function runDeliveryWakeRouteEffect<A>(
-  effect: Effect.Effect<A, DeliveryWakeRouteError>,
-): Promise<A> {
-  return Effect.runPromise(effect.pipe(
-    Effect.catch(deliveryWakeRouteErrorToHttpErrorEffect),
-  ));
 }
 
 export function deliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {

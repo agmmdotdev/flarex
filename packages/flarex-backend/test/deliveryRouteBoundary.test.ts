@@ -6,9 +6,6 @@ import {
   decodeDeliveryWakeRoutePayload,
   deliveryWakeRouteErrorToHttpError,
   deliveryWakeRouteErrorToHttpErrorEffect,
-  parseDeliveryWakeRequest,
-  parseDeliveryWakeRequestEffect,
-  readDeliveryWakeRequest,
 } from "../src/delivery/RouteBoundary";
 import {
   decodeDeliveryWakePayload,
@@ -62,13 +59,13 @@ describe("delivery route boundary", () => {
   });
 
   it("decodes wake requests", async () => {
-    await expect(readDeliveryWakeRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeDeliveryWakeRequest(jsonRequest({
       deploymentId: "deployment-a",
       limit: 10,
       maxBatches: 2,
       leaseDurationMs: 30_000,
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       deploymentId: "deployment-a",
       limit: 10,
       maxBatches: 2,
@@ -83,36 +80,19 @@ describe("delivery route boundary", () => {
     });
   });
 
-  it("maps invalid wake bodies to 400", () => {
-    expect(() => parseDeliveryWakeRequest(null))
-      .toThrow(HttpError);
-    try {
-      parseDeliveryWakeRequest({
-        deploymentId: "deployment-a",
-        limit: 0,
-      });
-      throw new Error("Expected parseDeliveryWakeRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "limit must be a positive integer.",
-      });
-    }
-  });
-
   it("preserves malformed JSON as the shared JSON body error", async () => {
-    await expect(readDeliveryWakeRequest(new Request("https://flarex.test/wake", {
+    await expect(Effect.runPromise(decodeDeliveryWakeRequest(new Request("https://flarex.test/wake", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{",
-    }))).rejects.toMatchObject({
-      status: 400,
+    })))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });
 
   it("exposes typed wake decoder failures before HTTP mapping", async () => {
-    await expect(Effect.runPromise(parseDeliveryWakeRequestEffect({
+    await expect(Effect.runPromise(decodeDeliveryWakeRoutePayload({
       deploymentId: "deployment-a",
       limit: 0,
     }))).rejects.toMatchObject({

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9931afa` Type deployment push payload boundary.
-- Active checkpoint: validate and review the execution request payload Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `54144cd` Type execution request payload boundary.
+- Active checkpoint: validate and review the delivery wake request Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the execution request payload effects:
+Next recommended checkpoint after the delivery wake request effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,22 @@ Next recommended checkpoint after the execution request payload effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 314 slice:
+
+1. Remove the Promise-returning `readDeliveryWakeRequest(...)` compatibility
+   wrapper from `delivery/RouteBoundary.ts`.
+2. Remove the throwing `parseDeliveryWakeRequest(...)` compatibility wrapper
+   and the `parseDeliveryWakeRequestEffect(...)` forwarding alias from
+   `delivery/RouteBoundary.ts`.
+3. Keep DeliveryDO production wake routing on `decodeDeliveryWakeRequest(...)`
+   and public Worker wake routing on `decodePublicDeliveryWakeRequest(...)`.
+4. Update delivery wake route-boundary tests to assert typed decoder success,
+   typed `RequestJsonError`, and typed `DeliveryWakePayloadError` failures
+   directly, while keeping HTTP mapping assertions at the adapter edge.
+5. Leave DeliveryDO drain/coalescing/alarm behavior, public wake dispatch,
+   SchedulerDO wake behavior, live-query fanout/claim/ack semantics,
+   PartitionDO SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 313 slice:
 

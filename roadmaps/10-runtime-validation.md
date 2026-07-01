@@ -1,5 +1,53 @@
 # Runtime Validation
 
+## Delivery Wake Request Effects
+
+Previous completed checkpoint: `54144cd` Type execution request payload
+boundary.
+
+What changed:
+
+- Removed `readDeliveryWakeRequest(...)`, `parseDeliveryWakeRequest(...)`, and
+  `parseDeliveryWakeRequestEffect(...)` from `delivery/RouteBoundary.ts`.
+- Kept internal DeliveryDO wake decoding on `decodeDeliveryWakeRequest(...)`.
+- Kept public Worker wake decoding on `decodePublicDeliveryWakeRequest(...)`.
+- Updated delivery wake tests to assert typed decoder success and typed
+  `RequestJsonError` / `DeliveryWakePayloadError` failures directly.
+
+Why it changed:
+
+The delivery wake route boundary already exposes Effect-returning decoders for
+JSON body reads and payload validation. Removing the Promise/throwing
+compatibility wrappers keeps wake validation failures typed until the
+DeliveryDO or public Worker adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  runtime validation cleanup around Cloudflare delivery wake routes.
+
+How Flarex differs:
+
+- Flarex uses a DeliveryDO wake/drain loop plus public Worker wake forwarding
+  to process durable live-query delivery rows. This checkpoint preserves that
+  runtime behavior and narrows only the shared wake request boundary.
+
+Known limitations:
+
+- This checkpoint does not change DeliveryDO drain/coalescing/alarm behavior,
+  public wake dispatch, SchedulerDO wake behavior, live-query fanout/claim/ack
+  semantics, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Request Payload Effects
 
 Previous completed checkpoint: `9931afa` Type deployment push payload

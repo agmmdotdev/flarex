@@ -1,5 +1,58 @@
 # Package Boundaries
 
+## Delivery Wake Request Effects
+
+Previous completed checkpoint: `54144cd` Type execution request payload
+boundary.
+
+What changed:
+
+- `delivery/RouteBoundary.ts` no longer exports the Promise-returning
+  `readDeliveryWakeRequest(...)` wrapper.
+- `delivery/RouteBoundary.ts` no longer exports the throwing
+  `parseDeliveryWakeRequest(...)` wrapper or
+  `parseDeliveryWakeRequestEffect(...)` forwarding alias.
+- The delivery wake route source boundary now exposes Effect-returning decoders
+  for request and route payload validation.
+- Tests now exercise the typed decoder channels directly and leave HTTP
+  mapping assertions in route adapter tests.
+
+Boundary decision:
+
+Delivery wake payload validation belongs in `delivery/WakeRequest.ts`.
+Internal DeliveryDO route JSON decoding remains in `delivery/RouteBoundary.ts`;
+public Worker wake JSON decoding remains in `delivery/PublicWakeRouteBoundary.ts`.
+HTTP response conversion remains in `delivery/InternalRouteBoundary.ts`, the
+public Worker route adapter, and the existing wake route HTTP mappers.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's Cloudflare delivery wake request boundary around existing decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare public Worker plus DeliveryDO
+  wake route split. Flarex keeps the split explicit while sharing typed wake
+  payload decoders.
+
+Known limitations:
+
+- No DeliveryDO drain/coalescing/alarm behavior, public wake dispatch,
+  SchedulerDO wake behavior, live-query fanout/claim/ack semantics,
+  PartitionDO SQL/OCC behavior, executor-http route, or `ValidatorJson`
+  boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Request Payload Effects
 
 Previous completed checkpoint: `9931afa` Type deployment push payload

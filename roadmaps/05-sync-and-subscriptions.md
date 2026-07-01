@@ -1,5 +1,57 @@
 # Sync And Subscriptions
 
+## Delivery Wake Request Effects
+
+Previous completed checkpoint: `54144cd` Type execution request payload
+boundary.
+
+What changed:
+
+- Removed the Promise-returning `readDeliveryWakeRequest(...)` compatibility
+  wrapper from `delivery/RouteBoundary.ts`.
+- Removed the throwing `parseDeliveryWakeRequest(...)` compatibility wrapper
+  and the `parseDeliveryWakeRequestEffect(...)` forwarding alias from
+  `delivery/RouteBoundary.ts`.
+- Kept DeliveryDO internal wake routing on `decodeDeliveryWakeRequest(...)`.
+- Kept public Worker wake routing on `decodePublicDeliveryWakeRequest(...)`.
+- Updated delivery wake route-boundary tests to assert typed decoder success
+  and typed `RequestJsonError` / `DeliveryWakePayloadError` failures directly.
+
+Why it changed:
+
+Delivery wake production routes already consume typed Effect decoders. The
+remaining compatibility exports made the shared wake route source boundary look
+partly Promise/exception-based even though DeliveryDO and public Worker wake
+paths already keep JSON and payload failures typed until route adapter mapping.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a
+  Cloudflare-specific Flarex delivery wake boundary cleanup.
+
+How Flarex differs:
+
+- Flarex wakes a Cloudflare DeliveryDO through internal `/wake` routes and
+  public Worker `/sync/wake-delivery` forwarding. This checkpoint preserves
+  that split and only removes legacy compatibility wrappers around the shared
+  internal wake request decoder.
+
+Known limitations:
+
+- DeliveryDO drain/coalescing/alarm behavior, public wake dispatch,
+  SchedulerDO wake behavior, live-query fanout/claim/ack semantics,
+  PartitionDO SQL/OCC, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/schedulerDeliveryWakeBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Maintenance JSON Route Boundary Effects
 
 Previous completed checkpoint: `86cac22` Type connection JSON route boundary.
