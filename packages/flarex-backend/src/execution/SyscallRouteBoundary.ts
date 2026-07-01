@@ -9,7 +9,6 @@ import {
 import type { ExecutionSyscallRequest } from "../types";
 import {
   decodeExecutionSyscallPayload,
-  parseExecutionSyscallPayload,
 } from "./Requests";
 
 export type ExecutionSyscallRouteError = RequestJsonError | ExecutionProtocolValidationError;
@@ -19,7 +18,7 @@ export async function readExecutionSyscallRequest(
 ): Promise<ExecutionSyscallRequest> {
   return await Effect.runPromise(
     decodeExecutionSyscallRouteRequest(request).pipe(
-      Effect.mapError(executionSyscallRouteErrorToHttpError),
+      Effect.catch(executionSyscallRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -35,14 +34,9 @@ export function decodeExecutionSyscallRouteRequest(
 export function parseExecutionSyscallRouteRequest(
   value: unknown,
 ): ExecutionSyscallRequest {
-  try {
-    return parseExecutionSyscallPayload(value);
-  } catch (error) {
-    if (error instanceof ExecutionProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
+  return Effect.runSync(parseExecutionSyscallRouteRequestEffect(value).pipe(
+    Effect.catch(executionSyscallRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parseExecutionSyscallRouteRequestEffect(
@@ -65,3 +59,11 @@ export function executionSyscallRouteErrorToHttpError(
   }
   return new HttpError(400, error.message);
 }
+
+export const executionSyscallRouteErrorToHttpErrorEffect = Effect.fn(
+  "ExecutionSyscallRouteBoundary.executionSyscallRouteErrorToHttpError",
+)(function* (
+  error: ExecutionSyscallRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(executionSyscallRouteErrorToHttpError(error));
+});

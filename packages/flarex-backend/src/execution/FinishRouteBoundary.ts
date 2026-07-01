@@ -9,7 +9,6 @@ import {
 import type { ExecutionFinishRequest } from "../types";
 import {
   decodeExecutionFinishPayload,
-  parseExecutionFinishPayload,
 } from "./Requests";
 
 export type ExecutionFinishRouteError = RequestJsonError | ExecutionProtocolValidationError;
@@ -19,7 +18,7 @@ export async function readExecutionFinishRequest(
 ): Promise<ExecutionFinishRequest> {
   return await Effect.runPromise(
     decodeExecutionFinishRouteRequest(request).pipe(
-      Effect.mapError(executionFinishRouteErrorToHttpError),
+      Effect.catch(executionFinishRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -35,14 +34,9 @@ export function decodeExecutionFinishRouteRequest(
 export function parseExecutionFinishRouteRequest(
   value: unknown,
 ): ExecutionFinishRequest {
-  try {
-    return parseExecutionFinishPayload(value);
-  } catch (error) {
-    if (error instanceof ExecutionProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
+  return Effect.runSync(parseExecutionFinishRouteRequestEffect(value).pipe(
+    Effect.catch(executionFinishRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parseExecutionFinishRouteRequestEffect(
@@ -65,3 +59,11 @@ export function executionFinishRouteErrorToHttpError(
   }
   return new HttpError(400, error.message);
 }
+
+export const executionFinishRouteErrorToHttpErrorEffect = Effect.fn(
+  "ExecutionFinishRouteBoundary.executionFinishRouteErrorToHttpError",
+)(function* (
+  error: ExecutionFinishRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(executionFinishRouteErrorToHttpError(error));
+});

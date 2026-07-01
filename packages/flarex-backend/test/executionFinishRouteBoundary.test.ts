@@ -5,6 +5,8 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeExecutionFinishRouteRequest,
   decodeExecutionFinishRoutePayload,
+  executionFinishRouteErrorToHttpError,
+  executionFinishRouteErrorToHttpErrorEffect,
   parseExecutionFinishRouteRequest,
   parseExecutionFinishRouteRequestEffect,
   readExecutionFinishRequest,
@@ -69,6 +71,34 @@ describe("execution finish route boundary", () => {
       headers: { "content-type": "application/json" },
       body: "{",
     })))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps typed execution finish route errors through named adapter effects", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(executionFinishRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ExecutionProtocolValidationError({
+      schema: "ExecutionFinishRequest",
+      message: "Execution finish request must include JSON value.",
+      cause: null,
+    });
+    expect(executionFinishRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: "Execution finish request must include JSON value.",
+    });
+
+    await expect(Effect.runPromise(Effect.flip(
+      executionFinishRouteErrorToHttpErrorEffect(protocolError),
+    ))).resolves.toMatchObject({
+      status: 400,
+      message: "Execution finish request must include JSON value.",
+    });
   });
 });
 

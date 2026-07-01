@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Internal Execution Route-Service Adapter Effects
+
+Previous completed checkpoint: `268ba42` Type artifact runtime route adapters.
+
+What changed:
+
+- Internal execution start compatibility parsers now recover through the named
+  `executionStartRouteErrorToHttpErrorEffect(...)` adapter.
+- Internal execution syscall and finish route boundaries now expose named
+  adapter effects before converting typed request/protocol failures to
+  `HttpError`.
+- `ExecutionDO` internal route recovery now uses the named
+  `executionInternalRouteErrorToResponseEffect(...)` adapter for its single
+  Durable Object HTTP response edge.
+- Focused tests cover syscall and finish adapter effects directly, while the
+  ExecutionDO route suite continues covering malformed bodies, invalid
+  protocol payloads, missing sessions, and route-path response mapping.
+
+Why it changed:
+
+ExecutionDO is a full route-service path: request JSON decoding, execution
+protocol validation, active deployment/function validation, session state,
+syscall transaction work, return validation, and final HTTP response mapping
+meet at the Durable Object boundary. This checkpoint keeps those failures typed
+until the named route or DO adapter edge without changing execution semantics.
+
+Known limitations:
+
+- This checkpoint does not change execution session lifecycle, syscall
+  semantics, transaction/OCC behavior, public Worker execution dispatch,
+  artifact runtime, deployment service/store behavior, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Route-Service Adapter Effects
 
 Previous completed checkpoint: `6e9fe45` Type active deployment store reads.

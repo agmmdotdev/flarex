@@ -10,8 +10,6 @@ import type { ExecutionStartRequest } from "../types";
 import {
   decodeExecutionStartPayload,
   decodePublicExecutionStartPayload,
-  parseExecutionStartPayload,
-  parsePublicExecutionStartPayload,
 } from "./Requests";
 
 export type ExecutionStartRouteError = RequestJsonError | ExecutionProtocolValidationError;
@@ -58,14 +56,9 @@ export function parsePublicExecutionStartRouteRequest(
   value: unknown,
   deploymentId: string,
 ): ExecutionStartRequest {
-  try {
-    return parsePublicExecutionStartPayload(value, deploymentId);
-  } catch (error) {
-    if (error instanceof ExecutionProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
+  return Effect.runSync(parsePublicExecutionStartRouteRequestEffect(value, deploymentId).pipe(
+    Effect.catch(executionStartRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parsePublicExecutionStartRouteRequestEffect(
@@ -85,14 +78,9 @@ export function decodePublicExecutionStartRoutePayload(
 export function parseExecutionStartRouteRequest(
   value: unknown,
 ): ExecutionStartRequest {
-  try {
-    return parseExecutionStartPayload(value);
-  } catch (error) {
-    if (error instanceof ExecutionProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
+  return Effect.runSync(parseExecutionStartRouteRequestEffect(value).pipe(
+    Effect.catch(executionStartRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parseExecutionStartRouteRequestEffect(

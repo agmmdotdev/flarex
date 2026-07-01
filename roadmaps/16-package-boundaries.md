@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Internal Execution Route-Service Adapter Effects
+
+Previous completed checkpoint: `268ba42` Type artifact runtime route adapters.
+
+What changed:
+
+- Internal execution start, syscall, and finish request compatibility readers
+  now use named route adapter effects before throwing `HttpError`.
+- `ExecutionDO` internal route recovery now uses a named response adapter
+  effect for typed route/service failures.
+- Tests assert syscall and finish adapter effects directly and keep the
+  broader ExecutionDO route response contract covered through Miniflare.
+
+Boundary decision:
+
+Execution request decoding belongs to `execution/StartRouteBoundary.ts`,
+`execution/SyscallRouteBoundary.ts`, and `execution/FinishRouteBoundary.ts`.
+Execution session lifecycle and transaction orchestration remain in
+`ExecutionDO`. HTTP response conversion for internal execution routes belongs
+at the Durable Object adapter edge, not in protocol schemas, transaction code,
+PartitionDO, or `ValidatorJson`.
+
+Known limitations:
+
+- No execution session lifecycle, syscall behavior, transaction/OCC behavior,
+  public Worker execution dispatch, artifact runtime, service binding
+  configuration, executor-http, or SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Route-Service Adapter Effects
 
 Previous completed checkpoint: `6e9fe45` Type active deployment store reads.

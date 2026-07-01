@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Artifact runtime route-service adapter effects.
-- Active checkpoint: validate and review the artifact runtime route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: Internal execution route-service adapter effects.
+- Active checkpoint: validate and review the internal execution route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the artifact runtime route-service adapter effects:
+Next recommended checkpoint after the internal execution route-service adapter effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
    carry the named adapter-effect pattern into remaining deployment route
@@ -60,6 +60,28 @@ Next recommended checkpoint after the artifact runtime route-service adapter eff
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 293 slice:
+
+1. Route internal execution start compatibility parsers through
+   `executionStartRouteErrorToHttpErrorEffect(...)` instead of local
+   `try/catch` protocol mapping.
+2. Add named internal execution syscall and finish route adapter effects:
+   `executionSyscallRouteErrorToHttpErrorEffect(...)` and
+   `executionFinishRouteErrorToHttpErrorEffect(...)`.
+3. Route internal syscall and finish compatibility readers/parsers through
+   those named adapter effects while preserving typed
+   `RequestJsonError | ExecutionProtocolValidationError` decoder channels.
+4. Route `ExecutionDO` internal route recovery through the named
+   `executionInternalRouteErrorToResponseEffect(...)` adapter so all typed
+   route/service failures convert to HTTP responses at one Durable Object edge.
+5. Add direct syscall and finish adapter-effect tests, while retaining
+   ExecutionDO route-level coverage for start/syscall/finish malformed,
+   invalid, missing-session, and route-path response mapping.
+6. Leave execution session lifecycle, syscall semantics, transaction/OCC
+   behavior, public Worker execution dispatch, artifact runtime, deployment
+   service/store behavior, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 292 slice:
 

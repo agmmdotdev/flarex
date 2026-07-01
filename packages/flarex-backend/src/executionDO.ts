@@ -436,46 +436,7 @@ function runExecutionRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        ExecutionProtocolValidationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        ExecutionSessionError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeArgumentValidationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeActiveDeploymentLoadError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeActiveFunctionMetadataNotFoundError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentIdParseError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentIdTableMismatchError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentNotFoundError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentPlacementError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentTableNotFoundError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeDocumentValidationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokePartitionValidationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeQueryPlanningError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeRequestKindMismatchError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeTableNotFoundError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeUnsupportedFunctionKindError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        InvokeReturnValidationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-        ExecutionRouteOperationError: error =>
-          Effect.succeed(executionInternalRouteErrorToResponse(error)),
-      }),
+      Effect.catch(executionInternalRouteErrorToResponseEffect),
     ),
   );
 }
@@ -543,6 +504,14 @@ function executionInternalRouteErrorToResponse(
   }
   return invokeErrorResponse(executionRouteDecodeErrorToHttpError(error));
 }
+
+export const executionInternalRouteErrorToResponseEffect = Effect.fn(
+  "ExecutionDO.executionInternalRouteErrorToResponse",
+)(function* (
+  error: ExecutionInternalRouteError,
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(executionInternalRouteErrorToResponse(error));
+});
 
 function executionRouteDecodeErrorToHttpError(
   error: ExecutionRouteDecodeError,
