@@ -17,6 +17,7 @@ import {
   ensureDeploymentPushCanBeAbandoned,
   finishDeploymentPushStoreInput,
   normalizeDeploymentAbandonReason,
+  requireActiveDeployment,
   requireDeploymentPush,
   startAnalyzedDeploymentPushStoreInput,
   type StartAnalyzedPushInput,
@@ -120,6 +121,32 @@ describe("DeploymentService", () => {
     );
 
     expect(error).toBe(failure);
+  });
+
+  it("exposes typed active deployment preflight before service response mapping", async () => {
+    const active = activeDeploymentStatus("push-active-helper");
+
+    await expect(Effect.runPromise(requireActiveDeployment({
+      getActiveDeployment: () => Effect.succeed(active),
+    }))).resolves.toBe(active);
+
+    const missing = await Effect.runPromise(requireActiveDeployment({
+      getActiveDeployment: () => Effect.succeed(null),
+    }).pipe(
+      Effect.catchTag("DeploymentActiveDeploymentNotFoundError", error => Effect.succeed(error)),
+    ));
+
+    expect(missing).toBeInstanceOf(DeploymentActiveDeploymentNotFoundError);
+
+    const storageFailure = new DeploymentSqlError({
+      operation: "getActiveDeployment",
+      cause: new Error("active read failed"),
+    });
+    await expect(Effect.runPromise(requireActiveDeployment({
+      getActiveDeployment: () => Effect.fail(storageFailure),
+    }).pipe(
+      Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+    ))).resolves.toBe(storageFailure);
   });
 
   it("loads push status through the store", async () => {

@@ -35,6 +35,13 @@ export interface DeploymentPushReader {
   >;
 }
 
+export interface DeploymentActiveDeploymentReader {
+  getActiveDeployment(): Effect.Effect<
+    ActiveDeploymentStatus | null,
+    DeploymentActiveDeploymentInvalidError | DeploymentSqlError | DeploymentValidationError
+  >;
+}
+
 export interface DeploymentArtifactResolver {
   executionArtifactRefForSourcePackage(
     sourcePackage: PushSourcePackage,
@@ -96,6 +103,24 @@ export const requireDeploymentPush = Effect.fn("DeploymentService.requireDeploym
       return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
     }
     return status;
+  },
+);
+
+export const requireActiveDeployment = Effect.fn("DeploymentService.requireActiveDeployment")(
+  function* (
+    store: DeploymentActiveDeploymentReader,
+  ): Effect.fn.Return<
+    ActiveDeploymentStatus,
+    | DeploymentActiveDeploymentInvalidError
+    | DeploymentActiveDeploymentNotFoundError
+    | DeploymentSqlError
+    | DeploymentValidationError
+  > {
+    const active = yield* store.getActiveDeployment();
+    if (active === null) {
+      return yield* Effect.fail(new DeploymentActiveDeploymentNotFoundError());
+    }
+    return active;
   },
 );
 
@@ -228,11 +253,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           | DeploymentSqlError
           | DeploymentValidationError
         > {
-          const active = yield* store.getActiveDeployment();
-          if (active === null) {
-            return yield* Effect.fail(new DeploymentActiveDeploymentNotFoundError());
-          }
-          return active;
+          return yield* requireActiveDeployment(store);
         },
       );
 

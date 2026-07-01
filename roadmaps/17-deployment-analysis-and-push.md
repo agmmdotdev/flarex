@@ -1,5 +1,54 @@
 # Deployment Analysis And Push
 
+## Deployment Read Service HttpApi Response Effects
+
+Previous completed checkpoint: `693c172` Type deployment start abandon
+service inputs.
+
+What changed:
+
+- `DeploymentService.getActiveDeployment(...)` now delegates active deployment
+  nullable-read preflight to `requireActiveDeployment(...)`.
+- Generated read handlers now delegate active deployment and push status
+  response preparation to named HttpApi adapter effects.
+- Active deployment not-found, storage failures, validation failures, and
+  malformed response payloads are covered through direct typed Effect tests.
+
+Why it changed:
+
+Deployment read paths need the same typed boundary as push lifecycle writes:
+service code returns domain/storage failures, while the generated API adapter
+performs response-class mapping and response protocol validation at one edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment read boundary cleanup around existing active deployment and push
+  status behavior.
+
+How Flarex differs:
+
+- Flarex persists deployment push lifecycle state in a Cloudflare Durable
+  Object and exposes it through generated Effect HttpApi response classes. This
+  checkpoint documents that split without changing the external route behavior.
+
+Known limitations:
+
+- DeploymentDO routing, public Worker deployment dispatch, start/finish/abandon
+  write behavior, artifact store implementation, DeploymentPushStore state
+  semantics, PartitionDO SQL/OCC, executor-http, protocol parser
+  compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Start And Abandon Service Input Effects
 
 Previous completed checkpoint: `df0eb71` Type deployment finish service

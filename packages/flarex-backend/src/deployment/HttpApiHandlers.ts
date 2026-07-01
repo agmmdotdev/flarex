@@ -115,18 +115,28 @@ export const deploymentHealthHandler = Effect.fn("DeploymentApiHandlers.health")
 export const deploymentGetActiveDeploymentHandler = Effect.fn(
   "DeploymentApiHandlers.getActiveDeployment",
 )(function* (deployment: DeploymentServiceApi) {
-  return yield* mapDeploymentReadFailure(deployment.getActiveDeployment()).pipe(
-    Effect.flatMap(decodeActiveDeploymentStatusForHttpApi),
-  );
+  return yield* deploymentActiveDeploymentResponseForHttpApi(deployment);
 });
 
 export const deploymentGetPushHandler = Effect.fn("DeploymentApiHandlers.getPush")(
   function* (deployment: DeploymentServiceApi, pushId: string) {
-    return yield* mapDeploymentReadFailure(deployment.getPush(pushId)).pipe(
-      Effect.flatMap(decodePushStatusForHttpApi),
-    );
+    return yield* deploymentPushStatusResponseForHttpApi(deployment, pushId);
   },
 );
+
+export const deploymentActiveDeploymentResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.deploymentActiveDeploymentResponseForHttpApi",
+)(function* (deployment: DeploymentServiceApi) {
+  const active = yield* mapDeploymentReadFailure(deployment.getActiveDeployment());
+  return yield* decodeActiveDeploymentStatusForHttpApi(active);
+});
+
+export const deploymentPushStatusResponseForHttpApi = Effect.fn(
+  "DeploymentApiHandlers.deploymentPushStatusResponseForHttpApi",
+)(function* (deployment: DeploymentServiceApi, pushId: string) {
+  const status = yield* mapDeploymentReadFailure(deployment.getPush(pushId));
+  return yield* decodePushStatusForHttpApi(status);
+});
 
 export const deploymentStartAnalyzedPushHandler = Effect.fn(
   "DeploymentApiHandlers.startAnalyzedPush",

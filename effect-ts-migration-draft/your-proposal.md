@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `df0eb71` Type deployment finish service preflight.
-- Active checkpoint: validate and review the deployment start/abandon service input Effect batch, keeping service behavior unchanged while naming the helpers that build `StartAnalyzedPushStoreInput` and `AbandonPushStoreInput`.
+- Previous completed checkpoint: `693c172` Type deployment start abandon service inputs.
+- Active checkpoint: validate and review the deployment read-side service and generated HttpApi response adapter batch, keeping active deployment and push reads typed until the generated response edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment start/abandon service input effects:
+Next recommended checkpoint after the deployment read-side service and HttpApi response effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially active deployment read preflight and
-   generated handler service response mapping around deployment reads.
+   service/domain failures, especially store-owned finish rejection semantics
+   and active deployment storage metadata helpers.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,29 @@ Next recommended checkpoint after the deployment start/abandon service input eff
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 324 slice:
+
+1. Add `requireActiveDeployment(...)`, a named DeploymentService Effect helper
+   that converts a nullable active deployment store read into either an
+   `ActiveDeploymentStatus` or typed
+   `DeploymentActiveDeploymentNotFoundError`.
+2. Keep active deployment read failures typed at their source:
+   `DeploymentActiveDeploymentInvalidError`, `DeploymentSqlError`, and
+   `DeploymentValidationError` propagate unchanged from storage.
+3. Add named generated HttpApi read response adapters:
+   `deploymentActiveDeploymentResponseForHttpApi(...)` and
+   `deploymentPushStatusResponseForHttpApi(...)`.
+4. Keep service read failures mapped only at the generated response adapter
+   edge, and keep protocol response validation failures mapped to declared
+   `DeploymentStorageErrorResponse` values.
+5. Add direct service and handler coverage for active read success, not-found,
+   SQL failure propagation, push read response mapping, active response
+   protocol failure, and push response protocol failure.
+6. Leave DeploymentDO routing, public Worker deployment dispatch, start/finish/
+   abandon write behavior, artifact store implementation, PartitionDO SQL/OCC,
+   executor-http, protocol parser compatibility, and `ValidatorJson`
+   unchanged.
 
 Completed Goal 323 slice:
 

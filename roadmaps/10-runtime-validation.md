@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Deployment Read Service HttpApi Response Effects
+
+Previous completed checkpoint: `693c172` Type deployment start abandon
+service inputs.
+
+What changed:
+
+- Active deployment service reads now use `requireActiveDeployment(...)`, a
+  named Effect helper that converts nullable store reads into typed service
+  success or not-found failure.
+- Generated DeploymentApi read handlers now delegate to named response adapter
+  effects for active deployment and push status reads.
+- Tests assert typed service preflight, generated response mapping, and
+  protocol response validation failures directly.
+
+Why it changed:
+
+Deployment read routes need the same migration shape as write routes: service
+code keeps domain/storage failures typed, and generated HttpApi handlers own the
+declared response-class conversion and protocol response validation.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentService and generated HttpApi adapter cleanup.
+
+How Flarex differs:
+
+- Flarex active deployment reads cross Cloudflare Durable Object storage and
+  generated Effect HttpApi response classes. That split is Flarex-specific and
+  not a Convex user API behavior.
+
+Known limitations:
+
+- DeploymentDO routing, public Worker deployment dispatch, start/finish/abandon
+  write behavior, artifact store implementation, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Start And Abandon Service Input Effects
 
 Previous completed checkpoint: `df0eb71` Type deployment finish service

@@ -24,10 +24,12 @@ import {
   mapDeploymentStartFailure,
   deploymentReadFailureToResponse,
   deploymentStartFailureToResponse,
+  deploymentActiveDeploymentResponseForHttpApi,
   DeploymentApiHandlers,
   decodeActiveDeploymentStatusForHttpApi,
   decodeFinishPushResponseForHttpApi,
   decodePushStatusForHttpApi,
+  deploymentPushStatusResponseForHttpApi,
   deploymentAbandonFailureResponseEffect,
   deploymentAbandonPushHandler,
   deploymentFinishFailureResponseEffect,
@@ -539,6 +541,64 @@ describe("DeploymentApiHandlers", () => {
     expect(missingPush).toBeInstanceOf(DeploymentNotFoundErrorResponse);
     expect(parseDeploymentErrorResponse(missingPush)).toEqual({
       error: "Unknown push: push-missing-direct",
+    });
+  });
+
+  it("maps read-side service and response validation through named HTTP API adapters", async () => {
+    const service = deploymentTestService();
+
+    await expect(Effect.runPromise(deploymentActiveDeploymentResponseForHttpApi(service)))
+      .resolves.toMatchObject({
+        activePushId: "active-push",
+        schemaVersion: 0,
+      });
+
+    await expect(Effect.runPromise(deploymentPushStatusResponseForHttpApi(service, "push-read-adapter")))
+      .resolves.toMatchObject({
+        pushId: "push-read-adapter",
+        state: "analyzed",
+      });
+
+    const missingActive = await Effect.runPromise(Effect.flip(deploymentActiveDeploymentResponseForHttpApi(
+      deploymentTestService({
+        getActiveDeployment: () => Effect.fail(new DeploymentActiveDeploymentNotFoundError()),
+      }),
+    )));
+    expect(missingActive).toBeInstanceOf(DeploymentNotFoundErrorResponse);
+    expect(parseDeploymentErrorResponse(missingActive)).toEqual({
+      error: "No active deployment.",
+    });
+
+    const invalidActiveProtocol = await Effect.runPromise(Effect.flip(deploymentActiveDeploymentResponseForHttpApi(
+      deploymentTestService({
+        getActiveDeployment: () =>
+          Effect.succeed({
+            ...activeDeploymentStatus(),
+            executionArtifactRef: {
+              ...executionArtifactRef(),
+              runtime: "unsupported-runtime",
+            },
+          } as unknown as ActiveDeploymentStatus),
+      }),
+    )));
+    expect(invalidActiveProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(invalidActiveProtocol)).toEqual({
+      error: "Active deployment response did not match the deployment protocol.",
+    });
+
+    const malformedPushProtocol = await Effect.runPromise(Effect.flip(deploymentPushStatusResponseForHttpApi(
+      deploymentTestService({
+        getPush: pushId =>
+          Effect.succeed({
+            ...pushStatus(pushId),
+            state: "missing-state",
+          } as unknown as PushStatus),
+      }),
+      "push-malformed-adapter",
+    )));
+    expect(malformedPushProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(malformedPushProtocol)).toEqual({
+      error: "Deployment push response did not match the deployment protocol.",
     });
   });
 

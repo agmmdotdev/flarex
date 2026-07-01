@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Deployment Read Service HttpApi Response Effects
+
+Previous completed checkpoint: `693c172` Type deployment start abandon
+service inputs.
+
+What changed:
+
+- `deployment/Service.ts` now exports `requireActiveDeployment(...)` for
+  active deployment nullable-read preflight.
+- `deployment/HttpApiHandlers.ts` now exports
+  `deploymentActiveDeploymentResponseForHttpApi(...)` and
+  `deploymentPushStatusResponseForHttpApi(...)` for generated read response
+  mapping.
+- `deploymentGetActiveDeploymentHandler(...)` and
+  `deploymentGetPushHandler(...)` delegate to the named read response adapters.
+
+Boundary decision:
+
+Active deployment not-found belongs in `DeploymentService`; storage/validation
+failures remain sourced by `DeploymentPushStore`; generated response class and
+protocol response validation mapping belongs in `DeploymentApiHandlers`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment service/generated-API package boundary.
+
+How Flarex differs:
+
+- Convex does not have this Cloudflare DeploymentDO plus generated Effect
+  HttpApi response-class adapter split. Flarex keeps the adapter edge explicit
+  so service code stays free of HTTP response classes.
+
+Known limitations:
+
+- No DeploymentDO routing, public Worker deployment dispatch, push write/state
+  behavior, artifact store implementation, PartitionDO SQL/OCC behavior,
+  executor-http route, protocol parser compatibility, or `ValidatorJson`
+  boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Start And Abandon Service Input Effects
 
 Previous completed checkpoint: `df0eb71` Type deployment finish service
