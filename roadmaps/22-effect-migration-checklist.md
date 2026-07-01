@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: C-1a Live-query callback protocol decoders in
-  this checkpoint commit.
+- Previous completed checkpoint: C-1b Scheduler route protocol decoders in this
+  checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -437,7 +437,7 @@ The Effect migration is complete only when all of these are true:
     `corepack pnpm --filter flarex-protocol typecheck`.
   - [x] C-1a. Export backend live-query callback transport decoders for
     delivery fanout bodies and DeliveryDO wake bodies.
-    - Completed by: this C-1a checkpoint commit.
+    - Completed by: `a6551ad` Export live query callback protocol decoders.
     - Files:
       `packages/flarex-protocol/src/live-query.ts`,
       `packages/flarex-protocol/test/live-query.test.ts`,
@@ -449,8 +449,21 @@ The Effect migration is complete only when all of these are true:
       `packages/flarex-backend/test/publicLiveQueryDeliveryRouteBoundary.test.ts`,
       `packages/flarex-backend/test/deliveryRouteBoundary.test.ts`,
       `packages/flarex-backend/test/publicDeliveryWakeRouteBoundary.test.ts`.
-  - [ ] C-1b. Export scheduler route transport decoders for migrated
+  - [x] C-1b. Export scheduler route transport decoders for migrated
     scheduler public/internal route request bodies.
+    - Completed by: this C-1b checkpoint commit.
+    - Files:
+      `packages/flarex-protocol/src/scheduler.ts`,
+      `packages/flarex-protocol/test/scheduler.test.ts`,
+      `packages/flarex-backend/src/scheduler/Requests.ts`,
+      `packages/flarex-protocol/src/index.ts`,
+      `packages/flarex-protocol/package.json`.
+    - Tests:
+      `packages/flarex-protocol/test/scheduler.test.ts`,
+      `packages/flarex-backend/test/schedulerRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/publicSchedulerRouteBoundary.test.ts`,
+      `packages/flarex-backend/test/publicSchedulerDispatchBoundary.test.ts`,
+      `packages/flarex-backend/test/schedulerResponses.test.ts`.
   - [ ] C-1c. Export connection message, invalidation, and connection delivery
     transport decoders used by migrated ConnectionDO routes.
   - [ ] C-1d. Export remaining partition, artifact runtime, and executor HTTP
@@ -494,11 +507,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with C-1b:
+Start with C-1c:
 
-Export scheduler route transport decoders for migrated scheduler
-public/internal route request bodies. Keep Worker/SchedulerDO request JSON
-reading and HTTP response mapping in backend route adapters, update
+Export connection message, invalidation, and connection delivery transport
+decoders used by migrated ConnectionDO routes. Keep ConnectionDO request,
+WebSocket, and response adapter behavior unchanged, update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate
-protocol plus affected backend scheduler gates, run only the EffectTS quality
-checker if Effect code changes, tick `C-1b`, then commit.
+protocol plus affected backend connection gates, run only the EffectTS quality
+checker if Effect code changes, tick `C-1c`, then commit.

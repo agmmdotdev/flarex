@@ -12,7 +12,8 @@
     "./invoke": "./src/invoke.ts",
     "./json": "./src/json.ts",
     "./live-query": "./src/live-query.ts",
-    "./registry": "./src/registry.ts"
+    "./registry": "./src/registry.ts",
+    "./scheduler": "./src/scheduler.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

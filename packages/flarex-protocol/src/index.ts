@@ -4,3 +4,4 @@ export * from "./execution";
 export * from "./invoke";
 export * from "./live-query";
 export * from "./registry";
+export * from "./scheduler";
