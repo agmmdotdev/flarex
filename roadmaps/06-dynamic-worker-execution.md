@@ -1,5 +1,43 @@
 # Dynamic Worker Execution
 
+## Execution Syscall Query Planning Boundary
+
+Previous completed checkpoint: `37b6ab6` Type execution document syscalls.
+
+What changed:
+
+- Shared invoke `queryDocumentsEffect(...)` now models execution indexed query
+  planning and placement validation as typed Effect failures.
+- ExecutionDO query syscalls use that helper for table lookup, required index
+  checks, index metadata lookup, range-bound planning, query placement checks,
+  and returned document placement checks.
+- Actual `SingleShardTransaction.queryIndexPage(...)` calls still run through
+  `ExecutionRouteOperationError`.
+
+Why it changed:
+
+Query planning and placement are invoke-domain validation, not generic
+transaction operation failures. This checkpoint completes the syscall
+validation split started by the document syscall slice while preserving the
+existing collect and pagination response shapes.
+
+Known limitations:
+
+- Execution start, finish, abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, DeploymentDO, SchedulerDO,
+  DeliveryDO, ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Document Validation Boundary
 
 Previous completed checkpoint: `e048f7f` Type execution start domain validation.

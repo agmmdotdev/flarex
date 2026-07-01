@@ -43,6 +43,7 @@ import {
   InvokeDocumentPlacementError,
   InvokeDocumentTableNotFoundError,
   InvokeDocumentValidationError,
+  InvokeQueryPlanningError,
   InvokeRequestKindMismatchError,
   InvokeUnsupportedFunctionKindError,
   invokeValidationErrorToHttpError,
@@ -52,7 +53,7 @@ import {
   isInvokableKind,
   loadActiveFunctionMetadataEffect,
   patchDocumentEffect,
-  readerFor,
+  queryDocumentsEffect,
   replaceDocumentEffect,
   resolveFunctionExecutionScopeEffect,
   tableForNameEffect,
@@ -186,7 +187,6 @@ export class ExecutionDO extends DurableObject<Env> {
     const self = this;
     return Effect.gen(function* () {
       const session = yield* self.requireSession("syscall");
-      const reader = readerFor(session.tx, session.schema);
       const runSyscallTransaction = <A>(execute: () => Promise<A>) =>
         routeExecutionOperation("syscall", execute);
       if (request.op === "get") {
@@ -198,33 +198,12 @@ export class ExecutionDO extends DurableObject<Env> {
         );
       }
       if (request.op === "query") {
-        return yield* routeExecutionOperation("syscall", async () => {
-          const query = reader.query(request.request.table);
-          const ordered =
-            request.request.index === undefined
-              ? query
-              : query.withIndex(request.request.index, () => ({
-                  expressions: request.request.range?.expressions ?? [],
-                }));
-          const orderedQuery =
-            request.request.order === undefined ? ordered : ordered.order(request.request.order);
-          if (request.request.cursor !== undefined || request.request.limit !== undefined) {
-            return orderedQuery.paginate({
-              numItems: request.request.limit ?? 100,
-              cursor: request.request.cursor ?? null,
-            });
-          }
-          const page = await orderedQuery.collect();
-          return {
-            page,
-            isDone: true,
-            continueCursor: String(
-              typeof page.at(-1) === "object" && page.at(-1) !== null
-                ? (page.at(-1) as { _id?: unknown })._id ?? ""
-                : "",
-            ),
-          };
-        });
+        return yield* queryDocumentsEffect(
+          session.tx,
+          session.schema,
+          request.request,
+          runSyscallTransaction,
+        );
       }
 
       yield* requireMutationExecution("syscall", session.kind, request.op);
@@ -420,6 +399,7 @@ type ExecutionServiceError =
   | InvokeDocumentTableNotFoundError
   | InvokeDocumentValidationError
   | InvokePartitionValidationError
+  | InvokeQueryPlanningError
   | InvokeRequestKindMismatchError
   | InvokeTableNotFoundError
   | InvokeUnsupportedFunctionKindError
@@ -463,6 +443,8 @@ function runExecutionRoute(
         InvokeDocumentValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokePartitionValidationError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeQueryPlanningError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeRequestKindMismatchError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -526,6 +508,9 @@ function executionInternalRouteErrorToResponse(
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokePartitionValidationError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeQueryPlanningError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokeRequestKindMismatchError) {

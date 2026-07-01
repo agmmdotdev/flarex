@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Execution Syscall Query Planning Boundary
+
+Previous completed checkpoint: `37b6ab6` Type execution document syscalls.
+
+What changed:
+
+- ExecutionDO query syscalls now keep missing indexes, unknown indexes, invalid
+  index ranges, query placement failures, and returned document placement
+  failures in typed invoke validation channels until the internal route
+  adapter.
+- Shared invoke `queryDocumentsEffect(...)` accepts the ExecutionDO transaction
+  runner, so index reads still map through `ExecutionRouteOperationError`.
+- HTTP adapter regressions now cover missing index, unknown index, invalid
+  range, and missing placement filter failures.
+
+Why it changed:
+
+Runtime validation should distinguish query planning/placement failures from
+transaction operation failures. This checkpoint removes query validation from
+the generic operation wrapper without changing the public syscall response
+contract.
+
+Known limitations:
+
+- Execution start/finish/abort, document syscalls, public execution dispatch,
+  PartitionDO SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Document Validation Boundary
 
 Previous completed checkpoint: `e048f7f` Type execution start domain validation.

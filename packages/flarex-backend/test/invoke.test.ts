@@ -29,6 +29,7 @@ import {
   parseInvokeKind,
   parseInvokeKindEffect,
   patchDocumentEffect,
+  queryDocumentsEffect,
   queryIndexBoundsEffect,
   requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
@@ -531,6 +532,51 @@ describe("executeInvoke", () => {
     expect(invokeValidationErrorToHttpError(nonUnique)).toMatchObject({
       status: 400,
       message: "Query returned more than one document.",
+    });
+  });
+
+  it("keeps query document helper planning typed until adapter mapping", async () => {
+    const deploymentId = "typed-query-helper-deployment";
+    const schema = {
+      version: 1,
+      tables: [usersTableWithValidator()],
+      indexes: [{ indexId: 1, tableId: 1, name: "by_user_score", fields: ["userId", "score"] }],
+    } satisfies DeploymentSchema;
+    await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
+    const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
+    const runTransaction = <A>(execute: () => Promise<A>) =>
+      Effect.tryPromise({
+        try: execute,
+        catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
+      });
+
+    const missingIndex = await Effect.runPromise(Effect.flip(
+      queryDocumentsEffect(tx, schema, { table: "users" }, runTransaction),
+    ));
+    expect(missingIndex).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(missingIndex instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingIndex)).toMatchObject({
+      status: 400,
+      message: "Flarex table scans are not implemented. Use withIndex().",
+    });
+
+    const missingPlacement = await Effect.runPromise(Effect.flip(
+      queryDocumentsEffect(
+        tx,
+        schema,
+        { table: "users", index: "by_user_score", range: { expressions: [] } },
+        runTransaction,
+      ),
+    ));
+    expect(missingPlacement).toBeInstanceOf(InvokeDocumentPlacementError);
+    if (!(missingPlacement instanceof InvokeDocumentPlacementError)) {
+      throw new Error("Expected InvokeDocumentPlacementError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingPlacement)).toMatchObject({
+      status: 400,
+      message: 'PlacementValidationError: query on users must include q.eq("userId", partitionKey).',
     });
   });
 

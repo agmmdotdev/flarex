@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Execution syscall document validation boundary.
+- Previous completed checkpoint: Execution syscall query planning boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the execution syscall document validation checkpoint:
+Next recommended checkpoint after the execution syscall query planning checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,25 @@ Next recommended checkpoint after the execution syscall document validation chec
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 258 slice:
+
+1. Add `queryDocumentsEffect(...)` as the shared invoke Effect helper for
+   execution indexed query syscalls.
+2. Move `ExecutionDO.syscall` query table lookup, required index validation,
+   index metadata lookup, range-bound planning, query placement checks, and
+   returned document placement checks into typed invoke validation channels.
+3. Keep actual `SingleShardTransaction.queryIndexPage(...)` calls inside
+   `ExecutionRouteOperationError` by passing the ExecutionDO operation runner
+   into the invoke helper.
+4. Preserve collect-style query response shape for non-paginated syscalls and
+   paginated response shape for limit/cursor syscalls.
+5. Preserve HTTP response bodies for missing indexes, unknown indexes, invalid
+   ranges, and missing placement filters through the internal route adapter
+   edge.
+6. Leave ExecutionDO start/finish/abort, document syscalls, public execution
+   dispatch, PartitionDO SQL/OCC, protocol schemas, executor-http,
+   deployment/registry behavior, and `ValidatorJson` semantics unchanged.
 
 Completed Goal 257 slice:
 

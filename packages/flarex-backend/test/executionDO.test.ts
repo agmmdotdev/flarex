@@ -459,6 +459,115 @@ describe("ExecutionDO sessions", () => {
     expect(finish.readTs).toBe(start.beginTs);
   });
 
+  it("maps query syscall planning validation at the execution adapter edge", async () => {
+    await activateDeployment("execution-query-planning-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+    const start = await startExecution("execution-query-planning-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+
+    const missingIndex = await syscallResponse(
+      "execution-query-planning-deployment",
+      start.sessionId,
+      { op: "query", request: { table: "lessonProgress" } },
+    );
+    expect(missingIndex.status).toBe(400);
+    await expect(missingIndex.json()).resolves.toEqual({
+      error: "Flarex table scans are not implemented. Use withIndex().",
+    });
+
+    const unknownIndex = await syscallResponse(
+      "execution-query-planning-deployment",
+      start.sessionId,
+      { op: "query", request: { table: "lessonProgress", index: "missing" } },
+    );
+    expect(unknownIndex.status).toBe(400);
+    await expect(unknownIndex.json()).resolves.toEqual({
+      error: "Unknown index lessonProgress.missing.",
+    });
+
+    const invalidRange = await syscallResponse(
+      "execution-query-planning-deployment",
+      start.sessionId,
+      {
+        op: "query",
+        request: {
+          table: "lessonProgress",
+          index: "by_user_lesson",
+          range: {
+            expressions: [
+              { op: "eq", field: "userId", value: "u1" },
+              { op: "gte", field: "lessonId", value: "intro" },
+              { op: "gt", field: "lessonId", value: "outro" },
+            ],
+          },
+        },
+      },
+    );
+    expect(invalidRange.status).toBe(400);
+    await expect(invalidRange.json()).resolves.toEqual({
+      error:
+        "Invalid range for index lessonProgress.by_user_lesson: Index range can have only one lower bound.",
+    });
+  });
+
+  it("maps query syscall placement validation at the execution adapter edge", async () => {
+    await activateDeployment("execution-query-placement-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+    const start = await startExecution("execution-query-placement-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+
+    const response = await syscallResponse(
+      "execution-query-placement-deployment",
+      start.sessionId,
+      {
+        op: "query",
+        request: {
+          table: "lessonProgress",
+          index: "by_user_lesson",
+          range: { expressions: [] },
+        },
+      },
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'PlacementValidationError: query on lessonProgress must include q.eq("userId", partitionKey).',
+    });
+  });
+
   it("aborts execution sessions without committing staged syscalls", async () => {
     await activateDeployment("execution-abort-deployment", lessonSchema(), {
       functions: [

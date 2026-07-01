@@ -19,6 +19,7 @@ import type {
   DeploymentSchema,
   DeploymentFunctionKind,
   Env,
+  ExecutionSyscallRequest,
   FunctionExecutionScope,
   FunctionPartitionMetadata,
   FunctionPartitionPolicy,
@@ -625,6 +626,8 @@ type InvokeTransactionRunner<E> = <A>(
   execute: () => Promise<A>,
 ) => Effect.Effect<A, E>;
 
+type ExecutionQueryRequest = Extract<ExecutionSyscallRequest, { op: "query" }>["request"];
+
 export const getDocumentEffect = Effect.fn("Invoke.getDocument")(function* <E>(
   tx: SingleShardTransaction,
   schema: DeploymentSchema,
@@ -702,6 +705,53 @@ function backendQuery(
   };
   return query;
 }
+
+export const queryDocumentsEffect = Effect.fn("Invoke.queryDocuments")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  request: ExecutionQueryRequest,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  { page: Json[]; isDone: boolean; continueCursor: string },
+  InvokeTableNotFoundError | InvokeQueryPlanningError | InvokeDocumentPlacementError | E
+> {
+  const index = yield* requireQueryIndexEffect(request.index);
+  const table = yield* tableForNameEffect(schema, request.table);
+  const metadata = yield* findQueryIndexEffect(schema, table, index);
+  const expressions = request.range?.expressions ?? [];
+  yield* validateQueryPlacementEffect(table, expressions, tx.partitionKey);
+  const bounds = yield* queryIndexBoundsEffect(request.table, index, metadata, expressions);
+  const result = yield* runTransaction(() =>
+    tx.queryIndexPage({
+      indexId: metadata.indexId,
+      ...bounds,
+      ...(request.limit === undefined ? {} : { limit: request.limit }),
+      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+      ...(request.order === undefined ? {} : { order: request.order }),
+    })
+  );
+  const page: Json[] = [];
+  for (const document of result.documents) {
+    yield* validateDocumentPlacementEffect(table, document.value, tx.partitionKey);
+    page.push(documentValue(document.id, document.value));
+  }
+  if (request.cursor !== undefined || request.limit !== undefined) {
+    return {
+      page,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  }
+  return {
+    page,
+    isDone: true,
+    continueCursor: String(
+      typeof page.at(-1) === "object" && page.at(-1) !== null
+        ? (page.at(-1) as { _id?: unknown })._id ?? ""
+        : "",
+    ),
+  };
+});
 
 function requireQueryIndex(index: string | undefined): string {
   return Effect.runSync(
