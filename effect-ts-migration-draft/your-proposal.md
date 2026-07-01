@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Execution active metadata load boundary.
+- Previous completed checkpoint: Execution start domain validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the execution active metadata load checkpoint:
+Next recommended checkpoint after the execution start domain validation checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,23 @@ Next recommended checkpoint after the execution active metadata load checkpoint:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 256 slice:
+
+1. Move the remaining `ExecutionDO.start` invoke-domain checks for request
+   kind mismatch, argument validation, unsupported active function kinds, and
+   create-root root table lookup onto shared invoke Effect boundaries.
+2. Add `InvokeArgumentValidationError`, `InvokeRequestKindMismatchError`, and
+   `InvokeUnsupportedFunctionKindError` to the ExecutionDO service error
+   channel, while keeping session lifecycle failures in `ExecutionSessionError`.
+3. Preserve `/executions/start` HTTP response bodies for bad arguments,
+   request/function kind mismatch, and unsupported action metadata through the
+   internal route adapter edge.
+4. Keep SingleShardTransaction schema setup and transaction begin failures in
+   `ExecutionRouteOperationError`, and leave ExecutionDO syscall/finish/abort,
+   public execution dispatch, PartitionDO SQL/OCC, protocol schemas,
+   executor-http, deployment/registry behavior, and `ValidatorJson` semantics
+   unchanged.
 
 Completed Goal 255 slice:
 

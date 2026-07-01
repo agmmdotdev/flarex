@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Execution Start Domain Validation Boundary
+
+Previous completed checkpoint: `9ee13b8` Type execution metadata load boundary.
+
+What changed:
+
+- ExecutionDO start now keeps bad arguments, request/function kind mismatch,
+  unsupported active metadata kinds, and create-root root table lookup failures
+  in typed invoke validation channels until the internal route adapter.
+- Active/missing execution session failures remain separate
+  `ExecutionSessionError` values.
+- Transaction schema setup/begin failures remain separate
+  `ExecutionRouteOperationError` values.
+
+Why it changed:
+
+Runtime validation should separate invoke-domain request/function failures from
+session lifecycle and transaction operation failures. This checkpoint removes
+the remaining start-domain validation remaps from the ExecutionDO service flow
+without changing the public `/executions/start` HTTP response contract.
+
+Known limitations:
+
+- Execution syscall/finish/abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Active Metadata Load Boundary
 
 Previous completed checkpoint: `50a23a4` Type execution start scope validation.

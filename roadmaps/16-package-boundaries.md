@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Execution Start Domain Validation Boundary
+
+Previous completed checkpoint: `9ee13b8` Type execution metadata load boundary.
+
+What changed:
+
+- ExecutionDO start now consumes shared invoke boundaries for argument
+  validation, request/function kind mismatch, unsupported active function
+  kinds, and create-root root table lookup.
+- Invoke-domain failures stay in the execution service/domain error channel
+  until the ExecutionDO route adapter maps them to the preserved HTTP response
+  contract.
+- Session lifecycle failures remain owned by `ExecutionSessionError`, and
+  transaction setup/begin failures remain owned by
+  `ExecutionRouteOperationError`.
+
+Boundary decision:
+
+Invoke validation owns user argument, function kind, and schema table lookup
+semantics. ExecutionDO owns session lifecycle and transaction setup. The
+internal route adapter owns HTTP response conversion for typed invoke,
+session, and operation failures.
+
+Known limitations:
+
+- This checkpoint does not change public execution dispatch, request protocol
+  schemas, executor-http, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Active Metadata Load Boundary
 
 Previous completed checkpoint: `50a23a4` Type execution start scope validation.

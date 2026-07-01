@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Execution Start Domain Validation Boundary
+
+Previous completed checkpoint: `9ee13b8` Type execution metadata load boundary.
+
+What changed:
+
+- ExecutionDO start now validates request/function kind mismatch and argument
+  payloads through shared invoke Effect errors instead of
+  `ExecutionSessionError` reasons.
+- Unsupported active function metadata kinds now fail as
+  `InvokeUnsupportedFunctionKindError`, with the ExecutionDO adapter preserving
+  the existing execution-session-specific HTTP message.
+- Create-root transaction begin options now use `tableForNameEffect(...)` so
+  the root table lookup remains in the typed invoke validation channel before
+  `SingleShardTransaction.begin(...)`.
+
+Why it changed:
+
+These checks are invoke-domain validation, not session lifecycle or transaction
+operation failures. This checkpoint leaves active/missing session handling in
+`ExecutionSessionError`, while keeping start-domain validation failures typed
+until the internal route adapter edge.
+
+Known limitations:
+
+- Execution syscall, finish, abort, public execution dispatch, PartitionDO
+  SQL/OCC, protocol schemas, executor-http, DeploymentDO, SchedulerDO,
+  DeliveryDO, ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Active Metadata Load Boundary
 
 Previous completed checkpoint: `50a23a4` Type execution start scope validation.

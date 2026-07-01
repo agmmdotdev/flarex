@@ -24,17 +24,18 @@ import {
   executionSessionError,
   executionSessionErrorToHttpError,
   requireActiveExecutionSession,
-  requireExecutionKindMatch,
   requireMutationExecution,
   requireNoActiveExecutionSession,
 } from "./execution/SessionError";
 import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
 import {
-  idValidatorForSchema,
   invokeErrorResponse,
+  InvokeArgumentValidationError,
   InvokeActiveDeploymentLoadError,
   InvokeActiveFunctionMetadataNotFoundError,
   invokeActiveDeploymentLoadErrorToHttpError,
+  InvokeRequestKindMismatchError,
+  InvokeUnsupportedFunctionKindError,
   invokeValidationErrorToHttpError,
   InvokePartitionValidationError,
   InvokeReturnValidationError,
@@ -43,7 +44,8 @@ import {
   loadActiveFunctionMetadataEffect,
   readerFor,
   resolveFunctionExecutionScopeEffect,
-  tableForName,
+  tableForNameEffect,
+  validateInvokeArgumentsEffect,
   validateReturnEffect,
   writerFor,
 } from "./invoke";
@@ -61,7 +63,6 @@ import type {
   InvokeResponse,
   Json,
 } from "./types";
-import { validateJsonValueEffect } from "./validation";
 
 type ExecutionSession = {
   deploymentId: string;
@@ -115,25 +116,18 @@ export class ExecutionDO extends DurableObject<Env> {
       const schema = active.deployment.analysis.schema;
       const metadata = active.metadata;
       if (!isInvokableKind(metadata.kind)) {
-        return yield* Effect.fail(executionSessionError(
-          "start",
-          { _tag: "UnsupportedFunctionKind", functionKind: metadata.kind },
-        ));
+        return yield* Effect.fail(new InvokeUnsupportedFunctionKindError({
+          path: request.path,
+          kind: metadata.kind,
+        }));
       }
-      yield* requireExecutionKindMatch("start", request.kind, metadata.kind);
-
-      if (metadata.args !== undefined && metadata.args !== null) {
-        yield* validateJsonValueEffect(metadata.args, request.args, "$args", {
-          validateId: idValidatorForSchema(schema),
-        }).pipe(
-          Effect.mapError(error =>
-            executionSessionError("start", {
-              _tag: "ArgumentValidation",
-              message: error.message,
-            })
-          ),
-        );
+      if (request.kind !== undefined && request.kind !== metadata.kind) {
+        return yield* Effect.fail(new InvokeRequestKindMismatchError({
+          requestKind: request.kind,
+          functionKind: metadata.kind,
+        }));
       }
+      yield* validateInvokeArgumentsEffect(metadata.args, request.args, schema);
       const scope = yield* resolveFunctionExecutionScopeEffect(
         metadata.partition,
         metadata.route,
@@ -147,18 +141,19 @@ export class ExecutionDO extends DurableObject<Env> {
         scope.partitionKey,
         schema,
       ));
+      const createRootOptions = scope.kind === "partitionCreateRoot"
+        ? {
+            createRoot: {
+              rootTableId: (yield* tableForNameEffect(schema, scope.table)).tableId,
+              preallocatedRootId: scope.preallocatedRootId,
+            },
+          }
+        : {};
       const tx = yield* routeExecutionOperation("start", () => SingleShardTransaction.begin(
         self.env,
         request.deploymentId,
         scope.partitionKey,
-        scope.kind === "partitionCreateRoot"
-          ? {
-              createRoot: {
-                rootTableId: tableForName(schema, scope.table).tableId,
-                preallocatedRootId: scope.preallocatedRootId,
-              },
-            }
-          : {},
+        createRootOptions,
       ));
       self.session = {
         deploymentId: request.deploymentId,
@@ -377,10 +372,13 @@ function routeExecutionOperation<A>(
 
 type ExecutionServiceError =
   | ExecutionSessionError
+  | InvokeArgumentValidationError
   | InvokeActiveDeploymentLoadError
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokePartitionValidationError
+  | InvokeRequestKindMismatchError
   | InvokeTableNotFoundError
+  | InvokeUnsupportedFunctionKindError
   | InvokeReturnValidationError
   | ExecutionRouteOperationError;
 
@@ -402,13 +400,19 @@ function runExecutionRoute(
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         ExecutionSessionError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeArgumentValidationError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeActiveDeploymentLoadError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeActiveFunctionMetadataNotFoundError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokePartitionValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeRequestKindMismatchError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeTableNotFoundError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeUnsupportedFunctionKindError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeReturnValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -433,6 +437,14 @@ function executionInternalRouteErrorToResponse(
   if (error instanceof ExecutionSessionError) {
     return invokeErrorResponse(executionSessionErrorToHttpError(error));
   }
+  if (error instanceof InvokeUnsupportedFunctionKindError) {
+    return invokeErrorResponse(
+      new HttpError(400, `${error.kind} execution is not implemented by execution sessions.`),
+    );
+  }
+  if (error instanceof InvokeArgumentValidationError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
   if (error instanceof InvokeActiveDeploymentLoadError) {
     return invokeErrorResponse(invokeActiveDeploymentLoadErrorToHttpError(error));
   }
@@ -440,6 +452,9 @@ function executionInternalRouteErrorToResponse(
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokePartitionValidationError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeRequestKindMismatchError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokeTableNotFoundError) {

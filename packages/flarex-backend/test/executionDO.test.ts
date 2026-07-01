@@ -495,6 +495,80 @@ describe("ExecutionDO sessions", () => {
     });
   });
 
+  it("maps execution start argument validation at the adapter edge", async () => {
+    await activateDeployment("execution-start-args-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:list",
+          kind: "query",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+
+    const response = await startExecutionResponse("execution-start-args-deployment", {
+      path: "lessons:list",
+      kind: "query",
+      partitionKey: "u1",
+      args: { userId: 42 },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "ArgumentValidationError: $args.userId: Expected a string.",
+    });
+  });
+
+  it("maps execution start function kind validation at the adapter edge", async () => {
+    await activateDeployment("execution-start-kind-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:complete",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+        {
+          path: "lessons:runAction",
+          kind: "action",
+        },
+      ],
+    });
+
+    const mismatch = await startExecutionResponse("execution-start-kind-deployment", {
+      path: "lessons:complete",
+      kind: "query",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+    expect(mismatch.status).toBe(400);
+    await expect(mismatch.json()).resolves.toEqual({
+      error: "Function kind mismatch. Request has query, function is mutation.",
+    });
+
+    const unsupported = await startExecutionResponse("execution-start-kind-deployment", {
+      path: "lessons:runAction",
+      kind: "query",
+      partitionKey: "u1",
+      args: null,
+    });
+    expect(unsupported.status).toBe(400);
+    await expect(unsupported.json()).resolves.toEqual({
+      error: "action execution is not implemented by execution sessions.",
+    });
+  });
+
   it("decodes public execution start bodies before creating a session", async () => {
     await activateDeployment("execution-start-boundary-deployment", lessonSchema(), {
       functions: [
