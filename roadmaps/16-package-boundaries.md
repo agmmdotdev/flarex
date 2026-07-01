@@ -1,5 +1,49 @@
 # Package Boundaries
 
+## Deployment Start Input Handler Effects
+
+Previous completed checkpoint: `3f831f0` Type artifact runtime route adapters.
+
+What changed:
+
+- `deployment/HttpApiHandlers.ts` no longer exports the synchronous
+  `startAnalyzedPushHandlerInputFromPayload(...)` helper.
+- `decodeStartAnalyzedPushHandlerInput(...)` remains the single
+  handler-owned route from `flarex-protocol` payload validation through
+  backend deployment validation into `StartAnalyzedPushInput`.
+- The HTTP API handler tests now validate bad start payloads by flipping the
+  typed Effect failure channel and then using the existing deployment start
+  response adapter.
+
+Boundary decision:
+
+Protocol shape validation remains in `flarex-protocol/deployment` and
+`deployment/Requests.ts`. Backend semantic validation remains in
+`deployment/Validation.ts`. The HTTP API handler owns composition of those
+two validation steps before calling `DeploymentService.startAnalyzedPush`.
+HTTP response conversion remains in `deploymentStartFailureToResponse(...)`;
+this checkpoint removes a duplicate synchronous handler adapter rather than
+moving validation into DeploymentDO, DeploymentService, public Worker dispatch,
+executor-http, or `ValidatorJson`.
+
+Known limitations:
+
+- No DeploymentService/store behavior, DeploymentDO route behavior, public
+  deployment push dispatch, executor-http route, artifact runtime behavior,
+  PartitionDO SQL/OCC behavior, or `ValidatorJson` boundary changed.
+- Legacy synchronous parser wrappers remain where they are still explicit
+  compatibility surfaces.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Artifact Runtime Route Adapter Effects
 
 Previous completed checkpoint: `6f130f1` Type delivery route adapters.

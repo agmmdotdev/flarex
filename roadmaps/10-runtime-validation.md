@@ -1,5 +1,47 @@
 # Runtime Validation
 
+## Deployment Start Input Handler Effects
+
+Previous completed checkpoint: `3f831f0` Type artifact runtime route adapters.
+
+What changed:
+
+- Removed the synchronous
+  `startAnalyzedPushHandlerInputFromPayload(...)` compatibility helper from
+  `deployment/HttpApiHandlers.ts`.
+- The start-analyzed-push HTTP API handler and its invalid-payload tests now
+  use `decodeStartAnalyzedPushHandlerInput(...)` as the typed Effect decoder
+  from protocol payload to deployment service input.
+- The bad-request matrix inspects the typed failure channel with
+  `Effect.flip(...)` and then applies the existing
+  `deploymentStartFailureToResponse(...)` adapter.
+
+Why it changed:
+
+The deployment start-analyzed-push path already had typed protocol and
+deployment validation failures, but the test helper still exercised a throwing
+parser compatibility path. Keeping the handler input boundary on the Effect
+decoder makes the runtime validation path match the migration quality bar:
+typed failures first, response mapping at the adapter edge.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentService/store behavior,
+  DeploymentDO routing, public deployment push dispatch, executor-http,
+  artifact runtime behavior, PartitionDO SQL/OCC, or `ValidatorJson`.
+- Synchronous parser compatibility wrappers remain elsewhere for tests and
+  older callers; new migrated paths should prefer Effect decoders.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Artifact Runtime Route Adapter Effects
 
 Previous completed checkpoint: `6f130f1` Type delivery route adapters.

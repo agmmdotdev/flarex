@@ -13,7 +13,6 @@ import {
   DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
   DeploymentStorageErrorResponse,
-  parseAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
 import { HttpError } from "../http";
 import {
@@ -34,8 +33,6 @@ import type { DeploymentSqlError } from "./Store";
 import {
   decodeAnalyzedStartPushRequest,
   decodeStartAnalyzedPushInput,
-  analyzedStartPushRequest,
-  startAnalyzedPushInput,
 } from "./Validation";
 import { decodeDeploymentAnalyzedStartPushPayload } from "./Requests";
 
@@ -379,12 +376,6 @@ export const decodeStartAnalyzedPushHandlerInput = Effect.fn(
   const request = yield* decodeAnalyzedStartPushRequest(protocolPayload);
   return yield* decodeStartAnalyzedPushInput(request);
 });
-
-export function startAnalyzedPushHandlerInputFromPayload(
-  payload: AnalyzedStartPushRequest,
-): StartAnalyzedPushInput {
-  return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
-}
 
 export const decodePushStatusForHttpApi = Effect.fn(
   "DeploymentApiHandlers.decodePushStatusForHttpApi",

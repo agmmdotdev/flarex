@@ -44,7 +44,6 @@ import {
   deploymentStartAnalyzedPushHandler,
   deploymentStartFailureResponseEffect,
   decodeStartAnalyzedPushHandlerInput,
-  startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
 import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
 import {
@@ -599,12 +598,12 @@ describe("DeploymentApiHandlers", () => {
     )).toBeInstanceOf(DeploymentStorageErrorResponse);
   });
 
-  it("maps invalid analyzed start-push payload combinations to 400 response bodies", () => {
-    expectStartPayloadBadRequest(
+  it("maps invalid analyzed start-push payload combinations to 400 response bodies", async () => {
+    await expectStartPayloadBadRequest(
       { sourcePackage: sourcePackage() },
       "A push without analysis must include an error message.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         error: "analysis failed",
@@ -612,7 +611,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "A push without analysis must not include codegenAnalysis.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -620,7 +619,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "A push with analysis must not include error.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -628,24 +627,24 @@ describe("DeploymentApiHandlers", () => {
       },
       "Push diagnostic at index 0 has an invalid level.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: "not-analysis",
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Deployment analysis must be an object.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
           schema: "not-schema",
           functions: deploymentAnalysis().functions,
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Schema must be an object.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -659,10 +658,10 @@ describe("DeploymentApiHandlers", () => {
           },
           functions: deploymentAnalysis().functions,
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "$schema.tables.messages.placement: Invalid placement.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -677,10 +676,10 @@ describe("DeploymentApiHandlers", () => {
           },
           functions: deploymentAnalysis().functions,
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "$schema.tables.messages.validator.value: Expected JSON value.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -689,25 +688,25 @@ describe("DeploymentApiHandlers", () => {
             functions: [{ path: "messages:list", kind: "query", route: "not-route" }],
           },
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "$functions.messages:list.route: Invalid route policy.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentPartitionValidationAnalysis(),
       },
       "teams:create.partition: Unknown partition table missing.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
         codegenAnalysis: "not-codegen",
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Codegen analysis must be an object.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -718,7 +717,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen analysis schema must match deployment analysis schema.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -726,10 +725,10 @@ describe("DeploymentApiHandlers", () => {
           schema: deploymentAnalysis().schema,
           functions: "not-functions",
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Codegen analysis functions must be an array.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -737,10 +736,10 @@ describe("DeploymentApiHandlers", () => {
           schema: deploymentAnalysis().schema,
           functions: ["not-module"],
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Codegen module at index 0 must be an object.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -759,7 +758,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen module at index 0 has an invalid moduleName.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -775,10 +774,10 @@ describe("DeploymentApiHandlers", () => {
             functions: "not-functions",
           }],
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Codegen module messages functions must be an array.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -792,7 +791,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Duplicate codegen module metadata: messages.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -808,10 +807,10 @@ describe("DeploymentApiHandlers", () => {
             functions: ["not-function"],
           }],
         },
-      } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+      } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
       "Codegen function messages[0] must be an object.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -833,7 +832,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages[0] moduleName must match its module.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -855,7 +854,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages[0] has an invalid exportName.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: deploymentAnalysis(),
@@ -877,7 +876,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages:missing has no deployment function metadata.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -915,7 +914,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Duplicate codegen function metadata path: messages:list.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -942,7 +941,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "$codegen.functions.messages:list.args: Validator is required.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -969,7 +968,7 @@ describe("DeploymentApiHandlers", () => {
       },
       "Codegen function messages:list must match deployment function metadata.",
     );
-    expectStartPayloadBadRequest(
+    await expectStartPayloadBadRequest(
       {
         sourcePackage: sourcePackage(),
         analysis: {
@@ -1029,7 +1028,7 @@ describe("DeploymentApiHandlers", () => {
     const analysisFailure = await Effect.runPromise(decodeStartAnalyzedPushHandlerInput({
       sourcePackage: sourcePackage(),
       analysis: "not-analysis",
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(analysisFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1044,7 +1043,7 @@ describe("DeploymentApiHandlers", () => {
         schema: "not-schema",
         functions: deploymentAnalysis().functions,
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(schemaValidationFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1061,7 +1060,7 @@ describe("DeploymentApiHandlers", () => {
           functions: [{ path: "messages:list", kind: "query", route: "not-route" }],
         },
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(functionValidationFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1086,7 +1085,7 @@ describe("DeploymentApiHandlers", () => {
       sourcePackage: sourcePackage(),
       analysis: deploymentAnalysis(),
       codegenAnalysis: "not-codegen",
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(codegenAnalysisFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1118,7 +1117,7 @@ describe("DeploymentApiHandlers", () => {
         schema: deploymentAnalysis().schema,
         functions: "not-functions",
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(codegenFunctionsFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1134,7 +1133,7 @@ describe("DeploymentApiHandlers", () => {
         schema: deploymentAnalysis().schema,
         functions: ["not-module"],
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(codegenModuleFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1172,7 +1171,7 @@ describe("DeploymentApiHandlers", () => {
           functions: "not-functions",
         }],
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(codegenModuleFunctionsFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1210,7 +1209,7 @@ describe("DeploymentApiHandlers", () => {
           functions: ["not-function"],
         }],
       },
-    } as unknown as Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0]).pipe(
+    } as unknown as Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0]).pipe(
       Effect.catchTag("DeploymentValidationError", error => Effect.succeed(error)),
     ));
     expect(codegenFunctionObjectFailure).toBeInstanceOf(DeploymentValidationError);
@@ -1461,24 +1460,16 @@ function expectMappedFailure<E>(
   expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
 }
 
-function expectStartPayloadBadRequest(
-  payload: Parameters<typeof startAnalyzedPushHandlerInputFromPayload>[0],
+async function expectStartPayloadBadRequest(
+  payload: Parameters<typeof decodeStartAnalyzedPushHandlerInput>[0],
   message: string,
-): void {
-  try {
-    startAnalyzedPushHandlerInputFromPayload(payload);
-    throw new Error("Expected analyzed start-push payload to fail.");
-  } catch (cause) {
-    if (
-      !(cause instanceof DeploymentProtocolValidationError) &&
-      !(cause instanceof DeploymentValidationError)
-    ) {
-      throw cause;
-    }
-    const error = deploymentStartFailureToResponse(cause);
-    expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
-    expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
-  }
+): Promise<void> {
+  const cause = await Effect.runPromise(Effect.flip(
+    decodeStartAnalyzedPushHandlerInput(payload),
+  ));
+  const error = deploymentStartFailureToResponse(cause);
+  expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
+  expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
 }
 
 type DeploymentApiErrorInstance =
