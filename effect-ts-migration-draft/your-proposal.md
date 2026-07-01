@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e3e4f79` Type artifact runtime invoke boundary.
-- Active checkpoint: validate and review the connection JSON route-boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `86cac22` Type connection JSON route boundary.
+- Active checkpoint: validate and review the scheduler maintenance JSON route-boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the connection JSON route-boundary effects:
+Next recommended checkpoint after the scheduler maintenance JSON route-boundary effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,29 @@ Next recommended checkpoint after the connection JSON route-boundary effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 311 slice:
+
+1. Remove Promise-returning SchedulerDO maintenance request wrappers from
+   `scheduler/RouteBoundary.ts`: delivery reconcile, connection reconcile,
+   rerun subscriptions, dead-letter deliveries, and cleanup connections.
+2. Remove public throwing `parseScheduler*Request(...)` compatibility wrappers
+   for those five scheduler maintenance routes.
+3. Remove public `parseScheduler*RequestEffect(...)` aliases that only
+   forwarded to route payload decoders.
+4. Remove the private `runSchedulerRouteEffect(...)` compatibility runner.
+5. Keep SchedulerDO production internal maintenance routing on
+   `decodeSchedulerDeliveryReconcileRequest(...)`,
+   `decodeSchedulerConnectionReconcileRequest(...)`,
+   `decodeSchedulerRerunSubscriptionsRequest(...)`,
+   `decodeSchedulerDeadLetterDeliveriesRequest(...)`, and
+   `decodeSchedulerCleanupConnectionsRequest(...)`.
+6. Update scheduler route-boundary tests to assert typed `RequestJsonError`
+   and `SchedulerRoutePayloadError` channels directly, then separately assert
+   existing route, pending-state, runtime, and operation HTTP adapter mapping.
+7. Leave SchedulerDO alarm behavior, pending-state storage, runtime
+   reconciliation loops, public Worker dispatch, ConnectionDO, DeliveryDO,
+   PartitionDO SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 310 slice:
 

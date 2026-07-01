@@ -12,17 +12,6 @@ import {
   decodeSchedulerDeliveryReconcileRequest,
   decodeSchedulerRerunSubscriptionsRoutePayload,
   decodeSchedulerRerunSubscriptionsRequest,
-  parseSchedulerCleanupConnectionsRequest,
-  parseSchedulerDeadLetterDeliveriesRequest,
-  parseSchedulerConnectionReconcileRequest,
-  parseSchedulerDeliveryReconcileRequest,
-  parseSchedulerDeliveryReconcileRequestEffect,
-  parseSchedulerRerunSubscriptionsRequest,
-  readSchedulerCleanupConnectionsRequest,
-  readSchedulerDeadLetterDeliveriesRequest,
-  readSchedulerConnectionReconcileRequest,
-  readSchedulerDeliveryReconcileRequest,
-  readSchedulerRerunSubscriptionsRequest,
   schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
 import {
@@ -146,7 +135,7 @@ describe("scheduler route boundary", () => {
   });
 
   it("decodes delivery reconcile requests", async () => {
-    await expect(readSchedulerDeliveryReconcileRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(jsonRequest({
       limit: 5,
       deliveryLimit: 10,
       maxBatches: 2,
@@ -155,7 +144,7 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       limit: 5,
       deliveryLimit: 10,
       maxBatches: 2,
@@ -164,32 +153,19 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
     });
-    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(jsonRequest({
-      limit: 3,
-    })))).resolves.toEqual({ limit: 3 });
   });
 
-  it("maps invalid delivery reconcile bodies to 400", () => {
-    expect(() => parseSchedulerDeliveryReconcileRequest(null))
-      .toThrow(HttpError);
-    try {
-      parseSchedulerDeliveryReconcileRequest({
+  it("keeps invalid delivery reconcile bodies typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(jsonRequest({
         cursor: {
           oldestCreatedAt: "not a date",
           deploymentId: "deployment-a",
         },
-      });
-      throw new Error("Expected parseSchedulerDeliveryReconcileRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "cursor.oldestCreatedAt must be an ISO date string.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
   it("exposes typed delivery reconcile validation failures before HTTP mapping", async () => {
-    await expect(Effect.runPromise(parseSchedulerDeliveryReconcileRequestEffect({
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRoutePayload({
       cursor: {
         oldestCreatedAt: "not a date",
         deploymentId: "deployment-a",
@@ -197,18 +173,7 @@ describe("scheduler route boundary", () => {
     }))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("preserves malformed JSON as the shared JSON body error", async () => {
-    await expect(readSchedulerDeliveryReconcileRequest(new Request(
-      "https://flarex.test/reconcile/live-query-deliveries",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{",
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("keeps malformed delivery reconcile JSON typed before HTTP mapping", async () => {
     await expect(Effect.runPromise(decodeSchedulerDeliveryReconcileRequest(new Request(
       "https://flarex.test/reconcile/live-query-deliveries",
       {
@@ -220,7 +185,7 @@ describe("scheduler route boundary", () => {
   });
 
   it("decodes connection cleanup reconcile requests", async () => {
-    await expect(readSchedulerConnectionReconcileRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRequest(jsonRequest({
       expiredAt: "2026-06-23T00:00:05.000Z",
       limit: 7,
       cursor: {
@@ -228,7 +193,7 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       expiredAt: "2026-06-23T00:00:05.000Z",
       limit: 7,
       cursor: {
@@ -236,113 +201,73 @@ describe("scheduler route boundary", () => {
         deploymentId: "deployment-a",
       },
     });
-    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRequest(jsonRequest({
-      limit: 4,
-    })))).resolves.toEqual({ limit: 4 });
   });
 
-  it("maps invalid connection cleanup reconcile bodies to 400", () => {
-    expect(() => parseSchedulerConnectionReconcileRequest(null))
-      .toThrow(HttpError);
-    try {
-      parseSchedulerConnectionReconcileRequest({
+  it("keeps invalid connection cleanup reconcile bodies typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRequest(jsonRequest({
         cursor: {
           oldestExpiredAt: "not a date",
           deploymentId: "deployment-a",
         },
-      });
-      throw new Error("Expected parseSchedulerConnectionReconcileRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "cursor.oldestExpiredAt must be an ISO date string.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("preserves malformed connection cleanup reconcile JSON as the shared JSON body error", async () => {
-    await expect(readSchedulerConnectionReconcileRequest(new Request(
+  it("keeps malformed connection cleanup reconcile JSON typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerConnectionReconcileRequest(new Request(
       "https://flarex.test/reconcile/live-query-connections",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("decodes live query subscription rerun requests", async () => {
-    await expect(readSchedulerRerunSubscriptionsRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(jsonRequest({
       deploymentId: "deployment-a",
       projectId: "project-a",
       limit: 5,
       deliveryLimit: 10,
       maxBatches: 2,
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       deploymentId: "deployment-a",
       projectId: "project-a",
       limit: 5,
       deliveryLimit: 10,
       maxBatches: 2,
     });
-    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(jsonRequest({
-      deploymentId: "deployment-b",
-    })))).resolves.toEqual({ deploymentId: "deployment-b" });
   });
 
-  it("maps invalid live query subscription rerun bodies to 400", () => {
-    expect(() => parseSchedulerRerunSubscriptionsRequest(null))
-      .toThrow(HttpError);
-    try {
-      parseSchedulerRerunSubscriptionsRequest({
+  it("keeps invalid live query subscription rerun bodies typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(jsonRequest({
         deploymentId: "",
         limit: 1,
-      });
-      throw new Error("Expected parseSchedulerRerunSubscriptionsRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "deploymentId must be a non-empty string.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("maps invalid live query subscription rerun limits to 400", () => {
-    try {
-      parseSchedulerRerunSubscriptionsRequest({
+  it("keeps invalid live query subscription rerun limits typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(jsonRequest({
         deploymentId: "deployment-a",
         maxBatches: 0,
-      });
-      throw new Error("Expected parseSchedulerRerunSubscriptionsRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "maxBatches must be a positive integer.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("preserves malformed live query subscription rerun JSON as the shared JSON body error", async () => {
-    await expect(readSchedulerRerunSubscriptionsRequest(new Request(
+  it("keeps malformed live query subscription rerun JSON typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsRequest(new Request(
       "https://flarex.test/rerun/live-query-subscriptions",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("decodes dead-letter delivery requests", async () => {
     const cursor = { deliveryId: "delivery-a" };
-    await expect(readSchedulerDeadLetterDeliveriesRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(jsonRequest({
       deploymentId: "deployment-a",
       olderThan: "2026-06-23T00:00:05.000Z",
       minAttempts: 4,
@@ -352,7 +277,7 @@ describe("scheduler route boundary", () => {
       deadLetteredAt: "2026-06-23T00:00:10.000Z",
       maxBatches: 2,
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       deploymentId: "deployment-a",
       olderThan: "2026-06-23T00:00:05.000Z",
       stuckAfterMs: 5 * 60 * 1000,
@@ -363,17 +288,11 @@ describe("scheduler route boundary", () => {
       deadLetteredAt: "2026-06-23T00:00:10.000Z",
       maxBatches: 2,
     });
-    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(jsonRequest({
-      olderThan: "2026-06-23T00:00:05.000Z",
-    })))).resolves.toMatchObject({
-      olderThan: "2026-06-23T00:00:05.000Z",
-      stuckAfterMs: 5 * 60 * 1000,
-    });
   });
 
-  it("preserves dead-letter request defaults", () => {
+  it("preserves dead-letter request defaults", async () => {
     const before = Date.now();
-    const request = parseSchedulerDeadLetterDeliveriesRequest({});
+    const request = await Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRoutePayload({}));
     const after = Date.now();
 
     expect(request.stuckAfterMs).toBe(5 * 60 * 1000);
@@ -391,133 +310,93 @@ describe("scheduler route boundary", () => {
     expect(new Date(request.deadLetteredAt).getTime()).toBeLessThanOrEqual(after);
   });
 
-  it("preserves explicit dead-letter olderThan precedence over stuckAfterMs", () => {
-    expect(parseSchedulerDeadLetterDeliveriesRequest({
+  it("preserves explicit dead-letter olderThan precedence over stuckAfterMs", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRoutePayload({
       olderThan: "2026-06-23T00:00:05.000Z",
       stuckAfterMs: 0,
-    })).toMatchObject({
+    }))).resolves.toMatchObject({
       olderThan: "2026-06-23T00:00:05.000Z",
       stuckAfterMs: 5 * 60 * 1000,
     });
   });
 
-  it("maps invalid dead-letter delivery bodies to 400", () => {
-    expect(() => parseSchedulerDeadLetterDeliveriesRequest(null))
-      .toThrow(HttpError);
-    try {
-      parseSchedulerDeadLetterDeliveriesRequest({
+  it("keeps invalid dead-letter delivery bodies typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(jsonRequest({
         olderThan: "not a date",
-      });
-      throw new Error("Expected parseSchedulerDeadLetterDeliveriesRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "olderThan must be an ISO date string.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("maps invalid dead-letter delivery limits to 400", () => {
-    try {
-      parseSchedulerDeadLetterDeliveriesRequest({
+  it("keeps invalid dead-letter delivery limits typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(jsonRequest({
         stuckAfterMs: 0,
-      });
-      throw new Error("Expected parseSchedulerDeadLetterDeliveriesRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "stuckAfterMs must be a positive integer.",
-      });
-    }
+      })))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("preserves malformed dead-letter delivery JSON as the shared JSON body error", async () => {
-    await expect(readSchedulerDeadLetterDeliveriesRequest(new Request(
+  it("keeps malformed dead-letter delivery JSON typed before HTTP mapping", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeadLetterDeliveriesRequest(new Request(
       "https://flarex.test/dead-letter/live-query-deliveries",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+    )))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("decodes live query connection cleanup requests", async () => {
     const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
-    await expect(readSchedulerCleanupConnectionsRequest(jsonRequest({
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRequest(jsonRequest({
       deploymentId: "deployment-a",
       projectId: "project-a",
       expiredAt: "2026-06-23T00:00:10.000+00:00",
       ignored: true,
-    }), env)).resolves.toEqual({
+    }), env))).resolves.toEqual({
       deploymentId: "deployment-a",
       projectId: "project-a",
       expiredAt: "2026-06-23T00:00:10.000Z",
     });
+  });
+
+  it("uses the configured project id for cleanup requests without projectId", async () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
+
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRoutePayload({
+      deploymentId: "deployment-a",
+    }, env))).resolves.toEqual({
+      deploymentId: "deployment-a",
+      projectId: "project-default",
+    });
+  });
+
+  it("keeps invalid live query connection cleanup bodies typed before HTTP mapping", async () => {
+    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
     await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRequest(jsonRequest({
-      deploymentId: "deployment-b",
-    }), env))).resolves.toEqual({
-      deploymentId: "deployment-b",
-      projectId: "project-default",
-    });
-  });
-
-  it("uses the configured project id for cleanup requests without projectId", () => {
-    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
-
-    expect(parseSchedulerCleanupConnectionsRequest({
-      deploymentId: "deployment-a",
-    }, env)).toEqual({
-      deploymentId: "deployment-a",
-      projectId: "project-default",
-    });
-  });
-
-  it("maps invalid live query connection cleanup bodies to 400", () => {
-    const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
-    expect(() => parseSchedulerCleanupConnectionsRequest(null, env))
-      .toThrow(HttpError);
-    try {
-      parseSchedulerCleanupConnectionsRequest({
         deploymentId: "deployment-a",
         expiredAt: "not a date",
-      }, env);
-      throw new Error("Expected parseSchedulerCleanupConnectionsRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "expiredAt must be an ISO date string.",
-      });
-    }
+      }), env))).rejects.toBeInstanceOf(SchedulerRoutePayloadError);
   });
 
-  it("requires projectId when cleanup request env has no project id", () => {
+  it("requires projectId when cleanup request env has no project id", async () => {
     const env = {} as Env;
 
-    expect(() => parseSchedulerCleanupConnectionsRequest({
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRoutePayload({
       deploymentId: "deployment-a",
-    }, env)).toThrowError(
-      "projectId is required when FLAREX_PROJECT_ID is not configured.",
-    );
+    }, env))).rejects.toMatchObject({
+      message: "projectId is required when FLAREX_PROJECT_ID is not configured.",
+    });
   });
 
-  it("preserves malformed live query connection cleanup JSON as the shared JSON body error", async () => {
+  it("keeps malformed live query connection cleanup JSON typed before HTTP mapping", async () => {
     const env = { FLAREX_PROJECT_ID: "project-default" } as Env;
 
-    await expect(readSchedulerCleanupConnectionsRequest(new Request(
+    await expect(Effect.runPromise(decodeSchedulerCleanupConnectionsRequest(new Request(
       "https://flarex.test/cleanup/live-query-connections",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ), env)).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+    ), env))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
   it("maps typed scheduler route errors at the adapter boundary", () => {

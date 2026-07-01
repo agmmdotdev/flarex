@@ -33,12 +33,6 @@ export {
 
 export type SchedulerRouteError = RequestJsonError | SchedulerRoutePayloadError;
 
-export async function readSchedulerDeliveryReconcileRequest(
-  request: Request,
-): Promise<SchedulerDeliveryReconcileRequest> {
-  return runSchedulerRouteEffect(decodeSchedulerDeliveryReconcileRequest(request));
-}
-
 export function decodeSchedulerDeliveryReconcileRequest(
   request: Request,
 ): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
@@ -47,30 +41,10 @@ export function decodeSchedulerDeliveryReconcileRequest(
   );
 }
 
-export function parseSchedulerDeliveryReconcileRequest(
-  value: unknown,
-): SchedulerDeliveryReconcileRequest {
-  return Effect.runSync(parseSchedulerDeliveryReconcileRequestEffect(value).pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseSchedulerDeliveryReconcileRequestEffect(
-  value: unknown,
-): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerDeliveryReconcileRoutePayload(value);
-}
-
 export function decodeSchedulerDeliveryReconcileRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerDeliveryReconcilePayload(value);
-}
-
-export async function readSchedulerConnectionReconcileRequest(
-  request: Request,
-): Promise<SchedulerConnectionReconcileRequest> {
-  return runSchedulerRouteEffect(decodeSchedulerConnectionReconcileRequest(request));
 }
 
 export function decodeSchedulerConnectionReconcileRequest(
@@ -81,30 +55,10 @@ export function decodeSchedulerConnectionReconcileRequest(
   );
 }
 
-export function parseSchedulerConnectionReconcileRequest(
-  value: unknown,
-): SchedulerConnectionReconcileRequest {
-  return Effect.runSync(parseSchedulerConnectionReconcileRequestEffect(value).pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseSchedulerConnectionReconcileRequestEffect(
-  value: unknown,
-): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerConnectionReconcileRoutePayload(value);
-}
-
 export function decodeSchedulerConnectionReconcileRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerConnectionReconcilePayload(value);
-}
-
-export async function readSchedulerRerunSubscriptionsRequest(
-  request: Request,
-): Promise<SchedulerRerunSubscriptionsRequest> {
-  return runSchedulerRouteEffect(decodeSchedulerRerunSubscriptionsRequest(request));
 }
 
 export function decodeSchedulerRerunSubscriptionsRequest(
@@ -115,30 +69,10 @@ export function decodeSchedulerRerunSubscriptionsRequest(
   );
 }
 
-export function parseSchedulerRerunSubscriptionsRequest(
-  value: unknown,
-): SchedulerRerunSubscriptionsRequest {
-  return Effect.runSync(parseSchedulerRerunSubscriptionsRequestEffect(value).pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseSchedulerRerunSubscriptionsRequestEffect(
-  value: unknown,
-): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerRerunSubscriptionsRoutePayload(value);
-}
-
 export function decodeSchedulerRerunSubscriptionsRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerRerunSubscriptionsPayload(value);
-}
-
-export async function readSchedulerDeadLetterDeliveriesRequest(
-  request: Request,
-): Promise<SchedulerDeadLetterDeliveriesRequest> {
-  return runSchedulerRouteEffect(decodeSchedulerDeadLetterDeliveriesRequest(request));
 }
 
 export function decodeSchedulerDeadLetterDeliveriesRequest(
@@ -149,31 +83,10 @@ export function decodeSchedulerDeadLetterDeliveriesRequest(
   );
 }
 
-export function parseSchedulerDeadLetterDeliveriesRequest(
-  value: unknown,
-): SchedulerDeadLetterDeliveriesRequest {
-  return Effect.runSync(parseSchedulerDeadLetterDeliveriesRequestEffect(value).pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseSchedulerDeadLetterDeliveriesRequestEffect(
-  value: unknown,
-): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerDeadLetterDeliveriesRoutePayload(value);
-}
-
 export function decodeSchedulerDeadLetterDeliveriesRoutePayload(
   value: unknown,
 ): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerDeadLetterDeliveriesPayload(value);
-}
-
-export async function readSchedulerCleanupConnectionsRequest(
-  request: Request,
-  env: Env,
-): Promise<SchedulerCleanupConnectionsRequest> {
-  return runSchedulerRouteEffect(decodeSchedulerCleanupConnectionsRequest(request, env));
 }
 
 export function decodeSchedulerCleanupConnectionsRequest(
@@ -185,35 +98,11 @@ export function decodeSchedulerCleanupConnectionsRequest(
   );
 }
 
-export function parseSchedulerCleanupConnectionsRequest(
-  value: unknown,
-  env: Env,
-): SchedulerCleanupConnectionsRequest {
-  return Effect.runSync(parseSchedulerCleanupConnectionsRequestEffect(value, env).pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseSchedulerCleanupConnectionsRequestEffect(
-  value: unknown,
-  env: Env,
-): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerCleanupConnectionsRoutePayload(value, env);
-}
-
 export function decodeSchedulerCleanupConnectionsRoutePayload(
   value: unknown,
   env: Env,
 ): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
   return decodeSchedulerCleanupConnectionsPayload(value, env);
-}
-
-function runSchedulerRouteEffect<A>(
-  effect: Effect.Effect<A, SchedulerRouteError>,
-): Promise<A> {
-  return Effect.runPromise(effect.pipe(
-    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
-  ));
 }
 
 export function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {

@@ -1,5 +1,64 @@
 # Runtime Validation
 
+## Scheduler Maintenance JSON Route Boundary Effects
+
+Previous completed checkpoint: `86cac22` Type connection JSON route boundary.
+
+What changed:
+
+- Removed Promise-returning scheduler maintenance request wrappers from
+  `scheduler/RouteBoundary.ts`.
+- Removed public throwing scheduler maintenance route parse compatibility
+  wrappers and the matching `parseScheduler*RequestEffect(...)` aliases.
+- Removed the private `runSchedulerRouteEffect(...)` compatibility runner.
+- Kept SchedulerDO production routing on
+  `decodeSchedulerDeliveryReconcileRequest(...)`,
+  `decodeSchedulerConnectionReconcileRequest(...)`,
+  `decodeSchedulerRerunSubscriptionsRequest(...)`,
+  `decodeSchedulerDeadLetterDeliveriesRequest(...)`, and
+  `decodeSchedulerCleanupConnectionsRequest(...)`.
+- Updated scheduler route-boundary tests to assert typed `RequestJsonError`
+  and `SchedulerRoutePayloadError` channels directly before adapter mapping
+  assertions.
+
+Why it changed:
+
+SchedulerDO already uses the typed Effect route decoders for internal
+maintenance routes. The removed Promise/throwing wrappers were compatibility
+surfaces rather than production routing. Removing them keeps scheduler request
+validation typed and leaves HTTP conversion at
+`schedulerRouteErrorToHttpErrorEffect(...)` and the scheduler internal response
+adapter.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  SchedulerDO adapter cleanup around existing scheduler maintenance decoders.
+
+How Flarex differs:
+
+- Flarex sync maintenance is split across Cloudflare Durable Object routes for
+  delivery reconciliation, connection cleanup, subscription reruns, and
+  dead-letter handling. This checkpoint narrows only those request boundaries
+  while preserving scheduler runtime behavior.
+
+Known limitations:
+
+- This checkpoint does not change SchedulerDO alarm behavior, pending-state
+  storage, runtime reconciliation loops, public Worker dispatch, ConnectionDO,
+  DeliveryDO, PartitionDO SQL/OCC, executor-http, protocol schemas, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerResponses.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Connection JSON Route Boundary Effects
 
 Previous completed checkpoint: `e3e4f79` Type artifact runtime invoke
