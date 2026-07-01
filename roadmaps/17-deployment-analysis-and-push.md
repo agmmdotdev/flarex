@@ -1,5 +1,61 @@
 # Deployment Analysis And Push
 
+## Deployment Store Write Transaction Effects
+
+Previous completed checkpoint: `317db9c` Type partition route request
+boundary.
+
+What changed:
+
+- Start-push, finish-push, and abandon-push storage transactions now run
+  through one named `DeploymentPushStore` Effect helper.
+- Missing post-write push rows still force transaction rollback, but the
+  transaction now throws an internal rollback signal instead of throwing the
+  `DeploymentStoredPushMissingError` domain/store failure object directly.
+- The Effect transaction helper unwraps rollback signals back to
+  `DeploymentStoredPushMissingError` and maps SQL/storage defects once to
+  `DeploymentSqlError` with the failing operation.
+- Added direct store coverage for start-push, finish-push, and abandon-push
+  transaction SQL failures.
+
+Why it changed:
+
+Deployment store writes need a rollback mechanism inside Cloudflare Durable
+Object storage transactions, but service/domain code should still see typed
+Effect failures at the source boundary. Centralizing write transactions keeps
+rollback mechanics local to `DeploymentPushStore` and avoids treating a thrown
+domain error as the public control flow shape.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO storage boundary cleanup around existing push transaction
+  behavior.
+
+How Flarex differs:
+
+- Flarex persists deployment push state in a Cloudflare Durable Object SQL
+  store. Rollback is driven by the Durable Object transaction API, while the
+  exported service/store API remains typed Effect failures.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, artifact storage/materialization,
+  DeploymentService finish-push preflight behavior, PartitionDO SQL/OCC,
+  executor-http, protocol package parser compatibility, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts -t "start|finish|abandon|DeploymentService|DeploymentPushStore" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Adapter Response Effects
 
 Previous completed checkpoint: `213dce6` Type delivery wake request boundary.

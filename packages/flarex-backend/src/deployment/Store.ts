@@ -31,6 +31,8 @@ const DeploymentSqlOperation = Schema.Union([
   Schema.Literal("getActiveDeployment"),
 ]);
 
+type DeploymentStoreWriteOperation = "startPush" | "finishPush" | "abandonPush";
+
 export class DeploymentSqlError extends Schema.TaggedErrorClass<DeploymentSqlError>()(
   "DeploymentSqlError",
   {
@@ -309,23 +311,35 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
-        const assertStoredPushAfterWrite = (
-          operation: "startPush" | "finishPush" | "abandonPush",
+        const rollbackIfStoredPushMissing = (
+          operation: DeploymentStoreWriteOperation,
           pushId: string,
           stage: string,
         ): void => {
           if (readPushRow(pushId) === undefined) {
-            throw storedPushMissing(operation, pushId, stage);
+            throw new DeploymentStoreWriteRollbackError(storedPushMissing(operation, pushId, stage));
           }
         };
 
         const storeWriteCauseToError = (
-          operation: "startPush" | "finishPush" | "abandonPush",
+          operation: DeploymentStoreWriteOperation,
           cause: unknown,
         ): DeploymentStoredPushMissingError | DeploymentSqlError =>
-          cause instanceof DeploymentStoredPushMissingError
-            ? cause
+          cause instanceof DeploymentStoreWriteRollbackError
+            ? cause.failure
             : new DeploymentSqlError({ operation, cause });
+
+        const runDeploymentStoreWriteTransaction = Effect.fn(
+          "DeploymentPushStore.runDeploymentStoreWriteTransaction",
+        )(function* <A>(
+          operation: DeploymentStoreWriteOperation,
+          transaction: (txn: DurableObjectTransaction) => Promise<A>,
+        ): Effect.fn.Return<A, DeploymentStoredPushMissingError | DeploymentSqlError> {
+          return yield* Effect.tryPromise({
+            try: () => storage.transaction(transaction),
+            catch: cause => storeWriteCauseToError(operation, cause),
+          });
+        });
 
         const runStartAnalyzedPushTransaction = Effect.fn(
           "DeploymentPushStore.runStartAnalyzedPushTransaction",
@@ -333,45 +347,41 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           input: StartAnalyzedPushStoreInput,
           status: PushStatus,
         ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
-          return yield* Effect.tryPromise({
-            try: () =>
-              storage.transaction(async () => {
-                const hasAnalysis = "analysis" in input;
-                sql.exec(
-                  "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
-                  input.now,
-                );
-                sql.exec(
-                  `
-                  INSERT INTO pushes (
-                    push_id,
-                    state,
-                    source_package_json,
-                    schema_json,
-                    functions_json,
-                    codegen_analysis_json,
-                    error,
-                    diagnostics_json,
-                    created_at,
-                    updated_at
-                  )
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `,
-                  input.pushId,
-                  hasAnalysis ? "analyzed" : "failed",
-                  JSON.stringify(input.sourcePackage),
-                  hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
-                  hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
-                  hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
-                  hasAnalysis ? null : input.error,
-                  input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
-                  input.now,
-                  input.now,
-                );
-                assertStoredPushAfterWrite("startPush", input.pushId, "stored");
-                return status;
-              }),
-            catch: cause => storeWriteCauseToError("startPush", cause),
+          return yield* runDeploymentStoreWriteTransaction("startPush", async () => {
+            const hasAnalysis = "analysis" in input;
+            sql.exec(
+              "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
+              input.now,
+            );
+            sql.exec(
+              `
+              INSERT INTO pushes (
+                push_id,
+                state,
+                source_package_json,
+                schema_json,
+                functions_json,
+                codegen_analysis_json,
+                error,
+                diagnostics_json,
+                created_at,
+                updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `,
+              input.pushId,
+              hasAnalysis ? "analyzed" : "failed",
+              JSON.stringify(input.sourcePackage),
+              hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
+              hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
+              hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
+              hasAnalysis ? null : input.error,
+              input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
+              input.now,
+              input.now,
+            );
+            rollbackIfStoredPushMissing("startPush", input.pushId, "stored");
+            return status;
           });
         });
 
@@ -382,26 +392,22 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               readonly analysis: DeploymentAnalysis;
             },
           ): Effect.fn.Return<FinishPushResponse, DeploymentStoreWriteError> {
-            return yield* Effect.tryPromise({
-              try: () =>
-                storage.transaction(async () => {
-                  applySchema(status.analysis.schema);
-                  applyFunctions(status.analysis.functions);
-                  sql.exec(
-                    "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
-                    input.now,
-                    input.pushId,
-                  );
-                  setMeta("active_push_id", input.pushId);
-                  setMeta("active_activated_at", String(input.now));
-                  setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
-                  assertStoredPushAfterWrite("finishPush", input.pushId, "activated");
-                  return {
-                    result: "activated" as const,
-                    push: { ...status, state: "activated" as const, updatedAt: input.now },
-                  };
-                }),
-              catch: cause => storeWriteCauseToError("finishPush", cause),
+            return yield* runDeploymentStoreWriteTransaction("finishPush", async () => {
+              applySchema(status.analysis.schema);
+              applyFunctions(status.analysis.functions);
+              sql.exec(
+                "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
+                input.now,
+                input.pushId,
+              );
+              setMeta("active_push_id", input.pushId);
+              setMeta("active_activated_at", String(input.now));
+              setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
+              rollbackIfStoredPushMissing("finishPush", input.pushId, "activated");
+              return {
+                result: "activated" as const,
+                push: { ...status, state: "activated" as const, updatedAt: input.now },
+              };
             });
           },
         );
@@ -411,24 +417,20 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             input: AbandonPushStoreInput,
             status: PushStatus,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
-            return yield* Effect.tryPromise({
-              try: () =>
-                storage.transaction(async () => {
-                  sql.exec(
-                    "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
-                    input.reason,
-                    input.now,
-                    input.pushId,
-                  );
-                  assertStoredPushAfterWrite("abandonPush", input.pushId, "abandoned");
-                  return {
-                    ...status,
-                    state: "abandoned" as const,
-                    error: input.reason,
-                    updatedAt: input.now,
-                  };
-                }),
-              catch: cause => storeWriteCauseToError("abandonPush", cause),
+            return yield* runDeploymentStoreWriteTransaction("abandonPush", async () => {
+              sql.exec(
+                "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
+                input.reason,
+                input.now,
+                input.pushId,
+              );
+              rollbackIfStoredPushMissing("abandonPush", input.pushId, "abandoned");
+              return {
+                ...status,
+                state: "abandoned" as const,
+                error: input.reason,
+                updatedAt: input.now,
+              };
             });
           },
         );
@@ -497,11 +499,21 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
 }
 
 function storedPushMissing(
-  operation: "startPush" | "finishPush" | "abandonPush",
+  operation: DeploymentStoreWriteOperation,
   pushId: string,
   stage: string,
 ): DeploymentStoredPushMissingError {
   return new DeploymentStoredPushMissingError({ operation, pushId, stage });
+}
+
+class DeploymentStoreWriteRollbackError extends Error {
+  readonly failure: DeploymentStoredPushMissingError;
+
+  constructor(failure: DeploymentStoredPushMissingError) {
+    super(`Deployment store write rollback: ${failure.operation} ${failure.pushId} ${failure.stage}.`);
+    this.name = "DeploymentStoreWriteRollbackError";
+    this.failure = failure;
+  }
 }
 
 function pushStatusRowFromStartAnalyzedPushStoreInput(input: StartAnalyzedPushStoreInput): DeploymentPushStatusRow {

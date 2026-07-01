@@ -386,6 +386,51 @@ describe("DeploymentService", () => {
     }
   });
 
+  it("maps start-push transaction SQL failures to typed write failures", async () => {
+    const transaction = transactionRecorder();
+    const failure = new Error("start insert failed");
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([], {
+          onExec: query => {
+            if (query.includes("INSERT INTO pushes")) {
+              throw failure;
+            }
+          },
+        }),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.startAnalyzedPush({
+            pushId: "sql-failed-start-write",
+            now: 1_955_000,
+            sourcePackage: sourcePackage(),
+            diagnostics: [],
+            error: "analysis failed",
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentSqlError)) {
+        throw new Error("Expected DeploymentSqlError.");
+      }
+      expect(error).toMatchObject({
+        operation: "startPush",
+        cause: failure,
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("finishes analyzed pushes with controlled clock and artifact refs", async () => {
     const preflight = analyzedPushStatus("push-finish");
     const finished: FinishPushResponse = {
@@ -624,6 +669,50 @@ describe("DeploymentService", () => {
         operation: "finishPush",
         pushId: status.pushId,
         stage: "activated",
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("maps finish-push transaction SQL failures to typed write failures", async () => {
+    const status = analyzedPushStatus("sql-failed-finish-write");
+    const transaction = transactionRecorder();
+    const failure = new Error("finish update failed");
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([status], {
+          onExec: query => {
+            if (query.includes("UPDATE pushes SET state = 'activated'")) {
+              throw failure;
+            }
+          },
+        }),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: status.pushId,
+            now: 2_365_000,
+            executionArtifactRef: executionArtifactRef(),
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentSqlError)) {
+        throw new Error("Expected DeploymentSqlError.");
+      }
+      expect(error).toMatchObject({
+        operation: "finishPush",
+        cause: failure,
       });
       expect(transaction.committed).toBe(false);
       expect(transaction.rejected).toBe(true);
@@ -1691,6 +1780,50 @@ describe("DeploymentService", () => {
       });
       expect(transaction.committed).toBe(false);
       expect(transaction.rejected).toBe(false);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("maps abandon-push transaction SQL failures to typed write failures", async () => {
+    const status = analyzedPushStatus("sql-failed-abandon-write");
+    const transaction = transactionRecorder();
+    const failure = new Error("abandon update failed");
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        transaction.storage,
+        sqlWithPushes([status], {
+          onExec: query => {
+            if (query.includes("UPDATE pushes SET state = 'abandoned'")) {
+              throw failure;
+            }
+          },
+        }),
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.abandonPush({
+            pushId: status.pushId,
+            now: 3_155_000,
+            reason: "typecheck failed",
+          }),
+        ).pipe(
+          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+        ),
+      );
+
+      if (!(error instanceof DeploymentSqlError)) {
+        throw new Error("Expected DeploymentSqlError.");
+      }
+      expect(error).toMatchObject({
+        operation: "abandonPush",
+        cause: failure,
+      });
+      expect(transaction.committed).toBe(false);
+      expect(transaction.rejected).toBe(true);
     } finally {
       await runtime.dispose();
     }

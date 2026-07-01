@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `e752f33` Type registry create request boundary.
-- Active checkpoint: validate and review the partition route request Effect decoder batch, keeping PartitionDO SQL/OCC behavior unchanged while removing the remaining Promise/throwing route compatibility wrappers for this route family.
+- Previous completed checkpoint: `317db9c` Type partition route request boundary.
+- Active checkpoint: validate and review the deployment store write transaction Effect batch, keeping DeploymentDO route behavior unchanged while centralizing start/finish/abandon write transactions behind one typed Effect source boundary.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,12 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the partition route request effects:
+Next recommended checkpoint after the deployment store write transaction effects:
 
-1. Prefer a fuller route/service batch next: continue deeper
-   DeploymentService/store write helpers toward typed service/domain failures,
-   or pick the next Worker/DO route family that can remove compatibility
-   wrappers while keeping one adapter HTTP mapping edge.
+1. Continue deeper DeploymentService/store write helpers toward typed
+   service/domain failures, especially finish-push preflight and artifact
+   resolution boundaries that still need careful behavior-preserving slices.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -62,6 +61,22 @@ Next recommended checkpoint after the partition route request effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 320 slice:
+
+1. Add a named deployment store write transaction Effect helper for
+   start-push, finish-push, and abandon-push transactions.
+2. Replace direct throwing of `DeploymentStoredPushMissingError` inside write
+   transactions with an internal rollback signal that unwraps back to the
+   typed domain/store failure at the Effect boundary.
+3. Keep SQL and storage defects mapped once at source to
+   `DeploymentSqlError` with the operation that failed.
+4. Add direct store tests for start-push, finish-push, and abandon-push
+   transaction SQL failures, preserving existing missing-write rollback tests.
+5. Leave DeploymentDO routing, DeploymentApi generated handler response
+   mapping, public Worker deployment dispatch, artifact storage/materializer
+   behavior, PartitionDO SQL/OCC, executor-http, protocol package parser
+   compatibility, and `ValidatorJson` unchanged.
 
 Completed Goal 319 slice:
 

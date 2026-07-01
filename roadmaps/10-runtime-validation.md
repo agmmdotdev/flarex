@@ -1,5 +1,55 @@
 # Runtime Validation
 
+## Deployment Store Write Transaction Effects
+
+Previous completed checkpoint: `317db9c` Type partition route request
+boundary.
+
+What changed:
+
+- Deployment store start-push, finish-push, and abandon-push transactions now
+  share one typed Effect transaction boundary.
+- SQL/storage failures inside those transactions map once to
+  `DeploymentSqlError` at the store source boundary.
+- Missing post-write rows still become `DeploymentStoredPushMissingError`,
+  but an internal rollback signal owns the thrown transaction rollback
+  mechanism.
+
+Why it changed:
+
+Deployment runtime validation already emits typed `DeploymentValidationError`
+values for stored push rows. This checkpoint tightens the adjacent write
+transaction boundary so storage defects and rollback failures remain typed
+before generated HTTP response mapping.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment store boundary cleanup around existing push transaction behavior.
+
+How Flarex differs:
+
+- Flarex write transactions execute inside Cloudflare Durable Object storage,
+  so rollback mechanics are implementation-local while exported store/service
+  failures stay typed.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, artifact behavior, PartitionDO SQL/OCC,
+  executor-http, protocol package parser compatibility, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts -t "start|finish|abandon|DeploymentService|DeploymentPushStore" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Request Effects
 
 Previous completed checkpoint: `e752f33` Type registry create request boundary.

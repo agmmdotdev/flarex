@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Deployment Store Write Transaction Effects
+
+Previous completed checkpoint: `317db9c` Type partition route request
+boundary.
+
+What changed:
+
+- `deployment/Store.ts` now centralizes start-push, finish-push, and
+  abandon-push transaction execution in one named Effect helper.
+- `DeploymentStoredPushMissingError` remains the exported missing-write
+  failure, but the transaction rollback implementation uses an internal
+  package-local signal.
+- `DeploymentSqlError` remains the store source-boundary failure for SQL and
+  storage defects.
+
+Boundary decision:
+
+Deployment write rollback mechanics belong inside `DeploymentPushStore`.
+Exported store/service callers should receive typed deployment failures, not a
+thrown transaction sentinel or generic `Error`. HTTP conversion remains in the
+generated DeploymentApi handler mappers.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment package boundary around Durable Object transaction
+  rollback mechanics.
+
+How Flarex differs:
+
+- Convex does not expose this exact Cloudflare Durable Object storage
+  transaction boundary. Flarex keeps the rollback implementation local to the
+  deployment store package while preserving Effect-returning service/store
+  APIs.
+
+Known limitations:
+
+- No DeploymentDO route behavior, generated DeploymentApi response mapping,
+  public Worker deployment dispatch, artifact storage/materialization,
+  PartitionDO SQL/OCC behavior, executor-http route, protocol parser
+  compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts -t "start|finish|abandon|DeploymentService|DeploymentPushStore" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Request Effects
 
 Previous completed checkpoint: `e752f33` Type registry create request boundary.
