@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Public Worker Deployment Route Adapter Effects
+
+Previous completed checkpoint: `39e4aaa` Type start abandon store write plans.
+
+What changed:
+
+- Public Worker `/deployments/...` routing now catches deployment route
+  failures through `publicWorkerDeploymentRouteErrorToResponseEffect(...)`.
+- Worker-level deployment route HTTP conversion now uses
+  `publicWorkerDeploymentRouteErrorToHttpErrorEffect(...)`.
+- The Worker adapter reuses named mapper effects for deployment request
+  JSON/protocol failures, dispatch failures, execution start failures, and
+  partition payload failures where those mappers already exist.
+
+Why it changed:
+
+Deployment route request decoding already returns typed Effect failures. The
+Worker branch now keeps those failures typed until a named adapter edge maps
+them to HTTP responses, instead of doing inline `Effect.matchEffect(...)`
+conversion in the main route branch.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  public Worker route adapter cleanup.
+
+How Flarex differs:
+
+- Flarex has a public Worker that fans deployment routes into Durable Objects,
+  execution routes, partition routes, and sync routes. This adapter is
+  Flarex-specific and keeps the public Worker boundary explicit.
+
+Known limitations:
+
+- DeploymentDO generated handler behavior, DeploymentService/store lifecycle
+  logic, artifact materializer/cache, source-package analyzer semantics,
+  PartitionDO SQL/OCC, executor-http, protocol parser compatibility, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Start And Abandon Store Write Planning Effects
 
 Previous completed checkpoint: `c7efab5` Type finish activation metadata

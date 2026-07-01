@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Public Worker Deployment Route Adapter Effects
+
+Previous completed checkpoint: `39e4aaa` Type start abandon store write plans.
+
+What changed:
+
+- Public deployment push route failures now flow through a named Worker
+  response adapter effect after route decoding/dispatch returns typed failures.
+- Worker-level deployment route HTTP mapping now reuses the existing named
+  public deployment route mapper effect for request JSON and protocol
+  validation failures.
+- Existing public push tests continue to prove malformed start,
+  start-analyzed, finish, and abandon route bodies preserve the same HTTP
+  responses.
+
+Why it changed:
+
+The deployment migration quality bar requires typed request/body decoder
+failures to propagate until a single adapter edge maps them to HTTP. This
+checkpoint makes that Worker edge explicit for public deployment routes without
+changing push lifecycle behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  public deployment route adapter cleanup.
+
+How Flarex differs:
+
+- Flarex exposes deployment push lifecycle routes through a public Worker that
+  dispatches into Cloudflare Durable Objects. The Worker adapter is therefore
+  Flarex-specific, while typed request decoding stays in deployment modules.
+
+Known limitations:
+
+- DeploymentDO generated handler behavior, DeploymentService/store lifecycle
+  logic, artifact materializer/cache, source-package analyzer semantics,
+  DeploymentPushStore lifecycle state changes, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Start And Abandon Store Write Planning Effects
 
 Previous completed checkpoint: `c7efab5` Type finish activation metadata

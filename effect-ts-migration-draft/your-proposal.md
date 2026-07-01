@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `c7efab5` Type finish activation metadata writes.
-- Active checkpoint: validate and review the start/abandon store write planning batch, keeping lifecycle write values fed by named Effect-built plans before Durable Object transactions.
+- Previous completed checkpoint: `39e4aaa` Type start abandon store write plans.
+- Active checkpoint: validate and review the public Worker deployment route adapter batch, keeping deployment route failures mapped through a named Effect response adapter at the Worker edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the start/abandon store write planning effects:
+Next recommended checkpoint after the public Worker deployment route adapter effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially the next route/service adapter slice
-   that moves deployment route request decoding to Effect-returning boundaries.
+   service/domain failures, especially the next deployment generated
+   HttpApi/service adapter slice that removes duplicated request decoding and
+   keeps protocol validation failures propagated unchanged.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -62,7 +63,28 @@ Next recommended checkpoint after the start/abandon store write planning effects
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 329 slice:
+Current Goal 330 slice:
+
+1. Route the public Worker `/deployments/...` branch through
+   `publicWorkerDeploymentRouteErrorToResponseEffect(...)`, a named Effect
+   adapter that converts typed deployment route failures to `Response` values
+   at the Worker edge.
+2. Add `publicWorkerDeploymentRouteErrorToHttpErrorEffect(...)` so public
+   deployment route failures reuse the existing named mapper effects for
+   deployment request JSON/protocol errors, execution start errors, partition
+   payload errors, and dispatch errors.
+3. Preserve the existing special invoke response mapping for deployment invoke
+   routes while removing the inline `Effect.matchEffect(...)` adapter from the
+   main Worker route branch.
+4. Reuse existing focused public deployment route tests that cover malformed
+   JSON and protocol-validation mapping for start, start-analyzed, finish, and
+   abandon routes.
+5. Leave DeploymentDO generated handler behavior, DeploymentService/store
+   lifecycle logic, artifact materializer/cache, source-package analyzer
+   semantics, PartitionDO SQL/OCC, executor-http, protocol parser
+   compatibility, and `ValidatorJson` unchanged.
+
+Completed Goal 329 slice:
 
 1. Add `deploymentStartPushApplicationPlan(...)`, a named
    DeploymentPushStore Effect helper that converts validated analyzed/failed
