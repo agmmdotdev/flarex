@@ -1,5 +1,58 @@
 # Runtime Validation
 
+## DeploymentDO Request Bridge Demotion
+
+Previous completed checkpoint: `34a6022` Map deployment reads directly.
+
+What changed:
+
+- `routeDeploymentDurableObject(...)` now decodes DeploymentDO API routes and
+  dispatches all read and mutation inputs directly through typed Effect route
+  inputs.
+- The generated request compatibility adapter and request rebuilding helper APIs
+  were removed from production DeploymentDO routing.
+- `DeploymentDO.fetch(...)` no longer constructs a generated HttpApi web
+  handler; it provides the deployment layer to the direct route effect at the
+  Durable Object runtime edge.
+- `HttpApiWebHandler` remains only as generated handler integration coverage.
+- The concrete migration checklist ticks `D-6` and sets `P-1` as the next
+  active checkpoint.
+
+Why it changed:
+
+D-4 and D-5 proved direct mutation and read dispatch. D-6 removes the now-dead
+request bridge from production routing so the DeploymentDO runtime boundary has
+one direct Effect route path instead of a decoded-input-to-rebuilt-request
+compatibility loop.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO route-boundary cleanup checkpoint.
+
+How Flarex differs:
+
+- Flarex still keeps generated HttpApi handler effects and protocol schemas for
+  integration coverage. The Durable Object adapter no longer depends on the
+  generated web-handler request bridge for production dispatch.
+
+Known limitations:
+
+- Generated handler logic, DeploymentService/store lifecycle logic, public
+  Worker deployment dispatch, artifact materializer/cache, source-package
+  analyzer semantics, PartitionDO SQL/OCC, executor-http, protocol parser
+  compatibility wrappers, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## DeploymentDO Read Direct Mapping
 
 Previous completed checkpoint: `c4404be` Wire deployment mutation direct

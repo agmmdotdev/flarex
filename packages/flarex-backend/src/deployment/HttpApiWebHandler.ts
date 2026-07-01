@@ -10,6 +10,8 @@ export interface DeploymentApiWebHandler {
   readonly dispose: () => Promise<void>;
 }
 
+// Production DeploymentDO routing dispatches decoded route inputs directly.
+// Keep this bridge for generated HttpApi handler integration coverage.
 export function makeDeploymentApiWebHandler(
   deploymentLayer: Layer.Layer<DeploymentService>,
 ): DeploymentApiWebHandler {

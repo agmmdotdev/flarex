@@ -55,13 +55,6 @@ export type DeploymentApiRouteInput =
     readonly body: AbandonPushRequest;
   };
 
-export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decodeApiRequestForRoute")(
-  function* (request: Request) {
-    const routeInput = yield* decodeDeploymentApiRouteInput(request);
-    return routeInput === null ? null : deploymentApiRouteInputToRequest(routeInput);
-  },
-);
-
 export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRouteInput")(
   function* (request: Request): Effect.fn.Return<DeploymentApiRouteInput | null, DeploymentRouteError> {
     const url = new URL(request.url);
@@ -124,19 +117,6 @@ export const decodeDeploymentApiRouteInput = Effect.fn("DeploymentDO.decodeApiRo
   },
 );
 
-export function deploymentApiRouteInputToRequest(
-  routeInput: DeploymentApiRouteInput,
-): Request {
-  if (
-    routeInput._tag === "DeploymentApiHealthRoute"
-    || routeInput._tag === "DeploymentApiActiveDeploymentRoute"
-    || routeInput._tag === "DeploymentApiGetPushRoute"
-  ) {
-    return routeInput.request;
-  }
-  return jsonRequest(routeInput.url, routeInput.body);
-}
-
 export function decodeDeploymentAnalyzedStartPushRouteRequest(
   request: Request,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentRouteError> {
@@ -197,12 +177,4 @@ function decodeDeploymentRouteRequest<A>(
   return readJsonEffect(request).pipe(
     Effect.flatMap(parse),
   );
-}
-
-function jsonRequest(url: URL, body: unknown): Request {
-  return new Request(url.toString(), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
 }

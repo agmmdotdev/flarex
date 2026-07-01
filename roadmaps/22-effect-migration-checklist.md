@@ -12,8 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: `c4404be` Wire deployment mutation direct
-  dispatch.
+- Previous completed checkpoint: `34a6022` Map deployment reads directly.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -96,8 +95,7 @@ The Effect migration is complete only when all of these are true:
 - [x] D-4. Wire `routeDeploymentDurableObject(...)` mutation routes
   `start/finish/abandon` to `dispatchDeploymentApiMutationRouteInputDirect(...)`
   and keep read routes on the compatibility bridge.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `c4404be` Wire deployment mutation direct dispatch.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
     `packages/flarex-backend/src/deploymentDO.ts`,
@@ -113,8 +111,7 @@ The Effect migration is complete only when all of these are true:
 - [x] D-5. Add direct read response mapping for DeploymentDO read routes
   `GET /deployment` and `GET /push/:pushId`, then remove read-route dependence on
   generated web-handler request rebuilding.
-  - Completed by: this checkpoint; commit ID is reported in the final response
-    and should be carried into this file on the next repository-changing turn.
+  - Completed by: `34a6022` Map deployment reads directly.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/HttpApiRouteBoundary.ts`,
@@ -123,8 +120,10 @@ The Effect migration is complete only when all of these are true:
     `packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts`.
   - Must preserve: active deployment success, active not-found, push success,
     push not-found, storage failure mapping.
-- [ ] D-6. Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
+- [x] D-6. Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
   after all DeploymentDO API routes dispatch directly.
+  - Completed by: this checkpoint; commit ID is reported in the final response
+    and should be carried into this file on the next repository-changing turn.
   - Files:
     `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`,
     `packages/flarex-backend/src/deployment/HttpApiWebHandler.ts`,
@@ -394,10 +393,9 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with D-6:
+Start with P-1:
 
-Delete or demote `dispatchDeploymentApiRouteInputViaRequestCompatibility(...)`
-after all DeploymentDO API routes dispatch directly, decide whether
-`HttpApiWebHandler` remains only for handler tests or should be demoted, update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `D-6`, then commit.
+Replace public deployment start/finish/abandon body compatibility wrappers with
+typed Effect route-input objects in the public Worker deployment push boundary,
+update `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps,
+validate, run only the EffectTS quality checker, tick `P-1`, then commit.

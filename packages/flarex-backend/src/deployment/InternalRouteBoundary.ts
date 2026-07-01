@@ -1,13 +1,12 @@
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import {
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
   DeploymentNotFoundErrorResponse,
-  DeploymentProtocolValidationError,
   DeploymentRoute,
   DeploymentStorageErrorResponse,
 } from "flarex-protocol/deployment";
-import { errorResponse, HttpError, json } from "../http";
+import { errorResponse, json } from "../http";
 import {
   deploymentAbandonPushHandler,
   deploymentFinishPushHandler,
@@ -18,25 +17,13 @@ import {
 } from "./HttpApiHandlers";
 import {
   decodeDeploymentApiRouteInput,
-  deploymentApiRouteInputToRequest,
   deploymentRouteErrorToHttpError,
   type DeploymentApiRouteInput,
   type DeploymentRouteError,
 } from "./HttpApiRouteBoundary";
 import { DeploymentService, type DeploymentServiceApi } from "./Service";
 
-export class DeploymentRouteOperationError extends Data.TaggedError(
-  "DeploymentRouteOperationError",
-)<{
-  readonly operation: "http-api";
-  readonly status: number;
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
-
-export type DeploymentInternalRouteError =
-  | DeploymentRouteError
-  | DeploymentRouteOperationError;
+export type DeploymentInternalRouteError = DeploymentRouteError;
 
 export type DeploymentApiMutationRouteInput = Extract<
   DeploymentApiRouteInput,
@@ -55,16 +42,14 @@ export type DeploymentApiReadRouteInput = Extract<
 export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
   function* (
     request: Request,
-    handleApiRequest: (request: Request) => Promise<Response>,
   ): Effect.fn.Return<Response, DeploymentInternalRouteError, DeploymentService> {
     const url = new URL(request.url);
     const apiRouteInput = yield* decodeDeploymentApiRouteInput(request);
     if (apiRouteInput !== null) {
+      const deployment = yield* DeploymentService;
       if (isDeploymentApiMutationRouteInput(apiRouteInput)) {
-        const deployment = yield* DeploymentService;
         return yield* dispatchDeploymentApiMutationRouteInputDirect(apiRouteInput, deployment);
       }
-      const deployment = yield* DeploymentService;
       return yield* dispatchDeploymentApiReadRouteInputDirect(apiRouteInput, deployment);
     }
     if (url.pathname === DeploymentRoute.health) {
@@ -73,22 +58,6 @@ export const routeDeploymentDurableObject = Effect.fn("DeploymentDO.route")(
     return json({ error: "Not found." }, { status: 404 });
   },
 );
-
-export const dispatchDeploymentApiRouteInputViaRequestCompatibility = Effect.fn(
-  "DeploymentDO.dispatchApiRouteInputViaRequestCompatibility",
-)(function* (
-  apiRouteInput: DeploymentApiRouteInput,
-  handleApiRequest: (request: Request) => Promise<Response>,
-): Effect.fn.Return<Response, DeploymentRouteOperationError | DeploymentProtocolValidationError> {
-  const apiRequest = deploymentApiRouteInputToRequest(apiRouteInput);
-  return yield* Effect.tryPromise({
-    try: () => handleApiRequest(apiRequest),
-    catch: cause =>
-      cause instanceof DeploymentProtocolValidationError
-        ? cause
-        : deploymentRouteOperationError("http-api", cause),
-  });
-});
 
 export const dispatchDeploymentApiMutationRouteInputDirect = Effect.fn(
   "DeploymentDO.dispatchApiMutationRouteInputDirect",
@@ -163,9 +132,6 @@ export function runDeploymentDurableObjectRoute(
 export function deploymentInternalRouteErrorToResponse(
   error: DeploymentInternalRouteError,
 ): Response {
-  if (error instanceof DeploymentRouteOperationError) {
-    return errorResponse(new HttpError(error.status, error.message));
-  }
   return errorResponse(deploymentRouteErrorToHttpError(error));
 }
 
@@ -176,23 +142,6 @@ export const deploymentInternalRouteErrorToResponseEffect = Effect.fn(
 ): Effect.fn.Return<Response> {
   return yield* Effect.succeed(deploymentInternalRouteErrorToResponse(error));
 });
-
-function deploymentRouteOperationError(
-  operation: DeploymentRouteOperationError["operation"],
-  cause: unknown,
-): DeploymentRouteOperationError {
-  return new DeploymentRouteOperationError({
-    operation,
-    status: cause instanceof HttpError ? cause.status : 500,
-    message: errorMessage(cause),
-    cause,
-  });
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 function deploymentGeneratedValueToResponse(value: object): Response {
   if (value instanceof DeploymentBadRequestErrorResponse) {
