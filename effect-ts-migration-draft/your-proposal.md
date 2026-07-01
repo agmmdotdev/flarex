@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `693c172` Type deployment start abandon service inputs.
-- Active checkpoint: validate and review the deployment read-side service and generated HttpApi response adapter batch, keeping active deployment and push reads typed until the generated response edge.
+- Previous completed checkpoint: `9c2902a` Type deployment read response adapters.
+- Active checkpoint: validate and review the deployment store finish decision and active status assembly batch, keeping store-owned rejection semantics typed and named.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment read-side service and HttpApi response effects:
+Next recommended checkpoint after the deployment store finish decision effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially store-owned finish rejection semantics
-   and active deployment storage metadata helpers.
+   service/domain failures, especially active deployment storage metadata
+   parsing and transaction-side schema/function application helpers.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,30 @@ Next recommended checkpoint after the deployment read-side service and HttpApi r
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 325 slice:
+
+1. Add `deploymentFinishPushStoreDecision(...)`, a named DeploymentPushStore
+   Effect helper that classifies a stored push read into activation,
+   successful rejection response, or typed `DeploymentStoredPushMissingError`.
+2. Keep store-owned finish rejection semantics unchanged: non-analyzed pushes
+   still produce `invalid_state` rejected finish responses, and analyzed pushes
+   missing analysis still produce `missing_analysis` rejected finish responses.
+3. Add `activeDeploymentStatusFromStoreParts(...)`, a named helper that
+   assembles `ActiveDeploymentStatus` only after active push metadata,
+   artifact refs, and activation time have been decoded by their source
+   helpers.
+4. Route `DeploymentPushStore.finishPush(...)` and
+   `DeploymentPushStore.getActiveDeployment(...)` through the named helpers
+   without adding HTTP/generated response classes or runtime boundaries to the
+   store.
+5. Add direct helper coverage for finish activation, invalid-state rejection,
+   missing-analysis rejection, missing stored push failure, and active
+   deployment status assembly.
+6. Leave DeploymentDO routing, generated DeploymentApi response mapping,
+   public Worker deployment dispatch, service preflight, artifact store
+   implementation, PartitionDO SQL/OCC, executor-http, protocol parser
+   compatibility, and `ValidatorJson` unchanged.
 
 Completed Goal 324 slice:
 

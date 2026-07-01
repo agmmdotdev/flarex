@@ -25,6 +25,8 @@ import {
 import {
   DeploymentPushStore,
   DeploymentSqlError,
+  activeDeploymentStatusFromStoreParts,
+  deploymentFinishPushStoreDecision,
   type AbandonPushStoreInput,
   type DeploymentSqlStorage,
   type DeploymentTransactionStorage,
@@ -719,6 +721,66 @@ describe("DeploymentService", () => {
     ));
 
     expect(artifactFailure).toBe(failure);
+  });
+
+  it("classifies finish store decisions through a named Effect helper", async () => {
+    const analyzed = analyzedPushStatus("push-finish-decision-activate");
+    const activate = await Effect.runPromise(deploymentFinishPushStoreDecision(analyzed.pushId, analyzed));
+
+    if (activate._tag !== "activate") {
+      throw new Error("Expected finish activation decision.");
+    }
+    expect(activate.status).toMatchObject({
+      pushId: analyzed.pushId,
+      state: "analyzed",
+      analysis: analyzed.analysis,
+    });
+
+    const failed = failedPushStatus("push-finish-decision-invalid-state");
+    const invalidState = await Effect.runPromise(deploymentFinishPushStoreDecision(failed.pushId, failed));
+
+    if (invalidState._tag !== "reject") {
+      throw new Error("Expected finish rejection decision.");
+    }
+    expect(invalidState.response).toMatchObject({
+      result: "rejected",
+      push: failed,
+      code: "invalid_state",
+      error: "Cannot finish push push-finish-decision-invalid-state in state failed.",
+    });
+
+    const { analysis: _analysis, codegenAnalysis: _codegenAnalysis, ...missingAnalysis } =
+      analyzedPushStatus("push-finish-decision-missing-analysis");
+    const missingAnalysisDecision = await Effect.runPromise(deploymentFinishPushStoreDecision(
+      missingAnalysis.pushId,
+      missingAnalysis,
+    ));
+
+    if (missingAnalysisDecision._tag !== "reject") {
+      throw new Error("Expected missing-analysis finish rejection decision.");
+    }
+    expect(missingAnalysisDecision.response).toMatchObject({
+      result: "rejected",
+      push: missingAnalysis,
+      code: "missing_analysis",
+      error: "Push push-finish-decision-missing-analysis has no analysis to activate.",
+    });
+
+    const notFound = await Effect.runPromise(deploymentFinishPushStoreDecision(
+      "missing-finish-decision",
+      null,
+    ).pipe(
+      Effect.catchTag("DeploymentStoredPushMissingError", error => Effect.succeed(error)),
+    ));
+
+    if (!(notFound instanceof DeploymentStoredPushMissingError)) {
+      throw new Error("Expected DeploymentStoredPushMissingError.");
+    }
+    expect(notFound).toMatchObject({
+      operation: "finishPush",
+      pushId: "missing-finish-decision",
+      stage: "prevalidated",
+    });
   });
 
   it("preserves typed DeploymentSqlError failures from finish storage", async () => {
@@ -2035,6 +2097,28 @@ describe("DeploymentService", () => {
     }
   });
 
+  it("assembles active deployment status from typed stored parts", async () => {
+    const activePush = analyzedPushStatus("push-active-parts");
+    const ref = executionArtifactRef();
+
+    const active = await Effect.runPromise(activeDeploymentStatusFromStoreParts(
+      activePush.pushId,
+      activePush,
+      ref,
+      3_175_000,
+    ));
+
+    expect(active).toEqual({
+      activePushId: activePush.pushId,
+      activatedAt: 3_175_000,
+      schemaVersion: activePush.analysis.schema.version,
+      executionArtifactRef: ref,
+      sourcePackage: activePush.sourcePackage,
+      analysis: activePush.analysis,
+      codegenAnalysis: activePush.codegenAnalysis,
+    });
+  });
+
   it("reports invalid active deployment metadata as typed storage metadata failure", async () => {
     const status = analyzedPushStatus("push-active-metadata");
     const storage = {
@@ -2392,7 +2476,12 @@ function pushStatusRow(push: PushStatus): DeploymentPushStatusRow {
   };
 }
 
-function analyzedPushStatus(pushId: string): PushStatus {
+function analyzedPushStatus(
+  pushId: string,
+): PushStatus & {
+  readonly analysis: DeploymentAnalysis;
+  readonly codegenAnalysis: DeploymentCodegenAnalysis;
+} {
   return {
     pushId,
     state: "analyzed",

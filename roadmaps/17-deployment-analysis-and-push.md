@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment Store Finish Decision Effects
+
+Previous completed checkpoint: `9c2902a` Type deployment read response
+adapters.
+
+What changed:
+
+- `DeploymentPushStore.finishPush(...)` now delegates stored push activation
+  versus rejection classification to
+  `deploymentFinishPushStoreDecision(...)`.
+- `DeploymentPushStore.getActiveDeployment(...)` now delegates final active
+  deployment response assembly to `activeDeploymentStatusFromStoreParts(...)`.
+- Finish decisions now have direct tests for activation, invalid-state
+  rejection, missing-analysis rejection, and missing-row typed failure.
+
+Why it changed:
+
+Finish push can be rejected without being a service error. Naming the store
+decision keeps that lifecycle rule explicit while preserving generated handler
+response mapping and public Worker dispatch behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentPushStore lifecycle cleanup around existing push activation
+  behavior.
+
+How Flarex differs:
+
+- Flarex stores deployment push lifecycle state in a Cloudflare Durable Object.
+  Finish rejection responses are durable lifecycle decisions before any HTTP
+  adapter mapping.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, service preflight, artifact store
+  implementation, DeploymentPushStore transaction SQL, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Read Service HttpApi Response Effects
 
 Previous completed checkpoint: `693c172` Type deployment start abandon

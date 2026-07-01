@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Deployment Store Finish Decision Effects
+
+Previous completed checkpoint: `9c2902a` Type deployment read response
+adapters.
+
+What changed:
+
+- `deployment/Store.ts` now exports
+  `deploymentFinishPushStoreDecision(...)` for finish-push activation versus
+  rejection classification.
+- `deployment/Store.ts` now exports
+  `activeDeploymentStatusFromStoreParts(...)` for active deployment response
+  assembly after source metadata reads.
+- `DeploymentPushStore.finishPush(...)` and
+  `DeploymentPushStore.getActiveDeployment(...)` delegate to those helpers.
+
+Boundary decision:
+
+Finish activation/rejection decisions belong in `DeploymentPushStore` because
+they depend on stored push state. Generated response-class mapping belongs in
+`DeploymentApiHandlers`; service preflight belongs in `DeploymentService`.
+This checkpoint keeps those boundaries explicit.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment store/service/API package boundary.
+
+How Flarex differs:
+
+- Convex does not have Flarex's DeploymentDO push lifecycle with generated
+  Effect HttpApi adapters. Flarex keeps lifecycle rejection responses as store
+  results and HTTP mapping as an adapter concern.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, service preflight, artifact store implementation,
+  PartitionDO SQL/OCC behavior, executor-http route, protocol parser
+  compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Read Service HttpApi Response Effects
 
 Previous completed checkpoint: `693c172` Type deployment start abandon

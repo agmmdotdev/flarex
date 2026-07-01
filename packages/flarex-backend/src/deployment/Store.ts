@@ -76,6 +76,84 @@ export interface AbandonPushStoreInput {
   readonly reason: string;
 }
 
+export type FinishableDeploymentPushStatus = PushStatus & {
+  readonly state: "analyzed";
+  readonly analysis: DeploymentAnalysis;
+};
+
+export type AnalyzedActiveDeploymentPushStatus = PushStatus & {
+  readonly analysis: DeploymentAnalysis;
+  readonly codegenAnalysis: DeploymentCodegenAnalysis;
+};
+
+export type FinishPushStoreDecision =
+  | {
+      readonly _tag: "activate";
+      readonly status: FinishableDeploymentPushStatus;
+    }
+  | {
+      readonly _tag: "reject";
+      readonly response: FinishPushResponse;
+    };
+
+export const activeDeploymentStatusFromStoreParts = Effect.fn(
+  "DeploymentPushStore.activeDeploymentStatusFromStoreParts",
+)(function* (
+  activePushId: string,
+  activePush: AnalyzedActiveDeploymentPushStatus,
+  executionArtifactRef: ExecutionArtifactRef,
+  activatedAt: number,
+): Effect.fn.Return<ActiveDeploymentStatus> {
+  return {
+    activePushId,
+    activatedAt,
+    schemaVersion: activePush.analysis.schema.version,
+    executionArtifactRef,
+    sourcePackage: activePush.sourcePackage,
+    analysis: activePush.analysis,
+    codegenAnalysis: activePush.codegenAnalysis,
+  };
+});
+
+export const deploymentFinishPushStoreDecision = Effect.fn(
+  "DeploymentPushStore.deploymentFinishPushStoreDecision",
+)(function* (
+  pushId: string,
+  status: PushStatus | null,
+): Effect.fn.Return<FinishPushStoreDecision, DeploymentStoredPushMissingError> {
+  if (status === null) {
+    return yield* Effect.fail(storedPushMissing("finishPush", pushId, "prevalidated"));
+  }
+  if (status.state !== "analyzed") {
+    return {
+      _tag: "reject",
+      response: rejectedFinishPushResponse(
+        status,
+        "invalid_state",
+        `Cannot finish push ${pushId} in state ${status.state}.`,
+      ),
+    };
+  }
+  if (status.analysis === undefined) {
+    return {
+      _tag: "reject",
+      response: rejectedFinishPushResponse(
+        status,
+        "missing_analysis",
+        `Push ${pushId} has no analysis to activate.`,
+      ),
+    };
+  }
+  return {
+    _tag: "activate",
+    status: {
+      ...status,
+      state: "analyzed",
+      analysis: status.analysis,
+    },
+  };
+});
+
 export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
   getPush(pushId: string): Effect.Effect<PushStatus | null, DeploymentSqlError | DeploymentValidationError>;
   getActiveDeployment(): Effect.Effect<
@@ -299,15 +377,12 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             const activePush = yield* requireAnalyzedActivePush(activePushId, push);
             const executionArtifactRef = yield* readActiveExecutionArtifactRef(activePushId);
             const activatedAt = yield* readActiveActivatedAt(activePush.updatedAt);
-            return {
+            return yield* activeDeploymentStatusFromStoreParts(
               activePushId,
-              activatedAt,
-              schemaVersion: activePush.analysis.schema.version,
+              activePush,
               executionArtifactRef,
-              sourcePackage: activePush.sourcePackage,
-              analysis: activePush.analysis,
-              codegenAnalysis: activePush.codegenAnalysis,
-            };
+              activatedAt,
+            );
           },
         );
 
@@ -450,27 +525,11 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             DeploymentStoreWriteError
           > {
             const status = yield* readPush(input.pushId);
-            if (status === null) {
-              return yield* Effect.fail(storedPushMissing("finishPush", input.pushId, "prevalidated"));
+            const decision = yield* deploymentFinishPushStoreDecision(input.pushId, status);
+            if (decision._tag === "reject") {
+              return decision.response;
             }
-            if (status.state !== "analyzed") {
-              return rejectedFinishPushResponse(
-                status,
-                "invalid_state",
-                `Cannot finish push ${input.pushId} in state ${status.state}.`,
-              );
-            }
-            if (status.analysis === undefined) {
-              return rejectedFinishPushResponse(
-                status,
-                "missing_analysis",
-                `Push ${input.pushId} has no analysis to activate.`,
-              );
-            }
-            return yield* runFinishPushTransaction(input, {
-              ...status,
-              analysis: status.analysis,
-            });
+            return yield* runFinishPushTransaction(input, decision.status);
           },
         );
 
