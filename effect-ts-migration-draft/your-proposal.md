@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Active deployment store source effects.
-- Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: Artifact runtime route-service adapter effects.
+- Active checkpoint: validate and review the artifact runtime route-service adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the active deployment store source effects:
+Next recommended checkpoint after the artifact runtime route-service adapter effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
    carry the named adapter-effect pattern into remaining deployment route
@@ -60,6 +60,28 @@ Next recommended checkpoint after the active deployment store source effects:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 292 slice:
+
+1. Add named artifact runtime invoke route adapter effect
+   `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` and route
+   `readExecutionArtifactInvokePayload(...)` plus
+   `parseExecutionArtifactInvokePayload(...)` through it.
+2. Add named service-binding runtime adapter effect
+   `serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect(...)` so
+   runtime client failures convert to `HttpError` only at the client adapter
+   edge.
+3. Add named internal runtime fetch response adapter effect
+   `executionArtifactRuntimeRouteErrorToResponseEffect(...)` so
+   `createExecutionArtifactRuntimeService(...)` recovers route/service errors
+   through one response mapper.
+4. Add direct coverage for typed runtime invoke route request failures, named
+   route-to-`HttpError` mapping, named service-binding runtime mapping, and
+   named runtime route response mapping.
+5. Leave materializer cache behavior, source-package loading, runtime fetch
+   payloads, artifact header validation, execution response decoding,
+   public Worker routing, DeploymentService/store behavior, PartitionDO
+   SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 291 slice:
 

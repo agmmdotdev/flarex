@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Artifact Runtime Route-Service Adapter Effects
+
+Previous completed checkpoint: `6e9fe45` Type active deployment store reads.
+
+What changed:
+
+- `artifactRuntime/RouteBoundary.ts` now exposes a named
+  `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` adapter for
+  runtime invoke request compatibility callers.
+- `artifactRuntime.ts` now exposes named adapter effects for service-binding
+  runtime failures and internal runtime route response conversion.
+- Tests assert typed route request failures before HTTP mapping and assert the
+  named adapter effects directly.
+
+Boundary decision:
+
+Runtime invoke request decoding belongs to `artifactRuntime/RouteBoundary.ts`.
+Materializer/cache/source-package execution remains in
+`artifactRuntime/RuntimeRoute.ts` and `artifactRuntime.ts`. HTTP conversion for
+runtime-service failures belongs at the runtime service or runtime fetch adapter
+edge, so `HttpError` and `Response` mapping stay out of protocol schemas,
+DeploymentService/store code, and `ValidatorJson`.
+
+Known limitations:
+
+- No materializer cache behavior, source-package loading, runtime fetch
+  payload, artifact header validation, execution response decoding,
+  public Worker routing, service binding configuration, executor-http, or
+  SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntime.test.ts test/publicInvokeRouteBoundary.test.ts test/invokeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Active Deployment Store Source Effects
 
 Previous completed checkpoint: `b7cc704` Prune deployment validation result

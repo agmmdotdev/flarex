@@ -1,5 +1,47 @@
 # Runtime Validation
 
+## Artifact Runtime Route-Service Adapter Effects
+
+Previous completed checkpoint: `6e9fe45` Type active deployment store reads.
+
+What changed:
+
+- Runtime invoke request compatibility readers now recover through the named
+  `executionArtifactInvokeRouteErrorToHttpErrorEffect(...)` adapter while the
+  Effect decoder keeps `RequestJsonError` and
+  `ExecutionArtifactInvokePayloadError` typed before HTTP mapping.
+- Service-binding runtime failures now convert to `HttpError` through the named
+  `serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect(...)` adapter.
+- Internal execution artifact runtime fetch routes now recover through the
+  named `executionArtifactRuntimeRouteErrorToResponseEffect(...)` adapter.
+- Focused tests cover typed request failures and each named adapter effect
+  directly.
+
+Why it changed:
+
+The execution artifact runtime is a route-service path: it reads JSON, validates
+the runtime invoke payload, checks capability and artifact headers, resolves or
+loads source packages, materializes cached artifacts, invokes user runtime code,
+and returns an HTTP response. Naming the adapter effects keeps those route and
+service failures typed until the edge that owns HTTP conversion.
+
+Known limitations:
+
+- This checkpoint does not change materializer cache behavior, source-package
+  loading, runtime fetch payloads, artifact header validation, execution
+  response decoding, public Worker routing, DeploymentService/store behavior,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRequests.test.ts test/artifactRuntime.test.ts test/publicInvokeRouteBoundary.test.ts test/invokeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Active Deployment Store Source Effects
 
 Previous completed checkpoint: `b7cc704` Prune deployment validation result

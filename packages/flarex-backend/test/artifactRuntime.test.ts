@@ -7,8 +7,11 @@ import {
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
   ExecutionArtifactRuntimeMissingSourcePackageError,
+  executionArtifactRuntimeRouteErrorToResponseEffect,
   invokeServiceBindingExecutionArtifactRuntime,
+  serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect,
   ServiceBindingExecutionArtifactRuntime,
+  ServiceBindingExecutionArtifactRuntimeResponseError,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
   type MaterializedExecutionArtifactPayload,
@@ -304,6 +307,22 @@ describe("backend execution artifact runtime", () => {
       name: "HttpError",
       status: 504,
       message: "Runtime binding unavailable",
+    });
+  });
+
+  it("maps service-binding runtime failures through a named adapter effect", async () => {
+    const error = new ServiceBindingExecutionArtifactRuntimeResponseError({
+      status: 503,
+      message: "Execution artifact runtime failed with status 503",
+      body: null,
+    });
+
+    await expect(Effect.runPromise(Effect.flip(
+      serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect(error),
+    ))).resolves.toMatchObject({
+      name: "HttpError",
+      status: 503,
+      message: "Execution artifact runtime failed with status 503",
     });
   });
 
@@ -645,6 +664,20 @@ describe("backend execution artifact runtime", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: "Execution artifact invoke payload missing sourcePackage.",
+    });
+  });
+
+  it("maps runtime route failures through a named response adapter effect", async () => {
+    const response = await Effect.runPromise(executionArtifactRuntimeRouteErrorToResponseEffect(
+      new ExecutionArtifactRuntimeAuthorizationError({
+        status: 401,
+        message: "Unauthorized execution artifact runtime request.",
+      }),
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unauthorized execution artifact runtime request.",
     });
   });
 

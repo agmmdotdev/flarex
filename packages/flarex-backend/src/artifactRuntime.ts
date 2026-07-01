@@ -204,11 +204,7 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
         deployment,
         request,
       ).pipe(
-        Effect.catchTags({
-          ExecutionArtifactRuntimeOperationError: failServiceBindingExecutionArtifactRuntimeHttpError,
-          ServiceBindingExecutionArtifactRuntimeResponseError:
-            failServiceBindingExecutionArtifactRuntimeHttpError,
-        }),
+        Effect.catch(serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect),
       ),
     );
   }
@@ -394,11 +390,13 @@ function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
   return new HttpError(error.status, error.message);
 }
 
-function failServiceBindingExecutionArtifactRuntimeHttpError(
+export const serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect = Effect.fn(
+  "ServiceBindingExecutionArtifactRuntime.errorToHttpError",
+)(function* (
   error: ServiceBindingExecutionArtifactRuntimeError,
-): Effect.Effect<never, HttpError> {
-  return Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error));
-}
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error));
+});
 
 function executionArtifactRuntimeOperationError(
   operation: ExecutionArtifactRuntimeOperationError["operation"],
@@ -430,10 +428,18 @@ function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRo
   return Response.json({ error: error.message }, { status: error.status });
 }
 
+export const executionArtifactRuntimeRouteErrorToResponseEffect = Effect.fn(
+  "ExecutionArtifactRuntime.routeErrorToResponse",
+)(function* (
+  error: ExecutionArtifactRuntimeRouteError,
+): Effect.fn.Return<Response> {
+  return yield* Effect.succeed(executionArtifactRuntimeErrorResponse(error));
+});
+
 function recoverExecutionArtifactRuntimeRouteError(
   error: ExecutionArtifactRuntimeRouteError,
 ): Effect.Effect<Response> {
-  return Effect.succeed(executionArtifactRuntimeErrorResponse(error));
+  return executionArtifactRuntimeRouteErrorToResponseEffect(error);
 }
 
 function errorStatus(error: unknown): number | undefined {

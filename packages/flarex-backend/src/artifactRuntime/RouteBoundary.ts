@@ -25,11 +25,7 @@ export type ExecutionArtifactInvokeRouteError =
 export async function readExecutionArtifactInvokePayload(
   request: Request,
 ): Promise<ExecutionArtifactInvokePayload> {
-  return await Effect.runPromise(
-    decodeExecutionArtifactInvokePayload(request).pipe(
-      Effect.mapError(executionArtifactInvokeRouteErrorToHttpError),
-    ),
-  );
+  return await runExecutionArtifactInvokeRouteEffect(decodeExecutionArtifactInvokePayload(request));
 }
 
 export function decodeExecutionArtifactInvokePayload(
@@ -43,14 +39,9 @@ export function decodeExecutionArtifactInvokePayload(
 export function parseExecutionArtifactInvokePayload(
   value: unknown,
 ): ExecutionArtifactInvokePayload {
-  try {
-    return parseExecutionArtifactInvokePayloadBody(value);
-  } catch (error) {
-    if (error instanceof ExecutionArtifactInvokePayloadError) {
-      throw executionArtifactInvokeRouteErrorToHttpError(error);
-    }
-    throw error;
-  }
+  return Effect.runSync(parseExecutionArtifactInvokePayloadEffect(value).pipe(
+    Effect.catch(executionArtifactInvokeRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parseExecutionArtifactInvokePayloadEffect(
@@ -73,3 +64,19 @@ export function executionArtifactInvokeRouteErrorToHttpError(
   }
   return new HttpError(400, error.message);
 }
+
+function runExecutionArtifactInvokeRouteEffect<A>(
+  effect: Effect.Effect<A, ExecutionArtifactInvokeRouteError>,
+): Promise<A> {
+  return Effect.runPromise(effect.pipe(
+    Effect.catch(executionArtifactInvokeRouteErrorToHttpErrorEffect),
+  ));
+}
+
+export const executionArtifactInvokeRouteErrorToHttpErrorEffect = Effect.fn(
+  "ArtifactRuntimeRouteBoundary.executionArtifactInvokeRouteErrorToHttpError",
+)(function* (
+  error: ExecutionArtifactInvokeRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(executionArtifactInvokeRouteErrorToHttpError(error));
+});
