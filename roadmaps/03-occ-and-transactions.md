@@ -1,5 +1,41 @@
 # OCC And Transactions
 
+## Partition Route Request Effects
+
+Previous completed checkpoint: `e752f33` Type registry create request boundary.
+
+What changed:
+
+- Partition route request decoding for schema-cache, commit, subscription
+  registration, subscription target, and connection unregister now stays on
+  Effect-returning decoders.
+- Removed compatibility wrappers that converted typed route validation or JSON
+  errors before the Durable Object/Worker adapter edge.
+- Tests now assert typed partition request failures directly and separately
+  assert preserved HTTP adapter mapping.
+
+What did not change:
+
+- PartitionDO SQL table layout, OCC validation, idempotency replay,
+  document/index history, current document/index state, owner-field
+  validation, subscription invalidation scanning, and transaction response
+  shapes are unchanged.
+- This checkpoint is not the service-extraction step for PartitionDO
+  transaction logic.
+- Public Worker partition dispatch, scheduler/sync/execution routes,
+  DeploymentDO, RegistryDO, executor-http, protocol schemas, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/transaction.test.ts test/sync.test.ts -t "schema-cache|commit|subscription|connection unregister|PartitionDO" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## PartitionDO Route Dispatch Effect Boundary
 
 Previous completed checkpoint: `d198dd0` Type scheduler maintenance route

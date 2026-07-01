@@ -1,25 +1,19 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError, RequestJsonError } from "../src/http";
+import { RequestJsonError } from "../src/http";
 import {
   decodePartitionCommitRoutePayload,
   decodePartitionCommitRequest,
   decodePartitionConnectionUnregisterRoutePayload,
+  decodePartitionConnectionUnregisterRequest,
   decodePartitionSchemaCacheRoutePayload,
+  decodePartitionSchemaCacheRequest,
   decodePartitionSubscriptionRegistrationRoutePayload,
+  decodePartitionSubscriptionRegistrationRequest,
   decodePartitionSubscriptionTargetRoutePayload,
+  decodePartitionSubscriptionTargetRequest,
   partitionRouteErrorToHttpError,
   partitionRouteErrorToHttpErrorEffect,
-  parsePartitionCommitRequest,
-  parsePartitionCommitRequestEffect,
-  parsePartitionConnectionUnregisterRequest,
-  parsePartitionSchemaCacheRequest,
-  parsePartitionSubscriptionRegistrationRequest,
-  parsePartitionSubscriptionTargetRequest,
-  readPartitionCommitRequest,
-  readPartitionConnectionUnregisterRequest,
-  readPartitionSchemaCacheRequest,
-  readPartitionSubscriptionRegistrationRequest,
 } from "../src/partition/RouteBoundary";
 import {
   decodePartitionCommitPayload,
@@ -120,61 +114,58 @@ describe("partition route boundary", () => {
       indexes: [],
     };
 
-    await expect(readPartitionSchemaCacheRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePartitionSchemaCacheRequest(jsonRequest({
       partitionKey: "user:ada",
       schema,
       ignored: true,
+    })))).resolves.toEqual({
+      partitionKey: "user:ada",
+      schema,
+      ignored: true,
+    });
+  });
+
+  it("preserves legacy flat schema-cache request bodies", async () => {
+    await expect(Effect.runPromise(decodePartitionSchemaCacheRoutePayload({
+      partitionKey: "user:ada",
+      version: 1,
+      tables: [],
+      indexes: [],
     }))).resolves.toEqual({
       partitionKey: "user:ada",
-      schema,
-      ignored: true,
-    });
-  });
-
-  it("preserves legacy flat schema-cache request bodies", () => {
-    expect(parsePartitionSchemaCacheRequest({
-      partitionKey: "user:ada",
-      version: 1,
-      tables: [],
-      indexes: [],
-    })).toEqual({
-      partitionKey: "user:ada",
       version: 1,
       tables: [],
       indexes: [],
     });
   });
 
-  it("maps invalid schema-cache envelopes to 400", () => {
-    expect(() => parsePartitionSchemaCacheRequest(null))
-      .toThrow(HttpError);
-    try {
-      parsePartitionSchemaCacheRequest("schema");
-      throw new Error("Expected parsePartitionSchemaCacheRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "schema-cache request body must be an object.",
-      });
-    }
+  it("maps invalid schema-cache envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionSchemaCacheRoutePayload("schema"),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "schema-cache request body must be an object.",
+    });
   });
 
-  it("preserves malformed schema-cache JSON as the shared JSON body error", async () => {
-    await expect(readPartitionSchemaCacheRequest(new Request(
+  it("emits typed malformed schema-cache JSON errors", async () => {
+    await expect(Effect.runPromise(decodePartitionSchemaCacheRequest(new Request(
       "https://flarex.test/schema-cache",
       {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
+    )))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });
 
   it("decodes commit requests", async () => {
-    await expect(readPartitionCommitRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePartitionCommitRequest(jsonRequest({
       beginTs: 3,
       schemaVersion: 2,
       source: "mutation:test",
@@ -189,7 +180,7 @@ describe("partition route boundary", () => {
         { tableId: 1, value: null },
       ],
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       beginTs: 3,
       schemaVersion: 2,
       source: "mutation:test",
@@ -216,25 +207,22 @@ describe("partition route boundary", () => {
     });
   });
 
-  it("maps invalid commit envelopes to 400", () => {
-    expect(() => parsePartitionCommitRequest(null))
-      .toThrow(HttpError);
-    try {
-      parsePartitionCommitRequest({
+  it("maps invalid commit envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionCommitRoutePayload({
         beginTs: 1,
         writes: [{ tableId: "1", value: null }],
-      });
-      throw new Error("Expected parsePartitionCommitRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "writes[0].tableId must be an integer.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "writes[0].tableId must be an integer.",
+    });
   });
 
   it("emits typed validation errors from commit Effect parsing", async () => {
-    await expect(Effect.runPromise(parsePartitionCommitRequestEffect({
+    await expect(Effect.runPromise(decodePartitionCommitRoutePayload({
       beginTs: 1,
       writes: [{ tableId: "1", value: null }],
     }))).rejects.toMatchObject({
@@ -245,11 +233,11 @@ describe("partition route boundary", () => {
 
   it("maps partition route validation errors to HttpError", async () => {
     try {
-      await Effect.runPromise(parsePartitionCommitRequestEffect({
+      await Effect.runPromise(decodePartitionCommitRoutePayload({
         beginTs: 1,
         writes: [{ tableId: "1", value: null }],
       }));
-      throw new Error("Expected parsePartitionCommitRequestEffect to fail.");
+      throw new Error("Expected decodePartitionCommitRoutePayload to fail.");
     } catch (error) {
       const httpError = partitionRouteErrorToHttpError(
         error as Parameters<typeof partitionRouteErrorToHttpError>[0],
@@ -322,51 +310,48 @@ describe("partition route boundary", () => {
     });
   });
 
-  it("maps invalid commit read sets to 400", () => {
-    try {
-      parsePartitionCommitRequest({
+  it("maps invalid commit read sets to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionCommitRoutePayload({
         beginTs: 1,
         readSet: {
           documents: [{ tableId: 1, id: "" }],
         },
         writes: [],
-      });
-      throw new Error("Expected parsePartitionCommitRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "readSet.documents[0].id must be a non-empty string.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "readSet.documents[0].id must be a non-empty string.",
+    });
   });
 
-  it("maps invalid commit write values to 400", () => {
+  it("maps invalid commit write values to 400", async () => {
     const value = { invalid: Number.POSITIVE_INFINITY };
-
-    try {
-      parsePartitionCommitRequest({
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionCommitRoutePayload({
         beginTs: 1,
         writes: [{ tableId: 1, value }],
-      });
-      throw new Error("Expected parsePartitionCommitRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "writes[0].value must be a JSON value.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "writes[0].value must be a JSON value.",
+    });
   });
 
-  it("preserves malformed commit JSON as the shared JSON body error", async () => {
-    await expect(readPartitionCommitRequest(new Request(
+  it("emits typed malformed commit JSON errors", async () => {
+    await expect(Effect.runPromise(decodePartitionCommitRequest(new Request(
       "https://flarex.test/commit",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
+    )))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });
@@ -391,95 +376,90 @@ describe("partition route boundary", () => {
       indexes: [{ indexId: 2, lower: "a", upper: "z" }],
     };
 
-    await expect(readPartitionSubscriptionRegistrationRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePartitionSubscriptionRegistrationRequest(jsonRequest({
       connectionName: "connection-a",
       queryId: 7,
       readSet,
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       connectionName: "connection-a",
       queryId: 7,
       readSet,
     });
   });
 
-  it("decodes subscription unregister targets", () => {
-    expect(parsePartitionSubscriptionTargetRequest({
+  it("decodes subscription unregister targets", async () => {
+    await expect(Effect.runPromise(decodePartitionSubscriptionTargetRoutePayload({
       connectionName: "connection-a",
       queryId: 7,
       ignored: true,
-    })).toEqual({
+    }))).resolves.toEqual({
       connectionName: "connection-a",
       queryId: 7,
     });
   });
 
   it("decodes connection unregister requests", async () => {
-    await expect(readPartitionConnectionUnregisterRequest(jsonRequest({
+    await expect(Effect.runPromise(decodePartitionConnectionUnregisterRequest(jsonRequest({
       connectionName: "connection-a",
       ignored: true,
-    }))).resolves.toEqual({
+    })))).resolves.toEqual({
       connectionName: "connection-a",
     });
   });
 
-  it("maps invalid subscription registration envelopes to 400", () => {
-    expect(() => parsePartitionSubscriptionRegistrationRequest(null))
-      .toThrow(HttpError);
-    try {
-      parsePartitionSubscriptionRegistrationRequest({
+  it("maps invalid subscription registration envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionSubscriptionRegistrationRoutePayload({
         connectionName: "connection-a",
         queryId: 7,
         readSet: null,
-      });
-      throw new Error("Expected parsePartitionSubscriptionRegistrationRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "readSet must be an object.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "readSet must be an object.",
+    });
   });
 
-  it("maps invalid subscription target envelopes to 400", () => {
-    try {
-      parsePartitionSubscriptionTargetRequest({
+  it("maps invalid subscription target envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionSubscriptionTargetRoutePayload({
         connectionName: "connection-a",
         queryId: 7.5,
-      });
-      throw new Error("Expected parsePartitionSubscriptionTargetRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "queryId must be an integer.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "queryId must be an integer.",
+    });
   });
 
-  it("maps invalid connection unregister envelopes to 400", () => {
-    try {
-      parsePartitionConnectionUnregisterRequest({
+  it("maps invalid connection unregister envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePartitionConnectionUnregisterRoutePayload({
         connectionName: "",
-      });
-      throw new Error("Expected parsePartitionConnectionUnregisterRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "connectionName must be a non-empty string.",
-      });
-    }
+      }),
+    ));
+
+    expect(partitionRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "connectionName must be a non-empty string.",
+    });
   });
 
-  it("preserves malformed subscription registration JSON as the shared JSON body error", async () => {
-    await expect(readPartitionSubscriptionRegistrationRequest(new Request(
+  it("emits typed malformed subscription registration JSON errors", async () => {
+    await expect(Effect.runPromise(decodePartitionSubscriptionRegistrationRequest(new Request(
       "https://flarex.test/subscriptions/register",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ))).rejects.toMatchObject({
-      status: 400,
+    )))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });

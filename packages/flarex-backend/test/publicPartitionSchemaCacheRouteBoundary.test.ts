@@ -1,14 +1,11 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { HttpError, RequestJsonError } from "../src/http";
+import { RequestJsonError } from "../src/http";
 import {
   decodePublicPartitionSchemaCacheRequest,
   decodePublicPartitionSchemaCacheRoutePayload,
-  parsePublicPartitionSchemaCacheRequest,
-  parsePublicPartitionSchemaCacheRequestEffect,
   publicPartitionSchemaCacheRouteErrorToHttpError,
   publicPartitionSchemaCacheRouteErrorToHttpErrorEffect,
-  readPublicPartitionSchemaCacheRequest,
 } from "../src/partition/PublicSchemaCacheRouteBoundary";
 import {
   decodePublicPartitionSchemaCachePayload,
@@ -64,13 +61,13 @@ describe("public partition schema-cache route boundary", () => {
       indexes: [],
     };
 
-    await expect(readPublicPartitionSchemaCacheRequest(
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCacheRequest(
       jsonRequest({
         ...schema,
         partitionKey: "body-partition",
       }),
       "user:ada",
-    )).resolves.toEqual({
+    ))).resolves.toEqual({
       partitionKey: "user:ada",
       schema: {
         ...schema,
@@ -95,22 +92,19 @@ describe("public partition schema-cache route boundary", () => {
     });
   });
 
-  it("maps invalid schema-cache envelopes to 400", () => {
-    expect(() => parsePublicPartitionSchemaCacheRequest(null, "user:ada"))
-      .toThrow(HttpError);
-    try {
-      parsePublicPartitionSchemaCacheRequest("schema", "user:ada");
-      throw new Error("Expected parsePublicPartitionSchemaCacheRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message: "schema-cache request body must be an object.",
-      });
-    }
+  it("maps invalid schema-cache envelopes to 400", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      decodePublicPartitionSchemaCacheRoutePayload("schema", "user:ada"),
+    ));
+
+    expect(publicPartitionSchemaCacheRouteErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "schema-cache request body must be an object.",
+    });
   });
 
   it("emits typed validation errors from Effect parsing", async () => {
-    await expect(Effect.runPromise(parsePublicPartitionSchemaCacheRequestEffect(
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCacheRoutePayload(
       "schema",
       "user:ada",
     ))).rejects.toMatchObject({
@@ -121,8 +115,8 @@ describe("public partition schema-cache route boundary", () => {
 
   it("maps public schema-cache route errors to HttpError", async () => {
     try {
-      await Effect.runPromise(parsePublicPartitionSchemaCacheRequestEffect("schema", "user:ada"));
-      throw new Error("Expected parsePublicPartitionSchemaCacheRequestEffect to fail.");
+      await Effect.runPromise(decodePublicPartitionSchemaCacheRoutePayload("schema", "user:ada"));
+      throw new Error("Expected decodePublicPartitionSchemaCacheRoutePayload to fail.");
     } catch (error) {
       const httpError = publicPartitionSchemaCacheRouteErrorToHttpError(
         error as Parameters<typeof publicPartitionSchemaCacheRouteErrorToHttpError>[0],
@@ -171,16 +165,16 @@ describe("public partition schema-cache route boundary", () => {
     });
   });
 
-  it("preserves malformed JSON as the shared JSON body error", async () => {
-    await expect(readPublicPartitionSchemaCacheRequest(new Request(
+  it("emits typed malformed JSON errors", async () => {
+    await expect(Effect.runPromise(decodePublicPartitionSchemaCacheRequest(new Request(
       "https://flarex.test/deployments/deployment-a/partitions/user%3Aada/schema-cache",
       {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: "{",
       },
-    ), "user:ada")).rejects.toMatchObject({
-      status: 400,
+    ), "user:ada"))).rejects.toMatchObject({
+      _tag: "RequestJsonError",
       message: "Request body must be JSON.",
     });
   });

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `9f81903` Type public invoke request boundary.
-- Active checkpoint: validate and review the registry create request Effect route/source batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `e752f33` Type registry create request boundary.
+- Active checkpoint: validate and review the partition route request Effect decoder batch, keeping PartitionDO SQL/OCC behavior unchanged while removing the remaining Promise/throwing route compatibility wrappers for this route family.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,12 +48,12 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the registry create request effects:
+Next recommended checkpoint after the partition route request effects:
 
-1. Prefer a fuller route/service batch next: either continue deeper
+1. Prefer a fuller route/service batch next: continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
-   or move the next Worker/DO boundary that still has direct `mapError(...)`
-   HTTP conversion to named adapter effects.
+   or pick the next Worker/DO route family that can remove compatibility
+   wrappers while keeping one adapter HTTP mapping edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -62,6 +62,25 @@ Next recommended checkpoint after the registry create request effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 319 slice:
+
+1. Remove Promise-returning PartitionDO route request compatibility wrappers
+   for schema-cache, commit, subscription registration, subscription target,
+   and connection unregister request bodies.
+2. Remove throwing partition route payload parser compatibility wrappers and
+   their Effect forwarding aliases.
+3. Remove the public Worker schema-cache `read*` and throwing `parse*`
+   compatibility wrappers.
+4. Keep PartitionDO and public Worker production routing on
+   `decodePartition*Request(...)` and
+   `decodePublicPartitionSchemaCacheRequest(...)`.
+5. Update partition route-boundary tests to assert typed decoder success,
+   typed `RequestJsonError`, and typed `PartitionRoutePayloadError` failures
+   directly, while keeping HTTP mapping assertions at the adapter edge.
+6. Leave PartitionDO SQL/OCC behavior, public Worker partition dispatch,
+   transaction response shapes, DeploymentDO, RegistryDO, executor-http,
+   protocol package parser compatibility, and `ValidatorJson` unchanged.
 
 Completed Goal 318 slice:
 

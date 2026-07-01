@@ -1,5 +1,53 @@
 # Backend Data Model And Durable Object Shape
 
+## Partition Route Request Effects
+
+Previous completed checkpoint: `e752f33` Type registry create request boundary.
+
+What changed:
+
+- PartitionDO schema-cache, commit, subscription registration, subscription
+  target, and connection unregister request bodies now expose only the
+  Effect-returning route request decoders.
+- Removed Promise/throwing compatibility wrappers that converted typed
+  partition route failures before the Durable Object adapter edge.
+- Public Worker partition schema-cache request decoding now exposes only the
+  Effect-returning decoder for the forwarding boundary.
+
+Why it changed:
+
+PartitionDO route request validation already lived behind typed Effect
+decoders. This checkpoint removes obsolete wrapper surfaces without changing
+the Durable Object's storage, OCC, subscription, or transaction logic.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  PartitionDO route-boundary cleanup around existing decoders.
+
+How Flarex differs:
+
+- Flarex hosts colocated partition state in Cloudflare Durable Objects and
+  forwards some public partition routes through the Worker. This checkpoint
+  keeps that DO/Worker shape while narrowing request decoding to typed Effect
+  paths.
+
+Known limitations:
+
+- PartitionDO SQL/OCC behavior, idempotency replay, subscription invalidation,
+  transaction response shapes, DeploymentDO, RegistryDO, executor-http,
+  protocol package parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/transaction.test.ts test/sync.test.ts -t "schema-cache|commit|subscription|connection unregister|PartitionDO" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Create Request Effects
 
 Previous completed checkpoint: `9f81903` Type public invoke request boundary.

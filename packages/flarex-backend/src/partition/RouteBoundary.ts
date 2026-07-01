@@ -30,12 +30,6 @@ export {
 
 export type PartitionRouteError = RequestJsonError | PartitionRoutePayloadError;
 
-export async function readPartitionSchemaCacheRequest(
-  request: Request,
-): Promise<PartitionSchemaCacheRequest> {
-  return runPartitionRouteEffect(decodePartitionSchemaCacheRequest(request));
-}
-
 export function decodePartitionSchemaCacheRequest(
   request: Request,
 ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> {
@@ -44,30 +38,10 @@ export function decodePartitionSchemaCacheRequest(
   );
 }
 
-export function parsePartitionSchemaCacheRequest(
-  value: unknown,
-): PartitionSchemaCacheRequest {
-  return Effect.runSync(parsePartitionSchemaCacheRequestEffect(value).pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePartitionSchemaCacheRequestEffect(
-  value: unknown,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return decodePartitionSchemaCacheRoutePayload(value);
-}
-
 export function decodePartitionSchemaCacheRoutePayload(
   value: unknown,
 ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
   return decodePartitionSchemaCachePayload(value);
-}
-
-export async function readPartitionCommitRequest(
-  request: Request,
-): Promise<PartitionCommitRequest> {
-  return runPartitionRouteEffect(decodePartitionCommitRequest(request));
 }
 
 export function decodePartitionCommitRequest(
@@ -78,28 +52,10 @@ export function decodePartitionCommitRequest(
   );
 }
 
-export function parsePartitionCommitRequest(value: unknown): PartitionCommitRequest {
-  return Effect.runSync(parsePartitionCommitRequestEffect(value).pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePartitionCommitRequestEffect(
-  value: unknown,
-): Effect.Effect<PartitionCommitRequest, PartitionRoutePayloadError> {
-  return decodePartitionCommitRoutePayload(value);
-}
-
 export function decodePartitionCommitRoutePayload(
   value: unknown,
 ): Effect.Effect<PartitionCommitRequest, PartitionRoutePayloadError> {
   return decodePartitionCommitPayload(value);
-}
-
-export async function readPartitionSubscriptionRegistrationRequest(
-  request: Request,
-): Promise<PartitionSubscriptionRegistrationRequest> {
-  return runPartitionRouteEffect(decodePartitionSubscriptionRegistrationRequest(request));
 }
 
 export function decodePartitionSubscriptionRegistrationRequest(
@@ -110,30 +66,10 @@ export function decodePartitionSubscriptionRegistrationRequest(
   );
 }
 
-export function parsePartitionSubscriptionRegistrationRequest(
-  value: unknown,
-): PartitionSubscriptionRegistrationRequest {
-  return Effect.runSync(parsePartitionSubscriptionRegistrationRequestEffect(value).pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePartitionSubscriptionRegistrationRequestEffect(
-  value: unknown,
-): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
-  return decodePartitionSubscriptionRegistrationRoutePayload(value);
-}
-
 export function decodePartitionSubscriptionRegistrationRoutePayload(
   value: unknown,
 ): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
   return decodePartitionSubscriptionRegistrationPayload(value);
-}
-
-export async function readPartitionSubscriptionTargetRequest(
-  request: Request,
-): Promise<PartitionSubscriptionTargetRequest> {
-  return runPartitionRouteEffect(decodePartitionSubscriptionTargetRequest(request));
 }
 
 export function decodePartitionSubscriptionTargetRequest(
@@ -144,30 +80,10 @@ export function decodePartitionSubscriptionTargetRequest(
   );
 }
 
-export function parsePartitionSubscriptionTargetRequest(
-  value: unknown,
-): PartitionSubscriptionTargetRequest {
-  return Effect.runSync(parsePartitionSubscriptionTargetRequestEffect(value).pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePartitionSubscriptionTargetRequestEffect(
-  value: unknown,
-): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
-  return decodePartitionSubscriptionTargetRoutePayload(value);
-}
-
 export function decodePartitionSubscriptionTargetRoutePayload(
   value: unknown,
 ): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
   return decodePartitionSubscriptionTargetPayload(value);
-}
-
-export async function readPartitionConnectionUnregisterRequest(
-  request: Request,
-): Promise<PartitionConnectionUnregisterRequest> {
-  return runPartitionRouteEffect(decodePartitionConnectionUnregisterRequest(request));
 }
 
 export function decodePartitionConnectionUnregisterRequest(
@@ -178,30 +94,10 @@ export function decodePartitionConnectionUnregisterRequest(
   );
 }
 
-export function parsePartitionConnectionUnregisterRequest(
-  value: unknown,
-): PartitionConnectionUnregisterRequest {
-  return Effect.runSync(parsePartitionConnectionUnregisterRequestEffect(value).pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePartitionConnectionUnregisterRequestEffect(
-  value: unknown,
-): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
-  return decodePartitionConnectionUnregisterRoutePayload(value);
-}
-
 export function decodePartitionConnectionUnregisterRoutePayload(
   value: unknown,
 ): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
   return decodePartitionConnectionUnregisterPayload(value);
-}
-
-function runPartitionRouteEffect<A>(effect: Effect.Effect<A, PartitionRouteError>): Promise<A> {
-  return Effect.runPromise(effect.pipe(
-    Effect.catch(partitionRouteErrorToHttpErrorEffect),
-  ));
 }
 
 export function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {

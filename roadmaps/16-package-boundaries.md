@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Partition Route Request Effects
+
+Previous completed checkpoint: `e752f33` Type registry create request boundary.
+
+What changed:
+
+- `partition/RouteBoundary.ts` no longer exports Promise-returning `read*`
+  request wrappers for schema-cache, commit, subscription registration,
+  subscription target, or connection unregister bodies.
+- `partition/RouteBoundary.ts` no longer exports throwing `parse*`
+  compatibility wrappers or forwarding `parse*Effect` aliases for those
+  payloads.
+- `partition/PublicSchemaCacheRouteBoundary.ts` no longer exports public
+  schema-cache `read*` or throwing `parse*` compatibility wrappers.
+- The package boundary now exposes Effect-returning request and route payload
+  decoders plus explicit HTTP adapter mappers.
+
+Boundary decision:
+
+Partition route payload validation belongs in `partition/Requests.ts`.
+PartitionDO route JSON decoding belongs in `partition/RouteBoundary.ts`.
+Public Worker schema-cache forwarding belongs in
+`partition/PublicSchemaCacheRouteBoundary.ts`. HTTP conversion remains at the
+Durable Object or Worker adapter edge through the route error mappers.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's partition package boundary around existing typed route decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare Durable Object route-boundary
+  split. Flarex keeps the split explicit while avoiding Promise/throwing
+  compatibility exports inside the partition package.
+
+Known limitations:
+
+- No PartitionDO SQL/OCC behavior, public Worker partition dispatch,
+  transaction response shape, DeploymentDO, RegistryDO, executor-http route,
+  protocol package parser compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionRouteBoundary.test.ts test/publicPartitionSchemaCacheRouteBoundary.test.ts test/transaction.test.ts test/sync.test.ts -t "schema-cache|commit|subscription|connection unregister|PartitionDO" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Create Request Effects
 
 Previous completed checkpoint: `9f81903` Type public invoke request boundary.

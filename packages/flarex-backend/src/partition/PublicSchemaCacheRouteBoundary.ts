@@ -11,15 +11,6 @@ import {
 } from "../http";
 import { decodePublicPartitionSchemaCachePayload } from "./Requests";
 
-export async function readPublicPartitionSchemaCacheRequest(
-  request: Request,
-  partitionKey: string,
-): Promise<PartitionSchemaCacheRequest> {
-  return Effect.runPromise(decodePublicPartitionSchemaCacheRequest(request, partitionKey).pipe(
-    Effect.catch(publicPartitionSchemaCacheRouteErrorToHttpErrorEffect),
-  ));
-}
-
 export function decodePublicPartitionSchemaCacheRequest(
   request: Request,
   partitionKey: string,
@@ -27,22 +18,6 @@ export function decodePublicPartitionSchemaCacheRequest(
   return readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey)),
   );
-}
-
-export function parsePublicPartitionSchemaCacheRequest(
-  value: unknown,
-  partitionKey: string,
-): PartitionSchemaCacheRequest {
-  return Effect.runSync(parsePublicPartitionSchemaCacheRequestEffect(value, partitionKey).pipe(
-    Effect.catch(publicPartitionSchemaCacheRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePublicPartitionSchemaCacheRequestEffect(
-  value: unknown,
-  partitionKey: string,
-): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey);
 }
 
 export function decodePublicPartitionSchemaCacheRoutePayload(
