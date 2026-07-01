@@ -57,6 +57,20 @@ export type DeploymentAbandonErrorResponse =
   | DeploymentConflictErrorResponse
   | DeploymentStorageErrorResponse;
 
+export type DeploymentFinishFailure =
+  | DeploymentArtifactRefError
+  | DeploymentPushNotFoundError
+  | DeploymentSqlError
+  | DeploymentStoredPushMissingError
+  | DeploymentValidationError;
+
+export type DeploymentAbandonFailure =
+  | DeploymentPushInvalidStateError
+  | DeploymentPushNotFoundError
+  | DeploymentSqlError
+  | DeploymentStoredPushMissingError
+  | DeploymentValidationError;
+
 export const DeploymentApiHandlers = HttpApiBuilder.group(
   DeploymentApi,
   "deployment",
@@ -185,56 +199,48 @@ export function mapDeploymentStartFailure<A>(
 }
 
 export function mapDeploymentFinishFailure<A>(
-  effect: Effect.Effect<
-    A,
-    | DeploymentArtifactRefError
-    | DeploymentPushNotFoundError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError
-  >,
+  effect: Effect.Effect<A, DeploymentFinishFailure>,
 ): Effect.Effect<A, DeploymentFinishErrorResponse> {
   return effect.pipe(
     Effect.catchTags({
-      DeploymentArtifactRefError: error =>
-        Effect.fail(deploymentFinishFailureToResponse(error)),
-      DeploymentPushNotFoundError: error =>
-        Effect.fail(deploymentFinishFailureToResponse(error)),
-      DeploymentSqlError: error =>
-        Effect.fail(deploymentFinishFailureToResponse(error)),
-      DeploymentStoredPushMissingError: error =>
-        Effect.fail(deploymentFinishFailureToResponse(error)),
-      DeploymentValidationError: error =>
-        Effect.fail(deploymentFinishFailureToResponse(error)),
+      DeploymentArtifactRefError: deploymentFinishFailureResponseEffect,
+      DeploymentPushNotFoundError: deploymentFinishFailureResponseEffect,
+      DeploymentSqlError: deploymentFinishFailureResponseEffect,
+      DeploymentStoredPushMissingError: deploymentFinishFailureResponseEffect,
+      DeploymentValidationError: deploymentFinishFailureResponseEffect,
     }),
   );
 }
 
 export function mapDeploymentAbandonFailure<A>(
-  effect: Effect.Effect<
-    A,
-    | DeploymentPushInvalidStateError
-    | DeploymentPushNotFoundError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError
-  >,
+  effect: Effect.Effect<A, DeploymentAbandonFailure>,
 ): Effect.Effect<A, DeploymentAbandonErrorResponse> {
   return effect.pipe(
     Effect.catchTags({
-      DeploymentPushInvalidStateError: error =>
-        Effect.fail(deploymentAbandonFailureToResponse(error)),
-      DeploymentPushNotFoundError: error =>
-        Effect.fail(deploymentAbandonFailureToResponse(error)),
-      DeploymentSqlError: error =>
-        Effect.fail(deploymentAbandonFailureToResponse(error)),
-      DeploymentStoredPushMissingError: error =>
-        Effect.fail(deploymentAbandonFailureToResponse(error)),
-      DeploymentValidationError: error =>
-        Effect.fail(deploymentAbandonFailureToResponse(error)),
+      DeploymentPushInvalidStateError: deploymentAbandonFailureResponseEffect,
+      DeploymentPushNotFoundError: deploymentAbandonFailureResponseEffect,
+      DeploymentSqlError: deploymentAbandonFailureResponseEffect,
+      DeploymentStoredPushMissingError: deploymentAbandonFailureResponseEffect,
+      DeploymentValidationError: deploymentAbandonFailureResponseEffect,
     }),
   );
 }
+
+export const deploymentFinishFailureResponseEffect = Effect.fn(
+  "DeploymentApiHandlers.deploymentFinishFailureResponse",
+)(function* (
+  error: DeploymentFinishFailure,
+): Effect.fn.Return<never, DeploymentFinishErrorResponse> {
+  return yield* Effect.fail(deploymentFinishFailureToResponse(error));
+});
+
+export const deploymentAbandonFailureResponseEffect = Effect.fn(
+  "DeploymentApiHandlers.deploymentAbandonFailureResponse",
+)(function* (
+  error: DeploymentAbandonFailure,
+): Effect.fn.Return<never, DeploymentAbandonErrorResponse> {
+  return yield* Effect.fail(deploymentAbandonFailureToResponse(error));
+});
 
 export function mapDeploymentProtocolResponseFailure<A>(
   effect: Effect.Effect<A, DeploymentProtocolValidationError>,

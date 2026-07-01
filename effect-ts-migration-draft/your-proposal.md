@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Generated DeploymentApi response validation effects.
+- Previous completed checkpoint: Generated finish and abandon adapter failure effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,35 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the generated DeploymentApi response validation effects:
+Next recommended checkpoint after the generated finish and abandon adapter failure effects:
 
 1. Prefer a deeper generated-handler or DeploymentService batch next:
-   continue moving failure mapping toward named domain helpers, or move another
-   shared service path to typed service/domain errors with a single adapter
-   response edge.
+   continue naming start/read generated-handler adapter mappings, or move
+   another shared service path to typed service/domain errors with a single
+   adapter response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 282 slice:
+
+1. Introduce explicit `DeploymentFinishFailure` and
+   `DeploymentAbandonFailure` unions for generated DeploymentApi adapter
+   failures.
+2. Add named `Effect.fn(...)` helpers
+   `deploymentFinishFailureResponseEffect(...)` and
+   `deploymentAbandonFailureResponseEffect(...)` that convert typed
+   service/domain failures to the declared DeploymentApi response classes.
+3. Route `mapDeploymentFinishFailure(...)` and
+   `mapDeploymentAbandonFailure(...)` through those named adapter effects.
+4. Add direct tests for finish missing-push and storage-style failures plus
+   abandon conflict and storage-style failures.
+5. Leave DeploymentService/store behavior, response body/status choices,
+   generated route wiring, `DeploymentDO.fetch()`, public Worker routing,
+   PartitionDO SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 281 slice:
 

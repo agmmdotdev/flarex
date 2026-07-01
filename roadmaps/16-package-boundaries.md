@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Generated Finish And Abandon Adapter Failure Effects
+
+Previous completed checkpoint: `8253465` Name generated deployment response
+validators.
+
+What changed:
+
+- Generated DeploymentApi finish and abandon failure mapping now uses explicit
+  failure union types and named adapter `Effect.fn(...)` helpers.
+- `mapDeploymentFinishFailure(...)` and `mapDeploymentAbandonFailure(...)`
+  remain the adapter entrypoints, but their tag branches delegate to named
+  response effects.
+- Tests cover the response-effect failure channels directly.
+
+Boundary decision:
+
+Finish and abandon service methods should continue to emit deployment domain
+failures. The generated HttpApi adapter owns conversion to declared response
+classes, so these named adapter effects live in `HttpApiHandlers.ts` rather
+than the service/store modules.
+
+Known limitations:
+
+- No route registration, Durable Object routing, DeploymentService/store,
+  public Worker, package metadata, service binding, or SQL/OCC boundary
+  changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Response Validation Effects
 
 Previous completed checkpoint: `a053f26` Extract generated deployment endpoint

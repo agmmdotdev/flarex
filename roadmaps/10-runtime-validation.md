@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Generated Finish And Abandon Adapter Failure Effects
+
+Previous completed checkpoint: `8253465` Name generated deployment response
+validators.
+
+What changed:
+
+- Finish and abandon generated-handler failure channels now use explicit
+  `DeploymentFinishFailure` and `DeploymentAbandonFailure` unions.
+- Named adapter effects convert those typed failures to declared DeploymentApi
+  response classes.
+- Direct tests cover finish missing-push, finish storage-style failure,
+  abandon conflict, and abandon storage-style failure mappings.
+
+Why it changed:
+
+Finish and abandon push routes have correctness-sensitive state transitions.
+Keeping their domain failures typed until named generated-handler adapter
+effects makes the runtime validation boundary clearer without changing
+service/store behavior or HTTP response bodies.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentService/store internals,
+  generated route wiring, `DeploymentDO.fetch()`, public Worker routing,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Response Validation Effects
 
 Previous completed checkpoint: `a053f26` Extract generated deployment endpoint

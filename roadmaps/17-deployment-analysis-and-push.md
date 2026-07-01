@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Generated Finish And Abandon Adapter Failure Effects
+
+Previous completed checkpoint: `8253465` Name generated deployment response
+validators.
+
+What changed:
+
+- Generated finish and abandon handlers now map typed deployment failures
+  through named adapter effects.
+- Explicit finish and abandon failure unions document which service/domain
+  failures can cross each generated handler boundary.
+- Direct tests cover finish not-found/storage response mapping and abandon
+  conflict/storage response mapping.
+
+Why it changed:
+
+Finish and abandon are the mutation endpoints where deployment push lifecycle
+state, artifacts, and storage failures meet the generated HttpApi response
+contract. Naming the adapter effects keeps the domain failures intact until
+the generated handler response edge.
+
+Known limitations:
+
+- This checkpoint does not change analyzer behavior, push state transitions,
+  DeploymentService/store internals, generated route wiring,
+  `DeploymentDO.fetch()`, public Worker routing, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated DeploymentApi Response Validation Effects
 
 Previous completed checkpoint: `a053f26` Extract generated deployment endpoint

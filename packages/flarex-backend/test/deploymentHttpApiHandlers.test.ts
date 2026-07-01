@@ -32,7 +32,9 @@ import {
   decodeActiveDeploymentStatusForHttpApi,
   decodeFinishPushResponseForHttpApi,
   decodePushStatusForHttpApi,
+  deploymentAbandonFailureResponseEffect,
   deploymentAbandonPushHandler,
+  deploymentFinishFailureResponseEffect,
   deploymentFinishPushHandler,
   deploymentGetActiveDeploymentHandler,
   deploymentGetPushHandler,
@@ -47,6 +49,7 @@ import {
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
   DeploymentPushNotFoundError,
+  DeploymentStoredPushMissingError,
   DeploymentValidationError,
 } from "../src/deployment/Errors";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "../src/deployment/Runtime";
@@ -378,6 +381,53 @@ describe("DeploymentApiHandlers", () => {
       }),
     )))).rejects.toMatchObject({
       error: "Deployment push response did not match the deployment protocol.",
+    });
+  });
+
+  it("maps finish and abandon failures through named adapter effects", async () => {
+    const finishNotFound = await Effect.runPromise(Effect.flip(
+      deploymentFinishFailureResponseEffect(
+        new DeploymentPushNotFoundError({ pushId: "push-finish-effect-missing" }),
+      ),
+    ));
+    expect(finishNotFound).toBeInstanceOf(DeploymentNotFoundErrorResponse);
+    expect(parseDeploymentErrorResponse(finishNotFound)).toEqual({
+      error: "Unknown push: push-finish-effect-missing",
+    });
+
+    const finishStorage = await Effect.runPromise(Effect.flip(
+      deploymentFinishFailureResponseEffect(new DeploymentStoredPushMissingError({
+        operation: "finishPush",
+        pushId: "push-finish-effect-storage",
+        stage: "post-write",
+      })),
+    ));
+    expect(finishStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(finishStorage)).toEqual({
+      error: "Deployment storage error.",
+    });
+
+    const abandonConflict = await Effect.runPromise(Effect.flip(
+      deploymentAbandonFailureResponseEffect(new DeploymentPushInvalidStateError({
+        action: "abandon",
+        pushId: "push-abandon-effect-active",
+        state: "activated",
+      })),
+    ));
+    expect(abandonConflict).toBeInstanceOf(DeploymentConflictErrorResponse);
+    expect(parseDeploymentErrorResponse(abandonConflict)).toEqual({
+      error: "Cannot abandon push push-abandon-effect-active in state activated.",
+    });
+
+    const abandonStorage = await Effect.runPromise(Effect.flip(
+      deploymentAbandonFailureResponseEffect(new DeploymentSqlError({
+        operation: "abandonPush",
+        cause: new Error("abandon storage failed"),
+      })),
+    ));
+    expect(abandonStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(abandonStorage)).toEqual({
+      error: "Deployment storage error.",
     });
   });
 
