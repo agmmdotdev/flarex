@@ -1,5 +1,55 @@
 # Dynamic Worker Execution
 
+## Public Invoke Request Effects
+
+Previous completed checkpoint: `670517c` Remove registry HttpError adapter
+bridge.
+
+What changed:
+
+- Removed the throwing backend `parsePublicInvokePayload(...)` compatibility
+  wrapper from `invoke/Requests.ts`.
+- Removed the backend import of protocol `parsePublicInvokeRequestBody(...)`.
+- Kept public Worker invoke routing on `decodePublicInvokeRouteRequest(...)`,
+  `publicInvokeDeploymentIdEffect(...)`, and
+  `invokeRequestFromPublicInvokeBodyEffect(...)`.
+- Updated public invoke request tests to assert decoder success and typed
+  `InvokeProtocolValidationError` failures directly.
+
+Why it changed:
+
+The public invoke Worker path already reads request JSON and validates payloads
+through Effect decoders. Removing the backend throwing wrapper keeps the backend
+invoke request source boundary aligned with the route boundary: protocol
+failures stay typed until the Worker adapter maps them to HTTP.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex public
+  invoke request-boundary cleanup around existing protocol decoders.
+
+How Flarex differs:
+
+- Flarex exposes public Worker invoke routes that can dispatch either to the
+  artifact runtime or direct backend invoke execution. This checkpoint preserves
+  that split and only removes the backend compatibility parser wrapper.
+
+Known limitations:
+
+- Public invoke Worker routing, artifact runtime dispatch, direct invoke
+  execution, active deployment loading, PartitionDO SQL/OCC, executor-http,
+  protocol package parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Execution Request Payload Effects
 
 Previous completed checkpoint: `9931afa` Type deployment push payload

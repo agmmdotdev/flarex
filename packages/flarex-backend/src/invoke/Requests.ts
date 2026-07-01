@@ -2,7 +2,6 @@ import { Data, Effect } from "effect";
 import {
   decodePublicInvokeRequestBodyEffect,
   InvokeProtocolValidationError,
-  parsePublicInvokeRequestBody,
   type PublicInvokeRequestBody,
 } from "flarex-protocol/invoke";
 import type { InvokeRequest, Json } from "../types";
@@ -23,10 +22,6 @@ export const decodePublicInvokePayload = Effect.fn(
 ): Effect.fn.Return<PublicInvokeRequestBody, InvokeProtocolValidationError> {
   return yield* decodePublicInvokeRequestBodyEffect(value);
 });
-
-export function parsePublicInvokePayload(value: unknown): PublicInvokeRequestBody {
-  return parsePublicInvokeRequestBody(value);
-}
 
 export const publicInvokeDeploymentIdEffect = Effect.fn(
   "InvokeRequests.publicInvokeDeploymentId",

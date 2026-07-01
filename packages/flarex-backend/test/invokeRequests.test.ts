@@ -7,7 +7,6 @@ import {
   MissingInvokeDeploymentError,
   MissingInvokePartitionKeyError,
   MissingInvokePathError,
-  parsePublicInvokePayload,
   publicInvokeDeploymentIdEffect,
 } from "../src/invoke/Requests";
 
@@ -29,10 +28,10 @@ describe("public invoke request payloads", () => {
       idempotencyKey: "invoke-once",
     });
 
-    expect(parsePublicInvokePayload({
+    await expect(Effect.runPromise(decodePublicInvokePayload({
       path: "users:list",
       kind: "query",
-    })).toEqual({
+    }))).resolves.toEqual({
       path: "users:list",
       kind: "query",
     });

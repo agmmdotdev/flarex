@@ -1,5 +1,52 @@
 # Runtime Validation
 
+## Public Invoke Request Effects
+
+Previous completed checkpoint: `670517c` Remove registry HttpError adapter
+bridge.
+
+What changed:
+
+- Removed the backend `parsePublicInvokePayload(...)` compatibility wrapper.
+- Removed the backend dependency on protocol
+  `parsePublicInvokeRequestBody(...)`.
+- Kept public Worker invoke routes on Effect request/body decoders and typed
+  missing-field failures before Worker adapter mapping.
+
+Why it changed:
+
+The backend public invoke path already uses Effect-returning decoders for JSON
+body reads, protocol validation, deployment id selection, and invoke request
+construction. Removing the throwing parser wrapper keeps public invoke runtime
+validation typed until the Worker adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  runtime validation cleanup around public invoke routes.
+
+How Flarex differs:
+
+- Flarex public invoke can run through hosted artifact runtime dispatch or
+  direct backend execution. This checkpoint does not change either execution
+  path.
+
+Known limitations:
+
+- Public invoke Worker routing, artifact runtime dispatch, direct invoke
+  execution, active deployment loading, PartitionDO SQL/OCC, executor-http,
+  protocol package parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Adapter Response Effects
 
 Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter

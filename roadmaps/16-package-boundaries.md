@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Public Invoke Request Effects
+
+Previous completed checkpoint: `670517c` Remove registry HttpError adapter
+bridge.
+
+What changed:
+
+- `invoke/Requests.ts` no longer exports throwing
+  `parsePublicInvokePayload(...)`.
+- The backend invoke request source boundary now exposes Effect-returning
+  decoding plus typed public invoke request construction helpers.
+- Tests now exercise the typed decoder channels directly and leave HTTP
+  mapping assertions in public invoke route/Worker boundary tests.
+
+Boundary decision:
+
+Public invoke payload validation belongs to the protocol decoder consumed
+through `invoke/Requests.ts`. Public Worker route JSON decoding remains in
+`invoke/PublicInvokeRouteBoundary.ts`; deployment id selection and backend
+invoke request construction remain typed helpers in `invoke/Requests.ts`.
+HTTP conversion remains at the public Worker route adapter.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's public invoke request boundary around existing protocol decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact public Worker invoke adapter plus artifact
+  runtime/direct execution split. Flarex keeps that split explicit while
+  sharing typed public invoke payload decoding.
+
+Known limitations:
+
+- No public invoke Worker routing, artifact runtime dispatch, direct invoke
+  execution, active deployment loading, PartitionDO SQL/OCC behavior,
+  executor-http route, protocol package parser compatibility, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts test/invoke.test.ts test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Adapter Response Effects
 
 Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter
