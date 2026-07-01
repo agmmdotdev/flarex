@@ -28,10 +28,12 @@ import {
   activeDeploymentActivatedAtFromMeta,
   activeDeploymentExecutionArtifactRefFromMeta,
   activeDeploymentStatusFromStoreParts,
+  deploymentAbandonPushApplicationPlan,
   deploymentActiveMetadataApplicationPlan,
   deploymentFunctionsApplicationPlan,
   deploymentSchemaApplicationPlan,
   deploymentFinishPushStoreDecision,
+  deploymentStartPushApplicationPlan,
   finishPushActivationApplication,
   type AbandonPushStoreInput,
   type DeploymentSqlStorage,
@@ -871,6 +873,74 @@ describe("DeploymentService", () => {
       functions: functionsPlan,
       activeMetadata: activeMetadataPlan,
     });
+  });
+
+  it("builds start and abandon application plans before write transactions", async () => {
+    const source = sourcePackage();
+    const analysis = deploymentAnalysis();
+    const codegenAnalysis = deploymentCodegenAnalysis();
+    const diagnostics = [{ level: "log" as const, message: "ok" }];
+    const analyzedStartInput: StartAnalyzedPushStoreInput = {
+      pushId: "push-start-analyzed-plan",
+      now: 2_290_000,
+      sourcePackage: source,
+      analysis,
+      codegenAnalysis,
+      diagnostics,
+    };
+    const failedStartInput: StartAnalyzedPushStoreInput = {
+      pushId: "push-start-failed-plan",
+      now: 2_295_000,
+      sourcePackage: source,
+      error: "analysis failed",
+      diagnostics: [],
+    };
+    const abandonInput: AbandonPushStoreInput = {
+      pushId: "push-abandon-plan",
+      now: 2_300_000,
+      reason: "typecheck failed",
+    };
+
+    await expect(Effect.runPromise(deploymentStartPushApplicationPlan(analyzedStartInput)))
+      .resolves.toEqual({
+        supersedeUpdatedAt: 2_290_000,
+        row: {
+          pushId: "push-start-analyzed-plan",
+          state: "analyzed",
+          sourcePackageJson: JSON.stringify(source),
+          schemaJson: JSON.stringify(analysis.schema),
+          functionsJson: JSON.stringify(analysis.functions),
+          codegenAnalysisJson: JSON.stringify(codegenAnalysis),
+          error: null,
+          diagnosticsJson: JSON.stringify(diagnostics),
+          createdAt: 2_290_000,
+          updatedAt: 2_290_000,
+        },
+      });
+
+    await expect(Effect.runPromise(deploymentStartPushApplicationPlan(failedStartInput)))
+      .resolves.toEqual({
+        supersedeUpdatedAt: 2_295_000,
+        row: {
+          pushId: "push-start-failed-plan",
+          state: "failed",
+          sourcePackageJson: JSON.stringify(source),
+          schemaJson: null,
+          functionsJson: null,
+          codegenAnalysisJson: null,
+          error: "analysis failed",
+          diagnosticsJson: null,
+          createdAt: 2_295_000,
+          updatedAt: 2_295_000,
+        },
+      });
+
+    await expect(Effect.runPromise(deploymentAbandonPushApplicationPlan(abandonInput)))
+      .resolves.toEqual({
+        pushId: "push-abandon-plan",
+        error: "typecheck failed",
+        updatedAt: 2_300_000,
+      });
   });
 
   it("preserves typed DeploymentSqlError failures from finish storage", async () => {

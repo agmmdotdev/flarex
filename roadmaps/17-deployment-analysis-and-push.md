@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Start And Abandon Store Write Planning Effects
+
+Previous completed checkpoint: `c7efab5` Type finish activation metadata
+writes.
+
+What changed:
+
+- Start-push row writes now come from
+  `deploymentStartPushApplicationPlan(...)` before the transaction begins.
+- Abandon-push update writes now come from
+  `deploymentAbandonPushApplicationPlan(...)` before the transaction begins.
+- The start and abandon transactions preserve existing lifecycle state changes
+  while applying prebuilt write values.
+
+Why it changed:
+
+Deployment push lifecycle writes should be explicit, testable Effect values
+before Durable Object SQL writes begin. This continues the migration from
+manual inline transaction value construction toward typed service/store flows
+without changing the public push behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment push lifecycle write-planning cleanup.
+
+How Flarex differs:
+
+- Flarex manages push lifecycle rows in a Cloudflare Durable Object. Start and
+  abandon transitions are therefore store-owned Flarex behavior, not Convex
+  runtime behavior.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, service preflight, finish activation,
+  active metadata parsing, artifact store implementation,
+  DeploymentPushStore lifecycle state changes, PartitionDO SQL/OCC,
+  executor-http, protocol parser compatibility, and `ValidatorJson` are
+  unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Metadata Write Planning Effects
 
 Previous completed checkpoint: `8b90fff` Type finish activation application

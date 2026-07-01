@@ -1,5 +1,52 @@
 # Runtime Validation
 
+## Start And Abandon Store Write Planning Effects
+
+Previous completed checkpoint: `c7efab5` Type finish activation metadata
+writes.
+
+What changed:
+
+- Start-push writes now come from `deploymentStartPushApplicationPlan(...)`.
+- Abandon-push writes now come from `deploymentAbandonPushApplicationPlan(...)`.
+- Start and abandon transactions apply prebuilt write plans instead of
+  constructing lifecycle write values inline.
+
+Why it changed:
+
+Start and abandon push lifecycle writes are already validated by service
+preflight. Preparing their write values before the transaction keeps lifecycle
+value construction in named Effect code and keeps the transaction focused on
+applying already-planned Durable Object SQL writes.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentPushStore lifecycle write planning cleanup.
+
+How Flarex differs:
+
+- Flarex persists deployment push lifecycle state in Cloudflare Durable Object
+  SQL. The start/abandon write shapes are Flarex-specific and remain
+  store-owned.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi response mapping, public Worker
+  deployment dispatch, service preflight, finish activation, active metadata
+  parsing, artifact store implementation, PartitionDO SQL/OCC, executor-http,
+  protocol parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Metadata Write Planning Effects
 
 Previous completed checkpoint: `8b90fff` Type finish activation application

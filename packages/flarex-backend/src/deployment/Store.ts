@@ -122,6 +122,30 @@ export interface DeploymentActiveMetadataApplicationPlan {
   readonly entries: ReadonlyArray<DeploymentMetaApplication>;
 }
 
+export interface DeploymentStartPushRowApplication {
+  readonly pushId: string;
+  readonly state: "analyzed" | "failed";
+  readonly sourcePackageJson: string;
+  readonly schemaJson: string | null;
+  readonly functionsJson: string | null;
+  readonly codegenAnalysisJson: string | null;
+  readonly error: string | null;
+  readonly diagnosticsJson: string | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+export interface DeploymentStartPushApplicationPlan {
+  readonly supersedeUpdatedAt: number;
+  readonly row: DeploymentStartPushRowApplication;
+}
+
+export interface DeploymentAbandonPushApplicationPlan {
+  readonly pushId: string;
+  readonly error: string;
+  readonly updatedAt: number;
+}
+
 export interface FinishPushActivationApplication {
   readonly schema: DeploymentSchemaApplicationPlan;
   readonly functions: DeploymentFunctionsApplicationPlan;
@@ -249,6 +273,41 @@ export const deploymentActiveMetadataApplicationPlan = Effect.fn(
       { key: "active_activated_at", value: String(input.now) },
       { key: "active_execution_artifact_ref", value: JSON.stringify(input.executionArtifactRef) },
     ],
+  };
+});
+
+export const deploymentStartPushApplicationPlan = Effect.fn(
+  "DeploymentPushStore.deploymentStartPushApplicationPlan",
+)(function* (
+  input: StartAnalyzedPushStoreInput,
+): Effect.fn.Return<DeploymentStartPushApplicationPlan> {
+  const hasAnalysis = "analysis" in input;
+  return {
+    supersedeUpdatedAt: input.now,
+    row: {
+      pushId: input.pushId,
+      state: hasAnalysis ? "analyzed" : "failed",
+      sourcePackageJson: JSON.stringify(input.sourcePackage),
+      schemaJson: hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
+      functionsJson: hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
+      codegenAnalysisJson: hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
+      error: hasAnalysis ? null : input.error,
+      diagnosticsJson: input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
+      createdAt: input.now,
+      updatedAt: input.now,
+    },
+  };
+});
+
+export const deploymentAbandonPushApplicationPlan = Effect.fn(
+  "DeploymentPushStore.deploymentAbandonPushApplicationPlan",
+)(function* (
+  input: AbandonPushStoreInput,
+): Effect.fn.Return<DeploymentAbandonPushApplicationPlan> {
+  return {
+    pushId: input.pushId,
+    error: input.reason,
+    updatedAt: input.now,
   };
 });
 
@@ -569,14 +628,14 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         const runStartAnalyzedPushTransaction = Effect.fn(
           "DeploymentPushStore.runStartAnalyzedPushTransaction",
         )(function* (
-          input: StartAnalyzedPushStoreInput,
           status: PushStatus,
+          application: DeploymentStartPushApplicationPlan,
         ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
           return yield* runDeploymentStoreWriteTransaction("startPush", async () => {
-            const hasAnalysis = "analysis" in input;
+            const row = application.row;
             sql.exec(
               "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
-              input.now,
+              application.supersedeUpdatedAt,
             );
             sql.exec(
               `
@@ -594,18 +653,18 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               )
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
-              input.pushId,
-              hasAnalysis ? "analyzed" : "failed",
-              JSON.stringify(input.sourcePackage),
-              hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
-              hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
-              hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
-              hasAnalysis ? null : input.error,
-              input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
-              input.now,
-              input.now,
+              row.pushId,
+              row.state,
+              row.sourcePackageJson,
+              row.schemaJson,
+              row.functionsJson,
+              row.codegenAnalysisJson,
+              row.error,
+              row.diagnosticsJson,
+              row.createdAt,
+              row.updatedAt,
             );
-            rollbackIfStoredPushMissing("startPush", input.pushId, "stored");
+            rollbackIfStoredPushMissing("startPush", row.pushId, "stored");
             return status;
           });
         });
@@ -638,22 +697,22 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
 
         const runAbandonPushTransaction = Effect.fn("DeploymentPushStore.runAbandonPushTransaction")(
           function* (
-            input: AbandonPushStoreInput,
             status: PushStatus,
+            application: DeploymentAbandonPushApplicationPlan,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
             return yield* runDeploymentStoreWriteTransaction("abandonPush", async () => {
               sql.exec(
                 "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
-                input.reason,
-                input.now,
-                input.pushId,
+                application.error,
+                application.updatedAt,
+                application.pushId,
               );
-              rollbackIfStoredPushMissing("abandonPush", input.pushId, "abandoned");
+              rollbackIfStoredPushMissing("abandonPush", application.pushId, "abandoned");
               return {
                 ...status,
                 state: "abandoned" as const,
-                error: input.reason,
-                updatedAt: input.now,
+                error: application.error,
+                updatedAt: application.updatedAt,
               };
             });
           },
@@ -664,7 +723,8 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             input: StartAnalyzedPushStoreInput,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
             const status = yield* decodePushStatusFromRow(pushStatusRowFromStartAnalyzedPushStoreInput(input));
-            return yield* runStartAnalyzedPushTransaction(input, status);
+            const application = yield* deploymentStartPushApplicationPlan(input);
+            return yield* runStartAnalyzedPushTransaction(status, application);
           },
         );
 
@@ -691,7 +751,8 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             if (status === null) {
               return yield* Effect.fail(storedPushMissing("abandonPush", input.pushId, "abandoned"));
             }
-            return yield* runAbandonPushTransaction(input, status);
+            const application = yield* deploymentAbandonPushApplicationPlan(input);
+            return yield* runAbandonPushTransaction(status, application);
           },
         );
 

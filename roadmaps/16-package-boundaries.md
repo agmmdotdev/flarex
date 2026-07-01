@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Start And Abandon Store Write Planning Effects
+
+Previous completed checkpoint: `c7efab5` Type finish activation metadata
+writes.
+
+What changed:
+
+- `deployment/Store.ts` now exports
+  `deploymentStartPushApplicationPlan(...)` for analyzed/failed start push row
+  values.
+- `deployment/Store.ts` now exports
+  `deploymentAbandonPushApplicationPlan(...)` for abandon push update values.
+- `DeploymentPushStore` applies those plans inside the store-owned Durable
+  Object SQL write transactions.
+
+Boundary decision:
+
+Lifecycle write planning belongs in `DeploymentPushStore` because start and
+abandon own Durable Object SQL push state. Service preflight still builds
+validated store inputs, and generated API layers still only map typed
+service/store results to response classes.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment store package boundary around push lifecycle writes.
+
+How Flarex differs:
+
+- Convex does not have Flarex's DeploymentDO push lifecycle table. Flarex keeps
+  push row value construction and SQL writes inside the store package.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, service preflight, finish activation, active
+  metadata parsing, artifact store implementation, PartitionDO SQL/OCC
+  behavior, executor-http route, protocol parser compatibility, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Metadata Write Planning Effects
 
 Previous completed checkpoint: `8b90fff` Type finish activation application
