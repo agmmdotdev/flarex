@@ -29,11 +29,20 @@ import {
 } from "./execution/SessionError";
 import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
 import {
+  deleteDocumentEffect,
+  getDocumentEffect,
+  insertDocumentEffect,
   invokeErrorResponse,
   InvokeArgumentValidationError,
   InvokeActiveDeploymentLoadError,
   InvokeActiveFunctionMetadataNotFoundError,
   invokeActiveDeploymentLoadErrorToHttpError,
+  InvokeDocumentIdParseError,
+  InvokeDocumentIdTableMismatchError,
+  InvokeDocumentNotFoundError,
+  InvokeDocumentPlacementError,
+  InvokeDocumentTableNotFoundError,
+  InvokeDocumentValidationError,
   InvokeRequestKindMismatchError,
   InvokeUnsupportedFunctionKindError,
   invokeValidationErrorToHttpError,
@@ -42,12 +51,13 @@ import {
   InvokeTableNotFoundError,
   isInvokableKind,
   loadActiveFunctionMetadataEffect,
+  patchDocumentEffect,
   readerFor,
+  replaceDocumentEffect,
   resolveFunctionExecutionScopeEffect,
   tableForNameEffect,
   validateInvokeArgumentsEffect,
   validateReturnEffect,
-  writerFor,
 } from "./invoke";
 import { SingleShardTransaction } from "./transaction";
 import type {
@@ -177,8 +187,15 @@ export class ExecutionDO extends DurableObject<Env> {
     return Effect.gen(function* () {
       const session = yield* self.requireSession("syscall");
       const reader = readerFor(session.tx, session.schema);
+      const runSyscallTransaction = <A>(execute: () => Promise<A>) =>
+        routeExecutionOperation("syscall", execute);
       if (request.op === "get") {
-        return yield* routeExecutionOperation("syscall", () => reader.get(request.id));
+        return yield* getDocumentEffect(
+          session.tx,
+          session.schema,
+          request.id,
+          runSyscallTransaction,
+        );
       }
       if (request.op === "query") {
         return yield* routeExecutionOperation("syscall", async () => {
@@ -211,22 +228,43 @@ export class ExecutionDO extends DurableObject<Env> {
       }
 
       yield* requireMutationExecution("syscall", session.kind, request.op);
-      const writer = writerFor(session.tx, session.schema);
       if (request.op === "insert") {
-        return yield* routeExecutionOperation("syscall", () =>
-          writer.insert(request.table, request.value, request.id)
+        return yield* insertDocumentEffect(
+          session.tx,
+          session.schema,
+          request.table,
+          request.value,
+          request.id,
+          runSyscallTransaction,
         );
       }
       if (request.op === "patch") {
-        yield* routeExecutionOperation("syscall", () => writer.patch(request.id, request.value));
+        yield* patchDocumentEffect(
+          session.tx,
+          session.schema,
+          request.id,
+          request.value,
+          runSyscallTransaction,
+        );
         return null;
       }
       if (request.op === "replace") {
-        yield* routeExecutionOperation("syscall", () => writer.replace(request.id, request.value));
+        yield* replaceDocumentEffect(
+          session.tx,
+          session.schema,
+          request.id,
+          request.value,
+          runSyscallTransaction,
+        );
         return null;
       }
       if (request.op === "delete") {
-        yield* routeExecutionOperation("syscall", () => writer.delete(request.id));
+        yield* deleteDocumentEffect(
+          session.tx,
+          session.schema,
+          request.id,
+          runSyscallTransaction,
+        );
         return null;
       }
       return yield* Effect.fail(executionSessionError(
@@ -375,6 +413,12 @@ type ExecutionServiceError =
   | InvokeArgumentValidationError
   | InvokeActiveDeploymentLoadError
   | InvokeActiveFunctionMetadataNotFoundError
+  | InvokeDocumentIdParseError
+  | InvokeDocumentIdTableMismatchError
+  | InvokeDocumentNotFoundError
+  | InvokeDocumentPlacementError
+  | InvokeDocumentTableNotFoundError
+  | InvokeDocumentValidationError
   | InvokePartitionValidationError
   | InvokeRequestKindMismatchError
   | InvokeTableNotFoundError
@@ -405,6 +449,18 @@ function runExecutionRoute(
         InvokeActiveDeploymentLoadError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokeActiveFunctionMetadataNotFoundError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentIdParseError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentIdTableMismatchError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentNotFoundError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentPlacementError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentTableNotFoundError: error =>
+          Effect.succeed(executionInternalRouteErrorToResponse(error)),
+        InvokeDocumentValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
         InvokePartitionValidationError: error =>
           Effect.succeed(executionInternalRouteErrorToResponse(error)),
@@ -449,6 +505,24 @@ function executionInternalRouteErrorToResponse(
     return invokeErrorResponse(invokeActiveDeploymentLoadErrorToHttpError(error));
   }
   if (error instanceof InvokeActiveFunctionMetadataNotFoundError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentIdParseError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentIdTableMismatchError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentNotFoundError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentPlacementError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentTableNotFoundError) {
+    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
+  }
+  if (error instanceof InvokeDocumentValidationError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokePartitionValidationError) {

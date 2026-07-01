@@ -621,6 +621,27 @@ export function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
   };
 }
 
+type InvokeTransactionRunner<E> = <A>(
+  execute: () => Promise<A>,
+) => Effect.Effect<A, E>;
+
+export const getDocumentEffect = Effect.fn("Invoke.getDocument")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  id: string,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  Json | null,
+  InvokeDocumentIdParseError | InvokeDocumentTableNotFoundError | InvokeDocumentPlacementError | E
+> {
+  const metadata = yield* tableFromDocumentIdEffect(id, schema);
+  const document = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  if (document !== null) {
+    yield* validateDocumentPlacementEffect(metadata, document.value, tx.partitionKey);
+  }
+  return document === null ? null : documentValue(document.id, document.value);
+});
+
 function backendQuery(
   tx: SingleShardTransaction,
   schema: DeploymentSchema,
@@ -867,6 +888,93 @@ export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema):
     },
   };
 }
+
+export const insertDocumentEffect = Effect.fn("Invoke.insertDocument")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  table: string,
+  value: Json,
+  id: string | undefined,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  string,
+  | InvokeTableNotFoundError
+  | InvokeDocumentValidationError
+  | InvokeDocumentPlacementError
+  | InvokeDocumentIdTableMismatchError
+  | E
+> {
+  const metadata = yield* tableForNameEffect(schema, table);
+  yield* validateDocumentEffect(metadata, value, schema);
+  yield* validateDocumentPlacementEffect(metadata, value, tx.partitionKey);
+  if (id !== undefined) {
+    yield* validateDocumentIdTableEffect(id, metadata.tableId);
+  }
+  return yield* runTransaction(async () => tx.insert(metadata.tableId, value, id));
+});
+
+export const replaceDocumentEffect = Effect.fn("Invoke.replaceDocument")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  id: string,
+  value: Json,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  void,
+  | InvokeDocumentIdParseError
+  | InvokeDocumentTableNotFoundError
+  | InvokeDocumentValidationError
+  | InvokeDocumentPlacementError
+  | E
+> {
+  const metadata = yield* tableFromDocumentIdEffect(id, schema);
+  yield* validateDocumentEffect(metadata, value, schema);
+  yield* validateDocumentPlacementEffect(metadata, value, tx.partitionKey);
+  yield* runTransaction(async () => tx.replace(metadata.tableId, id, value));
+});
+
+export const patchDocumentEffect = Effect.fn("Invoke.patchDocument")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  id: string,
+  value: Record<string, Json>,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  void,
+  | InvokeDocumentIdParseError
+  | InvokeDocumentTableNotFoundError
+  | InvokeDocumentNotFoundError
+  | InvokeDocumentValidationError
+  | InvokeDocumentPlacementError
+  | E
+> {
+  const metadata = yield* tableFromDocumentIdEffect(id, schema);
+  const current = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  if (current === null) {
+    return yield* Effect.fail(new InvokeDocumentNotFoundError({ id }));
+  }
+  const next = { ...(current.value as Record<string, Json>), ...value };
+  yield* validateDocumentEffect(metadata, next, schema);
+  yield* validateDocumentPlacementEffect(metadata, next, tx.partitionKey);
+  yield* runTransaction(() => tx.patch(metadata.tableId, id, value));
+});
+
+export const deleteDocumentEffect = Effect.fn("Invoke.deleteDocument")(function* <E>(
+  tx: SingleShardTransaction,
+  schema: DeploymentSchema,
+  id: string,
+  runTransaction: InvokeTransactionRunner<E>,
+): Effect.fn.Return<
+  void,
+  InvokeDocumentIdParseError | InvokeDocumentTableNotFoundError | InvokeDocumentPlacementError | E
+> {
+  const metadata = yield* tableFromDocumentIdEffect(id, schema);
+  const current = yield* runTransaction(() => tx.get(metadata.tableId, id));
+  if (current !== null) {
+    yield* validateDocumentPlacementEffect(metadata, current.value, tx.partitionKey);
+  }
+  yield* runTransaction(async () => tx.delete(metadata.tableId, id));
+});
 
 function commitMutation(
   tx: SingleShardTransaction,

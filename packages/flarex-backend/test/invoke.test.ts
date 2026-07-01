@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import {
+  deleteDocumentEffect,
   executeInvoke,
+  getDocumentEffect,
+  insertDocumentEffect,
   InvokeActiveDeploymentLoadError,
   InvokeArgumentValidationError,
   InvokeDocumentIdParseError,
+  InvokeDocumentNotFoundError,
   InvokeDocumentPlacementError,
   InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
@@ -24,6 +28,7 @@ import {
   partitionKeyFromArgsEffect,
   parseInvokeKind,
   parseInvokeKindEffect,
+  patchDocumentEffect,
   queryIndexBoundsEffect,
   requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
@@ -276,6 +281,70 @@ describe("executeInvoke", () => {
       status: 400,
       message: "DocumentValidationError: $document(users).age: Expected a finite number.",
     });
+  });
+
+  it("keeps document syscall helpers typed until adapter mapping", async () => {
+    const deploymentId = "typed-document-helper-deployment";
+    const schema = {
+      version: 1,
+      tables: [usersTableWithValidator()],
+      indexes: [],
+    };
+    await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
+    const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
+    const runTransaction = <A>(execute: () => Promise<A>) =>
+      Effect.tryPromise({
+        try: execute,
+        catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
+      });
+
+    const malformedGet = await Effect.runPromise(Effect.flip(
+      getDocumentEffect(tx, schema, "not-an-id", runTransaction),
+    ));
+    expect(malformedGet).toBeInstanceOf(InvokeDocumentIdParseError);
+    if (!(malformedGet instanceof InvokeDocumentIdParseError)) {
+      throw new Error("Expected InvokeDocumentIdParseError.");
+    }
+    expect(invokeValidationErrorToHttpError(malformedGet)).toMatchObject({
+      status: 400,
+      message: "Document id not-an-id does not contain a numeric table id prefix.",
+    });
+
+    const invalidInsert = await Effect.runPromise(Effect.flip(
+      insertDocumentEffect(
+        tx,
+        schema,
+        "users",
+        { age: "old", userId: "u1" },
+        "1:bad-user",
+        runTransaction,
+      ),
+    ));
+    expect(invalidInsert).toBeInstanceOf(InvokeDocumentValidationError);
+    if (!(invalidInsert instanceof InvokeDocumentValidationError)) {
+      throw new Error("Expected InvokeDocumentValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(invalidInsert)).toMatchObject({
+      status: 400,
+      message: "DocumentValidationError: $document(users).age: Expected a finite number.",
+    });
+
+    const missingPatch = await Effect.runPromise(Effect.flip(
+      patchDocumentEffect(tx, schema, "1:missing-user", { age: 42 }, runTransaction),
+    ));
+    expect(missingPatch).toBeInstanceOf(InvokeDocumentNotFoundError);
+    if (!(missingPatch instanceof InvokeDocumentNotFoundError)) {
+      throw new Error("Expected InvokeDocumentNotFoundError.");
+    }
+    expect(invokeValidationErrorToHttpError(missingPatch)).toMatchObject({
+      status: 404,
+      message: "Document not found: 1:missing-user",
+    });
+
+    const malformedDelete = await Effect.runPromise(Effect.flip(
+      deleteDocumentEffect(tx, schema, "not-an-id", runTransaction),
+    ));
+    expect(malformedDelete).toBeInstanceOf(InvokeDocumentIdParseError);
   });
 
   it("keeps invoke placement validation typed until adapter mapping", async () => {

@@ -287,6 +287,114 @@ describe("ExecutionDO sessions", () => {
     });
   });
 
+  it("maps document syscall validation at the execution adapter edge", async () => {
+    await activateDeployment("execution-document-validation-deployment", validatedProfileSchema(), {
+      functions: [
+        {
+          path: "profiles:update",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: {
+            type: "partition",
+            table: "users",
+            selector: "byId",
+            partitionField: "_id",
+            argField: "userId",
+          },
+        },
+      ],
+    });
+    const start = await startExecution("execution-document-validation-deployment", {
+      path: "profiles:update",
+      kind: "mutation",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+
+    const malformedGet = await syscallResponse(
+      "execution-document-validation-deployment",
+      start.sessionId,
+      { op: "get", id: "not-an-id" },
+    );
+    expect(malformedGet.status).toBe(400);
+    await expect(malformedGet.json()).resolves.toEqual({
+      error: "Document id not-an-id does not contain a numeric table id prefix.",
+    });
+
+    const invalidInsert = await syscallResponse(
+      "execution-document-validation-deployment",
+      start.sessionId,
+      {
+        op: "insert",
+        table: "profiles",
+        id: "2:bad-profile",
+        value: { age: "old" },
+      },
+    );
+    expect(invalidInsert.status).toBe(400);
+    await expect(invalidInsert.json()).resolves.toEqual({
+      error: "DocumentValidationError: $document(profiles).age: Expected a finite number.",
+    });
+
+    const missingPatch = await syscallResponse(
+      "execution-document-validation-deployment",
+      start.sessionId,
+      {
+        op: "patch",
+        id: "2:missing-profile",
+        value: { age: 42 },
+      },
+    );
+    expect(missingPatch.status).toBe(404);
+    await expect(missingPatch.json()).resolves.toEqual({
+      error: "Document not found: 2:missing-profile",
+    });
+  });
+
+  it("maps document placement syscall validation at the execution adapter edge", async () => {
+    await activateDeployment("execution-document-placement-deployment", lessonSchema(), {
+      functions: [
+        {
+          path: "lessons:update",
+          kind: "mutation",
+          args: {
+            type: "object",
+            value: {
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          partition: lessonPartition(),
+        },
+      ],
+    });
+    const start = await startExecution("execution-document-placement-deployment", {
+      path: "lessons:update",
+      kind: "mutation",
+      partitionKey: "u1",
+      args: { userId: "u1" },
+    });
+
+    const misplacedInsert = await syscallResponse(
+      "execution-document-placement-deployment",
+      start.sessionId,
+      {
+        op: "insert",
+        table: "lessonProgress",
+        id: "1:wrong-owner",
+        value: { userId: "u2", lessonId: "intro", completed: false },
+      },
+    );
+    expect(misplacedInsert.status).toBe(400);
+    await expect(misplacedInsert.json()).resolves.toEqual({
+      error: "PlacementValidationError: $document(lessonProgress).userId must match partitionKey u1.",
+    });
+  });
+
   it("serves indexed query syscalls from a session snapshot", async () => {
     const schema = lessonSchema();
     await activateDeployment("execution-query-deployment", schema, {
@@ -844,6 +952,31 @@ function userProfileSchema(): DeploymentSchema {
         tableId: 2,
         name: "users",
         placement: { kind: "partitionBy", field: "_id" },
+      },
+    ],
+    indexes: [],
+  };
+}
+
+function validatedProfileSchema(): DeploymentSchema {
+  return {
+    version: 1,
+    tables: [
+      {
+        tableId: 1,
+        name: "users",
+        placement: { kind: "partitionBy", field: "_id" },
+      },
+      {
+        tableId: 2,
+        name: "profiles",
+        placement: { kind: "global" },
+        validator: {
+          type: "object",
+          value: {
+            age: { fieldType: { type: "number" }, optional: false },
+          },
+        },
       },
     ],
     indexes: [],

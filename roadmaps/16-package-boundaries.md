@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Execution Syscall Document Validation Boundary
+
+Previous completed checkpoint: `e048f7f` Type execution start domain validation.
+
+What changed:
+
+- Invoke now owns reusable Effect helpers for document syscall validation:
+  get, insert, patch, replace, and delete.
+- ExecutionDO owns the transaction operation runner passed into those helpers,
+  keeping transaction IO failures in the execution operation channel.
+- ExecutionDO's internal route adapter owns HTTP response conversion for typed
+  invoke document failures and transaction operation failures.
+
+Boundary decision:
+
+Invoke validation owns document id parsing, table lookup, document validators,
+placement rules, and missing document failures. ExecutionDO owns session
+lifecycle, mutation/query permission checks, and transaction execution. The
+internal route adapter owns the final HTTP mapping.
+
+Known limitations:
+
+- Indexed query syscall planning remains on the older reader/query path.
+- This checkpoint does not change public execution dispatch, request protocol
+  schemas, executor-http, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/executionDO.test.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/executionSessionError.test.ts packages/flarex-backend/test/executionRouteOperationError.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Start Domain Validation Boundary
 
 Previous completed checkpoint: `9ee13b8` Type execution metadata load boundary.
