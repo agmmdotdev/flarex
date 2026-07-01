@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public invoke and pass-through route adapter effects.
+- Previous completed checkpoint: Deployment validation Effect-only helper cleanup.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,42 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public invoke and pass-through route adapter effects:
+Next recommended checkpoint after the deployment validation Effect-only helper cleanup:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
    carry the named adapter-effect pattern into remaining deployment route
-   response edges, or move deployment validation/service helpers further
-   toward typed service/domain failures with one adapter response edge.
+   response edges, or continue moving deployment store/service helpers toward
+   typed service/domain failures with one adapter response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 290 slice:
+
+1. Remove the unused private `DeploymentValidationResult` bridge helpers
+   (`deploymentValidationResultToEffect(...)`,
+   `deploymentValidationEffectResult(...)`, and
+   `unwrapDeploymentValidation(...)`) from `deployment/Validation.ts`.
+2. Remove unused private result-returning compatibility wrappers around
+   schema, function, analysis, codegen, placement, route, partition,
+   visibility, validator, JSON value, table state, index state, source
+   position, and codegen-metadata validation.
+3. Keep the public compatibility wrappers that still define caller contracts:
+   `validateSourcePackage(...)`, `validateDiagnostics(...)`,
+   `analyzedStartPushRequest(...)`, `startAnalyzedPushInput(...)`,
+   `pushStatusFromRow(...)`, `parsePushStatusFromRow(...)`,
+   `validateSchema(...)`, `validateFunctions(...)`,
+   `validateAnalysis(...)`, and `validateCodegenAnalysis(...)`.
+4. Preserve the active store/service path where `DeploymentPushStore` consumes
+   `decodePushStatusFromRow(...)` directly and propagates
+   `DeploymentValidationError` as a typed failure.
+5. Leave deployment SQL writes, active deployment metadata, push lifecycle
+   service behavior, generated DeploymentDO HttpApi handlers, public Worker
+   routing, PartitionDO SQL/OCC, executor-http, and `ValidatorJson`
+   unchanged.
 
 Completed Goal 289 slice:
 

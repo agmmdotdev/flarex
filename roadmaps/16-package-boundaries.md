@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Deployment Validation Effect-Only Helper Cleanup
+
+Previous completed checkpoint: `d81f6a3` Type public invoke route adapters.
+
+What changed:
+
+- `deployment/Validation.ts` no longer carries unused private
+  `DeploymentValidationResult` adapters for internal schema/function/analysis
+  validation helpers.
+- Active deployment validation internals now flow through named Effect decoders
+  only, with compatibility wrappers left only where callers still use them.
+- Store/service validation errors continue to propagate as typed
+  `DeploymentValidationError` failures.
+
+Boundary decision:
+
+Deployment validation source logic belongs to `deployment/Validation.ts` as
+typed Effect decoders. Public compatibility wrappers remain in that module for
+existing route/store callers, but internal domain validation should not keep a
+parallel result-style helper layer. `ValidatorJson` remains the validator
+metadata source of truth and is not replaced by Effect Schema.
+
+Known limitations:
+
+- No deployment SQL writes, active deployment metadata, push lifecycle service
+  behavior, generated DeploymentDO HttpApi handlers, public Worker routing,
+  service binding configuration, executor-http, or SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke And Pass-Through Route Adapter Effects
 
 Previous completed checkpoint: `7c0f0b0` Type public live query delivery

@@ -134,28 +134,6 @@ function deploymentValidationFailure<A = never>(message: string): DeploymentVali
   };
 }
 
-function deploymentValidationResultToEffect<A>(
-  result: DeploymentValidationResult<A>,
-): Effect.Effect<A, DeploymentValidationError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
-}
-
-function deploymentValidationEffectResult<A>(
-  effect: Effect.Effect<A, DeploymentValidationError>,
-): DeploymentValidationResult<A> {
-  return Effect.runSync(
-    effect.pipe(
-      Effect.map(value => deploymentValidationSuccess(value)),
-      Effect.catch(error => Effect.succeed({ success: false, error } as DeploymentValidationResult<A>)),
-    ),
-  );
-}
-
-function unwrapDeploymentValidation<A>(result: DeploymentValidationResult<A>): A {
-  if (result.success) return result.value;
-  throw result.error;
-}
-
 export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnostics")(
   function* (value: unknown): Effect.fn.Return<PushDiagnostic[], DeploymentValidationError> {
     if (value === undefined) {
@@ -504,10 +482,6 @@ export const decodeSchema = Effect.fn("DeploymentValidation.decodeSchema")(
   },
 );
 
-function normalizeSchema(schema: unknown): DeploymentValidationResult<DeploymentSchema> {
-  return deploymentValidationEffectResult(decodeSchema(schema));
-}
-
 export function validateFunctions(functions: unknown): DeploymentFunctions {
   return Effect.runSync(decodeFunctions(functions));
 }
@@ -556,10 +530,6 @@ export const decodeFunctions = Effect.fn("DeploymentValidation.decodeFunctions")
   },
 );
 
-function normalizeFunctions(functions: unknown): DeploymentValidationResult<DeploymentFunctions> {
-  return deploymentValidationEffectResult(decodeFunctions(functions));
-}
-
 export function validateAnalysis(analysis: unknown): DeploymentAnalysis {
   return Effect.runSync(decodeAnalysis(analysis));
 }
@@ -575,10 +545,6 @@ export const decodeAnalysis = Effect.fn("DeploymentValidation.decodeAnalysis")(
     return { schema, functions };
   },
 );
-
-function normalizeAnalysis(analysis: unknown): DeploymentValidationResult<DeploymentAnalysis> {
-  return deploymentValidationEffectResult(decodeAnalysis(analysis));
-}
 
 export function validateCodegenAnalysis(
   codegenAnalysis: unknown,
@@ -693,28 +659,6 @@ export const decodeCodegenAnalysis = Effect.fn("DeploymentValidation.decodeCodeg
   },
 );
 
-function normalizeCodegenAnalysis(
-  codegenAnalysis: unknown,
-  analysis: DeploymentAnalysis,
-): DeploymentValidationResult<DeploymentCodegenAnalysis> {
-  return deploymentValidationEffectResult(decodeCodegenAnalysis(codegenAnalysis, analysis));
-}
-
-function assertCodegenFunctionMatchesMetadata(
-  path: string,
-  codegen: {
-    kind: DeploymentFunctionKind;
-    visibility: FunctionVisibility;
-    args: ValidatorJson;
-    returns: ValidatorJson | null;
-    partition: FunctionPartitionMetadata | null;
-    position: AnalyzedSourcePosition | undefined;
-  },
-  metadata: DeploymentFunctionMetadata,
-): DeploymentValidationResult<void> {
-  return deploymentValidationEffectResult(assertCodegenFunctionMatchesMetadataEffect(path, codegen, metadata));
-}
-
 const assertCodegenFunctionMatchesMetadataEffect = Effect.fn(
   "DeploymentValidation.assertCodegenFunctionMatchesMetadataEffect",
 )(function* (
@@ -744,13 +688,6 @@ const assertCodegenFunctionMatchesMetadataEffect = Effect.fn(
 
 function functionPathFromCodegen(moduleName: string, exportName: string): string {
   return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;
-}
-
-function validateFunctionPartitions(
-  functions: DeploymentFunctions,
-  schema: DeploymentSchema,
-): DeploymentValidationResult<void> {
-  return deploymentValidationEffectResult(validateFunctionPartitionsEffect(functions, schema));
 }
 
 const validateFunctionPartitionsEffect = Effect.fn("DeploymentValidation.validateFunctionPartitionsEffect")(function* (
@@ -814,10 +751,6 @@ const validateFunctionPartitionsEffect = Effect.fn("DeploymentValidation.validat
   }
 });
 
-function parseTableState(value: unknown): DeploymentValidationResult<NonNullable<SchemaTable["state"]>> {
-  return deploymentValidationEffectResult(decodeTableState(value));
-}
-
 const decodeTableState = Effect.fn("DeploymentValidation.decodeTableState")(function* (
   value: unknown,
 ): Effect.fn.Return<NonNullable<SchemaTable["state"]>, DeploymentValidationError> {
@@ -826,12 +759,6 @@ const decodeTableState = Effect.fn("DeploymentValidation.decodeTableState")(func
   return yield* deploymentValidationFailureEffect("Schema table has invalid state.");
 });
 
-function parseIndexState(
-  value: unknown,
-): DeploymentValidationResult<NonNullable<DeploymentSchema["indexes"][number]["state"]>> {
-  return deploymentValidationEffectResult(decodeIndexState(value));
-}
-
 const decodeIndexState = Effect.fn("DeploymentValidation.decodeIndexState")(function* (
   value: unknown,
 ): Effect.fn.Return<NonNullable<DeploymentSchema["indexes"][number]["state"]>, DeploymentValidationError> {
@@ -839,13 +766,6 @@ const decodeIndexState = Effect.fn("DeploymentValidation.decodeIndexState")(func
   if (value === "enabled" || value === "staged" || value === "disabled") return value;
   return yield* deploymentValidationFailureEffect("Schema index has invalid state.");
 });
-
-function validateSourcePosition(
-  value: unknown,
-  path: string,
-): DeploymentValidationResult<AnalyzedSourcePosition | undefined> {
-  return deploymentValidationEffectResult(decodeSourcePosition(value, path));
-}
 
 const decodeSourcePosition = Effect.fn("DeploymentValidation.decodeSourcePosition")(function* (
   value: unknown,
@@ -884,13 +804,6 @@ const decodeSourcePosition = Effect.fn("DeploymentValidation.decodeSourcePositio
   };
 });
 
-function validateFunctionRoutePolicy(
-  value: unknown,
-  path: string,
-): DeploymentValidationResult<FunctionRoutePolicy | null> {
-  return deploymentValidationEffectResult(decodeFunctionRoutePolicy(value, path));
-}
-
 const decodeFunctionRoutePolicy = Effect.fn("DeploymentValidation.decodeFunctionRoutePolicy")(function* (
   value: unknown,
   path: string,
@@ -905,13 +818,6 @@ const decodeFunctionRoutePolicy = Effect.fn("DeploymentValidation.decodeFunction
   }
   return yield* deploymentValidationFailureEffect(`${path}: Invalid route policy.`);
 });
-
-function validateFunctionPartitionPolicy(
-  value: unknown,
-  path: string,
-): DeploymentValidationResult<FunctionPartitionMetadata | null> {
-  return deploymentValidationEffectResult(decodeFunctionPartitionPolicy(value, path));
-}
 
 const decodeFunctionPartitionPolicy = Effect.fn("DeploymentValidation.decodeFunctionPartitionPolicy")(function* (
   value: unknown,
@@ -981,10 +887,6 @@ function validatorHasRequiredField(validator: ValidatorJson | null, field: strin
   );
 }
 
-function validatePlacement(value: unknown, path: string): DeploymentValidationResult<SchemaTable["placement"]> {
-  return deploymentValidationEffectResult(decodePlacement(value, path));
-}
-
 const decodePlacement = Effect.fn("DeploymentValidation.decodePlacement")(function* (
   value: unknown,
   path: string,
@@ -1007,10 +909,6 @@ const decodePlacement = Effect.fn("DeploymentValidation.decodePlacement")(functi
   return yield* deploymentValidationFailureEffect(`${path}: Invalid placement.`);
 });
 
-function parseFunctionKind(value: unknown, path: string): DeploymentValidationResult<DeploymentFunctionKind> {
-  return deploymentValidationEffectResult(decodeFunctionKind(value, path));
-}
-
 const decodeFunctionKind = Effect.fn("DeploymentValidation.decodeFunctionKind")(function* (
   value: unknown,
   path: string,
@@ -1026,10 +924,6 @@ const decodeFunctionKind = Effect.fn("DeploymentValidation.decodeFunctionKind")(
   return yield* deploymentValidationFailureEffect(`${path}: Invalid function kind ${value}.`);
 });
 
-function parseVisibility(value: unknown, path: string): DeploymentValidationResult<FunctionVisibility> {
-  return deploymentValidationEffectResult(decodeVisibility(value, path));
-}
-
 const decodeVisibility = Effect.fn("DeploymentValidation.decodeVisibility")(function* (
   value: unknown,
   path: string,
@@ -1037,10 +931,6 @@ const decodeVisibility = Effect.fn("DeploymentValidation.decodeVisibility")(func
   if (value === "public" || value === "internal") return value;
   return yield* deploymentValidationFailureEffect(`${path}: Invalid function visibility ${value}.`);
 });
-
-function safeValidator(value: unknown, path: string): DeploymentValidationResult<ValidatorJson | null> {
-  return deploymentValidationEffectResult(decodeValidator(value, path));
-}
 
 const decodeValidator = Effect.fn("DeploymentValidation.decodeValidator")(function* (
   value: unknown,
@@ -1053,10 +943,6 @@ const decodeValidator = Effect.fn("DeploymentValidation.decodeValidator")(functi
   }
   return validator.value;
 });
-
-function jsonValue(value: unknown, path: string): DeploymentValidationResult<Json | undefined> {
-  return deploymentValidationEffectResult(decodeJsonValue(value, path));
-}
 
 const decodeJsonValue = Effect.fn("DeploymentValidation.decodeJsonValue")(function* (
   value: unknown,
