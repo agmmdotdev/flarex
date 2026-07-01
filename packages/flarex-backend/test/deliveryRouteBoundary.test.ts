@@ -5,6 +5,7 @@ import {
   decodeDeliveryWakeRequest,
   decodeDeliveryWakeRoutePayload,
   deliveryWakeRouteErrorToHttpError,
+  deliveryWakeRouteErrorToHttpErrorEffect,
   parseDeliveryWakeRequest,
   parseDeliveryWakeRequestEffect,
   readDeliveryWakeRequest,
@@ -140,6 +141,31 @@ describe("delivery route boundary", () => {
       message: "deploymentId must be a non-empty string.",
     });
     expect(deliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("maps typed wake route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      deliveryWakeRouteErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new DeliveryWakePayloadError({
+      message: "deploymentId must be a non-empty string.",
+    });
+    const mappedValidation = await Effect.runPromise(Effect.flip(
+      deliveryWakeRouteErrorToHttpErrorEffect(validationError),
+    ));
+    expect(mappedValidation).toMatchObject({
       status: 400,
       message: "deploymentId must be a non-empty string.",
     });

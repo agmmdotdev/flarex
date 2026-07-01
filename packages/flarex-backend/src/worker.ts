@@ -26,6 +26,9 @@ import {
   publicDeliveryWakeRouteErrorToHttpError,
 } from "./delivery/PublicWakeRouteBoundary";
 import {
+  dispatchPublicDeliveryWakeEffect,
+} from "./delivery/PublicWakeDispatchBoundary";
+import {
   type DeliveryWakeRouteError,
 } from "./delivery/RouteBoundary";
 import { DeliveryWakePayloadError } from "./delivery/WakeRequest";
@@ -957,16 +960,9 @@ const routePublicDeliveryWake = Effect.fn("Worker.routePublicDeliveryWake")(
   function* (request: Request, env: Env, deploymentId: string) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const body = yield* decodePublicDeliveryWakeRequest(request, deploymentId);
-    return yield* Effect.tryPromise({
-      try: () =>
-        env.DELIVERIES
-          .getByName(deliveryObjectName(deploymentId))
-          .fetch("https://flarex.internal/wake", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          }),
-      catch: error => publicWorkerDispatchError("delivery-wake", error),
-    });
+    return yield* dispatchPublicDeliveryWakeEffect(
+      env.DELIVERIES.getByName(deliveryObjectName(deploymentId)),
+      body,
+    );
   },
 );

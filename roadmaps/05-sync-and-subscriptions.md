@@ -1,5 +1,42 @@
 # Sync And Subscriptions
 
+## Public Delivery Wake Route-Service Boundary Effects
+
+Previous completed checkpoint: `d3eefa5` Type public scheduler route boundary.
+
+What changed:
+
+- Delivery wake route compatibility readers and parse wrappers now recover
+  through named Effect HTTP adapter helpers.
+- Public delivery wake route mapping exposes a named adapter effect for typed
+  `DeliveryWakeRouteError` failures.
+- Public Worker `wake-delivery` forwarding now goes through
+  `dispatchPublicDeliveryWakeEffect(...)`, a named service-binding dispatch
+  helper with the `delivery-wake` failure source.
+
+Why it changed:
+
+Public delivery wake routes connect live-query wake request decoding,
+deployment-id overlay, authorization, and DeliveryDO dispatch. Naming the
+route adapter and dispatch helper keeps request failures typed until the HTTP
+edge and dispatch failures typed at the service-binding edge.
+
+Known limitations:
+
+- Public Worker route matching, DeliveryDO drain behavior, SchedulerDO wake
+  scheduling, ConnectionDO/live-query fanout, PartitionDO SQL/OCC,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Scheduler Route-Service Boundary Effects
 
 Previous completed checkpoint: `1ce303d` Type public execution route boundary.

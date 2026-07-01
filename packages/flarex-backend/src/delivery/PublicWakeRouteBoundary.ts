@@ -1,4 +1,5 @@
 import {
+  deliveryWakeRouteErrorToHttpErrorEffect,
   deliveryWakeRouteErrorToHttpError,
   type DeliveryWakeRequest,
   type DeliveryWakeRouteError,
@@ -18,7 +19,7 @@ export async function readPublicDeliveryWakeRequest(
   deploymentId: string,
 ): Promise<DeliveryWakeRequest> {
   return Effect.runPromise(decodePublicDeliveryWakeRequest(request, deploymentId).pipe(
-    Effect.mapError(publicDeliveryWakeRouteErrorToHttpError),
+    Effect.catch(publicDeliveryWakeRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -36,7 +37,7 @@ export function parsePublicDeliveryWakeRequest(
   deploymentId: string,
 ): DeliveryWakeRequest {
   return Effect.runSync(parsePublicDeliveryWakeRequestEffect(value, deploymentId).pipe(
-    Effect.mapError(publicDeliveryWakeRouteErrorToHttpError),
+    Effect.catch(publicDeliveryWakeRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -57,3 +58,11 @@ export function decodePublicDeliveryWakeRoutePayload(
 export function publicDeliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {
   return deliveryWakeRouteErrorToHttpError(error);
 }
+
+export const publicDeliveryWakeRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicWakeRouteBoundary.publicDeliveryWakeRouteErrorToHttpError",
+)(function* (
+  error: DeliveryWakeRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* deliveryWakeRouteErrorToHttpErrorEffect(error);
+});

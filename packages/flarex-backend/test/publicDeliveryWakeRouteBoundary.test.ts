@@ -7,6 +7,7 @@ import {
   parsePublicDeliveryWakeRequest,
   parsePublicDeliveryWakeRequestEffect,
   publicDeliveryWakeRouteErrorToHttpError,
+  publicDeliveryWakeRouteErrorToHttpErrorEffect,
   readPublicDeliveryWakeRequest,
 } from "../src/delivery/PublicWakeRouteBoundary";
 import {
@@ -148,6 +149,31 @@ describe("public delivery wake route boundary", () => {
       message: "limit must be a positive integer.",
     });
     expect(publicDeliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "limit must be a positive integer.",
+    });
+  });
+
+  it("maps typed public wake route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      publicDeliveryWakeRouteErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new DeliveryWakePayloadError({
+      message: "limit must be a positive integer.",
+    });
+    const mappedValidation = await Effect.runPromise(Effect.flip(
+      publicDeliveryWakeRouteErrorToHttpErrorEffect(validationError),
+    ));
+    expect(mappedValidation).toMatchObject({
       status: 400,
       message: "limit must be a positive integer.",
     });

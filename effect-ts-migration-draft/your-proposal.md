@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public scheduler route-service boundary effects.
+- Previous completed checkpoint: Public delivery wake route-service boundary effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,19 +48,38 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public scheduler route-service boundary effects:
+Next recommended checkpoint after the public delivery wake route-service boundary effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
-   carry the public route request/dispatch/error pattern to delivery,
-   connection, or invoke-adjacent routes, or move deployment validation/service
-   helpers further toward typed service/domain failures with one adapter
-   response edge.
+   carry the public route request/dispatch/error pattern to connection,
+   live-query delivery, or invoke-adjacent routes, or move deployment
+   validation/service helpers further toward typed service/domain failures with
+   one adapter response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 287 slice:
+
+1. Add named delivery wake route HTTP adapter effects:
+   `deliveryWakeRouteErrorToHttpErrorEffect(...)` and
+   `publicDeliveryWakeRouteErrorToHttpErrorEffect(...)`.
+2. Route delivery wake compatibility readers and parse wrappers through the
+   named adapter effects while preserving typed `DeliveryWakeRouteError`
+   decoder channels for public Worker and DeliveryDO paths.
+3. Add `dispatchPublicDeliveryWakeEffect(...)` as the named service-binding
+   dispatch helper for public DeliveryDO wake forwarding.
+4. Route public Worker `wake-delivery` dispatch through the helper while
+   preserving authorization, route deployment-id overlay, internal `/wake`
+   URL, JSON body, and `delivery-wake` `PublicWorkerDispatchError` source.
+5. Add direct tests for named delivery wake adapter effects and the dispatch
+   helper success/failure channels.
+6. Leave public Worker route matching, DeliveryDO drain behavior,
+   SchedulerDO wake scheduling, ConnectionDO/live-query fanout, PartitionDO
+   SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 286 slice:
 
