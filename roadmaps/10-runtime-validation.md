@@ -1,5 +1,67 @@
 # Runtime Validation
 
+## Deployment Validation Domain Effects
+
+Previous completed checkpoint: `8258d38` Type public scheduler route
+boundary.
+
+What changed:
+
+- Removed exported throwing deployment validation compatibility wrappers from
+  `deployment/Validation.ts`.
+- Removed the exported `DeploymentValidationResult` /
+  `parsePushStatusFromRow(...)` result compatibility boundary.
+- Kept production deployment store and HttpApi handler paths on Effect
+  decoders such as `decodePushStatusFromRow(...)`,
+  `decodeAnalyzedStartPushRequest(...)`, and
+  `decodeStartAnalyzedPushInput(...)`.
+- Kept `codegenAnalysisFromDeploymentAnalysis(...)` as a pure transformation
+  helper because it does not validate or map failures.
+- Updated the deployment validation test preflight case to match the
+  `decodePushStatusFromRow(...)` Effect result directly instead of using a
+  public parse-result wrapper.
+
+Why it changed:
+
+Deployment domain validation had already moved most checks into
+`Effect.fn(...)` decoders that fail with `DeploymentValidationError`, but the
+module still exported old throwing wrappers and a result-style parse helper
+used only by tests. Removing those public compatibility surfaces makes
+deployment validation behave like a domain Effect boundary: validation errors
+are emitted at source and propagated as typed failures, while HTTP response
+mapping remains in deployment handlers/adapters.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment domain-validation surface cleanup around existing Effect decoders.
+
+How Flarex differs:
+
+- Flarex persists analyzed pushes through Cloudflare Durable Object storage and
+  SQLite rows. This checkpoint keeps that runtime path unchanged while
+  narrowing the validation module to typed Effect decoders that the store and
+  HttpApi handlers already use.
+
+Known limitations:
+
+- This checkpoint does not change deployment store transaction behavior,
+  DeploymentDO/HttpApi routing, artifact materialization/ref validation,
+  public deployment dispatch, executor-http, PartitionDO SQL/OCC,
+  source-package persistence behavior, or `ValidatorJson`.
+- Local test helpers still use `Effect.runSync(...)` to keep setup concise, but
+  they are no longer exported production validation APIs.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentStore.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Scheduler Route Boundary Effects
 
 Previous completed checkpoint: `e509217` Type public invoke delivery route

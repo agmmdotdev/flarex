@@ -106,34 +106,6 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
   },
 );
 
-export function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
-  return Effect.runSync(decodeSourcePackage(sourcePackage));
-}
-
-export type DeploymentValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: DeploymentValidationError;
-    };
-
-function deploymentValidationSuccess<A>(value: A): DeploymentValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
-
-function deploymentValidationFailure<A = never>(message: string): DeploymentValidationResult<A> {
-  return {
-    success: false,
-    error: new DeploymentValidationError({ message }),
-  };
-}
-
 export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnostics")(
   function* (value: unknown): Effect.fn.Return<PushDiagnostic[], DeploymentValidationError> {
     if (value === undefined) {
@@ -162,16 +134,6 @@ export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnosti
     return diagnostics;
   },
 );
-
-export function validateDiagnostics(value: unknown): PushDiagnostic[] {
-  return Effect.runSync(decodeDiagnostics(value));
-}
-
-export function analyzedStartPushRequest(
-  request: ProtocolAnalyzedStartPushRequest,
-): AnalyzedStartPushRequest {
-  return Effect.runSync(decodeAnalyzedStartPushRequest(request));
-}
 
 export const decodeAnalyzedStartPushRequest = Effect.fn(
   "DeploymentValidation.decodeAnalyzedStartPushRequest",
@@ -214,12 +176,6 @@ export type StartAnalyzedPushServiceInput = {
     }
 );
 
-export function startAnalyzedPushInput(
-  request: AnalyzedStartPushRequest,
-): StartAnalyzedPushServiceInput {
-  return Effect.runSync(decodeStartAnalyzedPushInput(request));
-}
-
 export const decodeStartAnalyzedPushInput = Effect.fn(
   "DeploymentValidation.decodeStartAnalyzedPushInput",
 )(function* (
@@ -251,21 +207,6 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
     diagnostics,
   };
 });
-
-export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
-  return Effect.runSync(decodePushStatusFromRow(row));
-}
-
-export function parsePushStatusFromRow(row: DeploymentPushStatusRow): DeploymentValidationResult<PushStatus> {
-  return Effect.runSync(
-    decodePushStatusFromRow(row).pipe(
-      Effect.match({
-        onFailure: error => ({ success: false, error } as const),
-        onSuccess: value => deploymentValidationSuccess(value),
-      }),
-    ),
-  );
-}
 
 export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePushStatusFromRow")(
   function* (row: DeploymentPushStatusRow): Effect.fn.Return<PushStatus, DeploymentValidationError> {
@@ -392,10 +333,6 @@ function deploymentValidationFailureEffect(message: string): Effect.Effect<never
   return Effect.fail(new DeploymentValidationError({ message }));
 }
 
-export function validateSchema(schema: unknown): DeploymentSchema {
-  return Effect.runSync(decodeSchema(schema));
-}
-
 export const decodeSchema = Effect.fn("DeploymentValidation.decodeSchema")(
   function* (schema: unknown): Effect.fn.Return<DeploymentSchema, DeploymentValidationError> {
     if (!isRecord(schema)) {
@@ -482,10 +419,6 @@ export const decodeSchema = Effect.fn("DeploymentValidation.decodeSchema")(
   },
 );
 
-export function validateFunctions(functions: unknown): DeploymentFunctions {
-  return Effect.runSync(decodeFunctions(functions));
-}
-
 export const decodeFunctions = Effect.fn("DeploymentValidation.decodeFunctions")(
   function* (functions: unknown): Effect.fn.Return<DeploymentFunctions, DeploymentValidationError> {
     if (!isRecord(functions)) {
@@ -530,10 +463,6 @@ export const decodeFunctions = Effect.fn("DeploymentValidation.decodeFunctions")
   },
 );
 
-export function validateAnalysis(analysis: unknown): DeploymentAnalysis {
-  return Effect.runSync(decodeAnalysis(analysis));
-}
-
 export const decodeAnalysis = Effect.fn("DeploymentValidation.decodeAnalysis")(
   function* (analysis: unknown): Effect.fn.Return<DeploymentAnalysis, DeploymentValidationError> {
     if (!isRecord(analysis)) {
@@ -545,13 +474,6 @@ export const decodeAnalysis = Effect.fn("DeploymentValidation.decodeAnalysis")(
     return { schema, functions };
   },
 );
-
-export function validateCodegenAnalysis(
-  codegenAnalysis: unknown,
-  analysis: DeploymentAnalysis,
-): DeploymentCodegenAnalysis {
-  return Effect.runSync(decodeCodegenAnalysis(codegenAnalysis, analysis));
-}
 
 export const decodeCodegenAnalysis = Effect.fn("DeploymentValidation.decodeCodegenAnalysis")(
   function* (

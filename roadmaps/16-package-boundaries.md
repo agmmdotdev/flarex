@@ -1,5 +1,67 @@
 # Package Boundaries
 
+## Deployment Validation Domain Effects
+
+Previous completed checkpoint: `8258d38` Type public scheduler route
+boundary.
+
+What changed:
+
+- `deployment/Validation.ts` no longer exports throwing validation wrappers
+  such as `validateSourcePackage(...)`, `validateAnalysis(...)`, or
+  `pushStatusFromRow(...)`.
+- `deployment/Validation.ts` no longer exports `DeploymentValidationResult` or
+  `parsePushStatusFromRow(...)`.
+- The deployment validation boundary now exposes Effect-returning decoders for
+  validation paths that can fail with `DeploymentValidationError`.
+- `codegenAnalysisFromDeploymentAnalysis(...)` remains exported as a pure
+  transformation helper.
+- `deploymentValidation.test.ts` uses local sync helpers only for fixture
+  setup; the removed wrappers are no longer production APIs.
+
+Boundary decision:
+
+Deployment domain validation belongs in `deployment/Validation.ts` as
+Effect-returning decoders. Deployment store reads/writes remain in
+`deployment/Store.ts`, HttpApi request/response handling remains in
+`deployment/HttpApiHandlers.ts` and route-boundary modules, and HTTP response
+mapping remains at the deployment handler/adapter edges. Validation failures
+should stay as `DeploymentValidationError` until those adapter edges map them
+to protocol responses.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment validation package boundary around existing domain
+  decoders.
+
+How Flarex differs:
+
+- Flarex's deployment validation normalizes source packages, analyzed function
+  metadata, generated codegen metadata, and stored push rows before Durable
+  Object storage and HttpApi handlers use them. This checkpoint does not change
+  the deployment runtime topology; it only removes exported throwing/result
+  compatibility APIs.
+
+Known limitations:
+
+- No deployment store transaction behavior, DeploymentDO/HttpApi routing,
+  artifact materialization/ref validation, public deployment dispatch,
+  executor-http route, PartitionDO SQL/OCC behavior, source-package persistence
+  behavior, or `ValidatorJson` boundary changed.
+- Further deployment service/store migration work can still reduce direct
+  adapter response mapping in later slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentStore.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Scheduler Route Boundary Effects
 
 Previous completed checkpoint: `e509217` Type public invoke delivery route

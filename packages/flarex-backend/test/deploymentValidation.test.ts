@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { DeploymentValidationError } from "../src/deployment/Errors";
 import {
-  analyzedStartPushRequest,
   codegenAnalysisFromDeploymentAnalysis,
   decodeAnalyzedStartPushRequest,
   decodeAnalysis,
@@ -13,19 +12,19 @@ import {
   decodeSchema,
   decodeSourcePackage,
   decodeStartAnalyzedPushInput,
-  parsePushStatusFromRow,
-  pushStatusFromRow,
-  startAnalyzedPushInput,
-  validateAnalysis,
-  validateCodegenAnalysis,
-  validateDiagnostics,
-  validateFunctions,
-  validateSchema,
-  validateSourcePackage,
   type DeploymentPushStatusRow,
 } from "../src/deployment/Validation";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
-import type { DeploymentFunctions, DeploymentSchema, PushSourcePackage } from "../src/types";
+import type {
+  AnalyzedStartPushRequest,
+  DeploymentAnalysis,
+  DeploymentCodegenAnalysis,
+  DeploymentFunctions,
+  DeploymentSchema,
+  PushDiagnostic,
+  PushSourcePackage,
+  PushStatus,
+} from "../src/types";
 
 describe("deployment validation", () => {
   it("normalizes source package modules and function paths", () => {
@@ -1289,11 +1288,16 @@ describe("deployment validation", () => {
     );
   });
 
-  it("parses stored push rows without throwing for transaction preflight boundaries", () => {
-    const success = parsePushStatusFromRow(pushRow({
+  it("matches stored push row decoder results for transaction preflight boundaries", async () => {
+    const success = await Effect.runPromise(decodePushStatusFromRow(pushRow({
       schema_json: JSON.stringify(simpleSchema()),
       functions_json: JSON.stringify(simpleFunctions()),
-    }));
+    })).pipe(
+      Effect.match({
+        onFailure: error => ({ success: false as const, error }),
+        onSuccess: value => ({ success: true as const, value }),
+      }),
+    ));
     expect(success).toMatchObject({
       success: true,
       value: {
@@ -1302,10 +1306,15 @@ describe("deployment validation", () => {
       },
     });
 
-    const failure = parsePushStatusFromRow(pushRow({ source_package_json: "null" }));
+    const failure = await Effect.runPromise(decodePushStatusFromRow(pushRow({ source_package_json: "null" })).pipe(
+      Effect.match({
+        onFailure: error => ({ success: false as const, error }),
+        onSuccess: value => ({ success: true as const, value }),
+      }),
+    ));
     expect(failure.success).toBe(false);
     if (failure.success) {
-      throw new Error("Expected parsePushStatusFromRow to fail.");
+      throw new Error("Expected decodePushStatusFromRow to fail.");
     }
     expect(failure.error).toBeInstanceOf(DeploymentValidationError);
     expect(failure.error.message).toBe("Source package must be an object.");
@@ -1373,6 +1382,49 @@ describe("deployment validation", () => {
     );
   });
 });
+
+function validateSourcePackage(sourcePackage: PushSourcePackage): PushSourcePackage {
+  return Effect.runSync(decodeSourcePackage(sourcePackage));
+}
+
+function validateDiagnostics(value: unknown): PushDiagnostic[] {
+  return Effect.runSync(decodeDiagnostics(value));
+}
+
+function analyzedStartPushRequest(
+  request: ProtocolAnalyzedStartPushRequest,
+): AnalyzedStartPushRequest {
+  return Effect.runSync(decodeAnalyzedStartPushRequest(request));
+}
+
+function startAnalyzedPushInput(
+  request: AnalyzedStartPushRequest,
+) {
+  return Effect.runSync(decodeStartAnalyzedPushInput(request));
+}
+
+function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
+  return Effect.runSync(decodePushStatusFromRow(row));
+}
+
+function validateSchema(schema: unknown): DeploymentSchema {
+  return Effect.runSync(decodeSchema(schema));
+}
+
+function validateFunctions(functions: unknown): DeploymentFunctions {
+  return Effect.runSync(decodeFunctions(functions));
+}
+
+function validateAnalysis(analysis: unknown): DeploymentAnalysis {
+  return Effect.runSync(decodeAnalysis(analysis));
+}
+
+function validateCodegenAnalysis(
+  codegenAnalysis: unknown,
+  analysis: DeploymentAnalysis,
+): DeploymentCodegenAnalysis {
+  return Effect.runSync(decodeCodegenAnalysis(codegenAnalysis, analysis));
+}
 
 function sourceModule(path: string): PushSourcePackage["modules"][number] {
   return {
