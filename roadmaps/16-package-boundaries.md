@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Public Scheduler Route-Service Boundary Effects
+
+Previous completed checkpoint: `1ce303d` Type public execution route boundary.
+
+What changed:
+
+- Scheduler route boundaries now expose named HTTP adapter effects for typed
+  request JSON and scheduler payload failures.
+- Public scheduler dispatch calls share a named service-binding helper while
+  preserving operation-specific dispatch sources.
+- Tests cover route adapter-effect failure channels and shared dispatch helper
+  behavior directly.
+
+Boundary decision:
+
+Scheduler request decoding belongs to `scheduler/RouteBoundary.ts` and
+`scheduler/PublicRouteBoundary.ts`; service-binding dispatch belongs to
+`scheduler/PublicDispatchBoundary.ts`; public Worker response conversion
+remains at the outer scheduler route edge. `HttpError` stays at compatibility
+adapter edges and dispatch failures stay typed as `PublicWorkerDispatchError`.
+
+Known limitations:
+
+- No public Worker route matching, SchedulerDO internals, delivery/connection
+  maintenance behavior, package metadata, service binding configuration, or
+  SQL/OCC boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Execution Route-Service Boundary Effects
 
 Previous completed checkpoint: `8b73137` Type public deployment push route

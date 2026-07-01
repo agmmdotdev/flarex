@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## Public Scheduler Route-Service Boundary Effects
+
+Previous completed checkpoint: `1ce303d` Type public execution route boundary.
+
+What changed:
+
+- Scheduler request route errors now recover through named Effect adapter
+  helpers before returning `HttpError`.
+- Public scheduler route mapping exposes a named adapter effect for typed
+  request JSON and scheduler payload failures.
+- Public scheduler dispatch now shares one named service-binding helper with
+  operation-specific failure sources.
+
+Why it changed:
+
+Scheduler routes are another full route-service path: request JSON decoding,
+payload validation, public Worker routing, and SchedulerDO dispatch all meet at
+the route boundary. Naming the adapters and dispatch helper keeps failures
+typed until the edge that owns conversion.
+
+Known limitations:
+
+- This checkpoint does not change public Worker route matching, SchedulerDO
+  internals, delivery/connection maintenance behavior, pending state,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Execution Route-Service Boundary Effects
 
 Previous completed checkpoint: `8b73137` Type public deployment push route

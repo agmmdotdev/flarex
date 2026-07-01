@@ -20,9 +20,10 @@ import {
   type SchedulerDeliveryReconcileRequest,
   type SchedulerRouteError,
   type SchedulerRerunSubscriptionsRequest,
+  schedulerRouteErrorToHttpErrorEffect,
   schedulerRouteErrorToHttpError,
 } from "./RouteBoundary";
-import type { Effect } from "effect";
+import { Effect } from "effect";
 import type { HttpError } from "../http";
 import type { Env } from "../types";
 
@@ -140,3 +141,11 @@ export function parsePublicSchedulerTriggerSubscriptionsRequest(
 export function publicSchedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
   return schedulerRouteErrorToHttpError(error);
 }
+
+export const publicSchedulerRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicSchedulerRouteBoundary.publicSchedulerRouteErrorToHttpError",
+)(function* (
+  error: SchedulerRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* schedulerRouteErrorToHttpErrorEffect(error);
+});

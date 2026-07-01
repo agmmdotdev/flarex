@@ -21,6 +21,7 @@ import {
   readPublicSchedulerRerunSubscriptionsRequest,
   readPublicSchedulerTriggerSubscriptionsRequest,
   publicSchedulerRouteErrorToHttpError,
+  publicSchedulerRouteErrorToHttpErrorEffect,
 } from "../src/scheduler/PublicRouteBoundary";
 import {
   decodeSchedulerConnectionReconcilePayload,
@@ -452,6 +453,31 @@ describe("public scheduler route boundary", () => {
       message: "deploymentId must be a non-empty string.",
     });
     expect(publicSchedulerRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("maps typed public scheduler route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      publicSchedulerRouteErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new SchedulerRoutePayloadError({
+      message: "deploymentId must be a non-empty string.",
+    });
+    const mappedValidation = await Effect.runPromise(Effect.flip(
+      publicSchedulerRouteErrorToHttpErrorEffect(validationError),
+    ));
+    expect(mappedValidation).toMatchObject({
       status: 400,
       message: "deploymentId must be a non-empty string.",
     });

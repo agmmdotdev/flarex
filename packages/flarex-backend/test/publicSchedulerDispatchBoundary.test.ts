@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   cleanupPublicSchedulerConnectionsEffect,
   deadLetterPublicSchedulerDeliveriesEffect,
+  dispatchPublicSchedulerEffect,
   reconcilePublicSchedulerConnectionsEffect,
   reconcilePublicSchedulerDeliveriesEffect,
   rerunPublicSchedulerSubscriptionsEffect,
   type PublicSchedulerDispatchTarget,
   triggerPublicSchedulerSubscriptionsEffect,
 } from "../src/scheduler/PublicDispatchBoundary";
+import { LIVE_QUERY_SCHEDULER_INTERNAL_PATHS } from "../src/schedulerRoutes";
 import type { PublicWorkerDispatchSource } from "../src/worker/PublicRouteDispatchError";
 
 describe("public scheduler dispatch boundary", () => {
@@ -48,6 +50,45 @@ describe("public scheduler dispatch boundary", () => {
         message: `${operation.source} unavailable`,
       });
     }
+  });
+
+  it("runs the shared scheduler dispatch helper with operation-specific failure tagging", async () => {
+    const requests: DispatchedRequest[] = [];
+    const forwarded = Response.json({ ok: true });
+    const body = {
+      deploymentId: "deployment-a",
+      projectId: "project-a",
+      limit: 4,
+    };
+
+    const response = await Effect.runPromise(dispatchPublicSchedulerEffect(
+      schedulerTarget(requests, async () => forwarded),
+      "scheduler-trigger-subscriptions",
+      body,
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.rerunSubscriptions,
+    ));
+
+    expect(response).toBe(forwarded);
+    expect(requests).toEqual([{
+      input: "https://flarex.internal/rerun/live-query-subscriptions",
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    }]);
+
+    const failure = await Effect.runPromise(Effect.flip(dispatchPublicSchedulerEffect(
+      failingSchedulerTarget("shared scheduler unavailable"),
+      "scheduler-cleanup-connections",
+      { deploymentId: "deployment-a", projectId: "project-a" },
+      LIVE_QUERY_SCHEDULER_INTERNAL_PATHS.cleanupConnections,
+    )));
+
+    expect(failure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "scheduler-cleanup-connections",
+      status: 500,
+      message: "shared scheduler unavailable",
+    });
   });
 });
 

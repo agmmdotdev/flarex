@@ -51,7 +51,7 @@ export function parseSchedulerDeliveryReconcileRequest(
   value: unknown,
 ): SchedulerDeliveryReconcileRequest {
   return Effect.runSync(parseSchedulerDeliveryReconcileRequestEffect(value).pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -85,7 +85,7 @@ export function parseSchedulerConnectionReconcileRequest(
   value: unknown,
 ): SchedulerConnectionReconcileRequest {
   return Effect.runSync(parseSchedulerConnectionReconcileRequestEffect(value).pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -119,7 +119,7 @@ export function parseSchedulerRerunSubscriptionsRequest(
   value: unknown,
 ): SchedulerRerunSubscriptionsRequest {
   return Effect.runSync(parseSchedulerRerunSubscriptionsRequestEffect(value).pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -153,7 +153,7 @@ export function parseSchedulerDeadLetterDeliveriesRequest(
   value: unknown,
 ): SchedulerDeadLetterDeliveriesRequest {
   return Effect.runSync(parseSchedulerDeadLetterDeliveriesRequestEffect(value).pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -190,7 +190,7 @@ export function parseSchedulerCleanupConnectionsRequest(
   env: Env,
 ): SchedulerCleanupConnectionsRequest {
   return Effect.runSync(parseSchedulerCleanupConnectionsRequestEffect(value, env).pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -212,7 +212,7 @@ function runSchedulerRouteEffect<A>(
   effect: Effect.Effect<A, SchedulerRouteError>,
 ): Promise<A> {
   return Effect.runPromise(effect.pipe(
-    Effect.mapError(schedulerRouteErrorToHttpError),
+    Effect.catch(schedulerRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -222,3 +222,11 @@ export function schedulerRouteErrorToHttpError(error: SchedulerRouteError): Http
   }
   return new HttpError(400, error.message);
 }
+
+export const schedulerRouteErrorToHttpErrorEffect = Effect.fn(
+  "SchedulerRouteBoundary.schedulerRouteErrorToHttpError",
+)(function* (
+  error: SchedulerRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(schedulerRouteErrorToHttpError(error));
+});

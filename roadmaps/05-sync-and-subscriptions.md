@@ -1,5 +1,42 @@
 # Sync And Subscriptions
 
+## Public Scheduler Route-Service Boundary Effects
+
+Previous completed checkpoint: `1ce303d` Type public execution route boundary.
+
+What changed:
+
+- Scheduler route compatibility readers and parse wrappers now recover through
+  named Effect HTTP adapter helpers.
+- Public scheduler route mapping exposes a named adapter effect for typed
+  `SchedulerRouteError` failures.
+- Public scheduler service-binding dispatch now shares one named
+  `dispatchPublicSchedulerEffect(...)` helper with operation-specific failure
+  sources.
+
+Why it changed:
+
+Public scheduler routes connect live-query maintenance request decoding,
+payload validation, and SchedulerDO service-binding dispatch. Naming the route
+adapter and dispatch helper keeps request failures typed until the HTTP edge
+and dispatch failures typed at the service-binding edge.
+
+Known limitations:
+
+- Public Worker route matching, SchedulerDO maintenance behavior, continuation
+  state, DeliveryDO, ConnectionDO/live-query fanout, PartitionDO SQL/OCC,
+  executor-http, protocol schemas, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts test/schedulerRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Route Decoder Ownership
 
 Previous completed checkpoint: `a976927` Own delivery connection route decoders.
