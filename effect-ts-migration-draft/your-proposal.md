@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Execution syscall query planning boundary.
+- Previous completed checkpoint: Public invoke execution boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the execution syscall query planning checkpoint:
+Next recommended checkpoint after the public invoke execution checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,24 @@ Next recommended checkpoint after the execution syscall query planning checkpoin
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 259 slice:
+
+1. Add `executeInvokeEffect(...)` as the typed service boundary for the legacy
+   public invoke runtime path.
+2. Keep `executeInvoke(...)` as the promise compatibility adapter that maps
+   typed invoke runtime, validation, and operation failures to the existing
+   adapter errors.
+3. Add `InvokeExecutionOperationError` for ensure-schema, begin, handler, and
+   commit operation failures, preserving `PartitionRequestError` causes for
+   Worker adapter responses.
+4. Move the non-artifact Worker `/invoke` path to call `executeInvokeEffect(...)`
+   directly and map `InvokeExecutionError` at the Worker HTTP adapter edge.
+5. Preserve existing public `/invoke` response bodies for unknown functions and
+   compatibility wrapper failures.
+6. Leave artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO
+   SQL/OCC, protocol schemas, executor-http, deployment/registry behavior, and
+   `ValidatorJson` semantics unchanged.
 
 Completed Goal 258 slice:
 

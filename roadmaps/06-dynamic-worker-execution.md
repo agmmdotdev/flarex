@@ -1,5 +1,46 @@
 # Dynamic Worker Execution
 
+## Public Invoke Execution Boundary
+
+Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.
+
+What changed:
+
+- The legacy public invoke runtime now exposes `executeInvokeEffect(...)` as a
+  typed Effect service boundary.
+- `executeInvoke(...)` remains as the promise compatibility adapter for older
+  callers.
+- The non-artifact Worker `/invoke` path now calls `executeInvokeEffect(...)`
+  directly and maps typed invoke failures at the Worker HTTP adapter edge.
+- `InvokeExecutionOperationError` distinguishes ensure-schema, begin, handler,
+  and commit failures from invoke runtime/validation failures.
+
+Why it changed:
+
+Public invoke execution previously converted validation failures into
+`HttpError` inside the service flow and let operation failures escape as raw
+promise failures. This checkpoint keeps invoke failures typed until one Worker
+adapter mapping edge while preserving the existing promise API.
+
+Known limitations:
+
+- Handler-provided database APIs still use the existing promise-based
+  `readerFor(...)` and `writerFor(...)` compatibility surfaces.
+- Artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO SQL/OCC,
+  protocol schemas, executor-http, DeploymentDO, SchedulerDO, DeliveryDO,
+  ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Query Planning Boundary
 
 Previous completed checkpoint: `37b6ab6` Type execution document syscalls.

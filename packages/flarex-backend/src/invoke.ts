@@ -135,6 +135,20 @@ export class InvokeKindValidationError
     readonly message: string;
   }> {}
 
+export type InvokeExecutionOperation =
+  | "ensure-schema"
+  | "begin"
+  | "handler"
+  | "commit";
+
+export class InvokeExecutionOperationError
+  extends Data.TaggedError("InvokeExecutionOperationError")<{
+    readonly operation: InvokeExecutionOperation;
+    readonly status: number;
+    readonly message: string;
+    readonly cause: unknown;
+  }> {}
+
 export type InvokeFunctionValidationError =
   | InvokeActiveFunctionMetadataNotFoundError
   | InvokeArgumentValidationError
@@ -171,6 +185,11 @@ export type InvokeValidationError =
 export type InvokeRuntimeError =
   | InvokeActiveDeploymentLoadError
   | InvokeActiveFunctionMetadataNotFoundError;
+
+export type InvokeExecutionError =
+  | InvokeRuntimeError
+  | InvokeValidationError
+  | InvokeExecutionOperationError;
 
 export type BackendQueryCtx = {
   db: BackendDatabaseReader;
@@ -255,52 +274,123 @@ export async function executeInvoke(
   request: InvokeRequest,
   functions: BackendFunctionRegistry,
 ): Promise<InvokeResponse> {
-  const activeDeployment = await loadActiveDeployment(env, deploymentId);
-  const { fn, metadata, schema } = await Effect.runPromise(
-    resolveInvokeFunctionForRequest(activeDeployment, request, functions).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
+  return await Effect.runPromise(
+    executeInvokeEffect(env, deploymentId, request, functions).pipe(
+      Effect.mapError(invokeExecutionErrorToAdapterError),
     ),
   );
-  const scope = resolveFunctionExecutionScope(
+}
+
+export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
+  env: InvokeEnv,
+  deploymentId: string,
+  request: InvokeRequest,
+  functions: BackendFunctionRegistry,
+): Effect.fn.Return<InvokeResponse, InvokeExecutionError> {
+  const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
+  const { fn, metadata, schema } = yield* resolveInvokeFunctionForRequest(
+    activeDeployment,
+    request,
+    functions,
+  );
+  const scope = yield* resolveFunctionExecutionScopeEffect(
     metadata?.partition ?? fn.partition ?? null,
     metadata?.route ?? fn.route ?? null,
     request,
     schema,
   );
-  await SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema);
-  const tx = await SingleShardTransaction.begin(
-    env,
-    deploymentId,
-    scope.partitionKey,
-    scope.kind === "partitionCreateRoot"
-      ? {
-          createRoot: {
-            rootTableId: tableForName(schema, scope.table).tableId,
-            preallocatedRootId: scope.preallocatedRootId,
-          },
-        }
-      : {},
+  yield* invokeExecutionOperation("ensure-schema", () =>
+    SingleShardTransaction.ensureSchema(env, deploymentId, scope.partitionKey, schema)
   );
-  const value =
-    fn.kind === "query"
-      ? await fn.handler({ db: readerFor(tx, schema) }, request.args)
-      : await fn.handler({ db: writerFor(tx, schema) }, request.args);
-  await Effect.runPromise(
-    validateReturnEffect(metadata?.returns ?? fn.returns, value, schema).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
+  const createRootOptions = scope.kind === "partitionCreateRoot"
+    ? {
+        createRoot: {
+          rootTableId: (yield* tableForNameEffect(schema, scope.table)).tableId,
+          preallocatedRootId: scope.preallocatedRootId,
+        },
+      }
+    : {};
+  const tx = yield* invokeExecutionOperation("begin", () =>
+    SingleShardTransaction.begin(env, deploymentId, scope.partitionKey, createRootOptions)
   );
+  const value = yield* invokeExecutionOperation("handler", () =>
+    Promise.resolve(
+      fn.kind === "query"
+        ? fn.handler({ db: readerFor(tx, schema) }, request.args)
+        : fn.handler({ db: writerFor(tx, schema) }, request.args),
+    )
+  );
+  yield* validateReturnEffect(metadata?.returns ?? fn.returns, value, schema);
 
   if (fn.kind === "query") {
     return { value, readSet: tx.currentReadSet(), readTs: tx.beginTs };
   }
 
-  const commit = await commitMutation(tx, request);
+  const commit = yield* invokeExecutionOperation("commit", () => commitMutation(tx, request));
   return {
     value,
     committedTs: commit.committedTs,
     writes: commit.writes,
   };
+});
+
+function invokeExecutionOperation<A>(
+  operation: InvokeExecutionOperation,
+  execute: () => Promise<A>,
+): Effect.Effect<A, InvokeExecutionOperationError> {
+  return Effect.tryPromise({
+    try: execute,
+    catch: cause => invokeExecutionOperationError(operation, cause),
+  });
+}
+
+function invokeExecutionOperationError(
+  operation: InvokeExecutionOperation,
+  cause: unknown,
+): InvokeExecutionOperationError {
+  if (cause instanceof HttpError) {
+    return new InvokeExecutionOperationError({
+      operation,
+      status: cause.status,
+      message: cause.message,
+      cause,
+    });
+  }
+  if (cause instanceof PartitionRequestError) {
+    return new InvokeExecutionOperationError({
+      operation,
+      status: cause.status,
+      message: cause.message,
+      cause,
+    });
+  }
+  return new InvokeExecutionOperationError({
+    operation,
+    status: 500,
+    message: cause instanceof Error ? cause.message : String(cause),
+    cause,
+  });
+}
+
+export function invokeExecutionOperationErrorToAdapterError(
+  error: InvokeExecutionOperationError,
+): HttpError | PartitionRequestError {
+  if (error.cause instanceof PartitionRequestError) {
+    return error.cause;
+  }
+  return new HttpError(error.status, error.message);
+}
+
+export function invokeExecutionErrorToAdapterError(
+  error: InvokeExecutionError,
+): HttpError | PartitionRequestError {
+  if (error instanceof InvokeExecutionOperationError) {
+    return invokeExecutionOperationErrorToAdapterError(error);
+  }
+  if (error instanceof InvokeActiveDeploymentLoadError) {
+    return invokeActiveDeploymentLoadErrorToHttpError(error);
+  }
+  return invokeValidationErrorToHttpError(error);
 }
 
 type ResolvedInvokeFunction = {

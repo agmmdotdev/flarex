@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Invoke Execution Boundary
+
+Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.
+
+What changed:
+
+- `executeInvokeEffect(...)` now keeps active deployment load, function
+  resolution, argument validation, partition scope validation, return
+  validation, and execution operation failures in typed channels until the
+  Worker route adapter.
+- `InvokeExecutionOperationError` models ensure-schema, begin, handler, and
+  commit failures separately from invoke validation failures.
+- The legacy `executeInvoke(...)` promise wrapper maps the typed failures back
+  to existing adapter errors for compatibility.
+
+Why it changed:
+
+Runtime validation should not become `HttpError` inside service code. This
+checkpoint moves the public invoke runtime toward the same typed boundary shape
+as ExecutionDO while preserving the existing `/invoke` HTTP response contract.
+
+Known limitations:
+
+- Handler database APIs still use the existing promise compatibility surfaces.
+- Artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO SQL/OCC,
+  protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Query Planning Boundary
 
 Previous completed checkpoint: `37b6ab6` Type execution document syscalls.

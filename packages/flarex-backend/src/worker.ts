@@ -92,10 +92,11 @@ import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArti
 import { errorResponse, HttpError, json } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
-  executeInvoke,
+  executeInvokeEffect,
+  invokeExecutionErrorToAdapterError,
   invokeErrorResponse,
   InvokeActiveDeploymentLoadError,
-  invokeActiveDeploymentLoadErrorToHttpError,
+  InvokeExecutionError,
   loadActiveDeploymentEffect,
   type BackendFunctionRegistry,
 } from "./invoke";
@@ -684,10 +685,7 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
       });
       return json(result);
     }
-    const result = yield* Effect.tryPromise({
-      try: () => executeInvoke(env, deploymentId, invokeRequest, functions),
-      catch: error => publicWorkerDispatchError("invoke-execute", error),
-    });
+    const result = yield* executeInvokeEffect(env, deploymentId, invokeRequest, functions);
     return json(result);
   },
 );
@@ -708,15 +706,44 @@ function publicWorkerInvokeRouteErrorToResponse(
   error:
     | Parameters<typeof publicInvokeRouteErrorToHttpError>[0]
     | InvokeActiveDeploymentLoadError
+    | InvokeExecutionError
     | PublicWorkerDispatchError,
 ): Response {
-  if (error instanceof InvokeActiveDeploymentLoadError) {
-    return invokeErrorResponse(invokeActiveDeploymentLoadErrorToHttpError(error));
+  if (isInvokeExecutionError(error)) {
+    return invokeErrorResponse(invokeExecutionErrorToAdapterError(error));
   }
   if (error instanceof PublicWorkerDispatchError) {
     return invokeErrorResponse(publicWorkerDispatchErrorToAdapterError(error));
   }
   return invokeErrorResponse(publicInvokeRouteErrorToHttpError(error));
+}
+
+function isInvokeExecutionError(error: unknown): error is InvokeExecutionError {
+  if (error instanceof InvokeActiveDeploymentLoadError) return true;
+  if (typeof error !== "object" || error === null || !("_tag" in error)) return false;
+  switch ((error as { readonly _tag: string })._tag) {
+    case "InvokeActiveFunctionMetadataNotFoundError":
+    case "InvokeFunctionNotFoundError":
+    case "InvokeUnsupportedFunctionKindError":
+    case "InvokeFunctionKindMismatchError":
+    case "InvokeRequestKindMismatchError":
+    case "InvokeArgumentValidationError":
+    case "InvokeReturnValidationError":
+    case "InvokeTableNotFoundError":
+    case "InvokeDocumentIdParseError":
+    case "InvokeDocumentTableNotFoundError":
+    case "InvokeDocumentIdTableMismatchError":
+    case "InvokeDocumentValidationError":
+    case "InvokeDocumentPlacementError":
+    case "InvokeDocumentNotFoundError":
+    case "InvokePartitionValidationError":
+    case "InvokeQueryPlanningError":
+    case "InvokeKindValidationError":
+    case "InvokeExecutionOperationError":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function artifactRuntimeFromEnv(

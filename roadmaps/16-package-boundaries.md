@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Invoke Execution Boundary
+
+Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.
+
+What changed:
+
+- Invoke now owns `executeInvokeEffect(...)` as the typed runtime service
+  boundary for the legacy public invoke path.
+- Worker owns the final HTTP mapping for `InvokeExecutionError` on the
+  non-artifact `/invoke` path.
+- `executeInvoke(...)` remains a compatibility wrapper for promise-based
+  callers and maps typed errors back to adapter errors.
+
+Boundary decision:
+
+Invoke owns active deployment lookup, function resolution, partition/scope
+resolution, return validation, and operation error classification for legacy
+public invoke execution. Worker owns route body decoding, deployment id
+selection, artifact-runtime dispatch selection, and HTTP response conversion.
+
+Known limitations:
+
+- Handler database APIs still use the existing promise compatibility surfaces.
+- This checkpoint does not change artifact-runtime invoke dispatch, public
+  execution dispatch, request protocol schemas, executor-http, PartitionDO
+  SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Execution Syscall Query Planning Boundary
 
 Previous completed checkpoint: `37b6ab6` Type execution document syscalls.

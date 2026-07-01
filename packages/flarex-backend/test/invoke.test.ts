@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import {
   deleteDocumentEffect,
   executeInvoke,
+  executeInvokeEffect,
   getDocumentEffect,
   insertDocumentEffect,
   InvokeActiveDeploymentLoadError,
@@ -13,6 +14,7 @@ import {
   InvokeDocumentValidationError,
   InvokeFunctionNotFoundError,
   InvokeKindValidationError,
+  InvokeExecutionOperationError,
   InvokePartitionValidationError,
   InvokeQueryPlanningError,
   InvokeReturnValidationError,
@@ -185,6 +187,100 @@ describe("executeInvoke", () => {
       status: 400,
       message: "ArgumentValidationError: $args.name: Expected a string.",
     });
+  });
+
+  it("keeps executeInvoke validation typed until the adapter boundary", async () => {
+    await putSchema("typed-execute-validation-deployment", {
+      version: 1,
+      tables: [],
+      indexes: [],
+    });
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        "typed-execute-validation-deployment",
+        {
+          path: "users:greet",
+          kind: "query",
+          args: { name: 42 },
+        },
+        {
+          "users:greet": {
+            kind: "query",
+            args: {
+              type: "object",
+              value: {
+                name: { fieldType: { type: "string" }, optional: false },
+              },
+            },
+            handler: () => null,
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeArgumentValidationError);
+    if (!(failure instanceof InvokeArgumentValidationError)) {
+      throw new Error("Expected InvokeArgumentValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "ArgumentValidationError: $args.name: Expected a string.",
+    });
+  });
+
+  it("keeps executeInvoke handler failures typed as operation errors", async () => {
+    await putSchema("typed-execute-handler-deployment", usersPartitionSchema());
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        "typed-execute-handler-deployment",
+        {
+          path: "users:explode",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        {
+          "users:explode": {
+            kind: "query",
+            partition: userPartition(),
+            handler: () => {
+              throw new Error("handler exploded");
+            },
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeExecutionOperationError);
+    if (!(failure instanceof InvokeExecutionOperationError)) {
+      throw new Error("Expected InvokeExecutionOperationError.");
+    }
+    expect(failure).toMatchObject({
+      operation: "handler",
+      status: 500,
+      message: "handler exploded",
+    });
+    await expect(executeInvoke(
+      env,
+      "typed-execute-handler-deployment",
+      {
+        path: "users:explode",
+        kind: "query",
+        partitionKey: "u1",
+        args: { userId: "u1" },
+      },
+      {
+        "users:explode": {
+          kind: "query",
+          partition: userPartition(),
+          handler: () => {
+            throw new Error("handler exploded");
+          },
+        },
+      },
+    )).rejects.toThrow("handler exploded");
   });
 
   it("reports invoke return validation as a typed Effect failure before adapter mapping", async () => {
