@@ -23,6 +23,12 @@ import {
   parsePublicStartPushPayload,
 } from "./Requests";
 
+export type PublicDeploymentRouteError =
+  | RequestJsonError
+  | DeploymentProtocolValidationError;
+
+export type PublicDeploymentJsonError = RequestJsonError;
+
 export async function readPublicStartPushJson(request: Request): Promise<unknown> {
   return await runPublicDeploymentJsonRequest(decodePublicStartPushJson(request));
 }
@@ -158,21 +164,21 @@ export function decodePublicAbandonPushRoutePayload(
 }
 
 async function runPublicDeploymentRouteRequest<A>(
-  effect: Effect.Effect<A, RequestJsonError | DeploymentProtocolValidationError>,
+  effect: Effect.Effect<A, PublicDeploymentRouteError>,
 ): Promise<A> {
   return await Effect.runPromise(
     effect.pipe(
-      Effect.mapError(publicDeploymentRouteErrorToHttpError),
+      Effect.catch(publicDeploymentRouteErrorToHttpErrorEffect),
     ),
   );
 }
 
 async function runPublicDeploymentJsonRequest(
-  effect: Effect.Effect<unknown, RequestJsonError>,
+  effect: Effect.Effect<unknown, PublicDeploymentJsonError>,
 ): Promise<unknown> {
   return await Effect.runPromise(
     effect.pipe(
-      Effect.mapError(requestJsonErrorToHttpError),
+      Effect.catch(publicDeploymentJsonErrorToHttpErrorEffect),
     ),
   );
 }
@@ -187,10 +193,26 @@ function decodePublicDeploymentRouteRequest<A>(
 }
 
 export function publicDeploymentRouteErrorToHttpError(
-  error: RequestJsonError | DeploymentProtocolValidationError,
+  error: PublicDeploymentRouteError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
 }
+
+export const publicDeploymentRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicPushRouteBoundary.publicDeploymentRouteErrorToHttpError",
+)(function* (
+  error: PublicDeploymentRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicDeploymentRouteErrorToHttpError(error));
+});
+
+export const publicDeploymentJsonErrorToHttpErrorEffect = Effect.fn(
+  "PublicPushRouteBoundary.publicDeploymentJsonErrorToHttpError",
+)(function* (
+  error: PublicDeploymentJsonError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(requestJsonErrorToHttpError(error));
+});

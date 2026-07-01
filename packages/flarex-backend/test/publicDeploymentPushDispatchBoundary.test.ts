@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   abandonDeploymentPushEffect,
+  dispatchDeploymentPushEffect,
   finishDeploymentPushEffect,
   type PublicDeploymentPushDispatchTarget,
   readDeploymentPushEffect,
@@ -44,6 +45,43 @@ describe("public deployment push dispatch boundary", () => {
         message: `${operation.source} unavailable`,
       });
     }
+  });
+
+  it("runs the shared dispatch helper with operation-specific failure tagging", async () => {
+    const requests: DispatchedRequest[] = [];
+    const forwarded = Response.json({ ok: true });
+
+    const response = await Effect.runPromise(dispatchDeploymentPushEffect(
+      deploymentTarget(requests, async () => forwarded),
+      "deployment-read-push",
+      "/push/shared-helper",
+    ));
+
+    expect(response).toBe(forwarded);
+    expect(requests).toEqual([{
+      input: "https://flarex.internal/push/shared-helper",
+      method: undefined,
+      contentType: null,
+      body: undefined,
+    }]);
+
+    const failure = await Effect.runPromise(Effect.flip(dispatchDeploymentPushEffect(
+      failingDeploymentTarget("shared helper unavailable"),
+      "deployment-finish-push",
+      "/push/shared-helper/finish",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(finishRequest()),
+      },
+    )));
+
+    expect(failure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "deployment-finish-push",
+      status: 500,
+      message: "shared helper unavailable",
+    });
   });
 });
 

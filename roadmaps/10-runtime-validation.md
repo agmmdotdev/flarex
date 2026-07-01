@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Public Deployment Push Route-Service Boundary Effects
+
+Previous completed checkpoint: `eca0ecf` Name remaining deployment adapter
+effects.
+
+What changed:
+
+- Public deployment push route request failures now have explicit route/json
+  failure aliases.
+- Compatibility readers recover through named Effect adapter helpers before
+  returning `HttpError`.
+- Public deployment push service-binding dispatch now shares one named
+  `dispatchDeploymentPushEffect(...)` helper with operation-specific failure
+  sources.
+
+Why it changed:
+
+The public push route is a full route-service path: it reads request JSON,
+validates transport payloads with protocol decoders, optionally performs
+artifact/analyzer work, and dispatches to DeploymentDO. This checkpoint keeps
+those failures typed until the route adapter or dispatch boundary that owns
+the conversion.
+
+Known limitations:
+
+- This checkpoint does not change public Worker route matching,
+  DeploymentDO/generated HttpApi handlers, DeploymentService/store behavior,
+  analyzer/artifact semantics, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/publicDeploymentPushRouteBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Read Start And Protocol Adapter Failure Effects
 
 Previous completed checkpoint: `1e37836` Name finish abandon adapter effects.

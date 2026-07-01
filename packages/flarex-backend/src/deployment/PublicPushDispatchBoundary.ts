@@ -8,6 +8,7 @@ import {
 } from "flarex-protocol/deployment";
 import {
   publicWorkerDispatchError,
+  type PublicWorkerDispatchSource,
   type PublicWorkerDispatchError,
 } from "../worker/PublicRouteDispatchError";
 
@@ -15,16 +16,27 @@ export interface PublicDeploymentPushDispatchTarget {
   fetch(input: string, init?: RequestInit): Promise<Response>;
 }
 
+export type PublicDeploymentPushDispatchOperation = Extract<
+  PublicWorkerDispatchSource,
+  | "deployment-read-push"
+  | "deployment-start-push"
+  | "deployment-start-analyzed-push"
+  | "deployment-finish-push-artifact"
+  | "deployment-finish-push"
+  | "deployment-abandon-push"
+>;
+
 export const readDeploymentPushEffect = Effect.fn(
   "Worker.readDeploymentPush",
 )(function* (
   deployment: PublicDeploymentPushDispatchTarget,
   pushId: string,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
-    try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
-    catch: error => publicWorkerDispatchError("deployment-read-push", error),
-  });
+  return yield* dispatchDeploymentPushEffect(
+    deployment,
+    "deployment-read-push",
+    deploymentPushPath(pushId),
+  );
 });
 
 export const readDeploymentPushForFinishArtifactEffect = Effect.fn(
@@ -33,10 +45,11 @@ export const readDeploymentPushForFinishArtifactEffect = Effect.fn(
   deployment: PublicDeploymentPushDispatchTarget,
   pushId: string,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
-    try: () => deployment.fetch(deploymentInternalUrl(deploymentPushPath(pushId))),
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  });
+  return yield* dispatchDeploymentPushEffect(
+    deployment,
+    "deployment-finish-push-artifact",
+    deploymentPushPath(pushId),
+  );
 });
 
 export const abandonDeploymentPushEffect = Effect.fn(
@@ -46,13 +59,12 @@ export const abandonDeploymentPushEffect = Effect.fn(
   pushId: string,
   body: AbandonPushRequest,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
-    try: () => deployment.fetch(
-      deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.abandon)),
-      jsonPost(body),
-    ),
-    catch: error => publicWorkerDispatchError("deployment-abandon-push", error),
-  });
+  return yield* dispatchDeploymentPushEffect(
+    deployment,
+    "deployment-abandon-push",
+    deploymentPushPath(pushId, DeploymentPushAction.abandon),
+    jsonPost(body),
+  );
 });
 
 export const finishDeploymentPushEffect = Effect.fn(
@@ -62,13 +74,12 @@ export const finishDeploymentPushEffect = Effect.fn(
   pushId: string,
   body: FinishPushRequest,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
-    try: () => deployment.fetch(
-      deploymentInternalUrl(deploymentPushPath(pushId, DeploymentPushAction.finish)),
-      jsonPost(body),
-    ),
-    catch: error => publicWorkerDispatchError("deployment-finish-push", error),
-  });
+  return yield* dispatchDeploymentPushEffect(
+    deployment,
+    "deployment-finish-push",
+    deploymentPushPath(pushId, DeploymentPushAction.finish),
+    jsonPost(body),
+  );
 });
 
 export const startDeploymentPushEffect = Effect.fn(
@@ -80,7 +91,7 @@ export const startDeploymentPushEffect = Effect.fn(
   return yield* forwardAnalyzedStartPushEffect(
     deployment,
     analyzed,
-    error => publicWorkerDispatchError("deployment-start-push", error),
+    "deployment-start-push",
   );
 });
 
@@ -93,23 +104,36 @@ export const startAnalyzedDeploymentPushEffect = Effect.fn(
   return yield* forwardAnalyzedStartPushEffect(
     deployment,
     body,
-    error => publicWorkerDispatchError("deployment-start-analyzed-push", error),
+    "deployment-start-analyzed-push",
   );
 });
 
 function forwardAnalyzedStartPushEffect(
   deployment: PublicDeploymentPushDispatchTarget,
   body: AnalyzedStartPushRequest,
-  mapError: (error: unknown) => PublicWorkerDispatchError,
+  operation: PublicDeploymentPushDispatchOperation,
 ): Effect.Effect<Response, PublicWorkerDispatchError> {
-  return Effect.tryPromise({
-    try: () => deployment.fetch(
-      deploymentInternalUrl(DeploymentRoute.startAnalyzedPush),
-      jsonPost(body),
-    ),
-    catch: mapError,
-  });
+  return dispatchDeploymentPushEffect(
+    deployment,
+    operation,
+    DeploymentRoute.startAnalyzedPush,
+    jsonPost(body),
+  );
 }
+
+export const dispatchDeploymentPushEffect = Effect.fn(
+  "Worker.dispatchDeploymentPush",
+)(function* (
+  deployment: PublicDeploymentPushDispatchTarget,
+  operation: PublicDeploymentPushDispatchOperation,
+  path: DeploymentInternalPath,
+  init?: RequestInit,
+): Effect.fn.Return<Response, PublicWorkerDispatchError> {
+  return yield* Effect.tryPromise({
+    try: () => deployment.fetch(deploymentInternalUrl(path), init),
+    catch: error => publicWorkerDispatchError(operation, error),
+  });
+});
 
 type DeploymentInternalPath =
   | typeof DeploymentRoute.activeDeployment

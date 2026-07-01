@@ -13,7 +13,9 @@ import {
   decodePublicStartPushRequest,
   decodePublicStartPushJson,
   decodePublicStartPushRoutePayload,
+  publicDeploymentJsonErrorToHttpErrorEffect,
   publicDeploymentRouteErrorToHttpError,
+  publicDeploymentRouteErrorToHttpErrorEffect,
   parsePublicAbandonPushRequest,
   parsePublicAbandonPushRequestEffect,
   parsePublicAnalyzedStartPushRequest,
@@ -262,6 +264,33 @@ describe("public deployment push route boundary", () => {
     expect(publicDeploymentRouteErrorToHttpError(protocolError)).toMatchObject({
       status: 400,
       message: "Abandon push request must be an object.",
+    } satisfies Partial<HttpError>);
+  });
+
+  it("maps typed public route errors through named adapter effects", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      publicDeploymentJsonErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    } satisfies Partial<HttpError>);
+
+    const protocolError = new DeploymentProtocolValidationError({
+      schema: "FinishPushRequest",
+      message: "Finish push activate flag must be a boolean.",
+      cause: {},
+    });
+    const mappedProtocol = await Effect.runPromise(Effect.flip(
+      publicDeploymentRouteErrorToHttpErrorEffect(protocolError),
+    ));
+    expect(mappedProtocol).toMatchObject({
+      status: 400,
+      message: "Finish push activate flag must be a boolean.",
     } satisfies Partial<HttpError>);
   });
 });
