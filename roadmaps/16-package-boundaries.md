@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Execution Route-Service Boundary Effects
+
+Previous completed checkpoint: `8b73137` Type public deployment push route
+boundary.
+
+What changed:
+
+- Execution start/action route boundaries now expose named HTTP adapter
+  effects for typed request/protocol/path failures.
+- Public execution dispatch calls share a named service-binding helper while
+  preserving operation-specific dispatch sources.
+- Tests cover route adapter-effect failure channels and shared dispatch helper
+  behavior directly.
+
+Boundary decision:
+
+Execution request decoding and path validation belong to the execution route
+boundary modules; service-binding dispatch belongs to
+`PublicDispatchBoundary.ts`; public Worker response conversion remains at the
+outer route edge. `HttpError` stays at compatibility adapter edges and dispatch
+failures stay typed as `PublicWorkerDispatchError`.
+
+Known limitations:
+
+- No public Worker route matching, ExecutionDO internals, execution session
+  behavior, package metadata, service binding configuration, or SQL/OCC
+  boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/executionRequests.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Push Route-Service Boundary Effects
 
 Previous completed checkpoint: `eca0ecf` Name remaining deployment adapter

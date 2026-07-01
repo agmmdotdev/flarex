@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  dispatchExecutionEffect,
   dispatchPublicExecutionActionEffect,
   type PublicExecutionDispatchTarget,
   startPublicExecutionEffect,
@@ -98,6 +99,40 @@ describe("public execution dispatch boundary", () => {
       source: "execution-action",
       status: 500,
       message: "action unavailable",
+    });
+  });
+
+  it("runs the shared execution dispatch helper with operation-specific failure tagging", async () => {
+    const requests: DispatchedRequest[] = [];
+    const forwarded = Response.json({ ok: true });
+
+    const response = await Effect.runPromise(dispatchExecutionEffect(
+      executionTarget(requests, async () => forwarded),
+      "execution-action",
+      "abort",
+      { reason: "client cancel" },
+    ));
+
+    expect(response).toBe(forwarded);
+    expect(requests).toEqual([{
+      input: "https://flarex.internal/abort",
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify({ reason: "client cancel" }),
+    }]);
+
+    const failure = await Effect.runPromise(Effect.flip(dispatchExecutionEffect(
+      failingExecutionTarget("shared execution unavailable"),
+      "execution-start",
+      "start",
+      executionStartRequest(),
+    )));
+
+    expect(failure).toMatchObject({
+      _tag: "PublicWorkerDispatchError",
+      source: "execution-start",
+      status: 500,
+      message: "shared execution unavailable",
     });
   });
 });

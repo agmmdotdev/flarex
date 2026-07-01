@@ -8,6 +8,7 @@ import {
   decodePublicExecutionStartRouteRequest,
   decodePublicExecutionStartRoutePayload,
   executionStartRouteErrorToHttpError,
+  executionStartRouteErrorToHttpErrorEffect,
   parseExecutionStartRouteRequest,
   parseExecutionStartRouteRequestEffect,
   parsePublicExecutionStartRouteRequest,
@@ -186,6 +187,33 @@ describe("execution start route boundary", () => {
       cause: null,
     });
     expect(executionStartRouteErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: "Execution start request must include JSON args.",
+    });
+  });
+
+  it("maps typed execution start route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      executionStartRouteErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ExecutionProtocolValidationError({
+      schema: "ExecutionStartRequest",
+      message: "Execution start request must include JSON args.",
+      cause: null,
+    });
+    const mappedProtocol = await Effect.runPromise(Effect.flip(
+      executionStartRouteErrorToHttpErrorEffect(protocolError),
+    ));
+    expect(mappedProtocol).toMatchObject({
       status: 400,
       message: "Execution start request must include JSON args.",
     });

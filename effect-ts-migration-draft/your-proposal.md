@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public deployment push route-service boundary effects.
+- Previous completed checkpoint: Public execution route-service boundary effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,38 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public deployment push route-service boundary effects:
+Next recommended checkpoint after the public execution route-service boundary effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
-   carry the public route request/dispatch/error pattern to execution or
-   scheduler routes, or move deployment validation/service helpers further
-   toward typed service/domain failures with one adapter response edge.
+   carry the public route request/dispatch/error pattern to scheduler routes,
+   or move deployment validation/service helpers further toward typed
+   service/domain failures with one adapter response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 285 slice:
+
+1. Add named `Effect.fn(...)` adapter helpers
+   `executionStartRouteErrorToHttpErrorEffect(...)`,
+   `publicExecutionActionRouteErrorToHttpErrorEffect(...)`, and
+   `publicExecutionRoutePathErrorToHttpErrorEffect(...)` so compatibility
+   readers and path failures recover through typed HTTP adapter edges.
+2. Add a shared named `dispatchExecutionEffect(...)` service-binding helper
+   for public execution start/action dispatch, with an explicit
+   `PublicExecutionDispatchOperation` source union.
+3. Route public execution start and action dispatch through the shared helper
+   while preserving internal URLs, JSON bodies, successful start response
+   wrapping with `sessionId`, non-OK response passthrough, and
+   operation-specific `PublicWorkerDispatchError` sources.
+4. Add direct tests for named execution route adapter effects, path adapter
+   effects, and the shared dispatch helper success/failure channels.
+5. Leave public Worker route matching, ExecutionDO internals, execution
+   session behavior, deployment routing, PartitionDO SQL/OCC, executor-http,
+   and `ValidatorJson` unchanged.
 
 Completed Goal 284 slice:
 

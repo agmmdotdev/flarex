@@ -10,7 +10,9 @@ import {
   parsePublicExecutionActionRequest,
   parsePublicExecutionActionRequestEffect,
   publicExecutionActionRouteErrorToHttpError,
+  publicExecutionActionRouteErrorToHttpErrorEffect,
   publicExecutionRoutePathErrorToHttpError,
+  publicExecutionRoutePathErrorToHttpErrorEffect,
   publicExecutionRoutePathFromPartsEffect,
   readPublicExecutionActionRequest,
 } from "../src/execution/ActionRouteBoundary";
@@ -168,6 +170,41 @@ describe("public execution action route boundary", () => {
     expect(publicExecutionActionRouteErrorToHttpError(protocolError)).toMatchObject({
       status: 400,
       message: "Execution finish request must include JSON value.",
+    });
+  });
+
+  it("maps typed public action route errors through named adapter effects", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    const mappedJson = await Effect.runPromise(Effect.flip(
+      publicExecutionActionRouteErrorToHttpErrorEffect(jsonError),
+    ));
+    expect(mappedJson).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = new ExecutionProtocolValidationError({
+      schema: "ExecutionFinishRequest",
+      message: "Execution finish request must include JSON value.",
+      cause: null,
+    });
+    const mappedProtocol = await Effect.runPromise(Effect.flip(
+      publicExecutionActionRouteErrorToHttpErrorEffect(protocolError),
+    ));
+    expect(mappedProtocol).toMatchObject({
+      status: 400,
+      message: "Execution finish request must include JSON value.",
+    });
+
+    const mappedPath = await Effect.runPromise(Effect.flip(
+      publicExecutionRoutePathErrorToHttpErrorEffect(new MissingExecutionSessionIdError()),
+    ));
+    expect(mappedPath).toMatchObject({
+      status: 400,
+      message: "Missing execution session id.",
     });
   });
 

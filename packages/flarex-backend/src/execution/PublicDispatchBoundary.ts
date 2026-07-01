@@ -4,12 +4,18 @@ import type { ExecutionStartRequest } from "../types";
 import type { PublicExecutionAction } from "./ActionRouteBoundary";
 import {
   publicWorkerDispatchError,
+  type PublicWorkerDispatchSource,
   type PublicWorkerDispatchError,
 } from "../worker/PublicRouteDispatchError";
 
 export interface PublicExecutionDispatchTarget {
   fetch(input: string, init?: RequestInit): Promise<Response>;
 }
+
+export type PublicExecutionDispatchOperation = Extract<
+  PublicWorkerDispatchSource,
+  "execution-start" | "execution-action"
+>;
 
 export const startPublicExecutionEffect = Effect.fn(
   "Worker.startPublicExecution",
@@ -18,15 +24,12 @@ export const startPublicExecutionEffect = Effect.fn(
   body: ExecutionStartRequest,
   sessionId: string,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
-  const response = yield* Effect.tryPromise({
-    try: () =>
-      execution.fetch("https://flarex.internal/start", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    catch: error => publicWorkerDispatchError("execution-start", error),
-  });
+  const response = yield* dispatchExecutionEffect(
+    execution,
+    "execution-start",
+    "start",
+    body,
+  );
   if (!response.ok) return response;
 
   const responseBody = yield* readResponseJsonEffect(response).pipe(
@@ -42,13 +45,26 @@ export const dispatchPublicExecutionActionEffect = Effect.fn(
   action: PublicExecutionAction,
   body: unknown,
 ): Effect.fn.Return<Response, PublicWorkerDispatchError> {
+  return yield* dispatchExecutionEffect(execution, "execution-action", action, body);
+});
+
+export const dispatchExecutionEffect = Effect.fn(
+  "Worker.dispatchExecution",
+)(function* (
+  execution: PublicExecutionDispatchTarget,
+  operation: PublicExecutionDispatchOperation,
+  path: PublicExecutionDispatchPath,
+  body: unknown,
+): Effect.fn.Return<Response, PublicWorkerDispatchError> {
   return yield* Effect.tryPromise({
     try: () =>
-      execution.fetch(`https://flarex.internal/${action}`, {
+      execution.fetch(`https://flarex.internal/${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       }),
-    catch: error => publicWorkerDispatchError("execution-action", error),
+    catch: error => publicWorkerDispatchError(operation, error),
   });
 });
+
+type PublicExecutionDispatchPath = "start" | PublicExecutionAction;

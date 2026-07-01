@@ -43,7 +43,7 @@ export async function readPublicExecutionActionRequest(
 ): Promise<unknown> {
   return await Effect.runPromise(
     decodePublicExecutionActionRequest(request, action).pipe(
-      Effect.mapError(publicExecutionActionRouteErrorToHttpError),
+      Effect.catch(publicExecutionActionRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -113,6 +113,14 @@ export function publicExecutionActionRouteErrorToHttpError(
   return new HttpError(400, error.message);
 }
 
+export const publicExecutionActionRouteErrorToHttpErrorEffect = Effect.fn(
+  "ExecutionActionRouteBoundary.publicExecutionActionRouteErrorToHttpError",
+)(function* (
+  error: PublicExecutionActionRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicExecutionActionRouteErrorToHttpError(error));
+});
+
 export function publicExecutionRoutePathErrorToHttpError(
   error: PublicExecutionRoutePathError,
 ): HttpError {
@@ -121,6 +129,14 @@ export function publicExecutionRoutePathErrorToHttpError(
   }
   return new HttpError(400, "Missing execution action.");
 }
+
+export const publicExecutionRoutePathErrorToHttpErrorEffect = Effect.fn(
+  "ExecutionActionRouteBoundary.publicExecutionRoutePathErrorToHttpError",
+)(function* (
+  error: PublicExecutionRoutePathError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicExecutionRoutePathErrorToHttpError(error));
+});
 
 function isPublicExecutionAction(action: string): action is PublicExecutionAction {
   return action === "syscall" || action === "finish" || action === "abort";

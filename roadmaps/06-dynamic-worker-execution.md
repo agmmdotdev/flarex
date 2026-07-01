@@ -1,5 +1,46 @@
 # Dynamic Worker Execution
 
+## Public Execution Route-Service Boundary Effects
+
+Previous completed checkpoint: `8b73137` Type public deployment push route
+boundary.
+
+What changed:
+
+- Public/internal execution start and public execution action compatibility
+  readers now recover through named Effect adapter helpers.
+- Public execution route path failures have a named adapter effect for Worker
+  route mapping.
+- Public execution start/action service-binding dispatch now shares one named
+  `dispatchExecutionEffect(...)` helper with operation-specific failure
+  sources.
+
+Why it changed:
+
+Dynamic-worker execution routes connect public Worker request decoding,
+protocol validation, execution path validation, service-binding dispatch, and
+start response wrapping. This checkpoint moves that route-service path toward
+the same typed boundary shape as the deployment push route: typed failures
+until the route adapter edge and typed dispatch failures at the service-binding
+edge.
+
+Known limitations:
+
+- This checkpoint does not change public Worker route matching, ExecutionDO
+  internals, execution session lifecycle, syscall/finish semantics, direct
+  invoke, artifact runtime dispatch, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts test/executionRequests.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke Protocol Request Effect Decoder
 
 Previous completed checkpoint: `7e3dd43` Add execution protocol effect decoders.

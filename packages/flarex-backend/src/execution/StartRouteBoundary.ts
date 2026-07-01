@@ -21,7 +21,7 @@ export async function readExecutionStartRequest(
 ): Promise<ExecutionStartRequest> {
   return await Effect.runPromise(
     decodeExecutionStartRouteRequest(request).pipe(
-      Effect.mapError(executionStartRouteErrorToHttpError),
+      Effect.catch(executionStartRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -40,7 +40,7 @@ export async function readPublicExecutionStartRequest(
 ): Promise<ExecutionStartRequest> {
   return await Effect.runPromise(
     decodePublicExecutionStartRouteRequest(request, deploymentId).pipe(
-      Effect.mapError(executionStartRouteErrorToHttpError),
+      Effect.catch(executionStartRouteErrorToHttpErrorEffect),
     ),
   );
 }
@@ -113,3 +113,11 @@ export function executionStartRouteErrorToHttpError(error: ExecutionStartRouteEr
   }
   return new HttpError(400, error.message);
 }
+
+export const executionStartRouteErrorToHttpErrorEffect = Effect.fn(
+  "ExecutionStartRouteBoundary.executionStartRouteErrorToHttpError",
+)(function* (
+  error: ExecutionStartRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(executionStartRouteErrorToHttpError(error));
+});
