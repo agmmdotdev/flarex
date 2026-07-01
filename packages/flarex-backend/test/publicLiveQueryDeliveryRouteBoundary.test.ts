@@ -8,6 +8,7 @@ import {
   parsePublicLiveQueryDeliveryRequest,
   parsePublicLiveQueryDeliveryRequestEffect,
   publicLiveQueryDeliveryRouteErrorToHttpError,
+  publicLiveQueryDeliveryRouteErrorToHttpErrorEffect,
   readPublicLiveQueryDeliveryRequest,
 } from "../src/liveQueryDelivery/RouteBoundary";
 
@@ -189,6 +190,29 @@ describe("public live query delivery route boundary", () => {
       message: "deliveries[0].queryId must be an integer.",
     });
     expect(publicLiveQueryDeliveryRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
+      message: "deliveries[0].queryId must be an integer.",
+    });
+  });
+
+  it("maps typed public live query delivery route errors through a named adapter effect", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(jsonError),
+    ))).resolves.toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const validationError = new LiveQueryDeliveryChangePayloadError({
+      message: "deliveries[0].queryId must be an integer.",
+    });
+    await expect(Effect.runPromise(Effect.flip(
+      publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(validationError),
+    ))).resolves.toMatchObject({
       status: 400,
       message: "deliveries[0].queryId must be an integer.",
     });

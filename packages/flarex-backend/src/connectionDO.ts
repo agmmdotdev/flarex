@@ -3,6 +3,7 @@ import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
   connectionRouteErrorToHttpError,
+  connectionRouteErrorToHttpErrorEffect,
   decodeConnectionInvalidationRequest,
   decodeConnectionLiveQueryDeliveryRequest,
   type ConnectionRouteError,
@@ -15,9 +16,10 @@ import {
 } from "./connection/RouteDispatchBoundary";
 import {
   connectionRouteOperationErrorToHttpError,
+  connectionRouteOperationErrorToHttpErrorEffect,
   ConnectionRouteOperationError,
 } from "./connection/RouteOperationError";
-import { errorResponse, json } from "./http";
+import { errorResponse, HttpError, json } from "./http";
 import { Effect } from "effect";
 import {
   executeInvoke,
@@ -727,16 +729,7 @@ function runConnectionRoute(
 ): Promise<Response> {
   return Effect.runPromise(
     effect.pipe(
-      Effect.catchTags({
-        RequestJsonError: error =>
-          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
-        ConnectionRouteValidationError: error =>
-          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
-        LiveQueryDeliveryChangePayloadError: error =>
-          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
-        ConnectionRouteOperationError: error =>
-          Effect.succeed(errorResponse(connectionInternalRouteErrorToHttpError(error))),
-      }),
+      Effect.catch(connectionInternalRouteErrorToResponseEffect),
     ),
   );
 }
@@ -749,6 +742,26 @@ function connectionInternalRouteErrorToHttpError(
   }
   return connectionRouteErrorToHttpError(error);
 }
+
+const connectionInternalRouteErrorToHttpErrorEffect = Effect.fn(
+  "ConnectionDO.connectionInternalRouteErrorToHttpError",
+)(function* (
+  error: ConnectionInternalRouteError,
+): Effect.fn.Return<never, HttpError> {
+  if (error instanceof ConnectionRouteOperationError) {
+    return yield* connectionRouteOperationErrorToHttpErrorEffect(error);
+  }
+  return yield* connectionRouteErrorToHttpErrorEffect(error);
+});
+
+const connectionInternalRouteErrorToResponseEffect = Effect.fn(
+  "ConnectionDO.connectionInternalRouteErrorToResponse",
+)(function* (
+  error: ConnectionInternalRouteError,
+): Effect.fn.Return<Response, never> {
+  const httpError = yield* Effect.flip(connectionInternalRouteErrorToHttpErrorEffect(error));
+  return errorResponse(httpError);
+});
 
 async function executeSyncInvoke(
   env: Env,

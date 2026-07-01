@@ -18,7 +18,7 @@ export async function readPublicLiveQueryDeliveryRequest(
   request: Request,
 ): Promise<LiveQueryDeliveryChange[]> {
   return Effect.runPromise(decodePublicLiveQueryDeliveryRequest(request).pipe(
-    Effect.mapError(publicLiveQueryDeliveryRouteErrorToHttpError),
+    Effect.catch(publicLiveQueryDeliveryRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -34,7 +34,7 @@ export function parsePublicLiveQueryDeliveryRequest(
   value: unknown,
 ): LiveQueryDeliveryChange[] {
   return Effect.runSync(parsePublicLiveQueryDeliveryRequestEffect(value).pipe(
-    Effect.mapError(publicLiveQueryDeliveryRouteErrorToHttpError),
+    Effect.catch(publicLiveQueryDeliveryRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -58,3 +58,11 @@ export function publicLiveQueryDeliveryRouteErrorToHttpError(
   }
   return liveQueryDeliveryChangePayloadErrorToHttpError(error);
 }
+
+export const publicLiveQueryDeliveryRouteErrorToHttpErrorEffect = Effect.fn(
+  "PublicLiveQueryDeliveryRouteBoundary.publicLiveQueryDeliveryRouteErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(publicLiveQueryDeliveryRouteErrorToHttpError(error));
+});

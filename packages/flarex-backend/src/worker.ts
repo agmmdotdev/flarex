@@ -123,11 +123,13 @@ import {
   publicInvokeRouteErrorToHttpError,
 } from "./invoke/PublicInvokeRouteBoundary";
 import {
-  deliverLiveQueryChangesToConnectionsEffect,
   LiveQueryDeliveryChangePayloadError,
   liveQueryDeliveryTargetErrorToHttpError,
   LiveQueryDeliveryTargetError,
 } from "./liveQueryDelivery";
+import {
+  dispatchPublicLiveQueryDeliveryEffect,
+} from "./liveQueryDelivery/PublicDispatchBoundary";
 import {
   decodePublicLiveQueryDeliveryRequest,
   publicLiveQueryDeliveryRouteErrorToHttpError,
@@ -920,16 +922,10 @@ const routePublicLiveQueryDelivery = Effect.fn("Worker.routePublicLiveQueryDeliv
   function* (request: Request, env: Env, deploymentId: string) {
     yield* authorizePublicLiveQueryDeliveryRequest(request, env);
     const deliveries = yield* decodePublicLiveQueryDeliveryRequest(request);
-    const result = yield* deliverLiveQueryChangesToConnectionsEffect(
+    const result = yield* dispatchPublicLiveQueryDeliveryEffect(
       env,
       deploymentId,
       deliveries,
-    ).pipe(
-      Effect.mapError(error =>
-        error instanceof LiveQueryDeliveryTargetError
-          ? error
-          : publicWorkerDispatchError("live-query-delivery", error)
-      ),
     );
     return json(result);
   },

@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Public Connection Live-Query Route-Service Boundary Effects
+
+Previous completed checkpoint: `69f1c03` Type public delivery wake route
+boundary.
+
+What changed:
+
+- Connection route and operation errors now expose named Effect adapter helpers
+  before returning `HttpError`.
+- Public live-query delivery request mapping exposes a named adapter effect for
+  typed request JSON and payload failures.
+- Public live-query fanout now runs through a named dispatch helper that
+  preserves target validation failures and maps dispatch failures at source.
+
+Why it changed:
+
+Live-query delivery is a runtime validation path: the public Worker validates
+authorization and request payloads, validates deployment-scoped targets before
+fanout, and then forwards grouped deliveries to ConnectionDO instances. This
+checkpoint keeps those failures typed until the adapter edge while preserving
+the existing response contract.
+
+Known limitations:
+
+- This checkpoint does not change websocket sync semantics, query execution,
+  executor subscription writes, DeliveryDO wake/drain behavior, SchedulerDO
+  maintenance, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicLiveQueryDeliveryAuthorization.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts test/liveQueryDelivery.test.ts test/publicDeliveryWakeRouteBoundary.test.ts test/publicDeliveryWakeDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Delivery Wake Route-Service Boundary Effects
 
 Previous completed checkpoint: `d3eefa5` Type public scheduler route boundary.

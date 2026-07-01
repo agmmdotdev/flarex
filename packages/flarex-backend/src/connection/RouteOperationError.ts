@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, Effect } from "effect";
 import { HttpError } from "../http";
 
 export type ConnectionRouteOperation =
@@ -39,3 +39,11 @@ export function connectionRouteOperationErrorToHttpError(
 ): HttpError {
   return new HttpError(error.status, error.message);
 }
+
+export const connectionRouteOperationErrorToHttpErrorEffect = Effect.fn(
+  "ConnectionRouteOperationError.toHttpError",
+)(function* (
+  error: ConnectionRouteOperationError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(connectionRouteOperationErrorToHttpError(error));
+});

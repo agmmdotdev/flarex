@@ -4,6 +4,7 @@ import { HttpError, RequestJsonError } from "../src/http";
 import { LiveQueryDeliveryChangePayloadError } from "../src/liveQueryDelivery";
 import {
   connectionRouteErrorToHttpError,
+  connectionRouteErrorToHttpErrorEffect,
   ConnectionRouteValidationError,
   decodeConnectionInvalidationRequest,
   decodeConnectionInvalidationRoutePayload,
@@ -19,6 +20,7 @@ import {
 import {
   connectionRouteOperationError,
   connectionRouteOperationErrorToHttpError,
+  connectionRouteOperationErrorToHttpErrorEffect,
   ConnectionRouteOperationError,
 } from "../src/connection/RouteOperationError";
 
@@ -211,6 +213,38 @@ describe("connection route boundary", () => {
     expect(connectionRouteErrorToHttpError(deliveryPayloadError)).toMatchObject({
       status: 400,
       message: "deliveries[0].deploymentId must be a non-empty string.",
+    });
+  });
+
+  it("maps typed connection route errors through named adapter effects", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    await expect(Effect.runPromise(Effect.flip(connectionRouteErrorToHttpErrorEffect(jsonError))))
+      .resolves.toMatchObject({
+        status: 400,
+        message: "Request body must be JSON.",
+      });
+
+    const validationError = new ConnectionRouteValidationError({
+      message: "Invalidation queryId must be an integer.",
+    });
+    await expect(Effect.runPromise(Effect.flip(connectionRouteErrorToHttpErrorEffect(validationError))))
+      .resolves.toMatchObject({
+        status: 400,
+        message: "Invalidation queryId must be an integer.",
+      });
+
+    const operationError = connectionRouteOperationError(
+      "deliver-live-query",
+      new Error("socket send failed"),
+    );
+    await expect(Effect.runPromise(Effect.flip(
+      connectionRouteOperationErrorToHttpErrorEffect(operationError),
+    ))).resolves.toMatchObject({
+      status: 500,
+      message: "socket send failed",
     });
   });
 

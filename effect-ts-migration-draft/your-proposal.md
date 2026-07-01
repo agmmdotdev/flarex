@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public delivery wake route-service boundary effects.
+- Previous completed checkpoint: Public connection live-query route-service boundary effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,19 +48,44 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public delivery wake route-service boundary effects:
+Next recommended checkpoint after the public connection live-query route-service boundary effects:
 
 1. Prefer another route-service batch or a deeper DeploymentService batch next:
-   carry the public route request/dispatch/error pattern to connection,
-   live-query delivery, or invoke-adjacent routes, or move deployment
-   validation/service helpers further toward typed service/domain failures with
-   one adapter response edge.
+   carry the public route request/dispatch/error pattern to invoke-adjacent
+   or remaining pass-through routes, or move deployment validation/service
+   helpers further toward typed service/domain failures with one adapter
+   response edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 288 slice:
+
+1. Add named connection route and operation HTTP adapter effects:
+   `connectionRouteErrorToHttpErrorEffect(...)` and
+   `connectionRouteOperationErrorToHttpErrorEffect(...)`.
+2. Route ConnectionDO compatibility readers and parse wrappers through the
+   named route adapter effect while preserving typed request JSON,
+   invalidation payload, and live-query delivery payload failure channels.
+3. Route the ConnectionDO internal JSON route runner through a named response
+   adapter effect while preserving one `Effect.runPromise` edge and the
+   existing error response body/status mapping.
+4. Add `publicLiveQueryDeliveryRouteErrorToHttpErrorEffect(...)` for the
+   public Worker live-query delivery request boundary and route compatibility
+   readers through it.
+5. Add `dispatchPublicLiveQueryDeliveryEffect(...)` as the named public
+   Worker dispatch helper for live-query delivery fanout, preserving target
+   validation failures and mapping connection dispatch failures to the
+   `live-query-delivery` `PublicWorkerDispatchError` source.
+6. Route public Worker `deliver-live-query` dispatch through the helper while
+   preserving authorization, typed request decoding, deployment-id target
+   validation, fanout aggregation, and JSON response wrapping.
+7. Leave websocket sync semantics, query rerun behavior, executor subscription
+   writes, DeliveryDO wake/drain behavior, SchedulerDO maintenance, PartitionDO
+   SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 287 slice:
 

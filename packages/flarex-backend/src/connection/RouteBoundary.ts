@@ -45,14 +45,9 @@ export function decodeConnectionInvalidationRequest(
 }
 
 export function parseConnectionInvalidationRequest(value: unknown): QueryId {
-  try {
-    return parseConnectionInvalidationPayload(value);
-  } catch (error) {
-    if (error instanceof ConnectionRouteValidationError) {
-      throw connectionRouteErrorToHttpError(error);
-    }
-    throw error;
-  }
+  return Effect.runSync(parseConnectionInvalidationRequestEffect(value).pipe(
+    Effect.catch(connectionRouteErrorToHttpErrorEffect),
+  ));
 }
 
 export function parseConnectionInvalidationRequestEffect(
@@ -85,7 +80,7 @@ export function parseConnectionLiveQueryDeliveryRequest(
   value: unknown,
 ): LiveQueryDeliveryChange[] {
   return Effect.runSync(parseConnectionLiveQueryDeliveryRequestEffect(value).pipe(
-    Effect.mapError(connectionRouteErrorToHttpError),
+    Effect.catch(connectionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -103,7 +98,7 @@ export function decodeConnectionLiveQueryDeliveryRoutePayload(
 
 function runConnectionRouteEffect<A>(effect: Effect.Effect<A, ConnectionRouteError>): Promise<A> {
   return Effect.runPromise(effect.pipe(
-    Effect.mapError(connectionRouteErrorToHttpError),
+    Effect.catch(connectionRouteErrorToHttpErrorEffect),
   ));
 }
 
@@ -116,3 +111,11 @@ export function connectionRouteErrorToHttpError(error: ConnectionRouteError): Ht
   }
   return liveQueryDeliveryChangePayloadErrorToHttpError(error);
 }
+
+export const connectionRouteErrorToHttpErrorEffect = Effect.fn(
+  "ConnectionRouteBoundary.connectionRouteErrorToHttpError",
+)(function* (
+  error: ConnectionRouteError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(connectionRouteErrorToHttpError(error));
+});
