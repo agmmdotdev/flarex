@@ -1,5 +1,65 @@
 # Postgres Executor
 
+## Executor HTTP Elysia Adapter Decision
+
+Previous completed checkpoint: `72127aa` Centralize executor live query helper
+bridge.
+
+What changed:
+
+- Audited `@flarex/executor-http` after E-1, E-2, and E-3 to decide whether
+  Elysia should be replaced before protocol cleanup begins.
+- Kept Elysia as the current adapter and made the next checkpoint C-1:
+  exporting shared Effect decoders from `flarex-protocol`.
+- Recorded the replacement trigger: revisit Elysia only after protocol
+  contracts or generated route definitions prove the adapter is blocking the
+  target schema-first shape.
+
+Why it changed:
+
+The executor HTTP migration has already moved the correctness-sensitive pieces
+below Elysia. `routes.ts` registers paths and adapter-only method/not-found
+responses. `routeEffects.ts` runs one `Effect.runPromise(...)` route boundary,
+authorizes before JSON parsing, decodes bodies through typed Effect decoders,
+and maps route failures once through `executorHttpRouteErrorBody(...)`.
+`liveQueryDelivery.ts` now keeps backend callback helper failures typed until a
+single Promise compatibility edge. Replacing Elysia now would be a router
+mechanics diff rather than an Effect migration step.
+
+Convex references:
+
+- `crates/local_backend/src/router.rs` for route registration as adapter
+  composition around focused handlers.
+- `crates/local_backend/src/public_api.rs` for HTTP extractors, request
+  structs, parse helpers, and response conversion staying at the HTTP boundary.
+- `crates/application/src/application_function_runner/http_routing.rs` for
+  keeping HTTP action routing separate from execution behavior.
+
+How Flarex differs:
+
+- Convex uses Rust Axum and Serde; Flarex uses TypeScript, Elysia, and Effect.
+  The equivalent boundary is not "same router library", it is keeping the HTTP
+  adapter thin while transport contracts and executor behavior stay outside the
+  router implementation.
+
+Known limitations:
+
+- Elysia remains a dependency of `@flarex/executor-http`.
+- The route table still manually lists non-POST 405 responses and the catch-all
+  404 body.
+- The next real migration pressure is shared protocol decoding and hoisted
+  schema compiler ownership, not router replacement.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Live Query Helper Runtime Bridge
 
 Previous completed checkpoint: `9c25517` Type executor HTTP body validation.

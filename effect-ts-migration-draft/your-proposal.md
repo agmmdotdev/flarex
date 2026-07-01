@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: E-3 executor-http live-query helper bridge in this checkpoint commit.
-- Active checkpoint: E-4 executor-http adapter decision, deciding whether Elysia remains as the adapter or is replaced now that E-1 through E-3 have locked behavior.
+- Previous completed checkpoint: E-4 executor-http adapter decision in this checkpoint commit.
+- Active checkpoint: C-1 protocol Effect decoder exports, ensuring `flarex-protocol` exports Effect decoders for transport contracts used by migrated backend/executor routes.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,19 +52,28 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after E-3 executor-http live-query helper bridge:
+Next recommended checkpoint after E-4 executor-http adapter decision:
 
-1. Audit E-1 through E-3 outcomes and the current Elysia adapter coupling in
-   `packages/executor-http/src`.
-2. Decide whether Elysia remains the HTTP adapter for now or whether a
-   replacement is warranted after behavior has been locked.
-3. If Elysia remains, document the decision and tick E-4 without route
-   rewrites. If replacement is warranted, write the concrete follow-up
-   checkpoint before changing production route behavior.
-4. Validate the decision with executor-http focused tests and package gates
-   before ticking E-4.
+1. Audit `packages/flarex-protocol/src` exports against migrated backend and
+   executor route/body decoders.
+2. Select the smallest coherent transport contract family whose decoder export
+   removes duplicated validation pressure in migrated routes.
+3. Add Effect-returning protocol decoders while keeping throwing `parseX(...)`
+   APIs as compatibility wrappers.
+4. Validate `flarex-protocol` plus every affected backend/executor package
+   before ticking C-1.
 
-Current Goal 362 slice:
+Current Goal 363 slice:
+
+1. Audit `flarex-protocol` transport contract exports against migrated route
+   users.
+2. Pick the first coherent decoder family for C-1 without touching
+   `ValidatorJson`.
+3. Export Effect-returning decoders and keep throwing parser compatibility
+   wrappers.
+4. Validate protocol and affected package gates before ticking C-1.
+
+Completed Goal 362 slice:
 
 1. Audit E-1 through E-3 outcome and current Elysia adapter coupling.
 2. Decide whether Elysia remains or replacement is warranted now.

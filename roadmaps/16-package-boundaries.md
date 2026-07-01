@@ -1,5 +1,65 @@
 # Package Boundaries
 
+## Executor HTTP Adapter Decision
+
+Previous completed checkpoint: `72127aa` Centralize executor live query helper
+bridge.
+
+What changed:
+
+- Audited the E-1 through E-3 `@flarex/executor-http` adapter shape after the
+  route module split, typed body decoder migration, and live-query helper bridge
+  migration.
+- Decided to keep Elysia as the HTTP adapter for now instead of replacing it in
+  the Effect migration.
+- Kept the next implementation work pointed at protocol contracts rather than a
+  router-library rewrite.
+
+Boundary decision:
+
+Elysia remains a package-local adapter detail in
+`packages/executor-http/src/routes.ts`. The important Effect migration boundary
+is already below it: `routeEffects.ts` owns authorization, configuration
+preflight, JSON body reads, executor calls, and the single route error mapping
+edge through `responses.ts`; `requestDecoders.ts` owns typed body validation
+failures; `liveQueryDelivery.ts` owns backend callback helper runtime bridging.
+Replacing Elysia now would mostly rewrite route registration, 405 bodies, and
+404 behavior without moving service/domain code further away from `HttpError`
+or closer to shared schema-first contracts.
+
+Convex comparison:
+
+- `crates/local_backend/src/router.rs` keeps router registration as an adapter
+  layer around focused route modules.
+- `crates/local_backend/src/public_api.rs` uses request extractors, typed
+  request structs, parse helpers, and response conversion at the HTTP boundary.
+- `crates/application/src/application_function_runner/http_routing.rs` keeps
+  HTTP action routing separate from the lower execution path.
+
+Flarex differs because the executor HTTP package is a TypeScript Cloudflare
+adapter around `@flarex/executor`, so Elysia fills the same thin adapter role as
+Convex's Axum router rather than becoming the domain boundary.
+
+Known limitations:
+
+- This does not make Elysia permanent. Revisit replacement only if C-1 through
+  C-3 show that shared protocol decoders or generated route contracts need a
+  different adapter surface.
+- Method-not-allowed and not-found responses remain hand-registered in
+  `routes.ts`.
+- Field-level body validators still preserve compatibility messages until the
+  protocol cleanup phase can decide which contracts move to `flarex-protocol`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http test -- --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor-http build
+git diff --check
+```
+
 ## Executor HTTP Live Query Helper Boundary
 
 Previous completed checkpoint: `9c25517` Type executor HTTP body validation.

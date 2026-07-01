@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: E-3 Executor HTTP live-query helper runtime
-  bridge in this checkpoint commit.
+- Previous completed checkpoint: E-4 Executor HTTP adapter decision in this
+  checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -412,8 +412,20 @@ The Effect migration is complete only when all of these are true:
   - Tests:
     `packages/executor-http/test/http.test.ts` backend live-query helper
     cases.
-- [ ] E-4. Decide whether Elysia remains as the adapter or is replaced after
+- [x] E-4. Decide whether Elysia remains as the adapter or is replaced after
   behavior is locked. Do not replace it before E-1 through E-3 are complete.
+  - Completed by: this E-4 checkpoint commit.
+  - Decision: keep Elysia as the `@flarex/executor-http` adapter for now; do
+    not replace it until shared protocol decoders or generated route contracts
+    prove the adapter is blocking the target shape.
+  - Files:
+    `packages/executor-http/src/routes.ts`,
+    `packages/executor-http/src/routeEffects.ts`,
+    `packages/executor-http/src/requestDecoders.ts`,
+    `packages/executor-http/src/responses.ts`,
+    `packages/executor-http/src/liveQueryDelivery.ts`.
+  - Tests:
+    `packages/executor-http/test/http.test.ts`.
 
 ### Phase 8: Protocol Package Cleanup
 
@@ -462,10 +474,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with E-4:
+Start with C-1:
 
-Decide whether Elysia remains as the adapter or is replaced after E-1 through
-E-3 are complete. Audit the locked executor-http route/body/helper behavior,
+Ensure `flarex-protocol` exports Effect decoders for every transport contract
+used by migrated backend/executor routes. Start with the smallest coherent
+contract family that removes duplicated local transport validation pressure,
 update `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps,
-validate with executor-http focused tests and gates, run only the EffectTS
-quality checker if Effect code changes, tick `E-4`, then commit.
+validate protocol plus affected package gates, run only the EffectTS quality
+checker if Effect code changes, tick `C-1`, then commit.
