@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public invoke handler DB validation boundary.
+- Previous completed checkpoint: Deployment stored push-row validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public invoke execution checkpoint:
+Next recommended checkpoint after the deployment stored push-row validation checkpoint:
 
 1. Prefer the next backend Worker/DO service boundary that can keep route,
    maintenance, and continuation failures in typed Effect channels until one
@@ -59,6 +59,26 @@ Next recommended checkpoint after the public invoke execution checkpoint:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 261 slice:
+
+1. Convert stored deployment push-row decoding to a real
+   `decodePushStatusFromRow(...)` Effect pipeline for stored state,
+   source-package JSON, diagnostics JSON, stored analysis JSON, and optional
+   codegen-analysis JSON.
+2. Keep `pushStatusFromRow(...)` and `parsePushStatusFromRow(...)` as
+   compatibility wrappers over the Effect decoder for synchronous callers and
+   transaction preflight code.
+3. Preserve `DeploymentPushStore` behavior because it already consumes
+   `decodePushStatusFromRow(...)`, so corrupt stored push rows now flow through
+   one typed `DeploymentValidationError` channel from storage reads.
+4. Add direct validation coverage for invalid stored `schema_json` and
+   `codegen_analysis_json` branches in addition to existing source package,
+   diagnostics, and partial-analysis failures.
+5. Leave DeploymentDO SQL schema, push lifecycle state transitions,
+   deployment route contracts, public invoke/execution dispatch, PartitionDO
+   SQL/OCC, protocol schemas, executor-http, and `ValidatorJson` semantics
+   unchanged.
 
 Completed Goal 260 slice:
 

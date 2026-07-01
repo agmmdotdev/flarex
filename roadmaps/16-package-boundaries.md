@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Deployment Stored Push-Row Validation Boundary
+
+Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.
+
+What changed:
+
+- The deployment package now owns a typed Effect decoder for stored push-row
+  materialization through `decodePushStatusFromRow(...)`.
+- The deployment store keeps SQL reads in `DeploymentSqlError` and stored-row
+  shape/content failures in `DeploymentValidationError`.
+- Sync compatibility helpers for push-row parsing now delegate to the Effect
+  decoder instead of owning a separate validation implementation.
+
+Boundary decision:
+
+`DeploymentPushStore` owns SQL access and row retrieval. `deployment/Validation`
+owns conversion from stored row fields into deployment domain objects. Route
+and service adapters own final HTTP mapping; SQL row validation does not depend
+on `HttpError`.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO storage layout, push lifecycle
+  semantics, public route request schemas, public execution/invoke dispatch,
+  PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Handler DB Validation Boundary
 
 Previous completed checkpoint: `3096a64` Type public invoke execution boundary.

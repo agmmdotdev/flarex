@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Deployment Stored Push-Row Validation Boundary
+
+Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.
+
+What changed:
+
+- `decodePushStatusFromRow(...)` now decodes stored deployment push rows as an
+  Effect pipeline for stored state, source-package JSON, diagnostics JSON,
+  stored analysis JSON, and optional codegen-analysis JSON.
+- `pushStatusFromRow(...)` and `parsePushStatusFromRow(...)` remain
+  compatibility wrappers over the typed decoder.
+- `DeploymentPushStore` continues to consume the typed decoder, preserving
+  `DeploymentValidationError` failures from corrupt stored push rows.
+
+Why it changed:
+
+Stored deployment rows are a runtime validation boundary between Durable Object
+SQL state and deployment service code. This checkpoint removes another
+`DeploymentValidationResult`-first path from the service-facing read flow while
+preserving the old sync/result wrappers for callers that still need them.
+
+Known limitations:
+
+- Other deployment validation helpers still have compatibility normalizers
+  underneath their Effect wrappers.
+- DeploymentDO SQL schema, push lifecycle transitions, public deployment route
+  contracts, public invoke/execution dispatch, PartitionDO SQL/OCC, protocol
+  schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Handler DB Validation Boundary
 
 Previous completed checkpoint: `3096a64` Type public invoke execution boundary.

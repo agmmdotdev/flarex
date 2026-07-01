@@ -1325,6 +1325,21 @@ describe("deployment validation", () => {
     );
     await expectDeploymentValidationEffectFailure(
       decodePushStatusFromRow(pushRow({
+        schema_json: "{",
+        functions_json: JSON.stringify(simpleFunctions()),
+      })),
+      "Stored push schema_json must be valid JSON.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({
+        schema_json: JSON.stringify(simpleSchema()),
+        functions_json: JSON.stringify(simpleFunctions()),
+        codegen_analysis_json: "{",
+      })),
+      "Stored push codegen_analysis_json must be valid JSON.",
+    );
+    await expectDeploymentValidationEffectFailure(
+      decodePushStatusFromRow(pushRow({
         diagnostics_json: JSON.stringify([{ level: "debug", message: "too chatty" }]),
       })),
       "Push diagnostic at index 0 has an invalid level.",

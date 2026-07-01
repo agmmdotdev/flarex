@@ -290,78 +290,71 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
 });
 
 export function pushStatusFromRow(row: DeploymentPushStatusRow): PushStatus {
-  return unwrapDeploymentValidation(normalizePushStatusRow(row));
+  return Effect.runSync(decodePushStatusFromRow(row));
 }
 
 export function parsePushStatusFromRow(row: DeploymentPushStatusRow): DeploymentValidationResult<PushStatus> {
-  return normalizePushStatusRow(row);
+  return Effect.runSync(
+    decodePushStatusFromRow(row).pipe(
+      Effect.match({
+        onFailure: error => ({ success: false, error } as const),
+        onSuccess: value => deploymentValidationSuccess(value),
+      }),
+    ),
+  );
 }
 
 export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePushStatusFromRow")(
   function* (row: DeploymentPushStatusRow): Effect.fn.Return<PushStatus, DeploymentValidationError> {
-    return yield* deploymentValidationResultToEffect(parsePushStatusFromRow(row));
+    const state = yield* decodePushState(row.state);
+    const sourcePackageJson = yield* decodeStoredJson("source_package_json", row.source_package_json);
+    const sourcePackage = yield* decodeSourcePackage(sourcePackageJson as PushSourcePackage);
+    const diagnosticsJson = row.diagnostics_json === null
+      ? []
+      : yield* decodeStoredJson("diagnostics_json", row.diagnostics_json);
+    const diagnostics = yield* decodeDiagnostics(diagnosticsJson);
+
+    let storedAnalysis: DeploymentAnalysis | undefined;
+    if (row.schema_json !== null || row.functions_json !== null) {
+      if (row.schema_json === null || row.functions_json === null) {
+        return yield* deploymentValidationFailureEffect(
+          "Stored push analysis must include both schema_json and functions_json.",
+        );
+      }
+      const schema = yield* decodeStoredJson("schema_json", row.schema_json);
+      const functions = yield* decodeStoredJson("functions_json", row.functions_json);
+      storedAnalysis = yield* decodeAnalysis({
+        schema,
+        functions,
+      });
+    }
+
+    const storedCodegenAnalysis = row.codegen_analysis_json === null
+      ? undefined
+      : yield* decodeStoredJson("codegen_analysis_json", row.codegen_analysis_json);
+    const codegenAnalysis = storedAnalysis === undefined
+      ? undefined
+      : storedCodegenAnalysis === undefined
+        ? codegenAnalysisFromDeploymentAnalysis(storedAnalysis)
+        : yield* decodeCodegenAnalysis(storedCodegenAnalysis, storedAnalysis);
+
+    return {
+      pushId: row.push_id,
+      state,
+      sourcePackage,
+      ...(storedAnalysis !== undefined
+        ? {
+            analysis: storedAnalysis,
+            codegenAnalysis: codegenAnalysis!,
+          }
+        : {}),
+      ...(row.error === null ? {} : { error: row.error }),
+      ...(diagnostics.length === 0 ? {} : { diagnostics }),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   },
 );
-
-function normalizePushStatusRow(row: DeploymentPushStatusRow): DeploymentValidationResult<PushStatus> {
-  const state = parsePushState(row.state);
-  if (!state.success) return state;
-  const sourcePackageJson = parseStoredJson("source_package_json", row.source_package_json);
-  if (!sourcePackageJson.success) return sourcePackageJson;
-  const sourcePackage = normalizeSourcePackage(sourcePackageJson.value as PushSourcePackage);
-  if (!sourcePackage.success) return sourcePackage;
-  const diagnostics = row.diagnostics_json === null
-    ? deploymentValidationSuccess([])
-    : parseStoredJson("diagnostics_json", row.diagnostics_json);
-  if (!diagnostics.success) return diagnostics;
-  const normalizedDiagnostics = Array.isArray(diagnostics.value)
-    ? normalizeDiagnostics(diagnostics.value)
-    : deploymentValidationFailure("Push diagnostics must be an array.");
-  if (!normalizedDiagnostics.success) return normalizedDiagnostics;
-
-  let storedAnalysis: DeploymentAnalysis | undefined;
-  if (row.schema_json !== null || row.functions_json !== null) {
-    if (row.schema_json === null || row.functions_json === null) {
-      return deploymentValidationFailure("Stored push analysis must include both schema_json and functions_json.");
-    }
-    const schema = parseStoredJson("schema_json", row.schema_json);
-    if (!schema.success) return schema;
-    const functions = parseStoredJson("functions_json", row.functions_json);
-    if (!functions.success) return functions;
-    const analysis = normalizeAnalysis({
-      schema: schema.value,
-      functions: functions.value,
-    });
-    if (!analysis.success) return analysis;
-    storedAnalysis = analysis.value;
-  }
-
-  const storedCodegenAnalysis = row.codegen_analysis_json === null
-    ? undefined
-    : parseStoredJson("codegen_analysis_json", row.codegen_analysis_json);
-  if (storedCodegenAnalysis !== undefined && !storedCodegenAnalysis.success) return storedCodegenAnalysis;
-  const codegenAnalysis: DeploymentValidationResult<DeploymentCodegenAnalysis> | undefined = storedAnalysis === undefined
-    ? undefined
-    : storedCodegenAnalysis === undefined
-      ? deploymentValidationSuccess(codegenAnalysisFromDeploymentAnalysis(storedAnalysis))
-      : normalizeCodegenAnalysis(storedCodegenAnalysis.value, storedAnalysis);
-  if (codegenAnalysis !== undefined && !codegenAnalysis.success) return codegenAnalysis;
-  return deploymentValidationSuccess({
-    pushId: row.push_id,
-    state: state.value,
-    sourcePackage: sourcePackage.value,
-    ...(storedAnalysis !== undefined
-      ? {
-          analysis: storedAnalysis,
-          codegenAnalysis: codegenAnalysis!.value,
-        }
-      : {}),
-    ...(row.error === null ? {} : { error: row.error }),
-    ...(normalizedDiagnostics.value.length === 0 ? {} : { diagnostics: normalizedDiagnostics.value }),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  });
-}
 
 export function codegenAnalysisFromDeploymentAnalysis(
   analysis: DeploymentAnalysis,
@@ -404,7 +397,9 @@ function parseFunctionPath(path: string): { moduleName: string; exportName: stri
   };
 }
 
-function parsePushState(value: string): DeploymentValidationResult<PushStatus["state"]> {
+const decodePushState = Effect.fn("DeploymentValidation.decodePushState")(function* (
+  value: string,
+): Effect.fn.Return<PushStatus["state"], DeploymentValidationError> {
   if (
     value === "pending" ||
     value === "analyzed" ||
@@ -413,17 +408,25 @@ function parsePushState(value: string): DeploymentValidationResult<PushStatus["s
     value === "abandoned" ||
     value === "superseded"
   ) {
-    return deploymentValidationSuccess(value);
+    return value;
   }
-  return deploymentValidationFailure(`Unknown stored push state ${value}.`);
-}
+  return yield* deploymentValidationFailureEffect(`Unknown stored push state ${value}.`);
+});
 
-function parseStoredJson(field: string, raw: string): DeploymentValidationResult<unknown> {
-  try {
-    return deploymentValidationSuccess(JSON.parse(raw));
-  } catch {
-    return deploymentValidationFailure(`Stored push ${field} must be valid JSON.`);
-  }
+const decodeStoredJson = Effect.fn("DeploymentValidation.decodeStoredJson")(function* (
+  field: string,
+  raw: string,
+): Effect.fn.Return<unknown, DeploymentValidationError> {
+  return yield* Effect.try({
+    try: () => JSON.parse(raw) as unknown,
+    catch: () => new DeploymentValidationError({
+      message: `Stored push ${field} must be valid JSON.`,
+    }),
+  });
+});
+
+function deploymentValidationFailureEffect(message: string): Effect.Effect<never, DeploymentValidationError> {
+  return Effect.fail(new DeploymentValidationError({ message }));
 }
 
 export function validateSchema(schema: unknown): DeploymentSchema {

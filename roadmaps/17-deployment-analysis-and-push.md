@@ -1,5 +1,47 @@
 # Deployment Analysis And Push
 
+## Deployment Stored Push-Row Validation Boundary
+
+Previous completed checkpoint: `a4c0f74` Type public invoke handler db validation.
+
+What changed:
+
+- Stored push-row materialization now goes through
+  `decodePushStatusFromRow(...)` as a typed Effect pipeline.
+- Stored `source_package_json`, `diagnostics_json`, `schema_json`,
+  `functions_json`, and optional `codegen_analysis_json` parse failures now
+  flow through `DeploymentValidationError` from the deployment validation
+  boundary.
+- `pushStatusFromRow(...)` and `parsePushStatusFromRow(...)` remain
+  compatibility wrappers for synchronous callers and preflight-style result
+  checks.
+
+Why it changed:
+
+Deployment analysis state becomes runtime authority only after it is read back
+from DeploymentDO storage. The read-back path should preserve the same typed
+validation semantics as request and service boundaries instead of relying on a
+separate result-first parser implementation.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, artifact availability checks, storage schema, route contracts, or
+  analyzer behavior.
+- Other deployment validation helpers still keep compatibility normalizers
+  beneath their Effect wrappers while the migration continues.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/deploymentValidation.test.ts packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Validation Preflight Boundary
 
 Previous completed checkpoint: `93250ea` Type public finish artifact lookup.
