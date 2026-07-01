@@ -1,12 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { ProtocolValidationError, RegistryRoute } from "flarex-protocol/registry";
-import { HttpError, RequestJsonError } from "../src/http";
+import { RequestJsonError } from "../src/http";
 import {
   decodeRegistryApiRequestForRoute,
   decodeRegistryCreateDeploymentRouteRequest,
-  readRegistryCreateDeploymentRouteRequest,
-  registryApiRequestForRoute,
   registryRouteErrorToHttpErrorEffect,
 } from "../src/registry/HttpApiRouteBoundary";
 import {
@@ -29,7 +27,7 @@ describe("registry HttpApi route boundary", () => {
       body: JSON.stringify({ deploymentId: "deployment-a", slug: "slug-a" }),
     });
 
-    const apiRequest = await registryApiRequestForRoute(request);
+    const apiRequest = await Effect.runPromise(decodeRegistryApiRequestForRoute(request));
     const effectApiRequest = await Effect.runPromise(decodeRegistryApiRequestForRoute(jsonRequest({
       deploymentId: "deployment-a",
       slug: "slug-a",
@@ -47,11 +45,11 @@ describe("registry HttpApi route boundary", () => {
       slug: "slug-a",
     });
 
-    await expect(
-      readRegistryCreateDeploymentRouteRequest(jsonRequest({
+    await expect(Effect.runPromise(
+      decodeRegistryCreateDeploymentRouteRequest(jsonRequest({
         deploymentId: "deployment-b",
       })),
-    ).resolves.toEqual({
+    )).resolves.toEqual({
       deploymentId: "deployment-b",
     });
     await expect(Effect.runPromise(
@@ -66,16 +64,6 @@ describe("registry HttpApi route boundary", () => {
   });
 
   it("keeps malformed JSON and schema failures at the Durable Object boundary", async () => {
-    await expect(
-      registryApiRequestForRoute(new Request(`https://registry.test${RegistryRoute.deployments}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{",
-      })),
-    ).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    } satisfies Partial<HttpError>);
     await expect(Effect.runPromise(decodeRegistryCreateDeploymentRouteRequest(new Request(
       `https://registry.test${RegistryRoute.deployments}`,
       {
@@ -93,13 +81,6 @@ describe("registry HttpApi route boundary", () => {
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
 
-    await expect(
-      registryApiRequestForRoute(new Request(`https://registry.test${RegistryRoute.deployments}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deploymentId: 123 }),
-      })),
-    ).rejects.toBeInstanceOf(ProtocolValidationError);
     await expect(Effect.runPromise(decodeRegistryCreateDeploymentRouteRequest(jsonRequest({
       deploymentId: 123,
     })))).rejects.toBeInstanceOf(ProtocolValidationError);
@@ -131,13 +112,10 @@ describe("registry HttpApi route boundary", () => {
   });
 
   it("leaves fallback routes on the existing plain RegistryDO responses", async () => {
-    await expect(registryApiRequestForRoute(new Request(
+    await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
       `https://registry.test${RegistryRoute.health}`,
       { method: "POST" },
-    ))).resolves.toBeNull();
-    await expect(registryApiRequestForRoute(new Request(
-      "https://registry.test/not-found",
-    ))).resolves.toBeNull();
+    )))).resolves.toBeNull();
     await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
       "https://registry.test/not-found",
     )))).resolves.toBeNull();
@@ -269,6 +247,5 @@ function jsonRequest(body: unknown): Request {
 async function expectRouteForwarded(method: string, pathname: string): Promise<void> {
   const request = new Request(`https://registry.test${pathname}`, { method });
 
-  await expect(registryApiRequestForRoute(request)).resolves.toBe(request);
   await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(request))).resolves.toBe(request);
 }

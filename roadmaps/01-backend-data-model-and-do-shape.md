@@ -1,5 +1,53 @@
 # Backend Data Model And Durable Object Shape
 
+## Registry Create Request Effects
+
+Previous completed checkpoint: `9f81903` Type public invoke request boundary.
+
+What changed:
+
+- Removed the throwing `parseRegistryCreateDeploymentPayload(...)`
+  compatibility wrapper from `registry/Requests.ts`.
+- Removed the Promise-returning `registryApiRequestForRoute(...)` route
+  compatibility runner.
+- Removed the Promise-returning `readRegistryCreateDeploymentRouteRequest(...)`
+  compatibility wrapper.
+- Kept RegistryDO production routing on `decodeRegistryApiRequestForRoute(...)`
+  and `decodeRegistryCreateDeploymentRouteRequest(...)`.
+
+Why it changed:
+
+RegistryDO already routes through Effect request decoders before forwarding to
+the generated Registry HttpApi web handler. The removed wrappers were legacy
+compatibility surfaces that converted typed route/payload failures too early.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  RegistryDO route/source boundary cleanup around existing decoders.
+
+How Flarex differs:
+
+- Flarex hosts registry create/list through a Cloudflare Durable Object and a
+  generated Effect HttpApi web handler. This checkpoint preserves that host
+  shape while narrowing request decoding to typed Effect paths.
+
+Known limitations:
+
+- RegistryService, RegistryStore, RegistryDO generated web handler behavior,
+  DeploymentDO, PartitionDO SQL/OCC, executor-http, protocol package parser
+  compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryRequests.test.ts test/registryHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryRequests.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Registry Adapter Response Effects
 
 Previous completed checkpoint: `a72b6f2` Remove deployment HttpError adapter

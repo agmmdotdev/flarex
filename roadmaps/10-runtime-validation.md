@@ -1,5 +1,52 @@
 # Runtime Validation
 
+## Registry Create Request Effects
+
+Previous completed checkpoint: `9f81903` Type public invoke request boundary.
+
+What changed:
+
+- Removed `parseRegistryCreateDeploymentPayload(...)`,
+  `registryApiRequestForRoute(...)`, and
+  `readRegistryCreateDeploymentRouteRequest(...)`.
+- Kept RegistryDO create-deployment request handling on Effect decoders and
+  typed route errors.
+- Updated registry request and route tests to assert typed decoder success and
+  failure channels directly.
+
+Why it changed:
+
+Registry route runtime validation already uses typed Effect decoders for JSON
+body reads and protocol validation. Removing the Promise/throwing wrappers keeps
+registry request failures typed until the RegistryDO route adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  runtime validation cleanup around RegistryDO generated route forwarding.
+
+How Flarex differs:
+
+- Flarex pre-validates RegistryDO create-deployment bodies before forwarding to
+  the generated Registry HttpApi web handler. This checkpoint does not change
+  registry storage or generated handler behavior.
+
+Known limitations:
+
+- RegistryService, RegistryStore, RegistryDO generated web handler behavior,
+  DeploymentDO, PartitionDO SQL/OCC, executor-http, protocol package parser
+  compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryRequests.test.ts test/registryHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/registryRequests.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts test/registryService.test.ts test/registryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Invoke Request Effects
 
 Previous completed checkpoint: `670517c` Remove registry HttpError adapter

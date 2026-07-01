@@ -14,14 +14,6 @@ import { decodeRegistryCreateDeploymentPayload } from "./Requests";
 
 export type RegistryRouteError = RequestJsonError | ProtocolValidationError;
 
-export async function registryApiRequestForRoute(request: Request): Promise<Request | null> {
-  return await Effect.runPromise(
-    decodeRegistryApiRequestForRoute(request).pipe(
-      Effect.catch(registryRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export const decodeRegistryApiRequestForRoute = Effect.fn("RegistryDO.decodeApiRequestForRoute")(
   function* (request: Request) {
     const url = new URL(request.url);
@@ -35,16 +27,6 @@ export const decodeRegistryApiRequestForRoute = Effect.fn("RegistryDO.decodeApiR
     return null;
   },
 );
-
-export async function readRegistryCreateDeploymentRouteRequest(
-  request: Request,
-): Promise<CreateDeploymentRequest> {
-  return await Effect.runPromise(
-    decodeRegistryCreateDeploymentRouteRequest(request).pipe(
-      Effect.catch(registryRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
 
 export function decodeRegistryCreateDeploymentRouteRequest(
   request: Request,

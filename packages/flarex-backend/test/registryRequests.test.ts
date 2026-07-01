@@ -3,7 +3,6 @@ import { ProtocolValidationError } from "flarex-protocol/registry";
 import { describe, expect, it } from "vitest";
 import {
   decodeRegistryCreateDeploymentPayload,
-  parseRegistryCreateDeploymentPayload,
 } from "../src/registry/Requests";
 
 describe("registry request payloads", () => {
@@ -16,7 +15,6 @@ describe("registry request payloads", () => {
     await expect(Effect.runPromise(decodeRegistryCreateDeploymentPayload(payload)))
       .resolves
       .toEqual(payload);
-    expect(parseRegistryCreateDeploymentPayload(payload)).toEqual(payload);
 
     await expect(Effect.runPromise(decodeRegistryCreateDeploymentPayload({
       deploymentId: "deployment-b",
@@ -30,8 +28,8 @@ describe("registry request payloads", () => {
       deploymentId: 123,
     }))).rejects.toBeInstanceOf(ProtocolValidationError);
 
-    expect(() => parseRegistryCreateDeploymentPayload({
+    await expect(Effect.runPromise(decodeRegistryCreateDeploymentPayload({
       slug: 123,
-    })).toThrow(ProtocolValidationError);
+    }))).rejects.toBeInstanceOf(ProtocolValidationError);
   });
 });
