@@ -1,5 +1,65 @@
 # Runtime Validation
 
+## Public Execution Route Boundary Effects
+
+Previous completed checkpoint: `f6f5fa0` Type public deployment push route
+boundary.
+
+What changed:
+
+- Removed public Promise-returning execution start/action request wrappers from
+  `execution/StartRouteBoundary.ts` and `execution/ActionRouteBoundary.ts`.
+- Removed public throwing `parsePublicExecutionStartRouteRequest(...)`,
+  `parsePublicExecutionStartRouteRequestEffect(...)`,
+  `parsePublicExecutionActionRequest(...)`, and
+  `parsePublicExecutionActionRequestEffect(...)` wrappers.
+- Kept public Worker execution routing on Effect decoders:
+  `decodePublicExecutionStartRouteRequest(...)`,
+  `decodePublicExecutionStartRoutePayload(...)`,
+  `decodePublicExecutionActionRequest(...)`, and
+  `decodePublicExecutionActionRoutePayload(...)`.
+- Updated route-boundary tests to assert typed public execution success and
+  failure channels directly before the existing adapter mapping assertions.
+
+Why it changed:
+
+The public Worker already used the Effect decoders for execution start/action
+routes, but the route-boundary modules still exposed unused Promise/throw
+compatibility surfaces. Removing those public wrappers moves the boundary
+closer to the target shape: typed request/body decoders first and HTTP
+conversion at one adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a
+  Cloudflare-specific public Worker adapter cleanup around existing Flarex
+  execution protocol decoders.
+
+How Flarex differs:
+
+- Flarex public execution routing is split across Cloudflare Worker routes,
+  Durable Object dispatch, and per-action payload decoders. The internal
+  ExecutionDO start route compatibility wrappers remain for the separate
+  internal boundary; this checkpoint only narrows the public Worker boundary.
+
+Known limitations:
+
+- This checkpoint does not change execution dispatch behavior, ExecutionDO
+  behavior, PartitionDO SQL/OCC, executor-http, deployment behavior, or
+  `ValidatorJson`.
+- Lower-level execution request payload parser compatibility wrappers remain
+  until that package boundary is selected.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionStartRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/executionRequests.test.ts test/publicExecutionDispatchBoundary.test.ts test/publicWorkerRouteDispatchError.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Push Route Boundary Effects
 
 Previous completed checkpoint: `67ab41f` Type deployment start input handler.

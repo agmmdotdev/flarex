@@ -11,10 +11,7 @@ import {
   executionStartRouteErrorToHttpErrorEffect,
   parseExecutionStartRouteRequest,
   parseExecutionStartRouteRequestEffect,
-  parsePublicExecutionStartRouteRequest,
-  parsePublicExecutionStartRouteRequestEffect,
   readExecutionStartRequest,
-  readPublicExecutionStartRequest,
 } from "../src/execution/StartRouteBoundary";
 
 describe("execution start route boundary", () => {
@@ -46,29 +43,6 @@ describe("execution start route boundary", () => {
   });
 
   it("uses the public route deployment id over any body deployment id", async () => {
-    await expect(readPublicExecutionStartRequest(jsonRequest({
-      deploymentId: "body-deployment",
-      path: "users:get",
-      args: null,
-      kind: "query",
-    }), "route-deployment")).resolves.toEqual({
-      deploymentId: "route-deployment",
-      path: "users:get",
-      args: null,
-      kind: "query",
-    });
-
-    expect(parsePublicExecutionStartRouteRequest({
-      deploymentId: "body-deployment",
-      path: "users:list",
-      args: [],
-      projectId: "project-a",
-    }, "route-deployment")).toEqual({
-      deploymentId: "route-deployment",
-      path: "users:list",
-      args: [],
-      projectId: "project-a",
-    });
     await expect(Effect.runPromise(decodePublicExecutionStartRouteRequest(jsonRequest({
       deploymentId: "body-deployment",
       path: "users:get",
@@ -93,19 +67,11 @@ describe("execution start route boundary", () => {
     });
   });
 
-  it("maps non-object public execution start bodies through the protocol boundary", () => {
-    expect(() => parsePublicExecutionStartRouteRequest(null, "route-deployment"))
-      .toThrow(HttpError);
-    try {
-      parsePublicExecutionStartRouteRequest("not an object", "route-deployment");
-      throw new Error("Expected parsePublicExecutionStartRouteRequest to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
-        status: 400,
-        message:
-          "Execution start request must include string deploymentId, string path, JSON args, and optional string partitionKey, projectId, idempotencyKey, and query or mutation kind.",
-      });
-    }
+  it("keeps non-object public execution start bodies typed before adapter mapping", async () => {
+    await expect(Effect.runPromise(decodePublicExecutionStartRoutePayload(
+      "not an object",
+      "route-deployment",
+    ))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });
 
   it("maps protocol failures to the backend 400 error boundary", () => {
@@ -152,11 +118,6 @@ describe("execution start route boundary", () => {
     }))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
 
     await expect(Effect.runPromise(decodePublicExecutionStartRoutePayload(
-      "not an object",
-      "route-deployment",
-    ))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);
-
-    await expect(Effect.runPromise(parsePublicExecutionStartRouteRequestEffect(
       "not an object",
       "route-deployment",
     ))).rejects.toBeInstanceOf(ExecutionProtocolValidationError);

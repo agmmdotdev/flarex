@@ -32,17 +32,6 @@ export function decodeExecutionStartRouteRequest(
   );
 }
 
-export async function readPublicExecutionStartRequest(
-  request: Request,
-  deploymentId: string,
-): Promise<ExecutionStartRequest> {
-  return await Effect.runPromise(
-    decodePublicExecutionStartRouteRequest(request, deploymentId).pipe(
-      Effect.catch(executionStartRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodePublicExecutionStartRouteRequest(
   request: Request,
   deploymentId: string,
@@ -50,22 +39,6 @@ export function decodePublicExecutionStartRouteRequest(
   return readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicExecutionStartRoutePayload(value, deploymentId)),
   );
-}
-
-export function parsePublicExecutionStartRouteRequest(
-  value: unknown,
-  deploymentId: string,
-): ExecutionStartRequest {
-  return Effect.runSync(parsePublicExecutionStartRouteRequestEffect(value, deploymentId).pipe(
-    Effect.catch(executionStartRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parsePublicExecutionStartRouteRequestEffect(
-  value: unknown,
-  deploymentId: string,
-): Effect.Effect<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  return decodePublicExecutionStartRoutePayload(value, deploymentId);
 }
 
 export function decodePublicExecutionStartRoutePayload(

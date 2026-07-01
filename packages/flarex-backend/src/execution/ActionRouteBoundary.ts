@@ -8,7 +8,6 @@ import {
 } from "../http";
 import {
   decodePublicExecutionActionPayload,
-  parsePublicExecutionActionPayload as parsePublicExecutionActionPayloadSource,
 } from "./Requests";
 
 export type PublicExecutionAction = "syscall" | "finish" | "abort";
@@ -37,17 +36,6 @@ export type PublicExecutionRoutePathError =
   | MissingExecutionSessionIdError
   | MissingExecutionActionError;
 
-export async function readPublicExecutionActionRequest(
-  request: Request,
-  action: PublicExecutionAction,
-): Promise<unknown> {
-  return await Effect.runPromise(
-    decodePublicExecutionActionRequest(request, action).pipe(
-      Effect.catch(publicExecutionActionRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export function decodePublicExecutionActionRequest(
   request: Request,
   action: PublicExecutionAction,
@@ -55,27 +43,6 @@ export function decodePublicExecutionActionRequest(
   return readJsonEffect(request).pipe(
     Effect.flatMap(value => decodePublicExecutionActionRoutePayload(value, action)),
   );
-}
-
-export function parsePublicExecutionActionRequest(
-  value: unknown,
-  action: PublicExecutionAction,
-): unknown {
-  try {
-    return parsePublicExecutionActionPayloadSource(value, action);
-  } catch (error) {
-    if (error instanceof ExecutionProtocolValidationError) {
-      throw new HttpError(400, error.message);
-    }
-    throw error;
-  }
-}
-
-export function parsePublicExecutionActionRequestEffect(
-  value: unknown,
-  action: PublicExecutionAction,
-): Effect.Effect<unknown, ExecutionProtocolValidationError> {
-  return decodePublicExecutionActionRoutePayload(value, action);
 }
 
 export function decodePublicExecutionActionRoutePayload(
