@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  DeploymentProtocolValidationError,
   DeploymentPushAction,
 } from "flarex-protocol/deployment";
 import type { PublicInvokeRequestBody } from "flarex-protocol/invoke";
@@ -88,7 +89,7 @@ import {
 } from "./deployment/PublicPushDispatchBoundary";
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
-import { errorResponse, HttpError, json } from "./http";
+import { errorResponse, HttpError, json, RequestJsonError } from "./http";
 import { ExecutionDO } from "./executionDO";
 import {
   executeInvokeEffect,
@@ -296,9 +297,17 @@ const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
   },
 );
 
+type PublicWorkerDeploymentPushRouteError =
+  | Parameters<typeof publicDeploymentRouteErrorToHttpError>[0]
+  | PublicWorkerDispatchError
+  | MissingDeploymentPushIdError;
+
 type PublicWorkerDeploymentRouteError =
   | MissingPublicDeploymentIdError
   | MissingPublicPartitionKeyError
+  | PublicWorkerDeploymentPushRouteError
+  | PublicWorkerDeploymentSyncRouteError
+  | PublicWorkerDispatchError
   | HttpError;
 
 const routeDeployment = Effect.fn("Worker.routeDeployment")(
@@ -310,14 +319,10 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
   ): Effect.fn.Return<Response, PublicWorkerDeploymentRouteError> {
     const deploymentId = yield* publicDeploymentIdFromPartsEffect(parts);
     if (parts[2] === "push") {
-      return yield* routeDeploymentPushEffect(request, env, deploymentId, parts.slice(3)).pipe(
-        Effect.mapError(publicDeploymentWorkerRouteErrorToHttpError),
-      );
+      return yield* routeDeploymentPushEffect(request, env, deploymentId, parts.slice(3));
     }
     if (parts[2] === "deployment" && request.method === "GET") {
-      return yield* routeDeploymentActiveRead(env, deploymentId).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      );
+      return yield* routeDeploymentActiveRead(env, deploymentId);
     }
     if (parts[2] === "invoke" && request.method === "POST") {
       return yield* routePublicInvoke(request, env, deploymentId).pipe(
@@ -339,14 +344,10 @@ const routeDeployment = Effect.fn("Worker.routeDeployment")(
       );
     }
     if (parts[2] === "sync") {
-      return yield* routeDeploymentSync(request, env, deploymentId, parts.slice(3)).pipe(
-        Effect.mapError(publicWorkerDeploymentSyncRouteErrorToHttpError),
-      );
+      return yield* routeDeploymentSync(request, env, deploymentId, parts.slice(3));
     }
     if (parts[2] === "scheduler") {
-      return yield* routeDeploymentScheduler(request, env, deploymentId).pipe(
-        Effect.mapError(publicWorkerDispatchErrorToHttpError),
-      );
+      return yield* routeDeploymentScheduler(request, env, deploymentId);
     }
     return json({ error: "Not found." }, { status: 404 });
   },
@@ -358,7 +359,26 @@ function publicWorkerDeploymentRouteErrorToHttpError(
   if (error instanceof HttpError) {
     return error;
   }
-  return publicRoutePathErrorToHttpError(error);
+  if (error instanceof PublicWorkerDispatchError) {
+    return publicWorkerDispatchErrorToHttpError(error);
+  }
+  if (
+    error instanceof MissingPublicDeploymentIdError ||
+    error instanceof MissingPublicPartitionKeyError ||
+    error instanceof MissingDeploymentPushIdError
+  ) {
+    return publicRoutePathErrorToHttpError(error);
+  }
+  if (isPublicDeploymentPushRoutePayloadError(error)) {
+    return publicDeploymentRouteErrorToHttpError(error);
+  }
+  return publicWorkerDeploymentSyncRouteErrorToHttpError(error);
+}
+
+function isPublicDeploymentPushRoutePayloadError(
+  error: PublicWorkerDeploymentRouteError,
+): error is Parameters<typeof publicDeploymentRouteErrorToHttpError>[0] {
+  return error instanceof RequestJsonError || error instanceof DeploymentProtocolValidationError;
 }
 
 const PUBLIC_SCHEDULER_ROUTE_PATHS = [
@@ -578,21 +598,6 @@ const routeDeploymentAnalyzedStartPush = Effect.fn("Worker.routeDeploymentAnalyz
     return yield* startAnalyzedDeploymentPushEffect(deployment, body);
   },
 );
-
-function publicDeploymentWorkerRouteErrorToHttpError(
-  error:
-    | Parameters<typeof publicDeploymentRouteErrorToHttpError>[0]
-    | PublicWorkerDispatchError
-    | MissingDeploymentPushIdError,
-): HttpError {
-  if (error instanceof PublicWorkerDispatchError) {
-    return publicWorkerDispatchErrorToHttpError(error);
-  }
-  if (error instanceof MissingDeploymentPushIdError) {
-    return publicRoutePathErrorToHttpError(error);
-  }
-  return publicDeploymentRouteErrorToHttpError(error);
-}
 
 function artifactStoreFromEnv(env: Env): BackendExecutionArtifactStore | undefined {
   return env.ARTIFACTS === undefined

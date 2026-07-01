@@ -1,5 +1,42 @@
 # Runtime Validation
 
+## Public Worker Deployment Dispatch Route Boundary
+
+Previous completed checkpoint: `039bb9c` Extract deployment store transaction
+effects.
+
+What changed:
+
+- Public Worker deployment push, active deployment read, scheduler, and sync
+  routes now keep typed Effect failures until the deployment route HTTP mapper.
+- Push route JSON/protocol validation failures still use the public deployment
+  route mapper, but that conversion now happens at the outer deployment route
+  boundary.
+- Sync delivery authorization, delivery target, wake payload, live-query
+  payload, and dispatch failures are mapped at the same deployment route edge.
+
+Why it changed:
+
+This keeps runtime validation failures typed through the route/service path
+instead of collapsing them to `HttpError` inside each dispatch branch. The
+public HTTP response contract is preserved while the Effect boundary becomes
+closer to the target shape: typed route failures first, adapter mapping once.
+
+Known limitations:
+
+- Invoke, execution, and partition subroutes keep their existing local mapping
+  behavior for a later route batch.
+- Durable Object service bindings, push state transitions, sync delivery
+  behavior, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Transaction Helper Extraction
 
 Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.

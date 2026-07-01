@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Public Worker Deployment Dispatch Route Boundary
+
+Previous completed checkpoint: `039bb9c` Extract deployment store transaction
+effects.
+
+What changed:
+
+- `Worker.routeDeployment` now carries public deployment dispatch, push route,
+  and sync route failures as typed Effect errors until the public Worker
+  deployment route adapter maps them to `HttpError`.
+- `PublicPassThroughDispatchBoundary` remains responsible only for wrapping
+  service-binding fetch failures as `PublicWorkerDispatchError`.
+- The public Worker deployment route mapper now owns the HTTP conversion for
+  dispatch errors, path errors, push payload/protocol errors, and sync delivery
+  route errors.
+
+Boundary decision:
+
+The package boundary is the Worker route adapter, not each branch inside
+`routeDeployment`. Pass-through dispatch helpers should report typed operation
+failures; route adapters should decide HTTP status/body mapping once.
+
+Known limitations:
+
+- Execution, invoke, and partition route branches still have existing local
+  adapter mapping and should be migrated in a later, coherent batch.
+- No package metadata, service binding, Durable Object class, or generated
+  code boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Transaction Helper Extraction
 
 Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.

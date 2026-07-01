@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment store transaction helper extraction.
+- Previous completed checkpoint: Public Worker deployment dispatch route boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,33 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment store transaction helper extraction:
+Next recommended checkpoint after the public Worker deployment dispatch route boundary:
 
-1. Prefer the public Worker deployment dispatch boundary next: keep start,
-   analyzed-start, finish, abandon, read, active read, scheduler, and sync
-   dispatch failures typed until the Worker route mapper, without changing
-   Durable Object service bindings or public response bodies.
+1. Prefer a deeper deployment route/service path next: either continue public
+   Worker deployment routing by moving execution/partition subroutes toward
+   typed route errors, or move a DeploymentDO generated HttpApi handler group
+   toward one adapter HTTP mapping edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 277 slice:
+
+1. Widen `Worker.routeDeployment` so public deployment push, active deployment
+   read, scheduler dispatch, and sync delivery/connection failures stay in
+   typed Effect error channels until `publicWorkerDeploymentRouteErrorToHttpError(...)`.
+2. Remove early `Effect.mapError(...)` calls from those deployment dispatch
+   subroutes while leaving invoke, execution, and partition subroute behavior
+   unchanged for a later batch.
+3. Add explicit outer route mapping for `PublicWorkerDispatchError`,
+   public deployment path errors, push JSON/protocol errors, and sync
+   delivery/authorization/target errors.
+4. Preserve public response bodies/statuses and Durable Object service-binding
+   behavior; this checkpoint changes the route error boundary, not runtime
+   deployment semantics.
 
 Completed Goal 276 slice:
 

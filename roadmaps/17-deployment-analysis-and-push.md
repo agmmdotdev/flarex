@@ -1,5 +1,46 @@
 # Deployment Analysis And Push
 
+## Public Worker Deployment Dispatch Route Boundary
+
+Previous completed checkpoint: `039bb9c` Extract deployment store transaction
+effects.
+
+What changed:
+
+- Public deployment push routes now return their typed route and dispatch
+  errors to the outer deployment route mapper instead of mapping them inside
+  the `push` branch.
+- Active deployment read, deployment scheduler dispatch, and deployment sync
+  dispatch now follow the same route shape.
+- The mapper distinguishes public deployment path errors, push JSON/protocol
+  validation errors, service-binding dispatch failures, and sync delivery
+  route failures at one Worker adapter edge.
+
+Why it changed:
+
+Deployment push is now the best-proven migration path: protocol decoding,
+dispatch helpers, service preflights, store transaction helpers, and public
+Worker route mapping all move toward typed Effect errors with HTTP conversion
+kept at an adapter boundary. This checkpoint finishes the public Worker
+dispatch part of that shape without changing push lifecycle semantics.
+
+Known limitations:
+
+- This does not change analyzer behavior, source package persistence, push
+  state transitions, DeploymentDO generated HttpApi handlers, PartitionDO
+  SQL/OCC, executor-http, or `ValidatorJson`.
+- The next deployment batch should either migrate the remaining public Worker
+  execution/partition branch mapping or move a generated DeploymentDO route
+  handler group to the same one-mapper shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicWorkerRoutePathBoundary.test.ts test/publicPassThroughDispatchBoundary.test.ts test/publicDeploymentPushDispatchBoundary.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicDeliveryWakeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Store Transaction Helper Extraction
 
 Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.
