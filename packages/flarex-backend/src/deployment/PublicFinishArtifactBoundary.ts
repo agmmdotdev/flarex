@@ -1,8 +1,8 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
-  PushSourcePackage as ProtocolPushSourcePackage,
-  PushStatus as ProtocolPushStatus,
+  decodePushSourcePackageEffect,
+  decodePushStatusEffect,
 } from "flarex-protocol/deployment";
 import type { BackendExecutionArtifactStore } from "../artifactStore";
 import { json } from "../http";
@@ -82,7 +82,7 @@ export const decodeFinishArtifactPushStatus = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PushStatus, PublicWorkerDispatchError> {
-  const status = yield* Schema.decodeUnknownEffect(ProtocolPushStatus)(value).pipe(
+  const status = yield* decodePushStatusEffect(value).pipe(
     Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
   );
   return status as PushStatus;
@@ -93,7 +93,7 @@ export const decodeFinishArtifactSourcePackage = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PushSourcePackage, PublicWorkerDispatchError> {
-  const protocolSourcePackage = yield* Schema.decodeUnknownEffect(ProtocolPushSourcePackage)(value).pipe(
+  const protocolSourcePackage = yield* decodePushSourcePackageEffect(value).pipe(
     Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
   );
   return yield* decodeSourcePackage(protocolSourcePackage as PushSourcePackage).pipe(

@@ -1,6 +1,6 @@
 import { Data, Effect, Schema } from "effect";
 import {
-  ActiveDeploymentStatus as ProtocolActiveDeploymentStatus,
+  decodeActiveDeploymentStatusEffect,
   DeploymentRoute,
 } from "flarex-protocol/deployment";
 import { HttpError, readResponseJsonEffect } from "./http";
@@ -1255,15 +1255,10 @@ export const decodeActiveDeploymentResponse = Effect.fn(
   deploymentId: string,
   value: unknown,
 ): Effect.fn.Return<ActiveDeploymentStatus, InvokeActiveDeploymentLoadError> {
-  return yield* (
-    Schema.decodeUnknownEffect(ProtocolActiveDeploymentStatus)(value) as Effect.Effect<
-      ActiveDeploymentStatus,
-      unknown,
-      never
-    >
-  ).pipe(
+  const status = yield* decodeActiveDeploymentStatusEffect(value).pipe(
     Effect.mapError(error => activeDeploymentLoadError(deploymentId, 500, error)),
   );
+  return status as ActiveDeploymentStatus;
 });
 
 export async function loadActiveFunctionMetadata(

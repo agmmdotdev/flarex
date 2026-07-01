@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: C-2 parse compatibility wrappers in this checkpoint commit.
-- Active checkpoint: C-3 decoder compiler hoisting, auditing protocol/backend runtime paths for reusable Schema decoder/encoder compiler calls that still compile inside hot request handlers.
+- Previous completed checkpoint: C-3 decoder compiler hoisting in this checkpoint commit.
+- Active checkpoint: F-1 repo-wide final-exit audit for remaining `readJson<...>`, `request.json() as`, `JSON.parse(...) as`, domain `throw new HttpError`, and non-adapter `Effect.runPromise(...)`.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,15 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after C-2 parser compatibility cleanup:
+Next recommended checkpoint after C-3 decoder compiler hoisting:
 
-1. Audit protocol/backend runtime paths for inline `Schema.decodeUnknown*` and
-   encoder compiler calls that are reusable rather than one-off tests.
-2. Hoist safe repeated compiler calls to module scope without changing route,
-   storage, or HTTP response behavior.
-3. Preserve protocol error names/messages, backend compatibility imports, and
-   `ValidatorJson` ownership.
-4. Validate focused protocol/backend gates before ticking C-3.
+1. Run the repo-wide final-exit audit for remaining `readJson<...>`,
+   `request.json() as`, `JSON.parse(...) as`, domain `throw new HttpError`,
+   and non-adapter `Effect.runPromise(...)`.
+2. Classify each remaining occurrence as migration-required, adapter/runtime
+   bridge exception, or test-only/non-production.
+3. Use the audit to drive F-2: migrate the remaining production violations or
+   document deliberate runtime bridge exceptions in code.
+4. Preserve route/storage behavior, `ValidatorJson` ownership, and existing
+   adapter HTTP response mapping while doing the audit.
+
+Completed Goal 368 slice:
+
+1. Audited protocol/backend/executor runtime paths for inline reusable
+   `Schema.decodeUnknown*` and encoder compiler calls.
+2. Replaced the remaining backend inline compiler calls in invoke active
+   deployment decoding and public finish artifact preflight with protocol-owned
+   Effect decoders.
+3. Kept backend adapter error mapping unchanged through
+   `InvokeActiveDeploymentLoadError` and `PublicWorkerDispatchError`.
+4. Validated focused backend/protocol gates and ran the EffectTS quality
+   checker before ticking C-3.
 
 Completed Goal 367 slice:
 

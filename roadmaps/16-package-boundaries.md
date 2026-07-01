@@ -92,6 +92,41 @@ corepack pnpm --filter flarex-backend build
 git diff --check
 ```
 
+## Decoder Compiler Hoisting Cleanup
+
+Previous completed checkpoint: this C-3 checkpoint commit.
+
+The backend now reuses protocol-owned Effect decoders for the remaining hot
+helper call sites that were compiling schemas inline:
+
+- `decodeActiveDeploymentStatusEffect(...)` in invoke active-deployment
+  response decoding.
+- `decodePushStatusEffect(...)` in public finish artifact preflight.
+- `decodePushSourcePackageEffect(...)` in public finish artifact source package
+  validation.
+
+Boundary decision:
+
+- `flarex-protocol` owns reusable transport decoders and schema compiler
+  constants.
+- `flarex-backend` owns adapter-specific mapping from protocol validation
+  failures into `InvokeActiveDeploymentLoadError` and
+  `PublicWorkerDispatchError`.
+- Public finish artifact and invoke HTTP response behavior stays at the backend
+  adapter edge; this cleanup only removes repeated compiler construction from
+  helper functions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/publicFinishArtifactBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+git diff --check
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

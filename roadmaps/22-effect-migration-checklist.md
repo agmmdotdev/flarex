@@ -524,8 +524,23 @@ The Effect migration is complete only when all of these are true:
   - Tests:
     `packages/flarex-protocol/test/deployment.test.ts`,
     `packages/flarex-protocol/test/*.test.ts`.
-- [ ] C-3. Hoist all reusable Schema decoder/encoder compiler calls to module
+- [x] C-3. Hoist all reusable Schema decoder/encoder compiler calls to module
   scope; do not compile schemas inside hot request handlers.
+  - Completed by: this C-3 checkpoint commit.
+  - Files:
+    `packages/flarex-backend/src/invoke.ts`,
+    `packages/flarex-backend/src/deployment/PublicFinishArtifactBoundary.ts`,
+    `effect-ts-migration-draft/your-proposal.md`,
+    `roadmaps/22-effect-migration-checklist.md`,
+    `roadmaps/16-package-boundaries.md`.
+  - Decision:
+    Backend helpers now reuse protocol-owned Effect decoders for active
+    deployment, push status, and source package payloads instead of compiling
+    schemas inline inside hot helper functions. Existing backend adapter error
+    channels and HTTP behavior remain unchanged.
+  - Tests:
+    `packages/flarex-backend/test/invoke.test.ts`,
+    `packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts`.
 
 ### Phase 9: Final Migration Exit
 
@@ -559,11 +574,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with C-3:
+Start with F-1:
 
-Hoist all reusable Schema decoder/encoder compiler calls to module scope; do
-not compile schemas inside hot request handlers. Audit protocol/backend runtime
-paths for inline `Schema.decodeUnknown*` or encoder compiler calls, convert the
-safe repeated cases to module-level constants, validate focused package gates,
-run only the EffectTS quality checker if Effect code changes, tick `C-3`, then
-commit.
+Run a repo-wide audit for remaining `readJson<...>`, `request.json() as`,
+`JSON.parse(...) as`, domain `throw new HttpError`, and non-adapter
+`Effect.runPromise(...)`. For each remaining occurrence, decide whether it
+needs migration now or should be documented as a deliberate runtime bridge
+exception before moving to F-2.
