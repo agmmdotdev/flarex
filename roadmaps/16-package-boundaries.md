@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Generated Read Start And Protocol Adapter Failure Effects
+
+Previous completed checkpoint: `1e37836` Name finish abandon adapter effects.
+
+What changed:
+
+- Generated DeploymentApi read, start, and protocol response failure mapping
+  now uses explicit failure aliases and named adapter `Effect.fn(...)` helpers.
+- `mapDeploymentReadFailure(...)`, `mapDeploymentStartFailure(...)`, and
+  `mapDeploymentProtocolResponseFailure(...)` remain the adapter entrypoints,
+  but their tag branches delegate to named response effects.
+- Tests cover the response-effect failure channels directly.
+
+Boundary decision:
+
+Read/start service and protocol functions should continue to emit typed domain
+or protocol failures. The generated HttpApi adapter owns conversion to declared
+response classes, so these named adapter effects live in `HttpApiHandlers.ts`
+rather than the service, store, validation, or protocol modules.
+
+Known limitations:
+
+- No route registration, Durable Object routing, DeploymentService/store,
+  public Worker, package metadata, service binding, or SQL/OCC boundary
+  changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Finish And Abandon Adapter Failure Effects
 
 Previous completed checkpoint: `8253465` Name generated deployment response

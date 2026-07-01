@@ -1,5 +1,39 @@
 # Runtime Validation
 
+## Generated Read Start And Protocol Adapter Failure Effects
+
+Previous completed checkpoint: `1e37836` Name finish abandon adapter effects.
+
+What changed:
+
+- Read, start, and protocol response failure channels now have explicit
+  generated-adapter failure aliases.
+- Named adapter effects convert read, start, and protocol validation failures
+  to declared DeploymentApi response classes.
+- Direct tests cover active-read not-found/storage, start bad-request/storage,
+  and protocol response validation storage mappings.
+
+Why it changed:
+
+This completes the generated DeploymentApi failure adapter family. Runtime
+validation failures now stay typed until a named generated-handler adapter
+effect converts them to the declared response class.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentService/store internals,
+  generated route wiring, `DeploymentDO.fetch()`, public Worker routing,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Finish And Abandon Adapter Failure Effects
 
 Previous completed checkpoint: `8253465` Name generated deployment response

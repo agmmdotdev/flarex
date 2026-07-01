@@ -57,6 +57,19 @@ export type DeploymentAbandonErrorResponse =
   | DeploymentConflictErrorResponse
   | DeploymentStorageErrorResponse;
 
+export type DeploymentReadFailure =
+  | DeploymentActiveDeploymentInvalidError
+  | DeploymentActiveDeploymentNotFoundError
+  | DeploymentPushNotFoundError
+  | DeploymentValidationError
+  | DeploymentSqlError;
+
+export type DeploymentStartFailure =
+  | DeploymentProtocolValidationError
+  | DeploymentSqlError
+  | DeploymentStoredPushMissingError
+  | DeploymentValidationError;
+
 export type DeploymentFinishFailure =
   | DeploymentArtifactRefError
   | DeploymentPushNotFoundError
@@ -70,6 +83,9 @@ export type DeploymentAbandonFailure =
   | DeploymentSqlError
   | DeploymentStoredPushMissingError
   | DeploymentValidationError;
+
+export type DeploymentProtocolResponseFailure =
+  DeploymentProtocolValidationError;
 
 export const DeploymentApiHandlers = HttpApiBuilder.group(
   DeploymentApi,
@@ -150,50 +166,28 @@ export const deploymentAbandonPushHandler = Effect.fn("DeploymentApiHandlers.aba
 );
 
 export function mapDeploymentReadFailure<A>(
-  effect: Effect.Effect<
-    A,
-    | DeploymentActiveDeploymentInvalidError
-    | DeploymentActiveDeploymentNotFoundError
-    | DeploymentPushNotFoundError
-    | DeploymentValidationError
-    | DeploymentSqlError
-  >,
+  effect: Effect.Effect<A, DeploymentReadFailure>,
 ): Effect.Effect<A, DeploymentReadErrorResponse> {
   return effect.pipe(
     Effect.catchTags({
-      DeploymentActiveDeploymentInvalidError: error =>
-        Effect.fail(deploymentReadFailureToResponse(error)),
-      DeploymentActiveDeploymentNotFoundError: error =>
-        Effect.fail(deploymentReadFailureToResponse(error)),
-      DeploymentPushNotFoundError: error =>
-        Effect.fail(deploymentReadFailureToResponse(error)),
-      DeploymentValidationError: error =>
-        Effect.fail(deploymentReadFailureToResponse(error)),
-      DeploymentSqlError: error =>
-        Effect.fail(deploymentReadFailureToResponse(error)),
+      DeploymentActiveDeploymentInvalidError: deploymentReadFailureResponseEffect,
+      DeploymentActiveDeploymentNotFoundError: deploymentReadFailureResponseEffect,
+      DeploymentPushNotFoundError: deploymentReadFailureResponseEffect,
+      DeploymentValidationError: deploymentReadFailureResponseEffect,
+      DeploymentSqlError: deploymentReadFailureResponseEffect,
     }),
   );
 }
 
 export function mapDeploymentStartFailure<A>(
-  effect: Effect.Effect<
-    A,
-    | DeploymentProtocolValidationError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError
-  >,
+  effect: Effect.Effect<A, DeploymentStartFailure>,
 ): Effect.Effect<A, DeploymentStartErrorResponse> {
   return effect.pipe(
     Effect.catchTags({
-      DeploymentProtocolValidationError: error =>
-        Effect.fail(deploymentStartFailureToResponse(error)),
-      DeploymentSqlError: error =>
-        Effect.fail(deploymentStartFailureToResponse(error)),
-      DeploymentStoredPushMissingError: error =>
-        Effect.fail(deploymentStartFailureToResponse(error)),
-      DeploymentValidationError: error =>
-        Effect.fail(deploymentStartFailureToResponse(error)),
+      DeploymentProtocolValidationError: deploymentStartFailureResponseEffect,
+      DeploymentSqlError: deploymentStartFailureResponseEffect,
+      DeploymentStoredPushMissingError: deploymentStartFailureResponseEffect,
+      DeploymentValidationError: deploymentStartFailureResponseEffect,
     }),
   );
 }
@@ -226,6 +220,22 @@ export function mapDeploymentAbandonFailure<A>(
   );
 }
 
+export const deploymentReadFailureResponseEffect = Effect.fn(
+  "DeploymentApiHandlers.deploymentReadFailureResponse",
+)(function* (
+  error: DeploymentReadFailure,
+): Effect.fn.Return<never, DeploymentReadErrorResponse> {
+  return yield* Effect.fail(deploymentReadFailureToResponse(error));
+});
+
+export const deploymentStartFailureResponseEffect = Effect.fn(
+  "DeploymentApiHandlers.deploymentStartFailureResponse",
+)(function* (
+  error: DeploymentStartFailure,
+): Effect.fn.Return<never, DeploymentStartErrorResponse> {
+  return yield* Effect.fail(deploymentStartFailureToResponse(error));
+});
+
 export const deploymentFinishFailureResponseEffect = Effect.fn(
   "DeploymentApiHandlers.deploymentFinishFailureResponse",
 )(function* (
@@ -243,22 +253,23 @@ export const deploymentAbandonFailureResponseEffect = Effect.fn(
 });
 
 export function mapDeploymentProtocolResponseFailure<A>(
-  effect: Effect.Effect<A, DeploymentProtocolValidationError>,
+  effect: Effect.Effect<A, DeploymentProtocolResponseFailure>,
 ): Effect.Effect<A, DeploymentStorageErrorResponse> {
   return effect.pipe(
-    Effect.catchTag("DeploymentProtocolValidationError", error =>
-      Effect.fail(new DeploymentStorageErrorResponse({ error: error.message }))
-    ),
+    Effect.catchTag("DeploymentProtocolValidationError", deploymentProtocolResponseFailureEffect),
   );
 }
 
+export const deploymentProtocolResponseFailureEffect = Effect.fn(
+  "DeploymentApiHandlers.deploymentProtocolResponseFailure",
+)(function* (
+  error: DeploymentProtocolResponseFailure,
+): Effect.fn.Return<never, DeploymentStorageErrorResponse> {
+  return yield* Effect.fail(deploymentProtocolResponseFailureToResponse(error));
+});
+
 export function deploymentReadFailureToResponse(
-  error:
-    | DeploymentActiveDeploymentInvalidError
-    | DeploymentActiveDeploymentNotFoundError
-    | DeploymentPushNotFoundError
-    | DeploymentValidationError
-    | DeploymentSqlError,
+  error: DeploymentReadFailure,
 ): DeploymentReadErrorResponse {
   if (error instanceof DeploymentActiveDeploymentNotFoundError) {
     return new DeploymentNotFoundErrorResponse({ error: "No active deployment." });
@@ -276,11 +287,7 @@ export function deploymentReadFailureToResponse(
 }
 
 export function deploymentStartFailureToResponse(
-  error:
-    | DeploymentProtocolValidationError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError,
+  error: DeploymentStartFailure,
 ): DeploymentStartErrorResponse {
   if (error instanceof DeploymentProtocolValidationError || error instanceof DeploymentValidationError) {
     return new DeploymentBadRequestErrorResponse({ error: error.message });
@@ -289,12 +296,7 @@ export function deploymentStartFailureToResponse(
 }
 
 export function deploymentFinishFailureToResponse(
-  error:
-    | DeploymentArtifactRefError
-    | DeploymentPushNotFoundError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError,
+  error: DeploymentFinishFailure,
 ): DeploymentFinishErrorResponse {
   if (error instanceof DeploymentValidationError) {
     return new DeploymentBadRequestErrorResponse({ error: error.message });
@@ -309,12 +311,7 @@ export function deploymentFinishFailureToResponse(
 }
 
 export function deploymentAbandonFailureToResponse(
-  error:
-    | DeploymentPushInvalidStateError
-    | DeploymentPushNotFoundError
-    | DeploymentSqlError
-    | DeploymentStoredPushMissingError
-    | DeploymentValidationError,
+  error: DeploymentAbandonFailure,
 ): DeploymentAbandonErrorResponse {
   if (error instanceof DeploymentPushNotFoundError) {
     return new DeploymentNotFoundErrorResponse({ error: `Unknown push: ${error.pushId}` });
@@ -328,6 +325,12 @@ export function deploymentAbandonFailureToResponse(
     return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
   }
   return new DeploymentStorageErrorResponse({ error: "Deployment storage error." });
+}
+
+export function deploymentProtocolResponseFailureToResponse(
+  error: DeploymentProtocolResponseFailure,
+): DeploymentStorageErrorResponse {
+  return new DeploymentStorageErrorResponse({ error: error.message });
 }
 
 export function deploymentHttpErrorToReadResponse(error: HttpError): DeploymentReadErrorResponse {

@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Generated finish and abandon adapter failure effects.
+- Previous completed checkpoint: Generated read/start/protocol adapter failure effects.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,38 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the generated finish and abandon adapter failure effects:
+Next recommended checkpoint after the generated read/start/protocol adapter failure effects:
 
-1. Prefer a deeper generated-handler or DeploymentService batch next:
-   continue naming start/read generated-handler adapter mappings, or move
-   another shared service path to typed service/domain errors with a single
-   adapter response edge.
+1. Prefer a deeper DeploymentService or route-service batch next:
+   move another shared service path to typed service/domain errors with a
+   single adapter response edge, now that generated DeploymentApi response
+   adapters are named.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 283 slice:
+
+1. Add explicit `DeploymentReadFailure`, `DeploymentStartFailure`, and
+   `DeploymentProtocolResponseFailure` aliases for the remaining generated
+   DeploymentApi adapter failure channels.
+2. Add named `Effect.fn(...)` helpers
+   `deploymentReadFailureResponseEffect(...)`,
+   `deploymentStartFailureResponseEffect(...)`, and
+   `deploymentProtocolResponseFailureEffect(...)` that convert typed
+   read/start/protocol failures to declared DeploymentApi response classes.
+3. Route `mapDeploymentReadFailure(...)`,
+   `mapDeploymentStartFailure(...)`, and
+   `mapDeploymentProtocolResponseFailure(...)` through the named adapter
+   effects, matching the existing finish and abandon mapping style.
+4. Add direct tests for active-read not-found/storage, start bad-request/storage,
+   and protocol response validation storage mappings.
+5. Leave DeploymentService/store behavior, generated route wiring,
+   `DeploymentDO.fetch()`, public Worker routing, PartitionDO SQL/OCC,
+   executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 282 slice:
 

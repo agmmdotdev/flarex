@@ -39,12 +39,16 @@ import {
   deploymentGetActiveDeploymentHandler,
   deploymentGetPushHandler,
   deploymentHealthHandler,
+  deploymentProtocolResponseFailureEffect,
+  deploymentReadFailureResponseEffect,
   deploymentStartAnalyzedPushHandler,
+  deploymentStartFailureResponseEffect,
   decodeStartAnalyzedPushHandlerInput,
   startAnalyzedPushHandlerInputFromPayload,
 } from "../src/deployment/HttpApiHandlers";
 import { makeDeploymentApiWebHandler } from "../src/deployment/HttpApiWebHandler";
 import {
+  DeploymentActiveDeploymentInvalidError,
   DeploymentActiveDeploymentNotFoundError,
   DeploymentArtifactRefError,
   DeploymentPushInvalidStateError,
@@ -380,6 +384,62 @@ describe("DeploymentApiHandlers", () => {
         cause: {},
       }),
     )))).rejects.toMatchObject({
+      error: "Deployment push response did not match the deployment protocol.",
+    });
+  });
+
+  it("maps read, start, and protocol response failures through named adapter effects", async () => {
+    const readNotFound = await Effect.runPromise(Effect.flip(
+      deploymentReadFailureResponseEffect(new DeploymentActiveDeploymentNotFoundError()),
+    ));
+    expect(readNotFound).toBeInstanceOf(DeploymentNotFoundErrorResponse);
+    expect(parseDeploymentErrorResponse(readNotFound)).toEqual({
+      error: "No active deployment.",
+    });
+
+    const readStorage = await Effect.runPromise(Effect.flip(
+      deploymentReadFailureResponseEffect(new DeploymentActiveDeploymentInvalidError({
+        message: "Active push active-push is missing.",
+      })),
+    ));
+    expect(readStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(readStorage)).toEqual({
+      error: "Active push active-push is missing.",
+    });
+
+    const startBadRequest = await Effect.runPromise(Effect.flip(
+      deploymentStartFailureResponseEffect(new DeploymentProtocolValidationError({
+        schema: "AnalyzedStartPushRequest",
+        message: "Analyzed start push request must include sourcePackage.",
+        cause: {},
+      })),
+    ));
+    expect(startBadRequest).toBeInstanceOf(DeploymentBadRequestErrorResponse);
+    expect(parseDeploymentErrorResponse(startBadRequest)).toEqual({
+      error: "Analyzed start push request must include sourcePackage.",
+    });
+
+    const startStorage = await Effect.runPromise(Effect.flip(
+      deploymentStartFailureResponseEffect(new DeploymentStoredPushMissingError({
+        operation: "startPush",
+        pushId: "push-start-effect-storage",
+        stage: "stored",
+      })),
+    ));
+    expect(startStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(startStorage)).toEqual({
+      error: "Deployment storage error.",
+    });
+
+    const protocolStorage = await Effect.runPromise(Effect.flip(
+      deploymentProtocolResponseFailureEffect(new DeploymentProtocolValidationError({
+        schema: "PushStatus",
+        message: "Deployment push response did not match the deployment protocol.",
+        cause: {},
+      })),
+    ));
+    expect(protocolStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
+    expect(parseDeploymentErrorResponse(protocolStorage)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });

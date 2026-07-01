@@ -1,5 +1,42 @@
 # Deployment Analysis And Push
 
+## Generated Read Start And Protocol Adapter Failure Effects
+
+Previous completed checkpoint: `1e37836` Name finish abandon adapter effects.
+
+What changed:
+
+- Generated active-read, push-read, start, and protocol response failures now
+  map through named adapter effects.
+- Explicit read, start, and protocol response failure aliases document which
+  domain/protocol failures can cross each generated handler boundary.
+- Direct tests cover active-read not-found/storage mapping, start
+  bad-request/storage mapping, and protocol response validation storage
+  mapping.
+
+Why it changed:
+
+Start and read handlers are the generated DeploymentApi paths that load or
+prepare deployment push lifecycle state before finish/abandon mutations. Naming
+their adapter effects completes the generated handler response edge before the
+next service/domain migration slice.
+
+Known limitations:
+
+- This checkpoint does not change analyzer behavior, push state transitions,
+  DeploymentService/store internals, generated route wiring,
+  `DeploymentDO.fetch()`, public Worker routing, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Generated Finish And Abandon Adapter Failure Effects
 
 Previous completed checkpoint: `8253465` Name generated deployment response
