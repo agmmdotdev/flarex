@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: C-1b scheduler route protocol decoders in this checkpoint commit.
-- Active checkpoint: C-1c connection protocol decoders, exporting connection message, invalidation, and delivery transport decoders from `flarex-protocol` while keeping ConnectionDO request, WebSocket, and response adapters responsible for runtime edges.
+- Previous completed checkpoint: C-1c connection protocol decoders in this checkpoint commit.
+- Active checkpoint: C-1d remaining protocol contract cleanup, exporting or intentionally documenting partition, artifact runtime, and executor HTTP body transport decoders while keeping package runtime adapters responsible for runtime edges.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,17 +52,26 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after C-1b scheduler route protocol decoders:
+Next recommended checkpoint after C-1c connection protocol decoders:
 
-1. Audit connection message, invalidation, and delivery request shapes in
-   `packages/flarex-backend/src/connection*` and related route boundary tests.
-2. Add connection transport schemas and Effect-returning decoders to
-   `flarex-protocol` without moving ConnectionDO WebSocket/session lifecycle
-   behavior.
-3. Delegate backend connection payload validation to the protocol decoders while
-   preserving current status, close, and response body behavior.
-4. Validate `flarex-protocol` plus focused connection backend gates before
-   ticking C-1c.
+1. Audit partition, artifact runtime, and executor HTTP request body decoders
+   that still live outside `flarex-protocol`.
+2. Export the transport contracts that are shared backend/executor API
+   boundaries, and explicitly document package-local contracts where hoisting
+   would blur runtime ownership.
+3. Keep runtime adapters, WebSocket/session behavior, and HTTP response mapping
+   unchanged.
+4. Validate affected protocol/backend/executor gates before ticking C-1d.
+
+Completed Goal 365 slice:
+
+1. Audited ConnectionDO WebSocket message, invalidation, and live-query
+   delivery route body contracts.
+2. Added protocol-owned connection request/message schemas and Effect decoders.
+3. Kept backend connection modules as compatibility import paths and left
+   ConnectionDO request, WebSocket, and response adapter behavior unchanged.
+4. Validated protocol plus focused connection backend tests before ticking
+   C-1c.
 
 Completed Goal 364 slice:
 

@@ -1,39 +1,25 @@
-import { Data, Effect, Schema } from "effect";
 import {
-  decodeLiveQueryDeliveryChangesFromBody,
-  type LiveQueryDeliveryChange,
-  type LiveQueryDeliveryChangePayloadError,
-} from "../liveQueryDelivery";
+  ConnectionRouteValidationError,
+  decodeConnectionInvalidationPayloadEffect,
+  decodeConnectionLiveQueryDeliveryPayloadEffect,
+} from "flarex-protocol/connection";
+import type {
+  LiveQueryDeliveryChange,
+  LiveQueryDeliveryChangePayloadError,
+} from "flarex-protocol/live-query";
+import { Effect } from "effect";
 import type { QueryId } from "../syncProtocol";
 
-export class ConnectionRouteValidationError extends Data.TaggedError("ConnectionRouteValidationError")<{
-  readonly message: string;
-}> {}
-
-const ConnectionQueryId = Schema.declare<QueryId>(
-  (value): value is QueryId => typeof value === "number" && Number.isInteger(value),
-  { title: "ConnectionQueryId" },
-);
-
-const ConnectionInvalidationPayload = Schema.Struct({
-  queryId: ConnectionQueryId,
-});
-
-const decodeUnknownConnectionInvalidationPayload = Schema.decodeUnknownEffect(
-  ConnectionInvalidationPayload,
-);
+export { ConnectionRouteValidationError } from "flarex-protocol/connection";
 
 export const decodeConnectionInvalidationPayload = Effect.fn(
   "ConnectionRequests.decodeInvalidationPayload",
 )(function* (
   value: unknown,
 ): Effect.fn.Return<QueryId, ConnectionRouteValidationError> {
-  const decoded = yield* decodeUnknownConnectionInvalidationPayload(value).pipe(
-    Effect.mapError(() =>
-      connectionRouteValidationFailure("Invalidation queryId must be an integer."),
-    ),
+  return yield* decodeConnectionInvalidationPayloadEffect(value).pipe(
+    Effect.map(queryId => queryId as QueryId),
   );
-  return decoded.queryId;
 });
 
 export const decodeConnectionLiveQueryDeliveryPayload = Effect.fn(
@@ -41,11 +27,5 @@ export const decodeConnectionLiveQueryDeliveryPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-  return yield* decodeLiveQueryDeliveryChangesFromBody(value);
+  return yield* decodeConnectionLiveQueryDeliveryPayloadEffect(value);
 });
-
-function connectionRouteValidationFailure(
-  message: string,
-): ConnectionRouteValidationError {
-  return new ConnectionRouteValidationError({ message });
-}
