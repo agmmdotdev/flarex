@@ -12,7 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: O-1 ConnectionDO runtime boundary in this
+- Previous completed checkpoint: O-2 ExecutionDO runtime boundary in this
   checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
@@ -301,8 +301,9 @@ The Effect migration is complete only when all of these are true:
     `test/connectionRouteBoundary.test.ts`,
     `test/connectionRouteDispatchBoundary.test.ts`,
     selected `test/sync.test.ts` websocket message boundary cases.
-- [ ] O-2. ExecutionDO: keep one `runPromise` in fetch, move session/action
+- [x] O-2. ExecutionDO: keep one `runPromise` in fetch, move session/action
   failures to tagged errors, and keep invoke response mapping at the DO edge.
+  - Completed by: this O-2 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/executionDO.ts`,
     `packages/flarex-backend/src/execution/*`,
@@ -434,10 +435,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with O-2:
+Start with O-3:
 
-Tighten `ExecutionDO` runtime boundaries while keeping one `runPromise` in
-fetch: move session/action failures to tagged errors, keep invoke response
-mapping at the DO edge, update `effect-ts-migration-draft/your-proposal.md`
+Tighten `DeliveryDO` and `SchedulerDO` runtime boundaries: keep alarm and
+`waitUntil` bridge effects documented, move pending-state and remote-call
+failures to typed errors, update `effect-ts-migration-draft/your-proposal.md`
 and relevant roadmaps, validate, run only the EffectTS quality checker, tick
-`O-2`, then commit.
+`O-3`, then commit.

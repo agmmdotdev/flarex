@@ -76,6 +76,19 @@ export function requireExecutionKindMatch(
   return Effect.void;
 }
 
+export function requireSupportedExecutionFunctionKind(
+  operation: ExecutionRouteOperation,
+  functionKind: DeploymentFunctionKind,
+): Effect.Effect<BackendFunctionKind, ExecutionSessionError> {
+  if (functionKind === "query" || functionKind === "mutation") {
+    return Effect.succeed(functionKind);
+  }
+  return Effect.fail(executionSessionError(operation, {
+    _tag: "UnsupportedFunctionKind",
+    functionKind,
+  }));
+}
+
 export function requireMutationExecution(
   operation: ExecutionRouteOperation,
   executionKind: BackendFunctionKind,

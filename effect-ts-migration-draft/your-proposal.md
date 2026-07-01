@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: O-1 ConnectionDO runtime boundary in this checkpoint commit.
-- Active checkpoint: O-2 ExecutionDO runtime boundary, keeping one `runPromise` in fetch while moving session/action failures to tagged errors and keeping invoke response mapping at the DO edge.
+- Previous completed checkpoint: O-2 ExecutionDO runtime boundary in this checkpoint commit.
+- Active checkpoint: O-3 DeliveryDO and SchedulerDO runtime boundaries, keeping alarm and `waitUntil` bridge effects documented while moving pending-state and remote-call failures to typed errors.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,27 +52,39 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after O-1 ConnectionDO runtime boundary:
+Next recommended checkpoint after O-2 ExecutionDO runtime boundary:
 
-1. Continue into O-2 by tightening `ExecutionDO` runtime/session/action failure
-   boundaries without adding extra runtime bridges.
-2. Keep one `Effect.runPromise(...)` in `ExecutionDO.fetch(...)` and keep invoke
-   response mapping at the Durable Object adapter edge.
-3. Move session/action failures to tagged errors at their source boundary,
-   preserving current status/body behavior through focused ExecutionDO tests.
-4. Continue avoiding ConnectionDO websocket/session behavior, PartitionDO
-   SQL/OCC, deployment storage, scheduler/delivery runtime loops,
-   artifact materializer/cache, executor-http, protocol parser compatibility
-   wrappers, and `ValidatorJson` unless O-2 owns that boundary directly.
+1. Continue into O-3 by auditing DeliveryDO and SchedulerDO runtime/pending
+   state/remote-call failure paths.
+2. Keep Durable Object alarm and `waitUntil` bridges explicit and documented,
+   without adding nested request runtime boundaries.
+3. Move owned pending-state and remote-call failures to tagged errors emitted
+   at source boundaries and mapped at the DO adapter edges.
+4. Continue avoiding ExecutionDO, ConnectionDO websocket/session behavior,
+   PartitionDO SQL/OCC, deployment storage, artifact materializer/cache,
+   executor-http, protocol parser compatibility wrappers, and `ValidatorJson`
+   unless O-3 owns that boundary directly.
 
-Current Goal 353 slice:
+Current Goal 354 slice:
+
+1. Audit `DeliveryDO` and `SchedulerDO` alarm/waitUntil paths, pending-state
+   continuation, and remote-call failures.
+2. Convert owned pending-state and remote-call failures to tagged errors at
+   source boundaries.
+3. Keep alarm and waitUntil bridges documented and keep response mapping at DO
+   adapter edges.
+4. Preserve DeliveryDO and scheduler boundary/maintenance behavior through
+   focused tests before ticking O-3.
+
+Completed Goal 353 slice:
 
 1. Audit `ExecutionDO` fetch/session/action handling for remaining untyped
    runtime failures and nested runtime boundaries.
 2. Convert owned session/action failures to tagged errors emitted at the source
-   boundary.
-3. Keep invoke response mapping and HTTP response conversion at the ExecutionDO
-   adapter edge.
+   boundary, including unsupported action/workflow function starts and
+   requested/function kind mismatches.
+3. Keep `/invoke` validation errors in `invoke.ts`, while ExecutionDO maps
+   typed route/session/invoke/operation errors at the DO adapter edge.
 4. Preserve execution start/action/syscall/finish response behavior through
    focused ExecutionDO/session/invoke tests before ticking O-2.
 

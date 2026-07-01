@@ -24,8 +24,10 @@ import {
   executionSessionError,
   executionSessionErrorToHttpError,
   requireActiveExecutionSession,
+  requireExecutionKindMatch,
   requireMutationExecution,
   requireNoActiveExecutionSession,
+  requireSupportedExecutionFunctionKind,
 } from "./execution/SessionError";
 import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
 import {
@@ -44,13 +46,10 @@ import {
   InvokeDocumentTableNotFoundError,
   InvokeDocumentValidationError,
   InvokeQueryPlanningError,
-  InvokeRequestKindMismatchError,
-  InvokeUnsupportedFunctionKindError,
   invokeValidationErrorToHttpError,
   InvokePartitionValidationError,
   InvokeReturnValidationError,
   InvokeTableNotFoundError,
-  isInvokableKind,
   type InvokeTransactionOperation,
   loadActiveFunctionMetadataEffect,
   patchDocumentEffect,
@@ -92,25 +91,21 @@ export class ExecutionDO extends DurableObject<Env> {
   private session: ExecutionSession | null = null;
 
   async fetch(request: Request): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      if (request.method === "POST" && isExecutionJsonRoutePath(url.pathname)) {
-        return await runExecutionRoute(
-          routeExecutionDurableObject(request, url.pathname, {
-            start: body => this.start(body),
-            syscall: body => this.syscall(body),
-            finish: body => this.finish(body),
-            abort: () => Effect.sync(() => {
-              this.session = null;
-              return { aborted: true as const };
-            }),
+    const url = new URL(request.url);
+    if (request.method === "POST" && isExecutionJsonRoutePath(url.pathname)) {
+      return runExecutionRoute(
+        routeExecutionDurableObject(request, url.pathname, {
+          start: body => this.start(body),
+          syscall: body => this.syscall(body),
+          finish: body => this.finish(body),
+          abort: () => Effect.sync(() => {
+            this.session = null;
+            return { aborted: true as const };
           }),
-        );
-      }
-      return Response.json({ error: "Execution route not found." }, { status: 404 });
-    } catch (error) {
-      return invokeErrorResponse(error);
+        }),
+      );
     }
+    return Response.json({ error: "Execution route not found." }, { status: 404 });
   }
 
   private start(
@@ -127,18 +122,8 @@ export class ExecutionDO extends DurableObject<Env> {
       );
       const schema = active.deployment.analysis.schema;
       const metadata = active.metadata;
-      if (!isInvokableKind(metadata.kind)) {
-        return yield* Effect.fail(new InvokeUnsupportedFunctionKindError({
-          path: request.path,
-          kind: metadata.kind,
-        }));
-      }
-      if (request.kind !== undefined && request.kind !== metadata.kind) {
-        return yield* Effect.fail(new InvokeRequestKindMismatchError({
-          requestKind: request.kind,
-          functionKind: metadata.kind,
-        }));
-      }
+      const executionKind = yield* requireSupportedExecutionFunctionKind("start", metadata.kind);
+      yield* requireExecutionKindMatch("start", request.kind, executionKind);
       yield* validateInvokeArgumentsEffect(metadata.args, request.args, schema);
       const scope = yield* resolveFunctionExecutionScopeEffect(
         metadata.partition,
@@ -171,14 +156,14 @@ export class ExecutionDO extends DurableObject<Env> {
         deploymentId: request.deploymentId,
         partitionKey: scope.partitionKey,
         path: request.path,
-        kind: metadata.kind,
+        kind: executionKind,
         ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
         scope,
         schema,
         metadata,
         tx,
       };
-      return { beginTs: tx.beginTs, schemaVersion: tx.schemaVersion, kind: metadata.kind };
+      return { beginTs: tx.beginTs, schemaVersion: tx.schemaVersion, kind: executionKind };
     });
   }
 
@@ -419,9 +404,7 @@ type ExecutionServiceError =
   | InvokeDocumentValidationError
   | InvokePartitionValidationError
   | InvokeQueryPlanningError
-  | InvokeRequestKindMismatchError
   | InvokeTableNotFoundError
-  | InvokeUnsupportedFunctionKindError
   | InvokeReturnValidationError
   | ExecutionRouteOperationError;
 
@@ -449,11 +432,6 @@ function executionInternalRouteErrorToResponse(
   }
   if (error instanceof ExecutionSessionError) {
     return invokeErrorResponse(executionSessionErrorToHttpError(error));
-  }
-  if (error instanceof InvokeUnsupportedFunctionKindError) {
-    return invokeErrorResponse(
-      new HttpError(400, `${error.kind} execution is not implemented by execution sessions.`),
-    );
   }
   if (error instanceof InvokeArgumentValidationError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
@@ -486,9 +464,6 @@ function executionInternalRouteErrorToResponse(
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokeQueryPlanningError) {
-    return invokeErrorResponse(invokeValidationErrorToHttpError(error));
-  }
-  if (error instanceof InvokeRequestKindMismatchError) {
     return invokeErrorResponse(invokeValidationErrorToHttpError(error));
   }
   if (error instanceof InvokeTableNotFoundError) {

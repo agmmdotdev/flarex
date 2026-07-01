@@ -8,6 +8,7 @@ import {
   requireExecutionKindMatch,
   requireMutationExecution,
   requireNoActiveExecutionSession,
+  requireSupportedExecutionFunctionKind,
 } from "../src/execution/SessionError";
 
 describe("execution session errors", () => {
@@ -77,6 +78,25 @@ describe("execution session errors", () => {
     expect(executionSessionErrorToHttpError(error)).toMatchObject({
       status: 400,
       message: "Function kind mismatch. Request has query, function is mutation.",
+    });
+  });
+
+  it("fails through the typed channel when execution sessions do not support a function kind", async () => {
+    const error = await Effect.runPromise(Effect.flip(
+      requireSupportedExecutionFunctionKind("start", "action"),
+    ));
+
+    expect(error).toMatchObject({
+      _tag: "ExecutionSessionError",
+      operation: "start",
+      reason: {
+        _tag: "UnsupportedFunctionKind",
+        functionKind: "action",
+      },
+    });
+    expect(executionSessionErrorToHttpError(error)).toMatchObject({
+      status: 400,
+      message: "action execution is not implemented by execution sessions.",
     });
   });
 

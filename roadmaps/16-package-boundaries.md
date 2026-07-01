@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## ExecutionDO Session Runtime Boundary
+
+Previous completed checkpoint: `0817c0f` Type connection websocket messages.
+
+What changed:
+
+- `execution/SessionError.ts` now owns the supported execution function-kind
+  precondition for ExecutionDO sessions.
+- `ExecutionDO.start(...)` maps action/workflow functions and request/function
+  kind mismatches to `ExecutionSessionError` at the session boundary.
+- `ExecutionDO.fetch(...)` keeps route recovery in the Effect runtime boundary
+  instead of a broad adapter `try/catch`.
+- `invoke.ts` keeps its separate `/invoke` validation errors; ExecutionDO no
+  longer imports invoke unsupported-kind or request-kind mismatch errors.
+
+Boundary decision:
+
+ExecutionDO session preconditions belong in `execution/SessionError.ts`.
+Invoke-level function resolution and validation remain in `invoke.ts` for the
+public invoke path. ExecutionDO remains the adapter edge that converts typed
+route, session, validation, and transaction operation errors to HTTP responses.
+
+Known limitations:
+
+- This checkpoint does not convert transaction internals, invoke validation
+  internals, PartitionDO SQL/OCC, executor-http, scheduler/delivery runtime
+  loops, deployment storage, or `ValidatorJson`.
+- Query/syscall/finish runtime preconditions that already flow through typed
+  session, invoke, or route-operation errors are left in place.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionSessionError.test.ts test/executionDO.test.ts test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## ConnectionDO WebSocket Message Boundary
 
 Previous completed checkpoint: `8bace85` Type connection route boundaries.

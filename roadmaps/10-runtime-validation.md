@@ -1,5 +1,36 @@
 # Runtime Validation
 
+## ExecutionDO Session Runtime Boundary
+
+Previous completed checkpoint: `0817c0f` Type connection websocket messages.
+
+What changed:
+
+- `ExecutionDO.fetch(...)` no longer wraps route handling in a broad
+  `try/catch`; typed route/service failures recover through the single
+  `runExecutionRoute(...)` runtime boundary.
+- `ExecutionDO.start(...)` now emits `ExecutionSessionError` for unsupported
+  action/workflow function kinds and requested/function kind mismatches.
+- ExecutionDO no longer depends on invoke-level unsupported-kind or
+  request-kind mismatch errors for session start behavior.
+- The existing ExecutionDO adapter still maps session errors to the preserved
+  HTTP response bodies through `executionSessionErrorToHttpError(...)`.
+
+Why it changed:
+
+O-2 keeps ExecutionDO session/action failures in the execution session error
+model instead of borrowing `/invoke` validation errors. This keeps source
+provenance clear while preserving response status/body behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionSessionError.test.ts test/executionDO.test.ts test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## ConnectionDO WebSocket Message Boundary
 
 Previous completed checkpoint: `8bace85` Type connection route boundaries.
