@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment route adapter HTTP error boundary.
+- Previous completed checkpoint: Deployment service push preflight extraction.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,18 +48,37 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment route adapter HTTP error boundary:
+Next recommended checkpoint after the deployment service push preflight extraction:
 
-1. Prefer DeploymentDO push lifecycle service extraction now that deployment
-   request, domain validation, generated HttpApi response, and public/DO route
-   adapter error boundaries have typed Effect decoders and one HTTP conversion
-   edge.
+1. Prefer the DeploymentPushStore transaction boundary next: split start,
+   finish, and abandon transaction bodies into named Effect helpers while
+   preserving SQL/OCC semantics and transaction rollback behavior.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 275 slice:
+
+1. Extract deployment push lifecycle service preflights into named Effect
+   helpers: `requireDeploymentPush(...)`,
+   `deploymentExecutionArtifactRefForPush(...)`,
+   `ensureDeploymentPushCanBeAbandoned(...)`, and
+   `normalizeDeploymentAbandonReason(...)`.
+2. Keep `DeploymentService` public methods unchanged while moving get-push
+   not-found handling, finish artifact-ref resolution, abandon eligibility,
+   and abandon reason normalization through reusable typed boundaries.
+3. Preserve typed `DeploymentPushNotFoundError`,
+   `DeploymentArtifactRefError`, `DeploymentPushInvalidStateError`,
+   `DeploymentSqlError`, and `DeploymentValidationError` propagation without
+   introducing `HttpError` into service/domain logic.
+4. Add direct service-helper coverage for success/failure channels in addition
+   to the existing full service operation tests.
+5. Leave DeploymentPushStore transaction bodies, SQL/OCC behavior, generated
+   HttpApi handlers, public Worker routing, PartitionDO SQL/OCC,
+   executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 274 slice:
 

@@ -1,5 +1,40 @@
 # Deployment Analysis And Push
 
+## Deployment Service Push Preflight Extraction
+
+Previous completed checkpoint: `c308fe3` Map deployment route validation at adapter edge.
+
+What changed:
+
+- Finish-push service preflight now uses named Effect helpers to require an
+  existing push and resolve the execution artifact reference before the store
+  activation write.
+- Abandon-push service preflight now uses named Effect helpers to require an
+  existing push, validate abandon eligibility, and normalize the stored abandon
+  reason.
+- Direct tests cover missing push, storage read, artifact-ref, abandon-state,
+  and reason-normalization behavior at the service helper boundary.
+
+Why it changed:
+
+Deployment push activation and abandon are correctness-sensitive state
+transitions. Pulling their preflight rules into named Effect helpers makes the
+service boundary more explicit while keeping transaction writes and state
+transition semantics unchanged.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, analyzer behavior, artifact persistence, DeploymentPushStore
+  transaction bodies, storage schema, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Route Adapter HTTP Error Boundary
 
 Previous completed checkpoint: `d497276` Validate deployment HttpApi responses with protocol effects.

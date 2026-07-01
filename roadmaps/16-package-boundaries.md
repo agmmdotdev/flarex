@@ -1,5 +1,40 @@
 # Package Boundaries
 
+## Deployment Service Push Preflight Extraction
+
+Previous completed checkpoint: `c308fe3` Map deployment route validation at adapter edge.
+
+What changed:
+
+- `deployment/Service.ts` now separates service-facing push preflight helpers
+  from public `DeploymentService` method assembly.
+- Finish artifact-ref resolution depends on an explicit
+  `DeploymentArtifactResolver` interface, and push existence preflight depends
+  on an explicit `DeploymentPushReader` interface.
+- Abandon state eligibility and reason normalization are service/domain
+  helpers, not Worker, generated handler, or storage concerns.
+
+Boundary decision:
+
+Deployment route modules own request decoding and HTTP conversion. The
+Deployment service owns push lifecycle orchestration and typed domain
+preflights. DeploymentPushStore owns transaction writes and SQL state
+materialization. Artifact resolution remains behind the DeploymentArtifacts
+service.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentPushStore transaction internals,
+  storage schema, generated HttpApi handler mapping, public Worker route
+  dispatch, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Route Adapter HTTP Error Boundary
 
 Previous completed checkpoint: `d497276` Validate deployment HttpApi responses with protocol effects.

@@ -2,7 +2,9 @@ import { Context, Effect, Layer } from "effect";
 import type {
   AbandonPushRequest,
   ActiveDeploymentStatus,
+  ExecutionArtifactRef,
   FinishPushResponse,
+  PushSourcePackage,
   PushStatus,
 } from "../types";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
@@ -19,6 +21,19 @@ import {
 } from "./Errors";
 
 export type StartAnalyzedPushInput = StartAnalyzedPushServiceInput;
+
+export interface DeploymentPushReader {
+  getPush(pushId: string): Effect.Effect<
+    PushStatus | null,
+    DeploymentSqlError | DeploymentValidationError
+  >;
+}
+
+export interface DeploymentArtifactResolver {
+  executionArtifactRefForSourcePackage(
+    sourcePackage: PushSourcePackage,
+  ): Effect.Effect<ExecutionArtifactRef, DeploymentArtifactRefError>;
+}
 
 export interface DeploymentServiceApi {
   getActiveDeployment(): Effect.Effect<
@@ -54,6 +69,55 @@ export interface DeploymentServiceApi {
   >;
 }
 
+export const requireDeploymentPush = Effect.fn("DeploymentService.requireDeploymentPush")(
+  function* (
+    store: DeploymentPushReader,
+    pushId: string,
+  ): Effect.fn.Return<
+    PushStatus,
+    DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError
+  > {
+    const status = yield* store.getPush(pushId);
+    if (status === null) {
+      return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
+    }
+    return status;
+  },
+);
+
+export const deploymentExecutionArtifactRefForPush = Effect.fn(
+  "DeploymentService.deploymentExecutionArtifactRefForPush",
+)(function* (
+  artifacts: DeploymentArtifactResolver,
+  status: PushStatus,
+): Effect.fn.Return<ExecutionArtifactRef, DeploymentArtifactRefError> {
+  return yield* artifacts.executionArtifactRefForSourcePackage(status.sourcePackage);
+});
+
+export const ensureDeploymentPushCanBeAbandoned = Effect.fn(
+  "DeploymentService.ensureDeploymentPushCanBeAbandoned",
+)(function* (
+  status: PushStatus,
+): Effect.fn.Return<void, DeploymentPushInvalidStateError> {
+  if (status.state !== "pending" && status.state !== "analyzed") {
+    return yield* Effect.fail(new DeploymentPushInvalidStateError({
+      action: "abandon",
+      pushId: status.pushId,
+      state: status.state,
+    }));
+  }
+});
+
+export const normalizeDeploymentAbandonReason = Effect.fn(
+  "DeploymentService.normalizeDeploymentAbandonReason",
+)(function* (
+  request: AbandonPushRequest,
+): Effect.fn.Return<string> {
+  return typeof request.reason === "string" && request.reason.length > 0
+    ? request.reason.slice(0, 1000)
+    : "Push abandoned before activation.";
+});
+
 export class DeploymentService extends Context.Service<DeploymentService, DeploymentServiceApi>()(
   "flarex-backend/deployment/DeploymentService",
 ) {
@@ -85,11 +149,7 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
         function* (
           pushId: string,
         ): Effect.fn.Return<PushStatus, DeploymentPushNotFoundError | DeploymentSqlError | DeploymentValidationError> {
-          const status = yield* store.getPush(pushId);
-          if (status === null) {
-            return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
-          }
-          return status;
+          return yield* requireDeploymentPush(store, pushId);
         },
       );
 
@@ -130,11 +190,8 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           | DeploymentStoredPushMissingError
           | DeploymentValidationError
         > {
-          const preflight = yield* store.getPush(pushId);
-          if (preflight === null) {
-            return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
-          }
-          const executionArtifactRef = yield* artifacts.executionArtifactRefForSourcePackage(preflight.sourcePackage);
+          const preflight = yield* requireDeploymentPush(store, pushId);
+          const executionArtifactRef = yield* deploymentExecutionArtifactRefForPush(artifacts, preflight);
           const now = yield* clock.currentTimeMillis;
           return yield* store.finishPush({
             pushId,
@@ -156,21 +213,10 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           | DeploymentStoredPushMissingError
           | DeploymentValidationError
         > {
-          const status = yield* store.getPush(pushId);
-          if (status === null) {
-            return yield* Effect.fail(new DeploymentPushNotFoundError({ pushId }));
-          }
-          if (status.state !== "pending" && status.state !== "analyzed") {
-            return yield* Effect.fail(new DeploymentPushInvalidStateError({
-              action: "abandon",
-              pushId,
-              state: status.state,
-            }));
-          }
+          const status = yield* requireDeploymentPush(store, pushId);
+          yield* ensureDeploymentPushCanBeAbandoned(status);
           const now = yield* clock.currentTimeMillis;
-          const reason = typeof request.reason === "string" && request.reason.length > 0
-            ? request.reason.slice(0, 1000)
-            : "Push abandoned before activation.";
+          const reason = yield* normalizeDeploymentAbandonReason(request);
           return yield* store.abandonPush({
             pushId,
             now,

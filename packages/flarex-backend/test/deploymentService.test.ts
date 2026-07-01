@@ -12,6 +12,10 @@ import {
 } from "../src/deployment/Errors";
 import {
   DeploymentService,
+  deploymentExecutionArtifactRefForPush,
+  ensureDeploymentPushCanBeAbandoned,
+  normalizeDeploymentAbandonReason,
+  requireDeploymentPush,
   type StartAnalyzedPushInput,
 } from "../src/deployment/Service";
 import {
@@ -172,6 +176,35 @@ describe("DeploymentService", () => {
     );
 
     expect(error).toBe(failure);
+  });
+
+  it("exposes typed push preflight helpers before service operations", async () => {
+    const status = analyzedPushStatus("push-preflight");
+
+    await expect(Effect.runPromise(requireDeploymentPush({
+      getPush: pushId => Effect.succeed(pushId === status.pushId ? status : null),
+    }, status.pushId))).resolves.toBe(status);
+
+    const missing = await Effect.runPromise(requireDeploymentPush({
+      getPush: () => Effect.succeed(null),
+    }, "missing-preflight").pipe(
+      Effect.catchTag("DeploymentPushNotFoundError", error => Effect.succeed(error)),
+    ));
+
+    if (!(missing instanceof DeploymentPushNotFoundError)) {
+      throw new Error("Expected DeploymentPushNotFoundError.");
+    }
+    expect(missing.pushId).toBe("missing-preflight");
+
+    const storageFailure = new DeploymentSqlError({
+      operation: "getPush",
+      cause: new Error("preflight read failed"),
+    });
+    await expect(Effect.runPromise(requireDeploymentPush({
+      getPush: () => Effect.fail(storageFailure),
+    }, "storage-failed").pipe(
+      Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+    ))).resolves.toBe(storageFailure);
   });
 
   it("preserves typed DeploymentValidationError failures from stored push status reads", async () => {
@@ -481,6 +514,23 @@ describe("DeploymentService", () => {
     expect(error).toBe(failure);
     expect(artifactRequests).toEqual([preflight.sourcePackage]);
     expect(finishCalled).toBe(false);
+  });
+
+  it("resolves finish artifact refs through a named service helper", async () => {
+    const status = analyzedPushStatus("push-artifact-helper");
+    const artifactRequests: PushSourcePackage[] = [];
+    const ref = executionArtifactRef();
+
+    const result = await Effect.runPromise(deploymentExecutionArtifactRefForPush({
+      executionArtifactRefForSourcePackage: sourcePackage =>
+        Effect.sync(() => {
+          artifactRequests.push(sourcePackage);
+          return ref;
+        }),
+    }, status));
+
+    expect(result).toBe(ref);
+    expect(artifactRequests).toEqual([status.sourcePackage]);
   });
 
   it("preserves typed DeploymentSqlError failures from finish storage", async () => {
@@ -1460,6 +1510,12 @@ describe("DeploymentService", () => {
       pushId: "push-long-reason",
       reason: "x".repeat(1_000),
     });
+    await expect(Effect.runPromise(normalizeDeploymentAbandonReason({})))
+      .resolves.toBe("Push abandoned before activation.");
+    await expect(Effect.runPromise(normalizeDeploymentAbandonReason({ reason: "" })))
+      .resolves.toBe("Push abandoned before activation.");
+    await expect(Effect.runPromise(normalizeDeploymentAbandonReason({ reason: "x".repeat(1_100) })))
+      .resolves.toBe("x".repeat(1_000));
   });
 
   it("returns a typed not-found error before abandon storage work", async () => {
@@ -1521,6 +1577,29 @@ describe("DeploymentService", () => {
       state: "activated",
     });
     expect(abandonCalled).toBe(false);
+  });
+
+  it("exposes abandon eligibility as a typed service helper", async () => {
+    await expect(Effect.runPromise(ensureDeploymentPushCanBeAbandoned({
+      ...analyzedPushStatus("push-can-abandon"),
+      state: "pending",
+    }))).resolves.toBeUndefined();
+
+    const error = await Effect.runPromise(ensureDeploymentPushCanBeAbandoned({
+      ...analyzedPushStatus("push-cannot-abandon"),
+      state: "activated",
+    }).pipe(
+      Effect.catchTag("DeploymentPushInvalidStateError", error => Effect.succeed(error)),
+    ));
+
+    if (!(error instanceof DeploymentPushInvalidStateError)) {
+      throw new Error("Expected DeploymentPushInvalidStateError.");
+    }
+    expect(error).toMatchObject({
+      action: "abandon",
+      pushId: "push-cannot-abandon",
+      state: "activated",
+    });
   });
 
   it("preserves typed DeploymentSqlError failures from abandon storage", async () => {
