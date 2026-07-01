@@ -1,5 +1,54 @@
 # Package Boundaries
 
+## Finish Activation Metadata Write Planning Effects
+
+Previous completed checkpoint: `8b90fff` Type finish activation application
+plans.
+
+What changed:
+
+- `deployment/Store.ts` now exports
+  `deploymentActiveMetadataApplicationPlan(...)` for active deployment meta
+  rows written during finish activation.
+- `finishPushActivationApplication(...)` now includes `activeMetadata` beside
+  schema and function application plans.
+- `DeploymentPushStore.runFinishPushTransaction(...)` applies the prebuilt
+  active metadata plan through the store-owned meta writer.
+
+Boundary decision:
+
+Active metadata write planning belongs in `DeploymentPushStore` because finish
+activation owns Durable Object SQL metadata. The generated API layer still only
+maps typed store/service results to response classes.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment store package boundary around active metadata writes.
+
+How Flarex differs:
+
+- Convex does not have Flarex's DeploymentDO `meta` rows. Flarex keeps active
+  metadata value construction and SQL writes inside the store package.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, service preflight, active metadata read parsing,
+  schema/function application rows, artifact store implementation, PartitionDO
+  SQL/OCC behavior, executor-http route, protocol parser compatibility, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Application Planning Effects
 
 Previous completed checkpoint: `3c1179d` Type active deployment metadata

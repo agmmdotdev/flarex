@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Finish Activation Metadata Write Planning Effects
+
+Previous completed checkpoint: `8b90fff` Type finish activation application
+plans.
+
+What changed:
+
+- Finish activation active metadata writes now come from
+  `deploymentActiveMetadataApplicationPlan(...)`.
+- `finishPushActivationApplication(...)` now combines schema, function, and
+  active metadata application plans before the Durable Object transaction.
+- The finish transaction applies the prebuilt active metadata plan instead of
+  constructing active meta values inline.
+
+Why it changed:
+
+Active deployment metadata is part of the activation result. Preparing those
+meta rows before the transaction keeps value construction in named Effect code
+and keeps the transaction focused on applying already-planned writes.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentPushStore active metadata write planning cleanup.
+
+How Flarex differs:
+
+- Flarex records active deployment metadata in Cloudflare Durable Object SQL
+  `meta` rows during finish activation. That write shape is Flarex-specific and
+  remains store-owned.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi response mapping, public Worker
+  deployment dispatch, service preflight, active metadata read parsing,
+  schema/function application rows, artifact store implementation, PartitionDO
+  SQL/OCC, executor-http, protocol parser compatibility, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Application Planning Effects
 
 Previous completed checkpoint: `3c1179d` Type active deployment metadata

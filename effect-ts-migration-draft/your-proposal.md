@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `3c1179d` Type active deployment metadata parsing.
-- Active checkpoint: validate and review the finish activation schema/function application planning batch, keeping transaction-side SQL writes fed by named Effect-built plans.
+- Previous completed checkpoint: `8b90fff` Type finish activation application plans.
+- Active checkpoint: validate and review the finish activation active metadata write planning batch, keeping active metadata writes fed by named Effect-built plans.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the finish activation application planning effects:
+Next recommended checkpoint after the finish activation metadata write planning effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially remaining transaction-side active
-   metadata write helpers or the next route/service adapter slice.
+   service/domain failures, especially the next route/service adapter slice or
+   store transaction write planning for start/abandon.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,25 @@ Next recommended checkpoint after the finish activation application planning eff
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 328 slice:
+
+1. Add `deploymentActiveMetadataApplicationPlan(...)`, a named
+   DeploymentPushStore Effect helper that converts finish input into the exact
+   active deployment meta rows written during activation.
+2. Extend `finishPushActivationApplication(...)` so schema, function, and
+   active metadata write plans are all prepared before the Durable Object
+   transaction begins.
+3. Route `DeploymentPushStore.runFinishPushTransaction(...)` through the
+   prebuilt active metadata plan instead of constructing active meta values
+   inline inside the transaction callback.
+4. Add direct helper coverage for the active metadata plan entries and the
+   combined finish activation application plan.
+5. Leave DeploymentDO routing, generated DeploymentApi response mapping,
+   public Worker deployment dispatch, service preflight, active metadata read
+   parsing, schema/function application rows, artifact store implementation,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 327 slice:
 

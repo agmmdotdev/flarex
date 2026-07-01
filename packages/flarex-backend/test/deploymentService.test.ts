@@ -28,6 +28,7 @@ import {
   activeDeploymentActivatedAtFromMeta,
   activeDeploymentExecutionArtifactRefFromMeta,
   activeDeploymentStatusFromStoreParts,
+  deploymentActiveMetadataApplicationPlan,
   deploymentFunctionsApplicationPlan,
   deploymentSchemaApplicationPlan,
   deploymentFinishPushStoreDecision,
@@ -793,6 +794,11 @@ describe("DeploymentService", () => {
   it("builds schema and function application plans before finish transactions", async () => {
     const schema = deploymentApplicationSchema();
     const functions = deploymentApplicationFunctions();
+    const finishInput: FinishPushStoreInput = {
+      pushId: "push-application-plan",
+      now: 2_285_000,
+      executionArtifactRef: executionArtifactRef(),
+    };
 
     const schemaPlan = await Effect.runPromise(deploymentSchemaApplicationPlan(schema));
     expect(schemaPlan).toEqual({
@@ -847,10 +853,23 @@ describe("DeploymentService", () => {
       }],
     });
 
-    const application = await Effect.runPromise(finishPushActivationApplication({ schema, functions }));
+    const activeMetadataPlan = await Effect.runPromise(deploymentActiveMetadataApplicationPlan(finishInput));
+    expect(activeMetadataPlan).toEqual({
+      entries: [
+        { key: "active_push_id", value: "push-application-plan" },
+        { key: "active_activated_at", value: "2285000" },
+        {
+          key: "active_execution_artifact_ref",
+          value: JSON.stringify(finishInput.executionArtifactRef),
+        },
+      ],
+    });
+
+    const application = await Effect.runPromise(finishPushActivationApplication(finishInput, { schema, functions }));
     expect(application).toEqual({
       schema: schemaPlan,
       functions: functionsPlan,
+      activeMetadata: activeMetadataPlan,
     });
   });
 

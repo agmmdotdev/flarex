@@ -113,9 +113,19 @@ export interface DeploymentFunctionsApplicationPlan {
   readonly functions: ReadonlyArray<DeploymentFunctionApplication>;
 }
 
+export interface DeploymentMetaApplication {
+  readonly key: string;
+  readonly value: string;
+}
+
+export interface DeploymentActiveMetadataApplicationPlan {
+  readonly entries: ReadonlyArray<DeploymentMetaApplication>;
+}
+
 export interface FinishPushActivationApplication {
   readonly schema: DeploymentSchemaApplicationPlan;
   readonly functions: DeploymentFunctionsApplicationPlan;
+  readonly activeMetadata: DeploymentActiveMetadataApplicationPlan;
 }
 
 export type FinishableDeploymentPushStatus = PushStatus & {
@@ -228,14 +238,30 @@ export const deploymentFunctionsApplicationPlan = Effect.fn(
   };
 });
 
+export const deploymentActiveMetadataApplicationPlan = Effect.fn(
+  "DeploymentPushStore.deploymentActiveMetadataApplicationPlan",
+)(function* (
+  input: FinishPushStoreInput,
+): Effect.fn.Return<DeploymentActiveMetadataApplicationPlan> {
+  return {
+    entries: [
+      { key: "active_push_id", value: input.pushId },
+      { key: "active_activated_at", value: String(input.now) },
+      { key: "active_execution_artifact_ref", value: JSON.stringify(input.executionArtifactRef) },
+    ],
+  };
+});
+
 export const finishPushActivationApplication = Effect.fn(
   "DeploymentPushStore.finishPushActivationApplication",
 )(function* (
+  input: FinishPushStoreInput,
   analysis: DeploymentAnalysis,
 ): Effect.fn.Return<FinishPushActivationApplication> {
   const schema = yield* deploymentSchemaApplicationPlan(analysis.schema);
   const functions = yield* deploymentFunctionsApplicationPlan(analysis.functions);
-  return { schema, functions };
+  const activeMetadata = yield* deploymentActiveMetadataApplicationPlan(input);
+  return { schema, functions, activeMetadata };
 });
 
 export const deploymentFinishPushStoreDecision = Effect.fn(
@@ -476,6 +502,12 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           }
         };
 
+        const applyActiveMetadataPlan = (plan: DeploymentActiveMetadataApplicationPlan): void => {
+          for (const metadata of plan.entries) {
+            setMeta(metadata.key, metadata.value);
+          }
+        };
+
         const getPush = Effect.fn("DeploymentPushStore.getPush")(
           function* (
             pushId: string,
@@ -594,9 +626,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                 input.now,
                 input.pushId,
               );
-              setMeta("active_push_id", input.pushId);
-              setMeta("active_activated_at", String(input.now));
-              setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
+              applyActiveMetadataPlan(application.activeMetadata);
               rollbackIfStoredPushMissing("finishPush", input.pushId, "activated");
               return {
                 result: "activated" as const,
@@ -648,7 +678,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             if (decision._tag === "reject") {
               return decision.response;
             }
-            const application = yield* finishPushActivationApplication(decision.status.analysis);
+            const application = yield* finishPushActivationApplication(input, decision.status.analysis);
             return yield* runFinishPushTransaction(input, decision.status, application);
           },
         );

@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Finish Activation Metadata Write Planning Effects
+
+Previous completed checkpoint: `8b90fff` Type finish activation application
+plans.
+
+What changed:
+
+- Active deployment metadata writes now come from
+  `deploymentActiveMetadataApplicationPlan(...)`.
+- `finishPushActivationApplication(...)` now prepares schema, function, and
+  active metadata write plans before finish activation enters the transaction.
+- The finish transaction applies active metadata from the plan while preserving
+  the existing meta keys and values.
+
+Why it changed:
+
+Finish activation promotes an analyzed push to active runtime state. That state
+includes schema/function rows and active deployment meta rows. Naming all of the
+write plans makes the activation behavior easier to review while keeping SQL
+application in the store transaction.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment activation write-planning cleanup around existing push finish
+  behavior.
+
+How Flarex differs:
+
+- Flarex writes active deployment metadata during finish activation in a
+  Cloudflare Durable Object. The active metadata plan preserves that
+  Flarex-specific activation path.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, service preflight, active metadata read
+  parsing, artifact store implementation, DeploymentPushStore lifecycle state
+  changes, PartitionDO SQL/OCC, executor-http, protocol parser compatibility,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Finish Activation Application Planning Effects
 
 Previous completed checkpoint: `3c1179d` Type active deployment metadata
