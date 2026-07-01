@@ -1,5 +1,49 @@
 # Package Boundaries
 
+## RegistryDO Direct Dispatch Runtime Boundary
+
+Previous completed checkpoint: `e900024` Type delivery scheduler alarm
+bridges.
+
+What changed:
+
+- `RegistryDO` now owns only Durable Object lifecycle concerns, storage
+  initialization, per-instance registry layer construction, and the fetch
+  runtime edge.
+- `registry/HttpApiRouteBoundary.ts` is a typed route-input decoder boundary;
+  it no longer returns original read requests or synthetic JSON requests for
+  generated web-handler compatibility.
+- `registry/HttpApiHandlers.ts` exposes reusable registry health, list, and
+  create handler effects that both the generated handler integration and the
+  DO direct dispatcher can call.
+- `registry/InternalRouteBoundary.ts` owns direct response mapping for
+  registry generated success/error values.
+
+Boundary decision:
+
+RegistryDO production routing should not depend on `HttpRouter.toWebHandler`
+request compatibility. Generated Registry HttpApi remains useful as protocol
+and handler integration coverage, but the Durable Object adapter now routes
+typed inputs directly to service-backed Effect handlers.
+
+Known limitations:
+
+- This checkpoint does not remove `registry/HttpApiWebHandler.ts`; it remains
+  covered by `registryHttpApiHandlers.test.ts`.
+- This checkpoint does not change `RegistryService`, `RegistryStore`,
+  registry SQL schema initialization, deployment record semantics, Worker
+  registry routing, executor-http, PartitionDO storage decoding, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryDO.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery And Scheduler Alarm Runtime Bridges
 
 Previous completed checkpoint: `79767e3` Type execution session failures.

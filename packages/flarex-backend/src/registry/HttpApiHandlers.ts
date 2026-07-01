@@ -6,9 +6,12 @@ import {
   RegistryApi,
   RegistryHealthResponse,
   RegistryStorageErrorResponse,
+  type CreateDeploymentRequest,
+  type DeploymentRecord,
+  type ListDeploymentsResponse,
   type ProtocolValidationError,
 } from "flarex-protocol/registry";
-import { RegistryService } from "./Service";
+import { RegistryService, type RegistryServiceApi } from "./Service";
 import type { RegistrySqlError } from "./Store";
 
 export const RegistryApiHandlers = HttpApiBuilder.group(
@@ -18,24 +21,45 @@ export const RegistryApiHandlers = HttpApiBuilder.group(
     const registry = yield* RegistryService;
 
     return handlers
-      .handle("health", () =>
-        Effect.succeed(RegistryHealthResponse.make({
-          service: "flarex-registry",
-          status: "ok",
-        }))
-      )
+      .handle("health", () => registryHealthHandler())
       .handle("listDeployments", () =>
-        mapRegistryStorageFailure(registry.listDeployments()).pipe(
-          Effect.flatMap(decodeListDeploymentsResponseForHttpApi),
-        )
+        registryListDeploymentsHandler(registry)
       )
       .handle("createDeployment", ({ payload }) =>
-        mapRegistryStorageFailure(registry.createDeployment(payload)).pipe(
-          Effect.flatMap(decodeDeploymentRecordForHttpApi),
-        )
+        registryCreateDeploymentHandler(registry, payload)
       );
   }),
 );
+
+export const registryHealthHandler = Effect.fn(
+  "RegistryApiHandlers.health",
+)(function* (): Effect.fn.Return<RegistryHealthResponse> {
+  return yield* Effect.succeed(RegistryHealthResponse.make({
+    service: "flarex-registry",
+    status: "ok",
+  }));
+});
+
+export const registryListDeploymentsHandler = Effect.fn(
+  "RegistryApiHandlers.listDeployments",
+)(function* (
+  registry: RegistryServiceApi,
+): Effect.fn.Return<ListDeploymentsResponse, RegistryStorageErrorResponse> {
+  return yield* mapRegistryStorageFailure(registry.listDeployments()).pipe(
+    Effect.flatMap(decodeListDeploymentsResponseForHttpApi),
+  );
+});
+
+export const registryCreateDeploymentHandler = Effect.fn(
+  "RegistryApiHandlers.createDeployment",
+)(function* (
+  registry: RegistryServiceApi,
+  payload: CreateDeploymentRequest,
+): Effect.fn.Return<DeploymentRecord, RegistryStorageErrorResponse> {
+  return yield* mapRegistryStorageFailure(registry.createDeployment(payload)).pipe(
+    Effect.flatMap(decodeDeploymentRecordForHttpApi),
+  );
+});
 
 export function mapRegistryStorageFailure<A>(
   effect: Effect.Effect<A, RegistrySqlError>,

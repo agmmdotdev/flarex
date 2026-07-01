@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: O-3 DeliveryDO and SchedulerDO runtime boundaries in this checkpoint commit.
-- Active checkpoint: O-4 RegistryDO direct handler confirmation, checking that registry direct handlers no longer depend on request compatibility and updating docs/tests if already complete.
+- Previous completed checkpoint: O-4 RegistryDO direct dispatch in this checkpoint commit.
+- Active checkpoint: S-1 PartitionDO storage row decoding, replacing untyped `JSON.parse(...) as ...` casts for read sets, writes, indexes, documents, placement, and schema cache with schema-backed Effect decoders.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,26 +52,36 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after O-3 DeliveryDO and SchedulerDO runtime boundaries:
+Next recommended checkpoint after O-4 RegistryDO direct dispatch:
 
-1. Audit RegistryDO route handling and registry boundary/handler tests against
-   O-4: direct handlers should no longer depend on request compatibility.
-2. If already complete, update the checklist/proposal/roadmaps and add or
-   adjust tests only where coverage is missing.
-3. If incomplete, remove the remaining request compatibility dependency while
-   preserving registry create/list/update behavior and response shapes.
-4. Continue avoiding DeliveryDO/SchedulerDO runtime loops, ExecutionDO,
-   ConnectionDO websocket/session behavior, PartitionDO SQL/OCC, deployment
-   storage, artifact materializer/cache, executor-http, protocol parser
-   compatibility wrappers, and `ValidatorJson` unless O-4 owns that boundary
+1. Audit `PartitionDO` storage row JSON parsing for read sets, writes, indexes,
+   documents, placement, and schema cache.
+2. Add schema-backed Effect decoders at the persistence boundary without
+   changing SQL/OCC semantics or commit behavior.
+3. Preserve partition flow, transaction, sync, and OCC behavior through focused
+   tests before ticking S-1.
+4. Continue avoiding deployment storage, executor-http, protocol parser
+   compatibility wrappers, and `ValidatorJson` unless S-1 owns that boundary
    directly.
 
-Current Goal 355 slice:
+Current Goal 356 slice:
+
+1. Audit `PartitionDO` row reads and related partition request/types modules
+   for untyped storage JSON casts.
+2. Replace the owned casts with schema-backed Effect decoders that fail at the
+   storage boundary.
+3. Keep PartitionDO SQL/OCC behavior and response bodies unchanged.
+4. Preserve partition storage behavior through the S-1 focused tests before
+   ticking S-1.
+
+Completed Goal 355 slice:
 
 1. Audit `RegistryDO`, `registry/*`, and registry tests for request
    compatibility dependence.
-2. Confirm or complete direct handler dispatch for registry routes.
-3. Update docs/tests to lock the current boundary.
+2. Replace the remaining generated web-handler request compatibility path with
+   typed `RegistryApiRouteInput` decoding and direct dispatch to registry
+   handler effects.
+3. Update docs/tests to lock the direct-dispatch boundary.
 4. Preserve registry response behavior through focused registry tests before
    ticking O-4.
 

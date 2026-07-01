@@ -1,5 +1,41 @@
 # Runtime Validation
 
+## RegistryDO Direct Dispatch Runtime Boundary
+
+Previous completed checkpoint: `e900024` Type delivery scheduler alarm
+bridges.
+
+What changed:
+
+- `RegistryDO.fetch(...)` no longer owns a generated Registry HttpApi web
+  handler instance.
+- `registry/HttpApiRouteBoundary.ts` now decodes `GET /health`,
+  `GET /deployments`, and `POST /deployments` into tagged
+  `RegistryApiRouteInput` values instead of returning or rebuilding
+  `Request` objects.
+- `registry/InternalRouteBoundary.ts` dispatches route inputs directly to the
+  extracted registry handler effects with `RegistryService` provided at the DO
+  fetch runtime edge.
+- The generated `HttpApiWebHandler` remains only as generated handler
+  integration coverage, not production RegistryDO routing.
+
+Why it changed:
+
+O-4 removes RegistryDO's request-compatibility bridge while preserving the
+existing registry HTTP contract. JSON and protocol failures still map at the
+DO adapter edge, registry storage failures still return the generated
+`Registry storage error.` body with status `500`, and health/not-found
+responses keep their existing shapes.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/registryDO.test.ts test/registryHttpApiRouteBoundary.test.ts test/registryHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Delivery And Scheduler Alarm Runtime Bridges
 
 Previous completed checkpoint: `79767e3` Type execution session failures.

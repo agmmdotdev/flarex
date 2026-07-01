@@ -1,48 +1,55 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { ProtocolValidationError, RegistryRoute } from "flarex-protocol/registry";
+import {
+  parseDeploymentRecord,
+  parseListDeploymentsResponse,
+  parseRegistryHealthResponse,
+  parseRegistryStorageErrorResponse,
+  ProtocolValidationError,
+  RegistryRoute,
+} from "flarex-protocol/registry";
 import { RequestJsonError } from "../src/http";
 import {
-  decodeRegistryApiRequestForRoute,
+  decodeRegistryApiRouteInput,
   decodeRegistryCreateDeploymentRouteRequest,
   registryRouteErrorToHttpErrorEffect,
 } from "../src/registry/HttpApiRouteBoundary";
 import {
+  dispatchRegistryApiRouteInputDirect,
   registryInternalRouteErrorToResponseEffect,
-  RegistryRouteOperationError,
   routeRegistryDurableObject,
   runRegistryDurableObjectRoute,
 } from "../src/registry/InternalRouteBoundary";
+import { RegistryService, type RegistryServiceApi } from "../src/registry/Service";
+import { RegistrySqlError } from "../src/registry/Store";
 
 describe("registry HttpApi route boundary", () => {
-  it("forwards registry read routes to the generated handler", async () => {
-    await expectRouteForwarded("GET", RegistryRoute.health);
-    await expectRouteForwarded("GET", RegistryRoute.deployments);
+  it("decodes registry read routes into typed route inputs", async () => {
+    const healthRequest = new Request(`https://registry.test${RegistryRoute.health}`);
+    const deploymentsRequest = new Request(`https://registry.test${RegistryRoute.deployments}`);
+
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(healthRequest))).resolves.toEqual({
+      _tag: "RegistryApiHealthRoute",
+      request: healthRequest,
+    });
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(deploymentsRequest))).resolves.toEqual({
+      _tag: "RegistryApiListDeploymentsRoute",
+      request: deploymentsRequest,
+    });
   });
 
-  it("pre-parses create deployment bodies into canonical generated-handler requests", async () => {
-    const request = new Request(`https://registry.test${RegistryRoute.deployments}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deploymentId: "deployment-a", slug: "slug-a" }),
-    });
-
-    const apiRequest = await Effect.runPromise(decodeRegistryApiRequestForRoute(request));
-    const effectApiRequest = await Effect.runPromise(decodeRegistryApiRequestForRoute(jsonRequest({
-      deploymentId: "deployment-a",
-      slug: "slug-a",
-    })));
-
-    expect(apiRequest).not.toBeNull();
-    expect(apiRequest?.method).toBe("POST");
-    expect(apiRequest?.headers.get("content-type")).toBe("application/json");
-    await expect(apiRequest?.json()).resolves.toEqual({
+  it("decodes create deployment bodies into typed direct-dispatch inputs", async () => {
+    const request = jsonRequest({
       deploymentId: "deployment-a",
       slug: "slug-a",
     });
-    await expect(effectApiRequest?.json()).resolves.toEqual({
-      deploymentId: "deployment-a",
-      slug: "slug-a",
+
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(request))).resolves.toMatchObject({
+      _tag: "RegistryApiCreateDeploymentRoute",
+      body: {
+        deploymentId: "deployment-a",
+        slug: "slug-a",
+      },
     });
 
     await expect(Effect.runPromise(
@@ -72,7 +79,7 @@ describe("registry HttpApi route boundary", () => {
         body: "{",
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(new Request(
       `https://registry.test${RegistryRoute.deployments}`,
       {
         method: "POST",
@@ -84,7 +91,7 @@ describe("registry HttpApi route boundary", () => {
     await expect(Effect.runPromise(decodeRegistryCreateDeploymentRouteRequest(jsonRequest({
       deploymentId: 123,
     })))).rejects.toBeInstanceOf(ProtocolValidationError);
-    await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(jsonRequest({
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(jsonRequest({
       deploymentId: 123,
     })))).rejects.toBeInstanceOf(ProtocolValidationError);
   });
@@ -112,96 +119,155 @@ describe("registry HttpApi route boundary", () => {
   });
 
   it("leaves fallback routes on the existing plain RegistryDO responses", async () => {
-    await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(new Request(
       `https://registry.test${RegistryRoute.health}`,
       { method: "POST" },
     )))).resolves.toBeNull();
-    await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(new Request(
+    await expect(Effect.runPromise(decodeRegistryApiRouteInput(new Request(
       "https://registry.test/not-found",
     )))).resolves.toBeNull();
   });
 
-  it("maps RegistryDO adapter route failures at one Effect edge", async () => {
-    const malformed = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        new Request(`https://registry.test${RegistryRoute.deployments}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: "{",
+  it("dispatches Registry route inputs directly without a generated request bridge", async () => {
+    const registry = registryService({
+      createDeployment: request =>
+        Effect.succeed({
+          deploymentId: request.deploymentId ?? "generated-deployment",
+          ...(request.slug === undefined ? {} : { slug: request.slug }),
+          createdAt: 1,
+          updatedAt: 1,
+          schemaVersion: 0,
         }),
-        async () => Response.json({ ok: true }),
-      ),
-    );
+      listDeployments: () =>
+        Effect.succeed({
+          deployments: [{
+            deploymentId: "listed-deployment",
+            slug: "listed-slug",
+            createdAt: 2,
+            updatedAt: 2,
+            schemaVersion: 0,
+          }],
+        }),
+    });
+
+    const health = await Effect.runPromise(dispatchRegistryApiRouteInputDirect({
+      _tag: "RegistryApiHealthRoute",
+      request: new Request(`https://registry.test${RegistryRoute.health}`),
+    }, registry));
+    expect(health.status).toBe(200);
+    expect(parseRegistryHealthResponse(await health.json())).toEqual({
+      service: "flarex-registry",
+      status: "ok",
+    });
+
+    const listed = await Effect.runPromise(dispatchRegistryApiRouteInputDirect({
+      _tag: "RegistryApiListDeploymentsRoute",
+      request: new Request(`https://registry.test${RegistryRoute.deployments}`),
+    }, registry));
+    expect(listed.status).toBe(200);
+    expect(parseListDeploymentsResponse(await listed.json())).toEqual({
+      deployments: [{
+        deploymentId: "listed-deployment",
+        slug: "listed-slug",
+        createdAt: 2,
+        updatedAt: 2,
+        schemaVersion: 0,
+      }],
+    });
+
+    const created = await Effect.runPromise(dispatchRegistryApiRouteInputDirect({
+      _tag: "RegistryApiCreateDeploymentRoute",
+      url: new URL(`https://registry.test${RegistryRoute.deployments}`),
+      body: {
+        deploymentId: "created-deployment",
+        slug: "created-slug",
+      },
+    }, registry));
+    expect(created.status).toBe(200);
+    expect(parseDeploymentRecord(await created.json())).toEqual({
+      deploymentId: "created-deployment",
+      slug: "created-slug",
+      createdAt: 1,
+      updatedAt: 1,
+      schemaVersion: 0,
+    });
+  });
+
+  it("maps direct registry storage failures to the generated error response shape", async () => {
+    const registry = registryService({
+      createDeployment: () =>
+        Effect.fail(new RegistrySqlError({
+          operation: "createDeployment",
+          cause: new Error("insert failed"),
+        })),
+      listDeployments: () =>
+        Effect.fail(new RegistrySqlError({
+          operation: "listDeployments",
+          cause: new Error("list failed"),
+        })),
+    });
+
+    const listed = await Effect.runPromise(dispatchRegistryApiRouteInputDirect({
+      _tag: "RegistryApiListDeploymentsRoute",
+      request: new Request(`https://registry.test${RegistryRoute.deployments}`),
+    }, registry));
+    expect(listed.status).toBe(500);
+    expect(parseRegistryStorageErrorResponse(await listed.json())).toEqual({
+      error: "Registry storage error.",
+    });
+
+    const created = await Effect.runPromise(dispatchRegistryApiRouteInputDirect({
+      _tag: "RegistryApiCreateDeploymentRoute",
+      url: new URL(`https://registry.test${RegistryRoute.deployments}`),
+      body: {
+        deploymentId: "create-failure",
+      },
+    }, registry));
+    expect(created.status).toBe(500);
+    expect(parseRegistryStorageErrorResponse(await created.json())).toEqual({
+      error: "Registry storage error.",
+    });
+  });
+
+  it("maps RegistryDO adapter route failures at one Effect edge", async () => {
+    const registry = registryService({
+      createDeployment: request =>
+        Effect.succeed({
+          deploymentId: request.deploymentId ?? "generated-deployment",
+          ...(request.slug === undefined ? {} : { slug: request.slug }),
+          createdAt: 1,
+          updatedAt: 1,
+          schemaVersion: 0,
+        }),
+      listDeployments: () => Effect.succeed({ deployments: [] }),
+    });
+
+    const malformed = await runRegistryRoute(new Request(`https://registry.test${RegistryRoute.deployments}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }), registry);
     expect(malformed.status).toBe(400);
     await expect(malformed.json()).resolves.toEqual({
       error: "Request body must be JSON.",
     });
 
-    const invalid = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        jsonRequest({ deploymentId: 123 }),
-        async () => Response.json({ ok: true }),
-      ),
-    );
+    const invalid = await runRegistryRoute(jsonRequest({ deploymentId: 123 }), registry);
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({
       error: "Create deployment request must include optional string deploymentId and slug fields.",
     });
 
-    const handlerFailure = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        new Request(`https://registry.test${RegistryRoute.deployments}`, {
-          method: "GET",
-        }),
-        async () => {
-          throw new Error("registry handler failed");
-        },
-      ),
-    );
-    expect(handlerFailure.status).toBe(500);
-    await expect(handlerFailure.json()).resolves.toEqual({
-      error: "registry handler failed",
-    });
-
-    const handlerProtocolFailure = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        new Request(`https://registry.test${RegistryRoute.deployments}`, {
-          method: "GET",
-        }),
-        async () => {
-          throw new ProtocolValidationError({
-            schema: "RegistryGeneratedResponse",
-            message: "Generated registry response failed validation.",
-            cause: new Error("invalid generated registry response"),
-          });
-        },
-      ),
-    );
-    expect(handlerProtocolFailure.status).toBe(400);
-    await expect(handlerProtocolFailure.json()).resolves.toEqual({
-      error: "Generated registry response failed validation.",
-    });
-
-    const health = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        new Request(`https://registry.test${RegistryRoute.health}`, {
-          method: "POST",
-        }),
-        async () => Response.json({ ok: true }),
-      ),
-    );
+    const health = await runRegistryRoute(new Request(`https://registry.test${RegistryRoute.health}`, {
+      method: "POST",
+    }), registry);
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toEqual({
       service: "flarex-registry",
       status: "ok",
     });
 
-    const notFound = await runRegistryDurableObjectRoute(
-      routeRegistryDurableObject(
-        new Request("https://registry.test/not-found"),
-        async () => Response.json({ ok: true }),
-      ),
-    );
+    const notFound = await runRegistryRoute(new Request("https://registry.test/not-found"), registry);
     expect(notFound.status).toBe(404);
     await expect(notFound.json()).resolves.toEqual({
       error: "Not found.",
@@ -220,19 +286,6 @@ describe("registry HttpApi route boundary", () => {
     await expect(protocolResponse.json()).resolves.toEqual({
       error: "Generated registry response failed validation.",
     });
-
-    const operationResponse = await Effect.runPromise(registryInternalRouteErrorToResponseEffect(
-      new RegistryRouteOperationError({
-        operation: "http-api",
-        status: 503,
-        message: "Registry handler unavailable.",
-        cause: new Error("Registry handler unavailable."),
-      }),
-    ));
-    expect(operationResponse.status).toBe(503);
-    await expect(operationResponse.json()).resolves.toEqual({
-      error: "Registry handler unavailable.",
-    });
   });
 });
 
@@ -244,8 +297,31 @@ function jsonRequest(body: unknown): Request {
   });
 }
 
-async function expectRouteForwarded(method: string, pathname: string): Promise<void> {
-  const request = new Request(`https://registry.test${pathname}`, { method });
+function runRegistryRoute(
+  request: Request,
+  registry: RegistryServiceApi,
+): Promise<Response> {
+  return runRegistryDurableObjectRoute(
+    routeRegistryDurableObject(request).pipe(
+      Effect.provideService(RegistryService, RegistryService.of(registry)),
+    ),
+  );
+}
 
-  await expect(Effect.runPromise(decodeRegistryApiRequestForRoute(request))).resolves.toBe(request);
+function registryService(overrides: {
+  readonly createDeployment?: RegistryServiceApi["createDeployment"];
+  readonly listDeployments?: RegistryServiceApi["listDeployments"];
+}): RegistryServiceApi {
+  return {
+    createDeployment: overrides.createDeployment
+      ?? (() =>
+        Effect.succeed({
+          deploymentId: "default-deployment",
+          createdAt: 1,
+          updatedAt: 1,
+          schemaVersion: 0,
+        })),
+    listDeployments: overrides.listDeployments
+      ?? (() => Effect.succeed({ deployments: [] })),
+  };
 }

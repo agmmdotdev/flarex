@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: O-3 DeliveryDO and SchedulerDO runtime
-  boundaries in this checkpoint commit.
+- Previous completed checkpoint: O-4 RegistryDO direct dispatch in this
+  checkpoint commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -327,8 +327,9 @@ The Effect migration is complete only when all of these are true:
     `test/schedulerDeliveryWakeBoundary.test.ts`,
     `test/schedulerForceReconnectBoundary.test.ts`,
     selected `test/sync.test.ts` alarm continuation cases.
-- [ ] O-4. RegistryDO: confirm registry direct handlers no longer depend on
+- [x] O-4. RegistryDO: confirm registry direct handlers no longer depend on
   request compatibility and update docs/tests if already complete.
+  - Completed by: this O-4 checkpoint commit.
   - Files:
     `packages/flarex-backend/src/registryDO.ts`,
     `packages/flarex-backend/src/registry/*`.
@@ -440,10 +441,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with O-4:
+Start with S-1:
 
-Confirm `RegistryDO` direct handlers no longer depend on request compatibility
-and update docs/tests if already complete; update
-`effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker if Effect code changes, tick `O-4`, then
-commit.
+Replace untyped `PartitionDO` storage row `JSON.parse(...) as ...` casts for
+read sets, writes, indexes, documents, placement, and schema cache with
+schema-backed Effect decoders; update `effect-ts-migration-draft/your-proposal.md`
+and relevant roadmaps, validate with the S-1 focused tests, run only the
+EffectTS quality checker if Effect code changes, tick `S-1`, then commit.

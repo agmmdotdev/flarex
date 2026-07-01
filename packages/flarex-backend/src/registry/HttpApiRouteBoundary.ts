@@ -14,15 +14,43 @@ import { decodeRegistryCreateDeploymentPayload } from "./Requests";
 
 export type RegistryRouteError = RequestJsonError | ProtocolValidationError;
 
-export const decodeRegistryApiRequestForRoute = Effect.fn("RegistryDO.decodeApiRequestForRoute")(
-  function* (request: Request) {
+export type RegistryApiRouteInput =
+  | {
+    readonly _tag: "RegistryApiHealthRoute";
+    readonly request: Request;
+  }
+  | {
+    readonly _tag: "RegistryApiListDeploymentsRoute";
+    readonly request: Request;
+  }
+  | {
+    readonly _tag: "RegistryApiCreateDeploymentRoute";
+    readonly url: URL;
+    readonly body: CreateDeploymentRequest;
+  };
+
+export const decodeRegistryApiRouteInput = Effect.fn("RegistryDO.decodeApiRouteInput")(
+  function* (request: Request): Effect.fn.Return<RegistryApiRouteInput | null, RegistryRouteError> {
     const url = new URL(request.url);
-    if (isRegistryApiReadRoute(request, url)) {
-      return request;
+    if (url.pathname === RegistryRoute.health && request.method === "GET") {
+      return {
+        _tag: "RegistryApiHealthRoute",
+        request,
+      };
+    }
+    if (url.pathname === RegistryRoute.deployments && request.method === "GET") {
+      return {
+        _tag: "RegistryApiListDeploymentsRoute",
+        request,
+      };
     }
     if (url.pathname === RegistryRoute.deployments && request.method === "POST") {
       const body = yield* decodeRegistryCreateDeploymentRouteRequest(request);
-      return jsonRequest(url, body);
+      return {
+        _tag: "RegistryApiCreateDeploymentRoute",
+        url,
+        body,
+      };
     }
     return null;
   },
@@ -52,18 +80,3 @@ export const registryRouteErrorToHttpErrorEffect = Effect.fn(
 ): Effect.fn.Return<never, HttpError | ProtocolValidationError> {
   return yield* Effect.fail(registryRouteErrorToHttpError(error));
 });
-
-function jsonRequest(url: URL, body: unknown): Request {
-  return new Request(url.toString(), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-function isRegistryApiReadRoute(request: Request, url: URL): boolean {
-  return request.method === "GET" && (
-    url.pathname === RegistryRoute.health
-      || url.pathname === RegistryRoute.deployments
-  );
-}
