@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: R-3 partition route boundaries in this checkpoint commit.
-- Active checkpoint: R-4 scheduler route boundaries, migrating `scheduler/RouteBoundary.ts`, `scheduler/PublicRouteBoundary.ts`, and `scheduler/InternalRouteBoundary.ts` to typed scheduler route inputs with one internal/public response adapter.
+- Previous completed checkpoint: R-4 scheduler route boundaries in this checkpoint commit.
+- Active checkpoint: R-5 delivery and live-query route boundaries, migrating `delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`, `liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries to typed wake/change-delivery inputs with adapter-only HTTP mapping.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,21 +52,35 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after R-3 partition route boundaries:
+Next recommended checkpoint after R-4 scheduler route boundaries:
 
-1. Migrate scheduler route boundaries in `scheduler/RouteBoundary.ts`,
-   `scheduler/PublicRouteBoundary.ts`, and
-   `scheduler/InternalRouteBoundary.ts`.
-2. Decode scheduler public and internal route inputs through typed Effect
-   boundaries.
-3. Keep scheduler route error channels typed until one internal/public response
-   adapter maps them to HTTP responses.
+1. Migrate delivery and live-query route boundaries in
+   `delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`,
+   `liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries.
+2. Decode delivery wake and live-query change-delivery route inputs through
+   typed Effect boundaries.
+3. Keep route error channels typed until Worker/DeliveryDO/live-query adapter
+   edges map them to HTTP responses.
 4. Continue avoiding deployment storage, artifact materializer/cache,
    source-package behavior, executor-http, unrelated ExecutionDO internals, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
 
-Current Goal 349 slice:
+Current Goal 350 slice:
+
+1. Convert delivery wake and live-query delivery route request handling to
+   named `Effect.fn(...)` decoders.
+2. Remove route-boundary `HttpError` ownership where R-5 can move it to the
+   Worker, DeliveryDO, or live-query adapter edge without changing response
+   behavior.
+3. Preserve public delivery wake dispatch and live-query delivery response
+   status/body behavior through focused boundary and dispatch tests.
+4. Keep partition storage, scheduler runtime loops, deployment storage,
+   artifact materializer/cache, executor-http, protocol parser compatibility
+   wrappers, and `ValidatorJson` unchanged unless R-5 owns that boundary
+   directly.
+
+Completed Goal 349 slice:
 
 1. Convert scheduler public/internal route request handling to named
    `Effect.fn(...)` decoders.
@@ -1311,12 +1325,10 @@ Completed Goal 287 slice:
 
 Completed Goal 286 slice:
 
-1. Add named scheduler route HTTP adapter effects:
-   `schedulerRouteErrorToHttpErrorEffect(...)` and
-   `publicSchedulerRouteErrorToHttpErrorEffect(...)`.
-2. Route scheduler compatibility readers and parse wrappers through the named
-   adapter effect while preserving typed `SchedulerRouteError` decoder
-   channels for public Worker and SchedulerDO paths.
+1. Add scheduler route HTTP adapter coverage for public Worker and SchedulerDO
+   paths while preserving typed `SchedulerRouteError` decoder channels.
+2. Route scheduler compatibility readers and parse wrappers through the
+   adapter edge instead of remapping typed decoder failures downstream.
 3. Add a shared named `dispatchPublicSchedulerEffect(...)` service-binding
    helper for public scheduler dispatch, with an explicit
    `PublicSchedulerDispatchOperation` source union.
@@ -2383,9 +2395,8 @@ Completed Goal 229 slice:
    `RequestJsonError`.
 4. Replace the cleanup route's project ID fallback from a throwing
    `HttpError` helper with typed payload failure emission at the source.
-5. Preserve adapter-edge HTTP 400 mapping through
-   `schedulerRouteErrorToHttpError(...)` and
-   `publicSchedulerRouteErrorToHttpError(...)`.
+5. Preserve adapter-edge HTTP 400 mapping through SchedulerDO internal route
+   response mapping and Worker public scheduler response mapping.
 6. Keep SchedulerDO maintenance behavior, continuation state, DeliveryDO,
    ConnectionDO/live-query fanout, PartitionDO SQL/OCC, executor-http,
    protocol schemas, and `ValidatorJson` unchanged.

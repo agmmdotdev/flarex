@@ -12,8 +12,7 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: R-3 partition route boundaries in this
-  checkpoint commit.
+- Previous completed checkpoint: `94d07b3` Type partition route boundaries.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -250,9 +249,10 @@ The Effect migration is complete only when all of these are true:
     `test/partitionFlow.test.ts`,
     `test/occ.test.ts`,
     `test/transaction.test.ts`.
-- [ ] R-4. Scheduler route boundaries:
+- [x] R-4. Scheduler route boundaries:
   `scheduler/RouteBoundary.ts`, `scheduler/PublicRouteBoundary.ts`,
   `scheduler/InternalRouteBoundary.ts`.
+  - Completed by: this R-4 checkpoint commit.
   - Goal: typed scheduler route inputs and one internal/public response
     adapter.
   - Focus tests:
@@ -424,10 +424,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with R-4:
+Start with R-5:
 
-Migrate scheduler route boundaries in `scheduler/RouteBoundary.ts`,
-`scheduler/PublicRouteBoundary.ts`, and `scheduler/InternalRouteBoundary.ts` to
-typed scheduler route inputs with one internal/public response adapter; update
+Migrate delivery and live-query route boundaries in
+`delivery/RouteBoundary.ts`, `delivery/PublicWakeRouteBoundary.ts`,
+`liveQueryDelivery/RouteBoundary.ts`, and their dispatch boundaries to typed
+wake/change-delivery inputs with adapter-only HTTP mapping; update
 `effect-ts-migration-draft/your-proposal.md` and relevant roadmaps, validate,
-run only the EffectTS quality checker, tick `R-4`, then commit.
+run only the EffectTS quality checker, tick `R-5`, then commit.

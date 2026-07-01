@@ -1,10 +1,5 @@
 import { Effect } from "effect";
-import {
-  HttpError,
-  readJsonEffect,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
-} from "../http";
+import { readJsonEffect, RequestJsonError } from "../http";
 import type { Env } from "../types";
 import {
   decodeSchedulerCleanupConnectionsPayload,
@@ -33,89 +28,94 @@ export {
 
 export type SchedulerRouteError = RequestJsonError | SchedulerRoutePayloadError;
 
-export function decodeSchedulerDeliveryReconcileRequest(
+export const decodeSchedulerDeliveryReconcileRequest = Effect.fn(
+  "SchedulerRouteBoundary.decodeDeliveryReconcileRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeSchedulerDeliveryReconcileRoutePayload),
   );
-}
+});
 
-export function decodeSchedulerDeliveryReconcileRoutePayload(
+export const decodeSchedulerDeliveryReconcileRoutePayload = Effect.fn(
+  "SchedulerRouteBoundary.decodeDeliveryReconcilePayload",
+)(function* (
   value: unknown,
-): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerDeliveryReconcilePayload(value);
-}
+): Effect.fn.Return<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
+  return yield* decodeSchedulerDeliveryReconcilePayload(value);
+});
 
-export function decodeSchedulerConnectionReconcileRequest(
+export const decodeSchedulerConnectionReconcileRequest = Effect.fn(
+  "SchedulerRouteBoundary.decodeConnectionReconcileRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeSchedulerConnectionReconcileRoutePayload),
   );
-}
+});
 
-export function decodeSchedulerConnectionReconcileRoutePayload(
+export const decodeSchedulerConnectionReconcileRoutePayload = Effect.fn(
+  "SchedulerRouteBoundary.decodeConnectionReconcilePayload",
+)(function* (
   value: unknown,
-): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerConnectionReconcilePayload(value);
-}
+): Effect.fn.Return<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
+  return yield* decodeSchedulerConnectionReconcilePayload(value);
+});
 
-export function decodeSchedulerRerunSubscriptionsRequest(
+export const decodeSchedulerRerunSubscriptionsRequest = Effect.fn(
+  "SchedulerRouteBoundary.decodeRerunSubscriptionsRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeSchedulerRerunSubscriptionsRoutePayload),
   );
-}
+});
 
-export function decodeSchedulerRerunSubscriptionsRoutePayload(
+export const decodeSchedulerRerunSubscriptionsRoutePayload = Effect.fn(
+  "SchedulerRouteBoundary.decodeRerunSubscriptionsPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerRerunSubscriptionsPayload(value);
-}
+): Effect.fn.Return<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
+  return yield* decodeSchedulerRerunSubscriptionsPayload(value);
+});
 
-export function decodeSchedulerDeadLetterDeliveriesRequest(
+export const decodeSchedulerDeadLetterDeliveriesRequest = Effect.fn(
+  "SchedulerRouteBoundary.decodeDeadLetterDeliveriesRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(decodeSchedulerDeadLetterDeliveriesRoutePayload),
   );
-}
+});
 
-export function decodeSchedulerDeadLetterDeliveriesRoutePayload(
+export const decodeSchedulerDeadLetterDeliveriesRoutePayload = Effect.fn(
+  "SchedulerRouteBoundary.decodeDeadLetterDeliveriesPayload",
+)(function* (
   value: unknown,
-): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerDeadLetterDeliveriesPayload(value);
-}
+): Effect.fn.Return<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
+  return yield* decodeSchedulerDeadLetterDeliveriesPayload(value);
+});
 
-export function decodeSchedulerCleanupConnectionsRequest(
+export const decodeSchedulerCleanupConnectionsRequest = Effect.fn(
+  "SchedulerRouteBoundary.decodeCleanupConnectionsRequest",
+)(function* (
   request: Request,
   env: Env,
-): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
-  return readJsonEffect(request).pipe(
+): Effect.fn.Return<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
+  return yield* readJsonEffect(request).pipe(
     Effect.flatMap(value => decodeSchedulerCleanupConnectionsRoutePayload(value, env)),
   );
-}
+});
 
-export function decodeSchedulerCleanupConnectionsRoutePayload(
+export const decodeSchedulerCleanupConnectionsRoutePayload = Effect.fn(
+  "SchedulerRouteBoundary.decodeCleanupConnectionsPayload",
+)(function* (
   value: unknown,
   env: Env,
-): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
-  return decodeSchedulerCleanupConnectionsPayload(value, env);
-}
-
-export function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
-}
-
-export const schedulerRouteErrorToHttpErrorEffect = Effect.fn(
-  "SchedulerRouteBoundary.schedulerRouteErrorToHttpError",
-)(function* (
-  error: SchedulerRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(schedulerRouteErrorToHttpError(error));
+): Effect.fn.Return<SchedulerCleanupConnectionsRequest, SchedulerRoutePayloadError> {
+  return yield* decodeSchedulerCleanupConnectionsPayload(value, env);
 });

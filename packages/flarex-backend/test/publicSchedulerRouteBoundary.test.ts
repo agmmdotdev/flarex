@@ -8,14 +8,13 @@ import {
   decodePublicSchedulerDeliveryReconcileRequest,
   decodePublicSchedulerRerunSubscriptionsRequest,
   decodePublicSchedulerTriggerSubscriptionsRequest,
-  publicSchedulerRouteErrorToHttpError,
-  publicSchedulerRouteErrorToHttpErrorEffect,
 } from "../src/scheduler/PublicRouteBoundary";
 import {
   decodeSchedulerConnectionReconcilePayload,
   SchedulerRoutePayloadError,
 } from "../src/scheduler/Requests";
 import type { Env } from "../src/types";
+import { createBackendHarness } from "./backendHarness";
 
 describe("public scheduler route boundary", () => {
   it("shares scheduler maintenance payload decoders with internal routes", async () => {
@@ -355,48 +354,37 @@ describe("public scheduler route boundary", () => {
     });
   });
 
-  it("maps typed public scheduler route errors at the adapter boundary", () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    expect(publicSchedulerRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("maps public scheduler route errors through the Worker adapter edge", async () => {
+    const harness = await createBackendHarness();
+    try {
+      const malformedJson = await harness.mf.dispatchFetch(
+        "http://flarex.test/scheduler/live-query-deliveries/reconcile",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{",
+        },
+      );
+      expect(malformedJson.status).toBe(400);
+      await expect(malformedJson.json()).resolves.toEqual({
+        error: "Request body must be JSON.",
+      });
 
-    const validationError = new SchedulerRoutePayloadError({
-      message: "deploymentId must be a non-empty string.",
-    });
-    expect(publicSchedulerRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "deploymentId must be a non-empty string.",
-    });
-  });
-
-  it("maps typed public scheduler route errors through a named adapter effect", async () => {
-    const jsonError = new RequestJsonError({
-      message: "Request body must be JSON.",
-      cause: new SyntaxError("Unexpected end of JSON input"),
-    });
-    const mappedJson = await Effect.runPromise(Effect.flip(
-      publicSchedulerRouteErrorToHttpErrorEffect(jsonError),
-    ));
-    expect(mappedJson).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
-
-    const validationError = new SchedulerRoutePayloadError({
-      message: "deploymentId must be a non-empty string.",
-    });
-    const mappedValidation = await Effect.runPromise(Effect.flip(
-      publicSchedulerRouteErrorToHttpErrorEffect(validationError),
-    ));
-    expect(mappedValidation).toMatchObject({
-      status: 400,
-      message: "deploymentId must be a non-empty string.",
-    });
+      const invalidPayload = await harness.mf.dispatchFetch(
+        "http://flarex.test/scheduler/live-query-subscriptions/rerun",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deploymentId: "" }),
+        },
+      );
+      expect(invalidPayload.status).toBe(400);
+      await expect(invalidPayload.json()).resolves.toEqual({
+        error: "deploymentId must be a non-empty string.",
+      });
+    } finally {
+      await harness.dispose();
+    }
   });
 
   it("exposes shared typed public scheduler payload failures before HTTP mapping", async () => {

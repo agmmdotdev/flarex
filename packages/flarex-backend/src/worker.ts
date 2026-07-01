@@ -183,9 +183,11 @@ import {
   decodePublicSchedulerDeliveryReconcileRequest,
   decodePublicSchedulerRerunSubscriptionsRequest,
   decodePublicSchedulerTriggerSubscriptionsRequest,
-  publicSchedulerRouteErrorToHttpError,
 } from "./scheduler/PublicRouteBoundary";
-import { SchedulerRoutePayloadError } from "./scheduler/RouteBoundary";
+import {
+  SchedulerRoutePayloadError,
+  type SchedulerRouteError,
+} from "./scheduler/RouteBoundary";
 import {
   cleanupPublicSchedulerConnectionsEffect,
   deadLetterPublicSchedulerDeliveriesEffect,
@@ -546,7 +548,7 @@ function isPublicSchedulerRoutePath(pathname: string): pathname is PublicSchedul
 }
 
 type PublicWorkerSchedulerRouteError =
-  | Parameters<typeof publicSchedulerRouteErrorToHttpError>[0]
+  | SchedulerRouteError
   | PublicWorkerDispatchError
   | PublicLiveQueryDeliveryAuthorizationError;
 
@@ -634,12 +636,20 @@ function publicWorkerSchedulerRouteErrorToHttpError(
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
-  return publicSchedulerRouteErrorToHttpError(error);
+  return schedulerRouteErrorToHttpError(error);
+}
+
+function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return new HttpError(400, error.message);
 }
 
 function isPublicWorkerSchedulerRouteError(
   error: PublicWorkerRouteError,
 ): error is PublicWorkerSchedulerRouteError {
+  if (error instanceof RequestJsonError) return true;
   if (error instanceof PublicLiveQueryDeliveryAuthorizationError) return true;
   if (error instanceof SchedulerRoutePayloadError) return true;
   return error instanceof PublicWorkerDispatchError &&

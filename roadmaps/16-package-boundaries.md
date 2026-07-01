@@ -1,5 +1,45 @@
 # Package Boundaries
 
+## Scheduler Route Adapter Split
+
+Previous completed checkpoint: `94d07b3` Type partition route boundaries.
+
+What changed:
+
+- `scheduler/RouteBoundary.ts` owns typed scheduler request decoding only; it
+  no longer exports `HttpError` mapping helpers.
+- `scheduler/PublicRouteBoundary.ts` wraps the shared scheduler decoders as
+  named public route boundaries without owning HTTP response conversion.
+- `scheduler/InternalRouteBoundary.ts` remains the SchedulerDO internal adapter
+  edge for typed scheduler route/runtime/pending-state failures.
+- `worker.ts` remains the public scheduler adapter edge and maps public
+  scheduler route, authorization, and dispatch failures to preserved HTTP
+  responses.
+
+Boundary decision:
+
+Scheduler route boundary modules are transport-input boundaries. Worker is the
+public scheduler adapter edge, and SchedulerDO's internal route boundary is the
+internal scheduler adapter edge. Scheduler maintenance, delivery wake,
+force-reconnect, pending state, and response decoding remain separate typed
+service/runtime boundaries.
+
+Known limitations:
+
+- Scheduler service helpers still expose several boundary-specific
+  `*ToHttpError` functions for runtime, pending-state, maintenance, delivery
+  wake, force-reconnect, and executor-response failures. Those remain adapter
+  compatibility helpers for SchedulerDO and are not route decoder ownership.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Adapter Split
 
 Previous completed checkpoint: `737e075` Type public invoke boundary.
@@ -1820,9 +1860,9 @@ Scheduler maintenance request decoding belongs in `scheduler/RouteBoundary.ts`
 and `scheduler/Requests.ts` as Effect-returning decoders. SchedulerDO remains
 the runtime owner for route selection, pending-state storage, reconciliation
 loops, alarm behavior, and operation dispatch. HTTP conversion for request
-decode failures remains at `schedulerRouteErrorToHttpError(...)` /
-`schedulerRouteErrorToHttpErrorEffect(...)`; operation, pending-state, and
-runtime failures remain mapped by the existing scheduler internal adapters.
+decode failures now belongs to `scheduler/InternalRouteBoundary.ts`; operation,
+pending-state, and runtime failures remain mapped by the existing scheduler
+internal adapters.
 
 Convex references:
 
@@ -2173,7 +2213,7 @@ What changed:
 - `scheduler/PublicRouteBoundary.ts` no longer exports public throwing
   `parsePublicScheduler*Request(...)` compatibility wrappers.
 - The public scheduler boundary now exposes only Effect-returning public
-  scheduler request decoders and the public scheduler route HTTP adapter.
+  scheduler request decoders.
 - Trigger subscription request decoding remains an alias to the rerun
   subscription decoder.
 - Tests now exercise scheduler request decoder success/failure channels
@@ -2185,10 +2225,8 @@ Public scheduler route request decoding belongs in
 `scheduler/PublicRouteBoundary.ts`. Public Worker orchestration and dispatch
 remain in `worker.ts` and `scheduler/PublicDispatchBoundary.ts`. Internal
 SchedulerDO maintenance route decoding remains in the internal scheduler route
-boundary. HTTP conversion remains in
-`publicSchedulerRouteErrorToHttpError(...)` /
-`publicSchedulerRouteErrorToHttpErrorEffect(...)`, not per-wrapper Promise
-helpers or throwing parser wrappers.
+boundary. Public scheduler HTTP conversion now belongs to the Worker adapter,
+not per-wrapper Promise helpers or throwing parser wrappers.
 
 Convex references:
 

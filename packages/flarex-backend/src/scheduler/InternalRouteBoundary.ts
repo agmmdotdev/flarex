@@ -1,5 +1,11 @@
 import { Effect } from "effect";
-import { errorResponse, HttpError, json } from "../http";
+import {
+  errorResponse,
+  HttpError,
+  json,
+  RequestJsonError,
+  requestJsonErrorToHttpError,
+} from "../http";
 import {
   SchedulerPendingStateError,
   schedulerPendingStateErrorToHttpError,
@@ -19,10 +25,7 @@ import {
   schedulerForceReconnectBoundaryErrorToHttpError,
   type SchedulerForceReconnectBoundaryError,
 } from "./ForceReconnectBoundary";
-import {
-  schedulerRouteErrorToHttpError,
-  type SchedulerRouteError,
-} from "./RouteBoundary";
+import type { SchedulerRouteError } from "./RouteBoundary";
 import {
   SchedulerRouteOperationError,
   schedulerRouteOperationErrorToHttpError,
@@ -118,6 +121,13 @@ export function schedulerInternalRouteErrorToHttpError(
     return schedulerRuntimeErrorToHttpError(error);
   }
   return schedulerRouteErrorToHttpError(error);
+}
+
+function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
+  if (error instanceof RequestJsonError) {
+    return requestJsonErrorToHttpError(error);
+  }
+  return new HttpError(400, error.message);
 }
 
 export const schedulerInternalRouteErrorToHttpErrorEffect = Effect.fn(

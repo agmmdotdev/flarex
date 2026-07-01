@@ -10,58 +10,55 @@ import {
   type SchedulerDeliveryReconcileRequest,
   type SchedulerRouteError,
   type SchedulerRerunSubscriptionsRequest,
-  schedulerRouteErrorToHttpErrorEffect,
-  schedulerRouteErrorToHttpError,
 } from "./RouteBoundary";
 import { Effect } from "effect";
-import type { HttpError } from "../http";
 import type { Env } from "../types";
 
-export function decodePublicSchedulerDeliveryReconcileRequest(
+export const decodePublicSchedulerDeliveryReconcileRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeDeliveryReconcileRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
-  return decodeSchedulerDeliveryReconcileRequest(request);
-}
+): Effect.fn.Return<SchedulerDeliveryReconcileRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerDeliveryReconcileRequest(request);
+});
 
-export function decodePublicSchedulerConnectionReconcileRequest(
+export const decodePublicSchedulerConnectionReconcileRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeConnectionReconcileRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
-  return decodeSchedulerConnectionReconcileRequest(request);
-}
+): Effect.fn.Return<SchedulerConnectionReconcileRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerConnectionReconcileRequest(request);
+});
 
-export function decodePublicSchedulerDeadLetterDeliveriesRequest(
+export const decodePublicSchedulerDeadLetterDeliveriesRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeDeadLetterDeliveriesRequest",
+)(function* (
   request: Request,
-): Effect.Effect<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
-  return decodeSchedulerDeadLetterDeliveriesRequest(request);
-}
+): Effect.fn.Return<SchedulerDeadLetterDeliveriesRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerDeadLetterDeliveriesRequest(request);
+});
 
-export function decodePublicSchedulerCleanupConnectionsRequest(
+export const decodePublicSchedulerCleanupConnectionsRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeCleanupConnectionsRequest",
+)(function* (
   request: Request,
   env: Env,
-): Effect.Effect<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
-  return decodeSchedulerCleanupConnectionsRequest(request, env);
-}
+): Effect.fn.Return<SchedulerCleanupConnectionsRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerCleanupConnectionsRequest(request, env);
+});
 
-export function decodePublicSchedulerRerunSubscriptionsRequest(
-  request: Request,
-): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
-  return decodeSchedulerRerunSubscriptionsRequest(request);
-}
-
-export function decodePublicSchedulerTriggerSubscriptionsRequest(
-  request: Request,
-): Effect.Effect<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
-  return decodeSchedulerRerunSubscriptionsRequest(request);
-}
-
-export function publicSchedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
-  return schedulerRouteErrorToHttpError(error);
-}
-
-export const publicSchedulerRouteErrorToHttpErrorEffect = Effect.fn(
-  "PublicSchedulerRouteBoundary.publicSchedulerRouteErrorToHttpError",
+export const decodePublicSchedulerRerunSubscriptionsRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeRerunSubscriptionsRequest",
 )(function* (
-  error: SchedulerRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* schedulerRouteErrorToHttpErrorEffect(error);
+  request: Request,
+): Effect.fn.Return<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerRerunSubscriptionsRequest(request);
+});
+
+export const decodePublicSchedulerTriggerSubscriptionsRequest = Effect.fn(
+  "PublicSchedulerRouteBoundary.decodeTriggerSubscriptionsRequest",
+)(function* (
+  request: Request,
+): Effect.fn.Return<SchedulerRerunSubscriptionsRequest, SchedulerRouteError> {
+  return yield* decodeSchedulerRerunSubscriptionsRequest(request);
 });

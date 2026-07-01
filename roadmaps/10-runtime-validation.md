@@ -1,5 +1,35 @@
 # Runtime Validation
 
+## Scheduler Route Adapter Split
+
+Previous completed checkpoint: `94d07b3` Type partition route boundaries.
+
+What changed:
+
+- `scheduler/RouteBoundary.ts` now exposes named `Effect.fn(...)` decoders for
+  delivery reconcile, connection reconcile, rerun subscriptions, dead-letter
+  deliveries, and connection cleanup requests.
+- `scheduler/PublicRouteBoundary.ts` is a public scheduler decoder facade only;
+  it no longer exports HTTP mapping helpers.
+- `scheduler/InternalRouteBoundary.ts` owns SchedulerDO internal response
+  mapping for typed scheduler route errors.
+- `worker.ts` owns public scheduler route-error mapping at the public Worker
+  adapter edge.
+
+Why it changed:
+
+R-4 removes HTTP response ownership from scheduler route decoder modules while
+preserving scheduler public/internal request behavior and response bodies.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/schedulerRouteBoundary.test.ts test/publicSchedulerRouteBoundary.test.ts test/publicSchedulerDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Adapter Split
 
 Previous completed checkpoint: `737e075` Type public invoke boundary.
@@ -1772,8 +1802,7 @@ Why it changed:
 SchedulerDO already uses the typed Effect route decoders for internal
 maintenance routes. The removed Promise/throwing wrappers were compatibility
 surfaces rather than production routing. Removing them keeps scheduler request
-validation typed and leaves HTTP conversion at
-`schedulerRouteErrorToHttpErrorEffect(...)` and the scheduler internal response
+validation typed and leaves HTTP conversion at the scheduler internal response
 adapter.
 
 Convex references:

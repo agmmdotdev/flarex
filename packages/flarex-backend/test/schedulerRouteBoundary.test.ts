@@ -12,7 +12,6 @@ import {
   decodeSchedulerDeliveryReconcileRequest,
   decodeSchedulerRerunSubscriptionsRoutePayload,
   decodeSchedulerRerunSubscriptionsRequest,
-  schedulerRouteErrorToHttpError,
 } from "../src/scheduler/RouteBoundary";
 import {
   decodeSchedulerCleanupConnectionsPayload,
@@ -399,22 +398,28 @@ describe("scheduler route boundary", () => {
     ), env))).rejects.toBeInstanceOf(RequestJsonError);
   });
 
-  it("maps typed scheduler route errors at the adapter boundary", () => {
+  it("maps typed scheduler route errors through the internal response adapter", async () => {
     const jsonError = new RequestJsonError({
       message: "Request body must be JSON.",
       cause: new SyntaxError("Unexpected end of JSON input"),
     });
-    expect(schedulerRouteErrorToHttpError(jsonError)).toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
+    const jsonResponse = await runSchedulerRoute(routeSchedulerEffectJsonResult(() =>
+      Effect.fail(jsonError)
+    ));
+    expect(jsonResponse.status).toBe(400);
+    await expect(jsonResponse.json()).resolves.toEqual({
+      error: "Request body must be JSON.",
     });
 
     const validationError = new SchedulerRoutePayloadError({
       message: "limit must be a positive integer.",
     });
-    expect(schedulerRouteErrorToHttpError(validationError)).toMatchObject({
-      status: 400,
-      message: "limit must be a positive integer.",
+    const validationResponse = await runSchedulerRoute(routeSchedulerEffectJsonResult(() =>
+      Effect.fail(validationError)
+    ));
+    expect(validationResponse.status).toBe(400);
+    await expect(validationResponse.json()).resolves.toEqual({
+      error: "limit must be a positive integer.",
     });
   });
 
