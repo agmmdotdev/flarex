@@ -1,5 +1,55 @@
 # Deployment Analysis And Push
 
+## Finish Activation Application Planning Effects
+
+Previous completed checkpoint: `3c1179d` Type active deployment metadata
+parsing.
+
+What changed:
+
+- Finish activation schema writes now come from
+  `deploymentSchemaApplicationPlan(...)`.
+- Finish activation function writes now come from
+  `deploymentFunctionsApplicationPlan(...)`.
+- `finishPushActivationApplication(...)` combines the validated analysis into
+  the transaction application plan before SQL writes begin.
+
+Why it changed:
+
+Deployment activation applies analyzed schema and function metadata. Building a
+named application plan before the transaction keeps that behavior explicit,
+testable, and separated from raw SQL execution while preserving the current
+finish activation semantics.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment activation planning cleanup around existing push finish behavior.
+
+How Flarex differs:
+
+- Flarex stores active schema/function metadata in Cloudflare Durable Object
+  SQL during finish activation. The plan helpers make that Flarex-specific
+  activation path easier to review.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, service preflight, active metadata read
+  parsing, artifact store implementation, DeploymentPushStore lifecycle state
+  changes, PartitionDO SQL/OCC, executor-http, protocol parser compatibility,
+  and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Active Deployment Metadata Parsing Effects
 
 Previous completed checkpoint: `4ab505a` Type deployment store finish

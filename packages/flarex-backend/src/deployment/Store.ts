@@ -76,6 +76,48 @@ export interface AbandonPushStoreInput {
   readonly reason: string;
 }
 
+export interface DeploymentSchemaTableApplication {
+  readonly tableId: number;
+  readonly name: string;
+  readonly state: string;
+  readonly schemaJson: string;
+  readonly partitionRuleJson: string;
+}
+
+export interface DeploymentSchemaIndexApplication {
+  readonly indexId: number;
+  readonly tableId: number;
+  readonly name: string;
+  readonly fieldsJson: string;
+  readonly state: string;
+}
+
+export interface DeploymentSchemaApplicationPlan {
+  readonly version: number;
+  readonly tables: ReadonlyArray<DeploymentSchemaTableApplication>;
+  readonly indexes: ReadonlyArray<DeploymentSchemaIndexApplication>;
+}
+
+export interface DeploymentFunctionApplication {
+  readonly path: string;
+  readonly kind: string;
+  readonly visibility: string | undefined;
+  readonly argsJson: string;
+  readonly returnsJson: string;
+  readonly routeJson: string;
+  readonly partitionJson: string;
+  readonly positionJson: string | null;
+}
+
+export interface DeploymentFunctionsApplicationPlan {
+  readonly functions: ReadonlyArray<DeploymentFunctionApplication>;
+}
+
+export interface FinishPushActivationApplication {
+  readonly schema: DeploymentSchemaApplicationPlan;
+  readonly functions: DeploymentFunctionsApplicationPlan;
+}
+
 export type FinishableDeploymentPushStatus = PushStatus & {
   readonly state: "analyzed";
   readonly analysis: DeploymentAnalysis;
@@ -141,6 +183,59 @@ export const activeDeploymentActivatedAtFromMeta = Effect.fn(
   fallbackUpdatedAt: number,
 ): Effect.fn.Return<number> {
   return Number(rawActivatedAt ?? fallbackUpdatedAt);
+});
+
+export const deploymentSchemaApplicationPlan = Effect.fn(
+  "DeploymentPushStore.deploymentSchemaApplicationPlan",
+)(function* (
+  schema: DeploymentSchema,
+): Effect.fn.Return<DeploymentSchemaApplicationPlan> {
+  return {
+    version: schema.version,
+    tables: schema.tables.map(table => ({
+      tableId: table.tableId,
+      name: table.name,
+      state: table.state ?? "active",
+      schemaJson: JSON.stringify(table.validator ?? null),
+      partitionRuleJson: JSON.stringify(table.placement),
+    })),
+    indexes: schema.indexes.map(index => ({
+      indexId: index.indexId,
+      tableId: index.tableId,
+      name: index.name,
+      fieldsJson: JSON.stringify(index.fields),
+      state: index.state ?? "enabled",
+    })),
+  };
+});
+
+export const deploymentFunctionsApplicationPlan = Effect.fn(
+  "DeploymentPushStore.deploymentFunctionsApplicationPlan",
+)(function* (
+  functions: DeploymentFunctions,
+): Effect.fn.Return<DeploymentFunctionsApplicationPlan> {
+  return {
+    functions: functions.functions.map(metadata => ({
+      path: metadata.path,
+      kind: metadata.kind,
+      visibility: metadata.visibility,
+      argsJson: JSON.stringify(metadata.args),
+      returnsJson: JSON.stringify(metadata.returns),
+      routeJson: JSON.stringify(metadata.route ?? null),
+      partitionJson: JSON.stringify(metadata.partition ?? null),
+      positionJson: metadata.position === undefined ? null : JSON.stringify(metadata.position),
+    })),
+  };
+});
+
+export const finishPushActivationApplication = Effect.fn(
+  "DeploymentPushStore.finishPushActivationApplication",
+)(function* (
+  analysis: DeploymentAnalysis,
+): Effect.fn.Return<FinishPushActivationApplication> {
+  const schema = yield* deploymentSchemaApplicationPlan(analysis.schema);
+  const functions = yield* deploymentFunctionsApplicationPlan(analysis.functions);
+  return { schema, functions };
 });
 
 export const deploymentFinishPushStoreDecision = Effect.fn(
@@ -329,10 +424,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
-        const applySchema = (schema: DeploymentSchema): void => {
+        const applySchemaPlan = (plan: DeploymentSchemaApplicationPlan): void => {
           sql.exec("DELETE FROM indexes");
           sql.exec("DELETE FROM tables");
-          for (const table of schema.tables) {
+          for (const table of plan.tables) {
             sql.exec(
               `
               INSERT INTO tables (table_id, table_name, state, schema_json, partition_rule_json)
@@ -340,12 +435,12 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               `,
               table.tableId,
               table.name,
-              table.state ?? "active",
-              JSON.stringify(table.validator ?? null),
-              JSON.stringify(table.placement),
+              table.state,
+              table.schemaJson,
+              table.partitionRuleJson,
             );
           }
-          for (const index of schema.indexes) {
+          for (const index of plan.indexes) {
             sql.exec(
               `
               INSERT INTO indexes (index_id, table_id, index_name, fields_json, state)
@@ -354,16 +449,16 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               index.indexId,
               index.tableId,
               index.name,
-              JSON.stringify(index.fields),
-              index.state ?? "enabled",
+              index.fieldsJson,
+              index.state,
             );
           }
-          setMeta("schema_version", String(schema.version));
+          setMeta("schema_version", String(plan.version));
         };
 
-        const applyFunctions = (functions: DeploymentFunctions): void => {
+        const applyFunctionsPlan = (plan: DeploymentFunctionsApplicationPlan): void => {
           sql.exec("DELETE FROM functions");
-          for (const metadata of functions.functions) {
+          for (const metadata of plan.functions) {
             sql.exec(
               `
               INSERT INTO functions (function_path, kind, visibility, args_json, returns_json, route_json, partition_json, position_json)
@@ -372,11 +467,11 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
               metadata.path,
               metadata.kind,
               metadata.visibility,
-              JSON.stringify(metadata.args),
-              JSON.stringify(metadata.returns),
-              JSON.stringify(metadata.route ?? null),
-              JSON.stringify(metadata.partition ?? null),
-              metadata.position === undefined ? null : JSON.stringify(metadata.position),
+              metadata.argsJson,
+              metadata.returnsJson,
+              metadata.routeJson,
+              metadata.partitionJson,
+              metadata.positionJson,
             );
           }
         };
@@ -489,10 +584,11 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             status: PushStatus & {
               readonly analysis: DeploymentAnalysis;
             },
+            application: FinishPushActivationApplication,
           ): Effect.fn.Return<FinishPushResponse, DeploymentStoreWriteError> {
             return yield* runDeploymentStoreWriteTransaction("finishPush", async () => {
-              applySchema(status.analysis.schema);
-              applyFunctions(status.analysis.functions);
+              applySchemaPlan(application.schema);
+              applyFunctionsPlan(application.functions);
               sql.exec(
                 "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
                 input.now,
@@ -552,7 +648,8 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             if (decision._tag === "reject") {
               return decision.response;
             }
-            return yield* runFinishPushTransaction(input, decision.status);
+            const application = yield* finishPushActivationApplication(decision.status.analysis);
+            return yield* runFinishPushTransaction(input, decision.status, application);
           },
         );
 

@@ -1,5 +1,54 @@
 # Runtime Validation
 
+## Finish Activation Application Planning Effects
+
+Previous completed checkpoint: `3c1179d` Type active deployment metadata
+parsing.
+
+What changed:
+
+- Finish activation now builds schema SQL application rows through
+  `deploymentSchemaApplicationPlan(...)`.
+- Finish activation now builds function SQL application rows through
+  `deploymentFunctionsApplicationPlan(...)`.
+- `finishPushActivationApplication(...)` combines those plans before the
+  Durable Object transaction applies them.
+
+Why it changed:
+
+The finish transaction should apply already-planned deployment metadata rather
+than mixing metadata conversion with SQL writes. This keeps schema/function
+application reviewable as named Effect code without adding a runtime boundary
+inside the transaction.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentPushStore activation planning cleanup.
+
+How Flarex differs:
+
+- Flarex activates deployment schema and function metadata inside a Cloudflare
+  Durable Object finish transaction. This checkpoint prepares those SQL writes
+  as store-owned activation plans.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi response mapping, public Worker
+  deployment dispatch, service preflight, active metadata read parsing,
+  artifact store implementation, PartitionDO SQL/OCC, executor-http, protocol
+  parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Active Deployment Metadata Parsing Effects
 
 Previous completed checkpoint: `4ab505a` Type deployment store finish

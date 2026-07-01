@@ -28,7 +28,10 @@ import {
   activeDeploymentActivatedAtFromMeta,
   activeDeploymentExecutionArtifactRefFromMeta,
   activeDeploymentStatusFromStoreParts,
+  deploymentFunctionsApplicationPlan,
+  deploymentSchemaApplicationPlan,
   deploymentFinishPushStoreDecision,
+  finishPushActivationApplication,
   type AbandonPushStoreInput,
   type DeploymentSqlStorage,
   type DeploymentTransactionStorage,
@@ -43,6 +46,8 @@ import type {
   ActiveDeploymentStatus,
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
+  DeploymentFunctions,
+  DeploymentSchema,
   ExecutionArtifactRef,
   FinishPushResponse,
   PushSourcePackage,
@@ -782,6 +787,70 @@ describe("DeploymentService", () => {
       operation: "finishPush",
       pushId: "missing-finish-decision",
       stage: "prevalidated",
+    });
+  });
+
+  it("builds schema and function application plans before finish transactions", async () => {
+    const schema = deploymentApplicationSchema();
+    const functions = deploymentApplicationFunctions();
+
+    const schemaPlan = await Effect.runPromise(deploymentSchemaApplicationPlan(schema));
+    expect(schemaPlan).toEqual({
+      version: 7,
+      tables: [{
+        tableId: 1,
+        name: "tasks",
+        state: "active",
+        schemaJson: JSON.stringify({
+          type: "object",
+          value: {
+            ownerId: { fieldType: { type: "string" }, optional: false },
+          },
+        }),
+        partitionRuleJson: JSON.stringify({ kind: "partitionBy", field: "ownerId" }),
+      }],
+      indexes: [{
+        indexId: 2,
+        tableId: 1,
+        name: "byOwner",
+        fieldsJson: JSON.stringify(["ownerId"]),
+        state: "enabled",
+      }],
+    });
+
+    const functionsPlan = await Effect.runPromise(deploymentFunctionsApplicationPlan(functions));
+    expect(functionsPlan).toEqual({
+      functions: [{
+        path: "tasks:create",
+        kind: "mutation",
+        visibility: "public",
+        argsJson: JSON.stringify({
+          type: "object",
+          value: {
+            ownerId: { fieldType: { type: "string" }, optional: false },
+          },
+        }),
+        returnsJson: JSON.stringify(null),
+        routeJson: JSON.stringify({ type: "args", field: "ownerId" }),
+        partitionJson: JSON.stringify({
+          type: "partition",
+          table: "tasks",
+          selector: "byOwnerId",
+          partitionField: "ownerId",
+          argField: "ownerId",
+        }),
+        positionJson: JSON.stringify({
+          path: "tasks.ts",
+          startLine: 12,
+          startColumn: 3,
+        }),
+      }],
+    });
+
+    const application = await Effect.runPromise(finishPushActivationApplication({ schema, functions }));
+    expect(application).toEqual({
+      schema: schemaPlan,
+      functions: functionsPlan,
     });
   });
 
@@ -2642,6 +2711,61 @@ function deploymentPartitionValidationAnalysis(): DeploymentAnalysis {
         },
       }],
     },
+  };
+}
+
+function deploymentApplicationSchema(): DeploymentSchema {
+  return {
+    version: 7,
+    tables: [{
+      tableId: 1,
+      name: "tasks",
+      state: "active",
+      validator: {
+        type: "object",
+        value: {
+          ownerId: { fieldType: { type: "string" }, optional: false },
+        },
+      },
+      placement: { kind: "partitionBy", field: "ownerId" },
+    }],
+    indexes: [{
+      indexId: 2,
+      tableId: 1,
+      name: "byOwner",
+      fields: ["ownerId"],
+      state: "enabled",
+    }],
+  };
+}
+
+function deploymentApplicationFunctions(): DeploymentFunctions {
+  return {
+    functions: [{
+      path: "tasks:create",
+      kind: "mutation",
+      visibility: "public",
+      args: {
+        type: "object",
+        value: {
+          ownerId: { fieldType: { type: "string" }, optional: false },
+        },
+      },
+      returns: null,
+      route: { type: "args", field: "ownerId" },
+      partition: {
+        type: "partition",
+        table: "tasks",
+        selector: "byOwnerId",
+        partitionField: "ownerId",
+        argField: "ownerId",
+      },
+      position: {
+        path: "tasks.ts",
+        startLine: 12,
+        startColumn: 3,
+      },
+    }],
   };
 }
 

@@ -1,5 +1,55 @@
 # Package Boundaries
 
+## Finish Activation Application Planning Effects
+
+Previous completed checkpoint: `3c1179d` Type active deployment metadata
+parsing.
+
+What changed:
+
+- `deployment/Store.ts` now exports `deploymentSchemaApplicationPlan(...)` for
+  finish activation schema SQL application rows.
+- `deployment/Store.ts` now exports `deploymentFunctionsApplicationPlan(...)`
+  for finish activation function SQL application rows.
+- `deployment/Store.ts` now exports `finishPushActivationApplication(...)` to
+  combine both plans before `DeploymentPushStore.finishPush(...)` enters the
+  write transaction.
+
+Boundary decision:
+
+Schema/function application planning belongs in `DeploymentPushStore` because
+finish activation owns the Durable Object SQL writes. The plan helpers remain
+Effect code outside the transaction callback, while the transaction applies the
+prebuilt rows.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment store package boundary around finish activation.
+
+How Flarex differs:
+
+- Convex does not have Flarex's generated DeploymentDO plus Durable Object SQL
+  activation path. Flarex keeps activation planning and SQL writes in the store
+  package, away from generated HTTP adapters.
+
+Known limitations:
+
+- No DeploymentDO routing, generated DeploymentApi response mapping, public
+  Worker deployment dispatch, service preflight, active metadata read parsing,
+  artifact store implementation, PartitionDO SQL/OCC behavior, executor-http
+  route, protocol parser compatibility, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Active Deployment Metadata Parsing Effects
 
 Previous completed checkpoint: `4ab505a` Type deployment store finish
