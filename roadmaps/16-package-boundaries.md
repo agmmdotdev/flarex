@@ -1,5 +1,43 @@
 # Package Boundaries
 
+## Public Invoke Handler DB Validation Boundary
+
+Previous completed checkpoint: `3096a64` Type public invoke execution boundary.
+
+What changed:
+
+- Invoke now owns typed validation for the handler database compatibility APIs,
+  reusing the same document and query helpers used by ExecutionDO syscalls.
+- Handler-facing `readerFor(...)` and `writerFor(...)` keep their existing
+  promise API shape, while their validation failures remain tagged invoke
+  errors until the public invoke adapter boundary.
+- Worker and `executeInvoke(...)` continue to own final HTTP compatibility
+  mapping.
+
+Boundary decision:
+
+Invoke owns handler database validation and operation error classification.
+Backend handlers keep the public promise-shaped DB API. Transaction IO remains
+owned by `SingleShardTransaction`, and HTTP response conversion remains at the
+invoke adapter edge.
+
+Known limitations:
+
+- This checkpoint does not change artifact-runtime invoke dispatch, public
+  execution dispatch, request protocol schemas, executor-http, PartitionDO
+  SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Execution Boundary
 
 Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.

@@ -191,6 +191,16 @@ export type InvokeExecutionError =
   | InvokeValidationError
   | InvokeExecutionOperationError;
 
+type InvokeDatabaseOperationError =
+  | InvokeDocumentIdParseError
+  | InvokeDocumentIdTableMismatchError
+  | InvokeDocumentNotFoundError
+  | InvokeDocumentPlacementError
+  | InvokeDocumentTableNotFoundError
+  | InvokeDocumentValidationError
+  | InvokeQueryPlanningError
+  | InvokeTableNotFoundError;
+
 export type BackendQueryCtx = {
   db: BackendDatabaseReader;
 };
@@ -337,7 +347,7 @@ export const executeInvokeEffect = Effect.fn("Invoke.execute")(function* (
 function invokeExecutionOperation<A>(
   operation: InvokeExecutionOperation,
   execute: () => Promise<A>,
-): Effect.Effect<A, InvokeExecutionOperationError> {
+): Effect.Effect<A, InvokeExecutionOperationError | InvokeValidationError> {
   return Effect.tryPromise({
     try: execute,
     catch: cause => invokeExecutionOperationError(operation, cause),
@@ -347,7 +357,10 @@ function invokeExecutionOperation<A>(
 function invokeExecutionOperationError(
   operation: InvokeExecutionOperation,
   cause: unknown,
-): InvokeExecutionOperationError {
+): InvokeExecutionOperationError | InvokeValidationError {
+  if (cause instanceof InvokeDatabaseOperationFailure) {
+    return cause.error;
+  }
   if (cause instanceof HttpError) {
     return new InvokeExecutionOperationError({
       operation,
@@ -370,6 +383,46 @@ function invokeExecutionOperationError(
     message: cause instanceof Error ? cause.message : String(cause),
     cause,
   });
+}
+
+class InvokeDatabaseOperationFailure extends Error {
+  constructor(readonly error: InvokeExecutionOperationError | InvokeValidationError) {
+    super(`Invoke database operation failed: ${error._tag}`);
+  }
+}
+
+function invokeDatabaseOperation<A>(
+  effect: Effect.Effect<
+    A,
+    InvokeDatabaseOperationError | InvokeExecutionOperationError | InvokeValidationError
+  >,
+): Promise<A> {
+  return Effect.runPromise(effect).catch((cause: unknown) => {
+    if (cause instanceof InvokeExecutionOperationError || isInvokeValidationError(cause)) {
+      throw new InvokeDatabaseOperationFailure(cause);
+    }
+    throw cause;
+  });
+}
+
+function isInvokeValidationError(error: unknown): error is InvokeValidationError {
+  return error instanceof InvokeActiveFunctionMetadataNotFoundError ||
+    error instanceof InvokeArgumentValidationError ||
+    error instanceof InvokeDocumentIdParseError ||
+    error instanceof InvokeDocumentIdTableMismatchError ||
+    error instanceof InvokeDocumentNotFoundError ||
+    error instanceof InvokeDocumentPlacementError ||
+    error instanceof InvokeDocumentTableNotFoundError ||
+    error instanceof InvokeDocumentValidationError ||
+    error instanceof InvokeFunctionKindMismatchError ||
+    error instanceof InvokeFunctionNotFoundError ||
+    error instanceof InvokeKindValidationError ||
+    error instanceof InvokePartitionValidationError ||
+    error instanceof InvokeQueryPlanningError ||
+    error instanceof InvokeRequestKindMismatchError ||
+    error instanceof InvokeReturnValidationError ||
+    error instanceof InvokeTableNotFoundError ||
+    error instanceof InvokeUnsupportedFunctionKindError;
 }
 
 export function invokeExecutionOperationErrorToAdapterError(
@@ -697,13 +750,10 @@ export function invokeErrorResponse(error: unknown): Response {
 }
 
 export function readerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseReader {
+  const runTransaction = <A>(execute: () => Promise<A>) =>
+    invokeExecutionOperation("handler", execute);
   return {
-    get: async id => {
-      const metadata = tableFromDocumentId(id, schema);
-      const document = await tx.get(metadata.tableId, id);
-      if (document !== null) validateDocumentPlacement(metadata, document.value, tx.partitionKey);
-      return document === null ? null : documentValue(document.id, document.value);
-    },
+    get: id => invokeDatabaseOperation(getDocumentEffect(tx, schema, id, runTransaction)),
     query: table => backendQuery(tx, schema, table),
     queryIndex: async options => {
       const documents = await tx.queryIndex(options);
@@ -749,32 +799,23 @@ function backendQuery(
     queryLimit?: number,
     queryCursor?: string,
   ): Promise<{ page: Json[]; isDone: boolean; continueCursor: string }> => {
-    const resolvedIndex = requireQueryIndex(index);
-    const tableMetadata = tableForName(schema, table);
-    const tableId = tableMetadata.tableId;
-    const metadata = findQueryIndex(schema, tableMetadata, resolvedIndex);
-
-    const expressions = range?.expressions ?? [];
-    validateQueryPlacement(tableMetadata, expressions, tx.partitionKey);
-    const bounds = queryIndexBounds(table, resolvedIndex, metadata, expressions);
+    const runTransaction = <A>(operation: () => Promise<A>) =>
+      invokeExecutionOperation("handler", operation);
     const resolvedLimit = queryLimit ?? limit;
     const resolvedCursor = queryCursor ?? cursor;
-    const result = await tx.queryIndexPage({
-      indexId: metadata.indexId,
-      ...bounds,
-      ...(resolvedLimit === undefined ? {} : { limit: resolvedLimit }),
-      ...(resolvedCursor === undefined ? {} : { cursor: resolvedCursor }),
-      order,
-    });
-    const documents = result.documents.map(document => {
-      validateDocumentPlacement(tableMetadata, document.value, tx.partitionKey);
-      return documentValue(document.id, document.value);
-    });
-    return {
-      page: documents,
-      isDone: result.isDone,
-      continueCursor: result.continueCursor,
-    };
+    return invokeDatabaseOperation(queryDocumentsEffect(
+      tx,
+      schema,
+      {
+        table,
+        ...(index === undefined ? {} : { index }),
+        ...(range === undefined ? {} : { range }),
+        ...(resolvedLimit === undefined ? {} : { limit: resolvedLimit }),
+        ...(resolvedCursor === undefined ? {} : { cursor: resolvedCursor }),
+        ...(order === undefined ? {} : { order }),
+      },
+      runTransaction,
+    ));
   };
   const query: BackendQueryInitializer = {
     withIndex: (nextIndex, buildRange) => {
@@ -787,7 +828,7 @@ function backendQuery(
     first: async () => (await execute(1)).page[0] ?? null,
     unique: async () => {
       const documents = (await execute(2)).page;
-      validateUniqueQueryResult(documents);
+      await invokeDatabaseOperation(validateUniqueQueryResultEffect(documents));
       return documents[0] ?? null;
     },
     paginate: options =>
@@ -993,39 +1034,18 @@ export const validateQueryPlacementEffect = Effect.fn(
 });
 
 export function writerFor(tx: SingleShardTransaction, schema: DeploymentSchema): BackendDatabaseWriter {
+  const runTransaction = <A>(execute: () => Promise<A>) =>
+    invokeExecutionOperation("handler", execute);
   return {
     ...readerFor(tx, schema),
-    insert: async (table, value, id) => {
-      const metadata = tableForName(schema, table);
-      validateDocument(metadata, value, schema);
-      validateDocumentPlacement(metadata, value, tx.partitionKey);
-      const tableId = metadata.tableId;
-      if (id !== undefined) validateDocumentIdTable(id, tableId);
-      return tx.insert(tableId, value, id);
-    },
-    replace: async (id, value) => {
-      const metadata = tableFromDocumentId(id, schema);
-      validateDocument(metadata, value, schema);
-      validateDocumentPlacement(metadata, value, tx.partitionKey);
-      tx.replace(metadata.tableId, id, value);
-    },
-    patch: async (id, value) => {
-      const metadata = tableFromDocumentId(id, schema);
-      const current = await tx.get(metadata.tableId, id);
-      if (current === null) {
-        throw invokeValidationErrorToHttpError(new InvokeDocumentNotFoundError({ id }));
-      }
-      const next = { ...(current.value as Record<string, Json>), ...value };
-      validateDocument(metadata, next, schema);
-      validateDocumentPlacement(metadata, next, tx.partitionKey);
-      await tx.patch(metadata.tableId, id, value);
-    },
-    delete: async id => {
-      const metadata = tableFromDocumentId(id, schema);
-      const current = await tx.get(metadata.tableId, id);
-      if (current !== null) validateDocumentPlacement(metadata, current.value, tx.partitionKey);
-      tx.delete(metadata.tableId, id);
-    },
+    insert: (table, value, id) =>
+      invokeDatabaseOperation(insertDocumentEffect(tx, schema, table, value, id, runTransaction)),
+    replace: (id, value) =>
+      invokeDatabaseOperation(replaceDocumentEffect(tx, schema, id, value, runTransaction)),
+    patch: (id, value) =>
+      invokeDatabaseOperation(patchDocumentEffect(tx, schema, id, value, runTransaction)),
+    delete: id =>
+      invokeDatabaseOperation(deleteDocumentEffect(tx, schema, id, runTransaction)),
   };
 }
 

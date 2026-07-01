@@ -1,5 +1,44 @@
 # Runtime Validation
 
+## Public Invoke Handler DB Validation Boundary
+
+Previous completed checkpoint: `3096a64` Type public invoke execution boundary.
+
+What changed:
+
+- Handler database validation in public invoke now uses the typed invoke Effect
+  helpers for document ids, table lookup, document validators, placement,
+  query planning, uniqueness, and missing patch targets.
+- `invokeExecutionOperation(...)` now distinguishes known invoke validation
+  failures rejected by handler DB promises from real handler operation
+  failures.
+- New `executeInvokeEffect(...)` tests assert handler document validation and
+  query planning failures before adapter mapping.
+
+Why it changed:
+
+Runtime validation should stay typed even when it happens behind the legacy
+promise-shaped handler database API. This checkpoint removes a remaining path
+where expected validation errors were hidden behind `InvokeExecutionOperationError`.
+
+Known limitations:
+
+- User-thrown handler errors and transaction IO failures still use
+  `InvokeExecutionOperationError`.
+- Artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO SQL/OCC,
+  protocol schemas, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Execution Boundary
 
 Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.

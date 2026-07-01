@@ -1,5 +1,48 @@
 # Dynamic Worker Execution
 
+## Public Invoke Handler DB Validation Boundary
+
+Previous completed checkpoint: `3096a64` Type public invoke execution boundary.
+
+What changed:
+
+- Public invoke handler database APIs now run `get`, indexed queries,
+  uniqueness checks, inserts, replaces, patches, and deletes through the shared
+  invoke Effect validation helpers.
+- `readerFor(...)` and `writerFor(...)` remain promise-based compatibility
+  surfaces for backend handlers, but known invoke validation failures now
+  reject with typed invoke errors internally.
+- `invokeExecutionOperation(...)` preserves known invoke validation failures
+  from handler database promises instead of wrapping them as generic handler
+  operation failures.
+
+Why it changed:
+
+The prior public invoke boundary typed the outer execution flow, but handler
+database validation could still become a generic handler operation failure.
+This checkpoint keeps document validation, query planning, placement, and
+missing-document failures in the invoke validation channel until the adapter
+maps them.
+
+Known limitations:
+
+- User-thrown handler defects and transaction IO failures still map through
+  `InvokeExecutionOperationError`.
+- Artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO SQL/OCC,
+  protocol schemas, executor-http, DeploymentDO, SchedulerDO, DeliveryDO,
+  ConnectionDO, and `ValidatorJson` behavior are unchanged.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts packages/flarex-backend/test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Execution Boundary
 
 Previous completed checkpoint: `d9f1e5b` Type execution query syscalls.

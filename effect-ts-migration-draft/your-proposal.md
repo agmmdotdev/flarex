@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Public invoke execution boundary.
+- Previous completed checkpoint: Public invoke handler DB validation boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can convert request decoding, service/domain errors, and adapter HTTP mapping together.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -59,6 +59,26 @@ Next recommended checkpoint after the public invoke execution checkpoint:
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 260 slice:
+
+1. Move public invoke handler database reads, indexed query planning, uniqueness
+   checks, and writer mutations onto the shared invoke Effect validation
+   helpers.
+2. Keep `readerFor(...)` and `writerFor(...)` as promise-based compatibility
+   APIs for handler authors while making their validation failures reject with
+   typed invoke errors internally.
+3. Teach `invokeExecutionOperation(...)` to propagate known invoke validation
+   errors unchanged instead of wrapping them as generic handler operation
+   failures.
+4. Keep actual transaction IO failures in `InvokeExecutionOperationError` and
+   keep user-thrown handler defects mapped as handler operation failures.
+5. Add direct `executeInvokeEffect(...)` coverage for handler document
+   validation and query planning failures before adapter mapping, while
+   preserving existing public invoke compatibility tests.
+6. Leave artifact-runtime invoke dispatch, ExecutionDO sessions, PartitionDO
+   SQL/OCC, protocol schemas, executor-http, deployment/registry behavior, and
+   `ValidatorJson` semantics unchanged.
 
 Completed Goal 259 slice:
 

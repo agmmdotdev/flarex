@@ -283,6 +283,141 @@ describe("executeInvoke", () => {
     )).rejects.toThrow("handler exploded");
   });
 
+  it("keeps fake invoke-tag handler throws typed as operation errors", async () => {
+    await putSchema("typed-execute-handler-fake-tag-deployment", usersPartitionSchema());
+    const fakeTaggedError = {
+      _tag: "InvokeQueryPlanningError",
+      message: "spoofed query planning failure",
+    };
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        "typed-execute-handler-fake-tag-deployment",
+        {
+          path: "users:spoof",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        {
+          "users:spoof": {
+            kind: "query",
+            partition: userPartition(),
+            handler: () => {
+              throw fakeTaggedError;
+            },
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeExecutionOperationError);
+    if (!(failure instanceof InvokeExecutionOperationError)) {
+      throw new Error("Expected InvokeExecutionOperationError.");
+    }
+    expect(failure).toMatchObject({
+      operation: "handler",
+      status: 500,
+      cause: fakeTaggedError,
+    });
+  });
+
+  it("keeps executeInvoke handler document validation typed before adapter mapping", async () => {
+    await putSchema("typed-execute-handler-document-validation-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          validator: {
+            type: "object",
+            value: {
+              age: { fieldType: { type: "number" }, optional: false },
+              userId: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+    });
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        "typed-execute-handler-document-validation-deployment",
+        {
+          path: "users:insertInvalid",
+          kind: "mutation",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        {
+          "users:insertInvalid": {
+            kind: "mutation",
+            partition: userPartition(),
+            handler: ctx => ctx.db.insert("users", { userId: "u1", age: "old" }, "2:ada"),
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeDocumentValidationError);
+    if (!(failure instanceof InvokeDocumentValidationError)) {
+      throw new Error("Expected InvokeDocumentValidationError.");
+    }
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "DocumentValidationError: $document(users).age: Expected a finite number.",
+    });
+  });
+
+  it("keeps executeInvoke handler query planning typed before adapter mapping", async () => {
+    await putSchema("typed-execute-handler-query-planning-deployment", {
+      version: 1,
+      tables: [
+        {
+          tableId: 2,
+          name: "users",
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
+          tableId: 1,
+          name: "scores",
+          placement: { kind: "colocateWith", table: "users", field: "userId" },
+        },
+      ],
+      indexes: [],
+    });
+    const failure = await Effect.runPromise(Effect.flip(
+      executeInvokeEffect(
+        env,
+        "typed-execute-handler-query-planning-deployment",
+        {
+          path: "scores:list",
+          kind: "query",
+          partitionKey: "u1",
+          args: { userId: "u1" },
+        },
+        {
+          "scores:list": {
+            kind: "query",
+            partition: userPartition(),
+            handler: ctx => ctx.db.query("scores").collect(),
+          },
+        },
+      ),
+    ));
+
+    expect(failure).toBeInstanceOf(InvokeQueryPlanningError);
+    if (!(failure instanceof InvokeQueryPlanningError)) {
+      throw new Error("Expected InvokeQueryPlanningError.");
+    }
+    expect(invokeValidationErrorToHttpError(failure)).toMatchObject({
+      status: 400,
+      message: "Flarex table scans are not implemented. Use withIndex().",
+    });
+  });
+
   it("reports invoke return validation as a typed Effect failure before adapter mapping", async () => {
     const failure = await Effect.runPromise(
       validateReturnEffect(
